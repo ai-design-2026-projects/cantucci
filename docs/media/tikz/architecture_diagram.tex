@@ -1,0 +1,130 @@
+    \documentclass[tikz, border=20pt]{standalone}
+    \usetikzlibrary{shapes.geometric, arrows.meta, positioning, shadows, fit, backgrounds, calc}
+
+    \begin{document}
+    \begin{tikzpicture}[
+        font=\sffamily,
+        >=Stealth,
+        node distance=1.5cm and 2.5cm,
+        every node/.style={align=center},
+        user/.style={circle, draw=cyan!80!black, fill=cyan!15, thick, minimum size=2.2cm},
+        db/.style={cylinder, shape border rotate=90, draw=blue!70!black, fill=blue!10, thick, aspect=0.25, minimum width=4.5cm, minimum height=1.8cm},
+        judge/.style={rectangle, draw=red!80!black, fill=red!10, thick, rounded corners=3mm, minimum width=4cm, minimum height=1.3cm},
+        state_agent/.style={rectangle, draw=purple!70!black, fill=purple!10, thick, rounded corners=3mm, minimum width=2.6cm, minimum height=1.5cm},
+        ambiguity_agent/.style={rectangle, draw=purple!70!black, fill=purple!15, thick, rounded corners=3mm, minimum width=2.6cm, minimum height=1.5cm},
+        router_agent/.style={rectangle, draw=orange!80!black, fill=orange!15, thick, rounded corners=3mm, minimum width=2.6cm, minimum height=1.5cm},
+        output_agent/.style={rectangle, draw=green!60!black, fill=green!15, thick, rounded corners=3mm, minimum width=2.6cm, minimum height=1.5cm},
+        assess_agent/.style={rectangle, draw=teal!70!black, fill=teal!15, thick, rounded corners=3mm, minimum width=2.6cm, minimum height=1.5cm},
+        retrieval/.style={rectangle, draw=teal!70!black, fill=teal!15, thick, rounded corners=2mm, minimum width=3.4cm, minimum height=1.1cm},
+        llm_node/.style={draw=gray!80, fill=white, thick, inner sep=3pt, font=\bfseries\small, rounded corners=1mm},
+        arrow/.style={->, thick, color=black!70},
+        biarrow/.style={<->, thick, color=black!70},
+        judge_arrow/.style={->, dashed, thick, color=red!60!black}
+    ]
+
+    % ==================== ROUTER ====================
+    \node[router_agent] (router) {\textbf{f\_next\_best\_step}\\\footnotesize(Router Agent)};
+    \node[llm_node, anchor=south west] (llm2) at ([xshift=-10pt, yshift=-25pt]router.west) {LLM};
+
+    % ==================== LLM JUDGE (right of router) ====================
+    \node[judge, right=9cm of router] (judge) {\textbf{LLM Judge}\\\footnotesize(Independent Evaluator)};
+
+    % ==================== ORACLE (upper) ====================
+    \node[user] (user) at ([xshift=0cm, yshift=4cm]router) {\textbf{User}\\\textbf{(Oracle)}};
+
+    % ==================== MIDDLE AGENT LAYER ====================
+    \node[ambiguity_agent, below=3.5cm of router, xshift=-4cm] (uncertainty) {\textbf{f\_uncertainty}\\\footnotesize(Ambiguity Agent)};
+    \node[output_agent,    below=3.5cm of router, xshift=0cm]  (output)      {\textbf{f\_output}\\\footnotesize(Recommendation\\Agent)};
+    \node[assess_agent,    below=3.5cm of router, xshift=4cm]  (assess)      {\textbf{f\_assess}\\\footnotesize(Convergence\\\& Profile)};
+    \node[llm_node, anchor=south west] (llm1) at ([xshift=-10pt, yshift=-25pt]uncertainty.west) {LLM};
+    \node[llm_node, anchor=south west] (llm3) at ([xshift=-15pt, yshift=-25pt]assess.east)      {LLM};
+
+    % ==================== STATE LAYER ====================
+    \node[state_agent, below=2.5cm of output] (state) {\textbf{f\_next\_state}\\\footnotesize(Update Model\\\& Drift)};
+
+    % ==================== KNOWLEDGE BASE (same horizontal level) ====================
+    \node[retrieval] (retrieval) at ([xshift=-3.8cm, yshift=-3cm]state.south) {\textbf{Retrieval System}};
+    \node[db]        (db)        at ([xshift=3.8cm,  yshift=-3cm]state.south) {\textbf{Database}\\\footnotesize pgvector embeddings\\+ relational data};
+
+    % ==================== AGENTIC LAYER BACKGROUND ====================
+    \begin{scope}[on background layer]
+        \node[fill=gray!3, rounded corners=5mm, draw=gray!50, dashed, thick,
+            fit=(uncertainty)(output)(assess)(state)(router)(llm1)(llm2)(llm3),
+            inner sep=15pt] (agents) {};
+        \node[anchor=north west, font=\bfseries, color=gray!60]
+            at ([xshift=8pt,yshift=-4pt]agents.north west) {Agentic Logic Layer};
+    \end{scope}
+
+    % ==================== CONNECTIONS ====================
+
+    % ---- Oracle <-> Router (two separate arrows) ----
+    \draw[->] ([xshift=-0.20cm]user.south) -|
+        ([xshift=-0.20cm]router.north)
+        node[left, pos=0.7, font=\footnotesize] {Feedback};
+
+    \draw[->] ([xshift=0.20cm]router.north) -|
+        ([xshift=0.20cm]user.south)
+        node[right, pos=0.8, font=\footnotesize] {Show, Ask, Stop};
+
+    % ---- Router <-> Judge ----
+    \draw[judge_arrow] ([yshift=0]judge.west) --
+        node[below, font=\footnotesize] {Evaluates}
+        ([yshift=0, xshift=5cm]router.east);
+
+    %--- Judge Down to ortoghonal point to db ---
+    \coordinate (judgeDown) at (db.east -| judge.south);
+    \draw[judge_arrow] (db.east) --
+        node[yshift=0.5cm, left, font=\footnotesize] {Retrieve Sessions}
+        (judgeDown) -- (judge.south);
+
+    % ---- Router down to Middle Agents ----
+    \coordinate (routerDown1) at ([xshift=-4cm, yshift=-1.75cm]router.south);
+    \coordinate (routerDown3) at ([xshift= 4cm, yshift=-1.75cm]router.south);
+
+    % ---- Middle Agents -> State ----
+    \draw[arrow] (router.south) |-
+        (routerDown1 -| uncertainty.north) --
+        node[left, font=\footnotesize] {Need for\\Clarification?}
+        (uncertainty.north);
+
+    \draw[arrow] (router.south) --
+        node[left, yshift=-0.7cm, font=\footnotesize] {Show / Render\\Request}
+        (output.north);
+
+    \draw[arrow] (router.south) |-
+        (routerDown3 -| assess.north) --
+        node[left, font=\footnotesize] {Have We\\Converged?}
+        (assess.north);
+
+    % ---- Middle Agents -> State ----
+    \coordinate (midpoint1) at ($(output.south)!0.5!(state.north)$);
+
+    \draw[arrow] (uncertainty.south) |- 
+        node[left, pos=0.3, font=\footnotesize] {Soft\\Assignments}
+        (midpoint1);
+
+    \draw[arrow] (output.south) --
+        node[left, font=\footnotesize] {Cluster\\State}
+        (midpoint1);
+
+    \draw[arrow] (assess.south) |- 
+        node[left, pos=0.3, font=\footnotesize] {Update\\Profile}
+        (midpoint1);
+
+    \draw[arrow] (midpoint1) -- (state.north);
+
+    % ---- State <-> Retrieval (left, entering from north) ----
+    \draw[biarrow] ([xshift=0cm]state.west) -|
+        node[left, pos=0.7, font=\footnotesize] {Retrieve /\\Top-K}
+        (retrieval.north);
+
+    % ---- State <-> Database (right, entering from north) ----
+    \draw[biarrow] ([xshift=0cm]state.east) -|
+        node[left, pos=0.7, font=\footnotesize] {Handle Session}
+        (db.north);
+
+    % ---- Retrieval <-> Database (horizontal, same level) ----
+    \draw[biarrow] (retrieval.east) -- (db.west);
+
+    \end{tikzpicture}
+    \end{document}

@@ -1,0 +1,58 @@
+# Automatically prefix PR titles with the [TYPE] checked in the PR template body.
+name: Prefix PR titles from type checkbox
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize]
+
+permissions:
+  pull-requests: write
+
+jobs:
+  prefix-title:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Prefix PR title from checked type box
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const pr = context.payload.pull_request;
+            if (!pr || !pr.body) {
+              return;
+            }
+
+            // Match a checked table row: | [x] | `[TYPENAME]` | ... |
+            const match = pr.body.match(/\|\s*\[x\]\s*\|\s*`\[([A-Z]+)\]`/im);
+            if (!match) {
+              return;
+            }
+
+            const type = match[1];
+            const prefix = `[${type}]`;
+            const currentTitle = pr.title || '';
+
+            // Remove any existing [TYPE] prefix so we can replace it idempotently
+            const titleWithoutPrefix = currentTitle
+              .replace(/^\s*\[[A-Z]+\]\s*/i, '')
+              .trim();
+
+            const newTitle = `${prefix} ${titleWithoutPrefix}`;
+
+            // Strip the entire ## Type section from the body so the PR description
+            // only contains Summary, Closes, and Sprint after the type is detected.
+            const newBody = pr.body
+              .replace(/^## Type\s[\s\S]*?(?=^## |\s*$)/m, '')
+              .trimStart();
+
+            const titleChanged = newTitle !== currentTitle;
+            const bodyChanged = newBody !== pr.body;
+
+            if (titleChanged || bodyChanged) {
+              await github.rest.pulls.update({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: pr.number,
+                ...(titleChanged && { title: newTitle }),
+                ...(bodyChanged && { body: newBody }),
+              });
+            }
