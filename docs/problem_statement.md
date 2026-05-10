@@ -150,22 +150,22 @@ This is the conversational clustering setting: instead of asking the user to fil
 
 ### 3.2 What the system does on each turn
 
-Think of the system as having four things it needs to do on every turn, and we describe each of those things as a separate function:
+Think of the system as having several things it needs to do on every turn, and we describe each of those things as a separate function:
 
 1. **Maintain a best-guess recommendation** : at any point, if the user said "show me what you have", the system should be able to return a ranked list of titles from the cluster that best matches the oracle's stated preferences so far. This is what `f_output` does.
 
 2. **Know what it doesn't know** : some titles sit cleanly in one cluster; others could plausibly belong to two or three. The system must track those uncertain cases, because they are exactly what it should ask about next. This is `f_uncertainty`.
 
-3. **Choose what to do next** : showing a list of titles costs the user more attention than a short yes/no question. The system must weigh those options and pick the one that extracts the most information per unit of cognitive load. This is `f_next_best_step`, and its choices are:
-   - **Show** a set of titles from the current best cluster
-   - **Ask** a targeted question about a boundary title, or propose a split/merge
-   - **Stop** and declare that it has converged
+3. **Evaluate convergence** : the system needs to know when to stop. If the user explicitly accepts a cluster, that's a clear signal. But we also want to detect behavioural signals of satisfaction (e.g., no corrective feedback for 2 consecutive turns) and have a hard turn budget as a backstop. This is `f_assess`.
 
-4. **Update its model of the user** : when the user replies, the system must fold that reply into its cluster assignments, update confidence scores, and check whether the new feedback contradicts something said earlier. This is `f_next_state`.
+4. **Choose what to do next** : showing a list of titles costs the user more attention than a short yes/no question. The system must weigh those options and pick the one that extracts the most information per unit of cognitive load. This is `f_next_best_step`, and its choices are:
+   - **Show** a set of titles from the current best cluster (`f_output`)
+   - **Ask** a targeted question about a boundary title, or propose a split/merge (`f_uncertainty`)
+   - **Stop** and declare that it has converged (`f_assess`)
 
-5. **Memorise user preferences across different chats** : if the same user comes back later, or if we want to apply what we learned about this user to a frozen held-out set, we need to codify their preferences in a structured way, and decide whether they are stable enough to be worth reusing.
+5. **Update its model of the user** : when the user replies, the system must fold that reply into its cluster assignments, update confidence scores, and check whether the new feedback contradicts something said earlier. This is `f_next_state`.
 
-6. **Evaluate convergence** : the system needs to know when to stop. If the user explicitly accepts a cluster, that's a clear signal. But we also want to detect behavioural signals of satisfaction (e.g., no corrective feedback for 2 consecutive turns) and have a hard turn budget as a backstop. This is `f_assess`.
+6. **Memorise user preferences across different chats** : if the same user comes back later, or if we want to apply what we learned about this user to a frozen held-out set, we need to codify their preferences in a structured way, and decide whether they are stable enough to be worth reusing.
 
 
 | Function | What it does in plain terms |
@@ -213,7 +213,7 @@ We will consider also fine-tuned transformers for the movie domain like `fine-tu
 
 **Stage 2 — LLM clustering.** The LLM reads the candidate pool and assigns each title to 3–6 named clusters, with a soft confidence score per assignment. It also writes a short description for each cluster.
 
-On each subsequent turn, oracle feedback (accept, reject, split, merge) is injected as explicit constraints into the next clustering prompt. The embeddings never change — only the grouping and labels update. The config exposes a `representation.strategy` flag to swap the embedding model without touching the rest of the pipeline.
+On each subsequent turn, oracle feedback (**accept, reject, split, merge**) is injected as explicit constraints into the next clustering prompt. The embeddings never change — only the grouping and labels update. The config exposes a `representation.strategy` flag to swap the embedding model without touching the rest of the pipeline.
 
 All this behaviour should be abstract to the user. They just see a conversation and a set of recommendations that evolve turn by turn.
 
@@ -248,7 +248,7 @@ For example:
 
 People change their minds. What looks like a contradiction is usually **preference evolution** — the oracle has seen more options and is refining their taste, not making a mistake. The system must treat it that way.
 
-The rule is: **latest intent wins**. If the oracle said "no horror" in turn 2 and then reacts positively to a horror title in turn 5, the turn-5 signal overrides the turn-2 rule. However, silently applying the new intent without acknowledgement erodes trust — the oracle starts to feel the system ignores what was said. So before overriding, `f_next_state` surfaces the conflict explicitly:
+The rule is: **latest intent wins**. If the oracle said "no horror" in turn 2 and then reacts positively to a horror title in turn 5, the turn-5 signal overrides the turn-2 rule. However, silently applying the new intent without acknowledgement erodes trust — the oracle starts to feel the system ignores what was said. So before overriding, `f_uncertainty` surfaces the conflict explicitly:
 
 > *"Earlier you said no horror — does The Babadook work as an exception, or should I drop that rule entirely?"*
 
@@ -342,14 +342,13 @@ Each turn follows a clear, repeatable sequence: retrieve a candidate pool → cl
 
 `f_next_best_step` is the **router agent**: given the current session state, it returns one dispatch — `show`, `ask`, or `stop` — plus the content required for that action (which titles to show, which question to ask, or the convergence signal). 
 
-**Executor agents** such as `f_output` and `f_next_state` carry out the router's decision but do not implement routing logic themselves. This strict separation makes ablation straightforward: swap the routing strategy without touching other functions.
+**Executor agents** such as `f_output` and `f_uncertainty` carry out the router's decision but do not implement routing logic themselves. This strict separation makes ablation straightforward: swap the routing strategy without touching other functions.
 
 `f_assess` is the **assessor**. It determines whether the session has converged and distils a structured preference profile from the oracle's feedback. Per the scaffolding requirements, `f_assess` outputs are validated against human-labelled transcripts on a held-out sample before they are used in any headline claim.
 
 Role responsibilities are intentionally narrow: the router routes, executors execute, and the assessor judges and summarises. This modularity supports targeted experiments, robust validation, and fully auditable session histories.
 
 Then we will have an **LLM-as-Judge** setup for evaluation, indipendent from the main conversational loop.
-It will have a single independent prompt for each agentic function (`f_next_best_step` and `f_assess`) that asks the LLM to evaluate the system's output based on some metrics.
 
 ---
 
