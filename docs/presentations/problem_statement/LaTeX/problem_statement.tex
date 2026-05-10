@@ -1,0 +1,35 @@
+\documentclass[10pt]{beamer}
+
+% Input setup file with packages and custom commands
+\input{setup.tex}
+
+\begin{document}
+
+\title{Designing Large-scale AI Systems: Conversational Clustering for Movie Recommendations}
+\author[University of Trento]{Davide Donà \and Andrea Blushi}
+
+
+\institute[]{ University of Trento}
+\date[]{\MonthName\ \number\year}
+
+%The next statement creates the title page.
+\frame{\titlepage}
+\begin{frame}
+\frametitle{Contents}
+\tableofcontents
+\end{frame}
+%------------------------------------------------------------
+\input{frames/Introduction.tex}
+\input{frames/problem.tex}
+\input{frames/architecture.tex}
+\input{frames/evaluation.tex}
+\input{frames/work.tex}
+
+
+\section*{References}  
+\begin{frame}
+\nocite{*}
+\bibliographystyle{ieeetr} 
+\small{\bibliography{references}}
+\end{frame}
+\end{document}
