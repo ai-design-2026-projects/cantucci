@@ -44,6 +44,82 @@ Seven CSV files ship together; their primary join key is the TMDB integer `id` (
 
 ---
 
+### 2.3 Column-level schema
+
+#### `movies_metadata.csv`
+
+This is the core catalogue that the system clusters over.
+
+| Column | Type (raw CSV) | Notes |
+|---|---|---|
+| `id` | string (int) | TMDB movie ID; primary join key |
+| `imdb_id` | string | `tt`-prefixed IMDB identifier; 10 chars |
+| `title` | string | English release title |
+| `original_title` | string | Title in production language |
+| `original_language` | string | ISO 639-1 code (e.g. `en`, `fr`, `it`) |
+| `overview` | string | Plot synopsis (often 1–3 sentences) |
+| `tagline` | string | Marketing one-liner; frequently empty |
+| `release_date` | string (`YYYY-MM-DD`) | ~90 NaN; range 1874–2020 |
+| `runtime` | float | Minutes; 263 NaN; median 95 min |
+| `budget` | string (int) | Production budget USD; majority are 0 (unknown) |
+| `revenue` | float | Box-office USD; majority are 0 (unknown) |
+| `popularity` | float | TMDB proprietary score; mean ~2.9, max 547 |
+| `vote_average` | float | Mean user rating 0–10; mean 5.6 |
+| `vote_count` | float | Number of TMDB votes; median 10, max 14,075 |
+| `genres` | JSON string | Array of `{id, name}` objects |
+| `belongs_to_collection` | JSON string | `{id, name, poster_path, backdrop_path}` or null |
+| `production_companies` | JSON string | Array of `{id, name}` |
+| `production_countries` | JSON string | Array of `{iso_3166_1, name}` |
+| `spoken_languages` | JSON string | Array of `{iso_639_1, name}` |
+| `poster_path` | string | Relative path; full URL: `https://image.tmdb.org/t/p/w500{poster_path}` |
+| `homepage` | string | Official website; frequently empty |
+| `status` | string | `Released`, `In Production`, `Rumored`, etc. |
+| `adult` | string (`True`/`False`) | Adult-content flag; 9 positives out of 45,466 |
+| `video` | string (`True`/`False`) | Direct-to-video flag |
+
+#### `credits.csv`
+
+The cast and crew for each movie are stored as JSON strings containing arrays of objects. This is a core source for clustering, since recommendations should also reflect directors and actors.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | int | TMDB movie ID; join to `movies_metadata` |
+| `cast` | JSON string | Array of `{cast_id, character, credit_id, gender, id, name, order, profile_path}` |
+| `crew` | JSON string | Array of `{credit_id, department, gender, id, job, name, profile_path}` |
+
+Cast and crew are not capped, so some movies have hundreds of entries. For clustering, we only use the top-billed cast and the director.
+
+#### `keywords.csv`
+
+These are free-form tags that users have applied to movies. They can be noisy but also capture niche attributes that may not be in the structured metadata (e.g., "mind-bending", "cult film", "twist ending")
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | int | TMDB movie ID |
+| `keywords` | JSON string | Array of `{id, name}`; free-form folksonomy tags |
+
+#### `links.csv` / `links_small.csv`
+
+Useful for more detailed real user ratings, but not required for the core clustering system.
+The `small` version is a subset that only includes 9000 movies that have full ratings in `ratings_small.csv`, making it ideal for lightweight evaluation runs and the smoke test.
+
+| Column | Notes |
+|---|---|
+| `movieId` | MovieLens integer ID |
+| `imdbId` | IMDB ID without `tt` prefix (numeric string) |
+| `tmdbId` | TMDB integer ID; join to `movies_metadata.id` |
+
+#### `ratings.csv` / `ratings_small.csv`
+
+Same as above.
+
+| Column | Notes |
+|---|---|
+| `userId` | Anonymous integer |
+| `movieId` | MovieLens ID; join via `links` |
+| `rating` | Float in {0.5, 1.0, …, 5.0} |
+| `timestamp` | Unix epoch |
+
 ---
 
 ### 2.4 Data quality notes
@@ -56,7 +132,7 @@ Seven CSV files ship together; their primary join key is the TMDB integer `id` (
 - **Vote count skew**: The median vote count is 10, and only about 8% of titles have 100 or more votes. Use a Bayesian average instead of raw `vote_average` when ranking by quality.
 - **3 rows with NaN id**: Three rows in `movies_metadata.csv` have a missing `id` value and must be removed during ingest.
 
-### 2.5 Poster and synopsis availability
+### 2.6 Poster and synopsis availability
 
 `movies_metadata.csv` already includes `overview` and `poster_path`, so we do not need any extra API enrichment for these fields. Poster URLs are built at serve time as `https://image.tmdb.org/t/p/w500{poster_path}`. If a title has no poster, the UI shows a placeholder.
 
@@ -325,5 +401,3 @@ Then we will have an **LLM-as-Judge** setup for evaluation, indipendent from the
 | Oracle turn budget exhausted (`session.max_turns`) | The system presents the current best cluster as the final result, notifies the oracle that the turn budget has been reached, and triggers `f_assess` to produce the preference profile even without explicit convergence. | `f_next_best_step` + `f_assess` |
 | LLM returns malformed JSON for cluster assignments | The harness catches the parse failure, retries with exponential backoff (max 3 attempts), and on persistent failure logs the error and returns the previous turn's clustering unchanged rather than crashing the session. | `llm_harness.py` |
 | Candidate pool is empty after filters are applied | Filters are relaxed one at a time in order of least impact (rating threshold first, then year range, then runtime) until at least 20 candidates are available. The oracle is notified of the relaxation. | `f_output` |
-
-
