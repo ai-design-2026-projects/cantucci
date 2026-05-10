@@ -45,7 +45,6 @@ Seven CSV files ship together; their primary join key is the TMDB integer `id` (
 ---
 
 ### 2.3 Column-level schema
-
 #### `movies_metadata.csv`
 
 This is the core catalogue that the system clusters over.
@@ -166,15 +165,6 @@ Think of the system as having several things it needs to do on every turn, and w
 5. **Update its model of the user** : when the user replies, the system must fold that reply into its cluster assignments, update confidence scores, and check whether the new feedback contradicts something said earlier. This is `f_next_state`.
 
 6. **Memorise user preferences across different chats** : if the same user comes back later, or if we want to apply what we learned about this user to a frozen held-out set, we need to codify their preferences in a structured way, and decide whether they are stable enough to be worth reusing.
-
-
-| Function | What it does in plain terms |
-|---|---|
-| `f_output` | "Here is my best recommendation right now" |
-| `f_uncertainty` | "Here is what I am still unsure about" |
-| `f_next_best_step` | "Here is the most useful thing I can show or ask next" |
-| `f_next_state` | "Here is how I update everything after the user replies" |
-| `f_assess` | "Here is whether we are done, and what I have learned about this user" |
 
 ---
 

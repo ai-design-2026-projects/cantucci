@@ -1,8 +1,5 @@
 # Best Practices — Conversational Clustering
-
-*Extracted and adapted from the professor's recipe. The wazzup examples have been removed; every point below has been reframed for this project's entities, stack, and architecture. Read this alongside `universal_scaffolding.md` — the scaffolding sets the requirements, this doc says how to meet them.*
-
----
+*Guidelines for project structure, code style, and development workflow. This is a living document — update it as you learn what works and what doesn't.*
 
 ## 1. Start with a conceptual model, on paper, before code
 
