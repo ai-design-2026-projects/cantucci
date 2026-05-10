@@ -19,6 +19,8 @@ body:
       label: Area
       description: Choose the main area for this todo.
       options:
+        - backend
+        - frontend
         - judge
         - clustering
         - humanoid
