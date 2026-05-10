@@ -162,7 +162,7 @@ The system runs five core functions on each turn:
 
 ### 3.3 How the user can give feedback
 
-The user does not have to interact in any fixed way. They can react at four levels of granularity, and the system handles all of them:
+The user does not have to interact in any fixed way. Although the system will ask targeted yes/no questions about specific titles or cluster boundaries, the user is free to respond in their own words and at their own level of granularity. We expect the user to react at four levels, and the system is designed to handle all of them:
 
 - **Global feedback** : a comment about the whole session or its overall direction.
   *"Too many groups, just give me one list"* / *"I want something less mainstream"*
@@ -179,8 +179,11 @@ The user does not have to interact in any fixed way. They can react at four leve
 
 ### 3.4 The oracle is an LLM
 
-So far we have spoken about the "user" as if it were always a person sitting at a keyboard. In practice, running a real human study for every experiment — across different questioning strategies, different personas, different configurations — would be far too slow and expensive. Instead, **the oracle is simulated by an LLM** for the vast majority of evaluation runs.
-Setting up a simulated oracle allows us to run hundreds of sessions under controlled conditions, systematically ablate variables, and get statistically meaningful results. The LLM is prompted to behave like a real user with specific tastes and a limited attention span, and it interacts with the system through the same API as a human would.
+So far we have spoken about the "user" as if it were always a person sitting at a keyboard. In practice, running a real human study for every experiment — across different questioning strategies, different personas, different configurations — would be far too slow and expensive. 
+
+Instead, for the evaluation runs, **the oracle is simulated by an LLM**. Setting up a simulated oracle allows us to run hundreds of sessions under controlled conditions, systematically ablate variables, and get statistically meaningful results. 
+
+The LLM is prompted to behave like a real user with specific tastes and, a limited attention span and the possibility of contradictions. As any other human would, it interacts with the system through the provided API, reacts to the recommendations, and gives feedback in free-form language. The only difference is that the LLM's "brain" is a prompt rather than a human mind.
 
 ---
 
@@ -190,7 +193,9 @@ Setting up a simulated oracle allows us to run hundreds of sessions under contro
 
 The pipeline runs in two stages to handle a catalogue of ~45,000 titles.
 
-**Stage 1 — Retrieval.** At ingest time, each movie is embedded by a sentence-transformer (`all-MiniLM-L6-v2`) applied to its composite text: title, synopsis, genres, top-3 cast, and director. These vectors are stored in PostgreSQL via `pgvector`. On the first oracle message, the system embeds the query and retrieves the top-K most relevant movies by cosine similarity, producing a candidate pool of ~50–200 titles.
+**Stage 1 — Retrieval.** At ingest time, each movie is embedded by a sentence-transformer (`all-MiniLM-L6-v2`) applied to its composite text: title, synopsis, genres, top-3 cast, and director. These vectors are stored in PostgreSQL via `pgvector`. 
+
+On the first oracle message, the system embeds the query and retrieves the top-K most relevant movies by cosine similarity, producing a candidate pool of ~50–200 titles.
 We will consider also fine-tuned transformers for the movie domain like `fine-tuned_movie_retriever-all-minilm-l6-v2`.
 
 **Stage 2 — LLM clustering.** The LLM reads the candidate pool and assigns each title to 3–6 named clusters, with a soft confidence score per assignment. It also writes a short description for each cluster.
