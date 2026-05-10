@@ -10,8 +10,9 @@ Course project for "Designing Large Scale AI Systems" (Prof. Fabio Casati). Auth
 
 **Current status:** Directory structure and documentation scaffolding complete. `src/`, `scripts/`, `notebooks/`, `prompts/`, `configs/`, and `logs/` directories initialized. No executable code yet; when code is added, respect the scaffolding requirements below — they are graded as a first pass before any content evaluation.
 
-## Canonical docs — read before designing
+---
 
+## Canonical docs — read before designing
 
 ### Always read — source of truth
 These contain implementation details and are consulted when designing or implementing specific components:
@@ -19,7 +20,6 @@ These contain implementation details and are consulted when designing or impleme
 - `docs/specifications/data_model.md` — database schema, data types, session / turn / feedback entities, reproducibility invariants.
 - `docs/specifications/api.md` — system interfaces: input/output contracts for `f_*` functions, session harness API, LLM call signatures.
 - `docs/specifications/architecture_diagram.md` — system block diagram and component relationships.
-
 
 ### Reference — read on demand
 These files define the project requirements and evaluation strategy. When a user request conflicts with them, surface the conflict before changing them.
@@ -29,6 +29,9 @@ These files define the project requirements and evaluation strategy. When a user
 - `docs/requirements/universal_scaffolding.md` — the 13 mandatory components. "Minimum acceptable" bullets per section are the floor, not the goal.
 - `docs/specifications/problem_statement.md` — authoritative design spec: data model, agentic pattern, evaluation strategy, edge cases, and requirements summary (§8). When it conflicts with the above, raise the discrepancy before acting.
 - `docs/specifications/evaluation.md` — detailed evaluation protocol: component-level tests, oracle satisfaction metrics, LLM-as-judge validation, experimental conditions A–D, system-level metrics, human study design.
+- `docs/requirements/best_practices.md` — coding standards, testing conventions, logging rules, run commands, environment variables.
+
+---
 
 ## System decomposition — the `f_*` functions
 
@@ -42,50 +45,122 @@ The brief structures the system as functions over the current state. When adding
 
 > **Note:** `f_eval` was renamed `f_assess`. Do not use the old name in new code or docs.
 
+**Role separation is strict — never cross these boundaries:**
+- The router (`f_next_best_step`) routes and does nothing else. It does not execute actions or update state.
+- Executors (`f_output`, `f_uncertainty`) execute and do nothing else. They do not make routing decisions.
+- The updater (`f_next_state`) updates state and does nothing else. It does not route or execute.
+- The assessor (`f_assess`) judges convergence and distils the preference profile. It does not influence the loop.
+
 Oracle input flows at four levels: **global**, **cluster-level**, **point-level**, **instructional**. Outputs are **soft assignments** (distribution over K clusters) plus a two-level **hierarchy** (coarse clusters generated on turn 1; fine levels generated lazily on oracle request), not hard labels only.
 
 Separate from the conversational loop, an **LLM-as-Judge** scores completed session transcripts on clustering coherence, question quality, and preference-profile fidelity (1–5 each). It is an evaluation tool only — it never influences session state.
 
-# Best practices and conventions
+---
+
+## Architectural rules
+
+**These are absolute. If a proposed change would violate one, flag it rather than quietly going along.**
+
+### Layer boundaries
+- **`api/` (or `src/api/`) is the ONLY layer that touches SQL.** SQL outside `api/` is a bug — fix it, do not work around it. HTTP routes, `f_*` agents, evaluation scripts, and notebooks all go through the API layer.
+- **All LLM calls go through `llm_harness.py`.** Never instantiate a model client (Anthropic, OpenAI, etc.) directly in any other module.
+- **Auth/authorization lives on the HTTP layer.** The `api/` layer takes IDs and trusts them. This keeps `api/` callable from tests, scripts, and MCP tools without dragging auth-aware logic into the data path.
+
+### Data and state
+- **Every session is replayable** from its stored seed + YAML config snapshot + turn history alone, with no live LLM calls required. `replay.py` must demonstrate this.
+- **Working memory is per-session and reset between sessions.** No module-level caches, no global state that bleeds across runs. Cross-session leakage is a silent bug that invalidates experimental conditions.
+- **Persistent memory (personas, configs) has a versioned initial state.** Persona rows are write-once: created before the experiment run, never mutated. Changes create new rows with new IDs.
+- **All timestamps are UTC, ISO-8601, server-set.** Never trust timestamps from the client or from LLM responses.
+
+### Prompts
+- **Prompts are versioned files in `prompts/`.** One file per named prompt, explicit variable substitution, prompt file-hash logged per run. Naming: `{function}_{version}.txt` (e.g., `f_output_v1.txt`, `judge_coherence_v1.txt`).
+- **Never embed prompts as f-strings or triple-quoted strings inside functions.** This is a scaffolding-check failure.
+- When a prompt changes, create a new version file. Keep the old one. The prompt version used in a session must be reconstructible from the session log.
+
+### Configuration
+- **Each experimental condition (A–D) is a YAML config file, not a forked script.** Ablating a condition means switching the config, never editing code.
+- **Model, version, and seed come from config — never hard-coded in calling code.** The YAML config snapshot is stored in the `sessions` table so a session is replayable with the exact model it used.
+- **Cost hard-stop.** Every session has a `cost_limit_usd` from its config. The harness raises `CostLimitExceeded` (a named exception) when the limit is hit. Never a silent runover.
+
+---
 
 ## Fail loudly — no silent errors
 
-**The application must crash when it has to crash.** Do not swallow errors silently.
+**The application must crash when it has to crash.**
 
 - Never use bare `except: pass` or `except Exception: pass` around any meaningful operation.
-- Never use fallback values that hide a failure (e.g. returning `None` / an empty list / stale state) without raising or at minimum re-raising with context.
-- The one sanctioned exception is the LLM harness retry loop: transient API errors (rate-limit, timeout) are retried with exponential backoff (max 3 attempts). If all retries fail, **raise** — do not silently return the previous turn's data.
-- Any `try/except` block must either: (a) retry a transient error and eventually raise on exhaustion, or (b) catch a specific, well-understood exception and raise a richer one in its place. Catching `Exception` broadly to continue is always wrong here.
+- Never return a fallback value (`None`, empty list, stale state) that hides a failure without raising or re-raising with context.
+- Any `try/except` block must either: (a) retry a transient error and eventually raise on exhaustion, or (b) catch a specific, well-understood exception and raise a richer one in its place.
+- The one sanctioned exception is the LLM harness retry loop: transient API errors (rate-limit, timeout) are retried with exponential backoff, max 3 attempts. If all retries fail, **raise** — do not silently return the previous turn's data.
 - Post-run integrity checks must `assert` or `raise` on missing data — do not log a warning and carry on.
 
-## Comments
+---
 
-- For each function, include a docstring that explains its purpose, parameters, return values
-- Inline comments should explain non-obvious logic
-- Keep a space between code blocks with different purposes
+## Logging
+
+Stdlib `logging`, configured once in `src/logging_setup.py`. One JSON line per record. Level via `LOG_LEVEL` env var. Each module: `log = logging.getLogger(__name__)` — never the root logger.
+
+**Every LLM call log record must include:** `run_id`, `session_id`, `turn_id`, `seed`, `config_hash`, `model_and_version`, `prompt_hash`, `timestamp`, `step_type`, token counts (input and output separately), latency. No `print()` as logs.
+
+**Level semantics:**
+- `DEBUG` — active debugging only; off in production.
+- `INFO` — normal operational events ("session started", "convergence declared", "turn N completed").
+- `WARNING` — deviation from expectation, system kept going
+- `ERROR` — a user-visible operation failed.
+- `CRITICAL` — process is degraded or shutting down.
+
+**Where to log:**
+- At the HTTP boundary: log call and outcome; `deviation()` on unexpected branches; `log.error(..., exc_info=True)` if the underlying call raises.
+- Inside `agents/` (`f_*`): log deviations and decisions (fallbacks, retries, drift events) at WARNING; successes at DEBUG.
+- Never log on both sides of a re-raise. Log at the layer that *handles* the exception, not every layer it passes through.
+
+---
 
 ## Scaffolding obligations (non-negotiable)
 
-These are from `universal_scaffolding.md` and failing them = scaffolding check fail. Enforce them whenever you write or refactor code:
+From `universal_scaffolding.md`. Failing any = scaffolding check fail.
 
-- **Prompts as versioned files.** `prompts/` directory, one file per named prompt, explicit variable substitution, prompt file-hash logged per run. Never embed prompts as f-strings inside functions.
-- **Harness, not bespoke scripts.** LLM calls go through a reusable harness (`llm_harness.py`) with sync / async / batch `call`, retry with exponential backoff, model + version from config (never hard-coded), seed-controlled, stateless where possible.
-- **Structured logging per run-step.** JSONL or Parquet. Every record includes `run_id`, `seed`, `config_hash`, `model_and_version`, `timestamp`, `step_type`, inputs, outputs, errors, token counts. No `print()` as logs. A `replay.py` must re-execute a run from its log.
-- **Config-driven conditions.** Each experimental condition is a config file, not a forked script.
-- **Memory separation.** Working memory is per-run and reset between runs unless explicitly shared; persistent memory has a versioned initial state; tool set is declared in config. Global module-level caches across runs are a bug — they cause silent cross-condition leakage.
-- **Resilience.** Distinguish transient (retry) from permanent (fail loudly) errors. Never `try: except: pass` around an LLM call. Post-run integrity check must report holes.
-- **Cost tracking.** Every run logs input/output token counts separately. Hard-stop guard if a declared budget (`session.cost_limit_usd`) is exceeded.
-- **Quality spec before experiments.** Primary outcome dimension is pre-committed in writing. LLM-as-judge must be validated against a human-labeled subset (κ ≥ 0.6 against human consensus); report inter-rater / judge-vs-human agreement. Confidence intervals on every quantitative claim (means alone aren't acceptable).
-- **Smoke test.** `scripts/smoke_test.sh` (or equivalent) runs the full pipeline on a 1-example toy dataset in < 1 minute and exercises the critical path (extractor → runtime → logger → analysis).
+- **Prompts as versioned files.** (See Architectural rules above.)
+- **Harness, not bespoke scripts.** `llm_harness.py` with sync / async / batch `call`, retry, model + version from config, seed-controlled, stateless where possible. Must have a `dry_run` mode that returns stub outputs without hitting the API — used in all component tests and CI.
+- **Structured logging per run-step.** JSONL or Parquet. `replay.py` must re-execute a run from its log.
+- **Config-driven conditions.** One YAML file per experimental condition.
+- **Memory separation.** Working memory per-run, reset between runs. No global module-level caches.
+- **Resilience.** Transient errors → retry. Permanent errors → fail loudly. Never swallow.
+- **Cost tracking.** Token counts logged per call (input/output separately). Hard-stop on budget exceeded.
+- **Quality spec before experiments.** Primary outcome pre-committed. LLM-as-judge validated against human labels (κ ≥ 0.6). CIs on every quantitative claim.
+- **Smoke test.** `scripts/smoke_test.sh` runs the full pipeline on a toy dataset in < 1 minute, exercising the critical path: retrieval → `f_output` → `f_next_best_step` → oracle stub → `f_next_state` → `f_assess`.
 
-If a proposed change would violate one of these, flag it rather than quietly going along.
+---
 
-## Conventions to adopt when code lands
+## Testing conventions
 
-No code exists yet, so these are forward-looking defaults aligned with the scaffolding doc. Revisit if the team picks different tools:
+- Write `tests/tests.md` (behavior spec, one section per component) before writing `test_*.py`.
+- Every component test uses a fresh, empty state — no shared state between tests.
+- **Component tests for each `f_*` function** use the harness `dry_run` mode (no live LLM calls). They are re-run after any prompt file change.
+- **`db` fixture** opens a fresh in-memory DB per test. Include `check_same_thread=False` in both the test fixture and the production `connect()` call — FastAPI offloads sync handlers to a worker thread.
+- CI runs two matrix legs: `STRICT_MODE=0` (lax, production behavior) and `STRICT_MODE=1` (strict, every annotated deviation crashes). Both must pass.
 
-- Python stack: `src/` library + `scripts/` entry points + `notebooks/` exploration, with `prompts/`, `configs/`, and `logs/` as sibling directories.
-- Typed interfaces between modules (pydantic / dataclasses). The `f_*` functions are the obvious module boundaries.
-- LLM-as-oracle simulations are a first-class evaluation path, not an afterthought. Human studies validate them on a small N ≥ 5–10 within-subject sample.
-- Keep a frozen held-out subset of any dataset for the generalization question — do not let it leak into the conversational loop.
-- Dataset: **The Movies Dataset** (Kaggle, Rounak Banik) — ~45k TMDB movies. JSON columns (`genres`, `credits`, `keywords`) are Python-style single-quoted strings; parse with `ast.literal_eval`. Deduplicate on `id`; drop 3 rows with null `id`. Use `links_small.csv` / `ratings_small.csv` for smoke tests and lightweight evaluation runs.
+---
+
+## Code quality
+
+- Lint with **ruff**: rules `S110` (try-except-pass), `BLE001` (broad `except Exception`), `T201` (`print`). Configured in `pyproject.toml`. Runs in CI before tests.
+- **`pytest -W error`**: `filterwarnings = ["error"]` in `pyproject.toml`. Warnings become test failures.
+- **Branch coverage** (`coverage.py`, `branch = True`): forces both sides of every `if` and every `except` to be tested.
+- **mypy strict** (or pyright): functions returning `Optional[T]` force callers to handle `None` at static-check time.
+
+---
+
+## Comments and code style
+
+- Every function has a docstring: purpose, parameters, return values.
+- Inline comments explain non-obvious logic, not obvious mechanics.
+- Blank line between code blocks with different purposes.
+- Typed interfaces between modules (pydantic / dataclasses). The `f_*` functions are the natural module boundaries.
+
+---
+
+## See also
+
+- `README.md` — project overview, directory structure, run instructions
+- `.env.example` — required environment variables
