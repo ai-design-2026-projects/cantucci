@@ -147,24 +147,16 @@ This is the conversational clustering setting: instead of asking the user to fil
 
 ---
 
-### 3.2 What the system does on each turn
+### 3.2 What the system does on each turn {#system-on-each-turn}
 
-Think of the system as having several things it needs to do on every turn, and we describe each of those things as a separate function:
+The system runs five core functions on each turn: 
+1. `f_output` generates a best-guess ranked recommendation; 
+2. `f_uncertainty` surfaces boundary cases (titles that could belong to multiple clusters); 
+3. `f_assess` evaluates convergence and extracts a preference profile; 
+4. `f_next_best_step` is a router that chooses one of three dispatches — **Show** (display titles), **Ask** (ask a targeted question), or **Stop** (declare convergence); and 
+5. `f_next_state` updates session state from oracle feedback.
 
-1. **Maintain a best-guess recommendation** : at any point, if the user said "show me what you have", the system should be able to return a ranked list of titles from the cluster that best matches the oracle's stated preferences so far. This is what `f_output` does.
-
-2. **Know what it doesn't know** : some titles sit cleanly in one cluster; others could plausibly belong to two or three. The system must track those uncertain cases, because they are exactly what it should ask about next. This is `f_uncertainty`.
-
-3. **Evaluate convergence** : the system needs to know when to stop. If the user explicitly accepts a cluster, that's a clear signal. But we also want to detect behavioural signals of satisfaction (e.g., no corrective feedback for 2 consecutive turns) and have a hard turn budget as a backstop. This is `f_assess`.
-
-4. **Choose what to do next** : showing a list of titles costs the user more attention than a short yes/no question. The system must weigh those options and pick the one that extracts the most information per unit of cognitive load. This is `f_next_best_step`, and its choices are:
-   - **Show** a set of titles from the current best cluster (`f_output`)
-   - **Ask** a targeted question about a boundary title, or propose a split/merge (`f_uncertainty`)
-   - **Stop** and declare that it has converged (`f_assess`)
-
-5. **Update its model of the user** : when the user replies, the system must fold that reply into its cluster assignments, update confidence scores, and check whether the new feedback contradicts something said earlier. This is `f_next_state`.
-
-6. **Memorise user preferences across different chats** : if the same user comes back later, or if we want to apply what we learned about this user to a frozen held-out set, we need to codify their preferences in a structured way, and decide whether they are stable enough to be worth reusing.
+**For detailed component descriptions, communication paths, and the design rationale**, see [architecture_diagram.md](architecture_diagram.md). The architecture document provides a component table, communication constraints, and explanations for role separation.
 
 ---
 

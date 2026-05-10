@@ -4,6 +4,8 @@
 
 This diagram captures the **online conversational loop** from the problem statement: `f_next_best_step` (router), `f_uncertainty`, `f_output`, `f_next_state`, and `f_assess`, with persistent state and retrieval support.
 
+For a high-level problem context and motivation for these functions, see [§3.2 of problem_statement.md](../problem_statement.md#system-on-each-turn).
+
 ## Diagram components (from `architecture_diagram.tex`)
 
 | Component | Function in problem statement | Purpose |
