@@ -9,7 +9,7 @@ import logging
 import uuid
 from decimal import Decimal
 
-from src.api.db import tx
+from backend.api.db import tx
 
 log = logging.getLogger(__name__)
 

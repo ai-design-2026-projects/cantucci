@@ -64,11 +64,22 @@ _Catalogue ingestion and the conversational loop are not yet implemented._
 ### Repository Structure
 
 ```
-db/                     SQL migrations and migration runner
-docs/                   Architecture, specifications, requirements
-src/
-  api/                  All SQL access (only layer that touches the DB)
-  config.py             Environment variable loader
-  logging_setup.py      JSON-line structured logger
-tests/                  Schema smoke tests (real Postgres via testcontainers)
+backend/
+  api/           All SQL access (only layer that touches the DB)
+  models/
+    schemas.py      HTTP Pydantic models + enums
+    orchestrator.py Orchestrator Protocol
+    exceptions.py   Domain exceptions
+    runs.py         Run DB row type
+    clusters.py     ClusterSpec + cluster result types
+    eval.py         SessionMetrics, JudgeScore
+    retrieval.py    Query result types (SessionFull, RunResults, …)
+  orchestrator/  EchoOrchestrator stub; real impl goes here
+  routers/       HTTP endpoints
+  app.py         FastAPI entry point
+  config.py      Environment variable loader
+  logging.py     Structured logging + log_llm_call() helper
+db/              SQL migrations and migration runner
+docs/            Architecture, specifications, requirements
+tests/           Schema smoke tests (real Postgres via testcontainers)
 ```

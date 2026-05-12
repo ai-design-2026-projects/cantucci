@@ -9,130 +9,22 @@ get_session_full — complete state snapshot for one session (turns, clusters,
 
 import logging
 import uuid
-from dataclasses import dataclass, field
-from decimal import Decimal
 from typing import Any
 
-from src.api.db import tx
+from backend.api.db import tx
+from backend.models.clusters import ClusterAssignment, ClusterSnapshot
+from backend.models.eval import JudgeScore, SessionMetrics
+from backend.models.retrieval import (
+    FeedbackEntry,
+    RunAggregate,
+    RunResults,
+    SessionFull,
+    SessionSummary,
+    TurnDetail,
+)
 
 log = logging.getLogger(__name__)
 
-
-# ---------------------------------------------------------------------------
-# Result dataclasses
-# ---------------------------------------------------------------------------
-
-@dataclass
-class SessionMetrics:
-    session_id: uuid.UUID
-    converged: bool
-    turns_to_convergence: int | None
-    avg_cognitive_load: float | None
-    explicit_acceptance: bool
-    drift_events: int
-    total_input_tokens: int
-    total_output_tokens: int
-    total_cost_usd: Decimal
-
-
-@dataclass
-class JudgeScore:
-    id: uuid.UUID
-    dimension: str
-    score: int
-    rationale: str | None
-    judge_model: str
-    judge_prompt_hash: str
-
-
-@dataclass
-class SessionSummary:
-    session_id: uuid.UUID
-    run_id: uuid.UUID
-    seed: int
-    config_hash: str
-    model_version: str
-    persona_id: str | None
-    status: str
-    turn_count: int
-    converged_at_turn: int | None
-    metrics: SessionMetrics | None
-    judge_scores: list[JudgeScore]
-
-
-@dataclass
-class RunAggregate:
-    n_sessions: int
-    convergence_rate: float
-    mean_turns_to_convergence: float | None
-    mean_cognitive_load: float | None
-    mean_judge: dict[str, float]
-
-
-@dataclass
-class RunResults:
-    run_id: uuid.UUID
-    sessions: list[SessionSummary]
-    aggregate: RunAggregate
-
-
-@dataclass
-class ClusterAssignment:
-    movie_id: int
-    score: float
-    excluded: bool
-
-
-@dataclass
-class ClusterSnapshot:
-    id: uuid.UUID
-    name: str
-    description: str | None
-    level: int
-    parent_cluster_id: uuid.UUID | None
-    assignments: list[ClusterAssignment]
-
-
-@dataclass
-class TurnDetail:
-    id: uuid.UUID
-    turn_number: int
-    user_message: str
-    assistant_message: str | None
-    step_type: str | None
-    converged: bool
-    clusters: list[ClusterSnapshot]
-
-
-@dataclass
-class FeedbackEntry:
-    id: uuid.UUID
-    turn_id: uuid.UUID
-    feedback_level: str
-    feedback_type: str
-    target_id: str | None
-    content: str
-
-
-@dataclass
-class SessionFull:
-    session_id: uuid.UUID
-    run_id: uuid.UUID
-    seed: int
-    config_hash: str
-    model_version: str
-    persona_id: str | None
-    status: str
-    preference_profile: dict[str, Any] | None
-    turns: list[TurnDetail]
-    feedback: list[FeedbackEntry]
-    metrics: SessionMetrics | None
-    judge_scores: list[JudgeScore]
-
-
-# ---------------------------------------------------------------------------
-# Public API
-# ---------------------------------------------------------------------------
 
 def get_run_results(run_id: uuid.UUID) -> RunResults:
     """Return all sessions under a run, their metrics, judge scores, and aggregates.

@@ -15,13 +15,9 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 
-from backend.models.protocol import (
-    Orchestrator,
-    SessionNotFound,
-    SessionState,
-    TurnRequest,
-    TurnResult,
-)
+from backend.models.exceptions import SessionNotFound
+from backend.models.orchestrator import Orchestrator
+from backend.models.schemas import SessionState, TurnRequest, TurnResult
 
 log = logging.getLogger(__name__)
 

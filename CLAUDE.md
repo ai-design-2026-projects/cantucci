@@ -96,7 +96,7 @@ Stdlib `logging`, configured once in `src/logging_setup.py`. One JSON line per r
 - Write `tests/tests.md` (behavior spec, one section per component) before writing `test_*.py`.
 - Every component test uses a fresh, empty state — no shared state between tests.
 - **Component tests for each Agent** use the harness `dry_run` mode (no live LLM calls). They are re-run after any prompt file change.
-- **`db_url` fixture** (`tests/conftest.py`) boots a throwaway pgvector container via `testcontainers` and applies all migrations into an isolated schema. Each test gets a clean Postgres schema; no state is shared between tests. The production DB is Postgres — no SQLite fallback.
+- **`db_url` fixture** (`tests/db/test_config.py`) boots a throwaway pgvector container via `testcontainers` and applies all migrations into an isolated schema. Each test gets a clean Postgres schema; no state is shared between tests. The production DB is Postgres — no SQLite fallback.
 
 ---
 

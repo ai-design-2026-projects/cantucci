@@ -13,13 +13,8 @@ import logging
 from datetime import datetime, timezone
 from uuid import UUID, uuid4
 
-from backend.models.protocol import (
-    SessionNotFound,
-    SessionState,
-    SessionStatus,
-    StepType,
-    TurnResult,
-)
+from backend.models.exceptions import SessionNotFound
+from backend.models.schemas import SessionState, SessionStatus, StepType, TurnResult
 
 log = logging.getLogger(__name__)
 

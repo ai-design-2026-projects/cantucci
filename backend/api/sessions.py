@@ -8,26 +8,13 @@ writes to these tables.
 
 import logging
 import uuid
-from dataclasses import dataclass
 from decimal import Decimal
 from typing import Any
 
-from src.api.db import tx
+from backend.api.db import tx
+from backend.models.clusters import ClusterSpec
 
 log = logging.getLogger(__name__)
-
-
-@dataclass
-class ClusterSpec:
-    """Input spec for snapshot_clusters: one item per cluster to insert."""
-
-    name: str
-    description: str | None
-    level: int
-    centroid: list[float] | None
-    parent_cluster_id: uuid.UUID | None
-    # List of (movie_id, score, excluded) tuples
-    assignments: list[tuple[int, float, bool]]
 
 
 def create_session(
@@ -158,17 +145,18 @@ def snapshot_clusters(
             cluster_ids.append(cluster_id)
 
             if spec.assignments:
-                conn.executemany(
-                    """
-                    INSERT INTO cluster_assignments
-                        (cluster_id, movie_id, score, excluded)
-                    VALUES (%s, %s, %s, %s)
-                    """,
-                    [
-                        (cluster_id, movie_id, score, excluded)
-                        for movie_id, score, excluded in spec.assignments
-                    ],
-                )
+                with conn.cursor() as cur:
+                    cur.executemany(
+                        """
+                        INSERT INTO cluster_assignments
+                            (cluster_id, movie_id, score, excluded)
+                        VALUES (%s, %s, %s, %s)
+                        """,
+                        [
+                            (cluster_id, movie_id, score, excluded)
+                            for movie_id, score, excluded in spec.assignments
+                        ],
+                    )
 
     log.debug(
         "snapshot %d clusters for turn %s session=%s",

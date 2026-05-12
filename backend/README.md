@@ -1,6 +1,6 @@
-# Cinepal Backend
+# Cantucci Backend
 
-HTTP API for the Cinepal conversational movie recommender. The backend exposes
+HTTP API for the Cantucci conversational clustering system. The backend exposes
 a session / turn interface consumed by the frontend: the user opens a session,
 sends messages, and the system responds with recommendations and follow-up
 questions. Session logic is owned by the orchestrator, which will eventually
@@ -13,11 +13,22 @@ call LLM-backed agents and a PostgreSQL database — both are stubbed for now.
 ```
 backend/
 ├── app.py               FastAPI application, lifespan wiring, router mount.
-├── logging.py           Logging setup: JSON (prod) and ANSI pretty (dev).
+├── config.py            Environment variable loader (DATABASE_URL, LOG_LEVEL).
+├── logging.py           Logging setup: ANSI-coloured key=value lines + log_llm_call().
 ├── api/                 Data-access layer — the ONLY place SQL is allowed.
-│   └── README.md
+│   ├── db.py            Connection pool and tx() context manager.
+│   ├── sessions.py      CRUD: sessions, turns, clusters, oracle_feedback.
+│   ├── runs.py          CRUD: runs table, config hashing.
+│   ├── eval.py          Write: session_metrics, judge_scores.
+│   └── retrieval.py     Read: get_run_results(), get_session_full().
 ├── models/
-│   └── protocol.py      Shared pydantic models + Orchestrator Protocol + exceptions.
+│   ├── schemas.py       Pydantic HTTP models + enums (SessionState, TurnResult, TurnRequest).
+│   ├── orchestrator.py  Orchestrator Protocol (interface the router calls).
+│   ├── exceptions.py    Domain exceptions (SessionNotFound).
+│   ├── runs.py          Run — in-memory representation of the runs table row.
+│   ├── clusters.py      ClusterSpec, ClusterAssignment, ClusterSnapshot.
+│   ├── eval.py          SessionMetrics, JudgeScore.
+│   └── retrieval.py     Query result types: SessionFull, RunResults, TurnDetail, etc.
 ├── orchestrator/
 │   ├── orchestrator.py  EchoOrchestrator stub (real impl will live here).
 │   ├── agent.py         LLM reasoning agent (not yet implemented).
@@ -58,11 +69,10 @@ Swagger UI: <http://127.0.0.1:8000/docs>
 
 ## Environment variables
 
-| Variable     | Default       | Description                                             |
-|--------------|---------------|---------------------------------------------------------|
-| `LOG_LEVEL`  | `INFO`        | Root logging level (`DEBUG`, `INFO`, `WARNING`, …).    |
-| `HOST`       | `127.0.0.1`   | Used only in the startup-log docs URL (informational). |
-| `PORT`       | `8000`        | Used only in the startup-log docs URL (informational). |
+| Variable       | Default       | Description                                             |
+|----------------|---------------|---------------------------------------------------------|
+| `DATABASE_URL` | (required)    | Postgres connection string.                             |
+| `LOG_LEVEL`    | `INFO`        | Root logging level (`DEBUG`, `INFO`, `WARNING`, …).    |
 
 ---
 
