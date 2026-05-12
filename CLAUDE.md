@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Course project for "Designing Large Scale AI Systems" (Prof. Fabio Casati). Authors: Davide Donà, Andrea Blushi. Declared profile: **build-heavy** (see `docs/requirements/deliverables.md` §2) — the system is the contribution, so engineering quality, UI, and robustness carry more weight than a long related-work survey.
 
-**Current status:** Directory structure and documentation scaffolding complete. `src/`, `scripts/`, `notebooks/`, `prompts/`, `configs/`, and `logs/` directories initialized. No executable code yet; when code is added, respect the scaffolding requirements below — they are graded as a first pass before any content evaluation.
+**Current status:** DB layer implemented (`db/migrations/`, `db/apply.py`, `src/api/`). Catalogue ingestion, agent logic, HTTP layer, and UI are next.
 
 ---
 
@@ -17,9 +17,9 @@ Course project for "Designing Large Scale AI Systems" (Prof. Fabio Casati). Auth
 ### ALWAYS READ — source of truth
 These contain implementation details and are consulted when designing or implementing specific components:
 
-- `docs/specifications/data_schema.md` — MUST be READ before designing the DB layer or any code that interacts with it. database schema, data types, session / turn / feedback entities, reproducibility invariants. 
-- `docs/specifications/api.md` — MUST BE READ before designing any code that implements or calls these interfaces. System interfaces: input/output contracts for `f_*` functions, session harness API, LLM call signatures.
-- `docs/specifications/architecture.md` — MUST BE READ before designing any component, to understand its role and interactions in the system. System block diagram and component relationships.
+- `docs/specifications/architecture/data_schema.md` — MUST be READ before designing the DB layer or any code that interacts with it. Database schema, data types, session / turn / feedback entities, reproducibility invariants.
+- `docs/specifications/architecture/api.md` — MUST BE READ before designing any code that implements or calls these interfaces. System interfaces: input/output contracts for `f_*` functions, session harness API, LLM call signatures.
+- `docs/specifications/architecture/architecture.md` — MUST BE READ before designing any component, to understand its role and interactions in the system. System block diagram and component relationships.
 
 ### Reference — read on demand
 These files define the project requirements and evaluation strategy. When a user request conflicts with them, surface the conflict before changing them.
@@ -96,7 +96,7 @@ Stdlib `logging`, configured once in `src/logging_setup.py`. One JSON line per r
 - Write `tests/tests.md` (behavior spec, one section per component) before writing `test_*.py`.
 - Every component test uses a fresh, empty state — no shared state between tests.
 - **Component tests for each Agent** use the harness `dry_run` mode (no live LLM calls). They are re-run after any prompt file change.
-- **`db` fixture** opens a fresh in-memory DB per test. Include `check_same_thread=False` in both the test fixture and the production `connect()` call — FastAPI offloads sync handlers to a worker thread.
+- **`db_url` fixture** (`tests/conftest.py`) boots a throwaway pgvector container via `testcontainers` and applies all migrations into an isolated schema. Each test gets a clean Postgres schema; no state is shared between tests. The production DB is Postgres — no SQLite fallback.
 
 ---
 

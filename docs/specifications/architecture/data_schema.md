@@ -209,6 +209,75 @@ CREATE TABLE movie_countries (
 
 ---
 
+## Run & evaluation tables
+
+These tables are written by the evaluation harness (not the live conversational loop) to group sessions into experimental conditions and store per-session and per-run results.
+
+### `runs`
+
+Registry of experimental runs. Each run groups N sessions under one condition (A–D in the eval spec) with a single config snapshot so every session is reproducible from `(seed, config_snapshot)` alone.
+
+```sql
+CREATE TABLE runs (
+    id              UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    name            TEXT        NOT NULL,
+    condition       VARCHAR(20) NOT NULL,        -- baseline | uncertainty | random | boundary | popularity | component_test | human
+    config_hash     CHAR(64)    NOT NULL,         -- SHA-256 hex of canonical JSON of config_snapshot
+    config_snapshot JSONB       NOT NULL,
+    seed            BIGINT      NOT NULL,
+    model_version   TEXT        NOT NULL,
+    started_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    ended_at        TIMESTAMPTZ,
+    status          VARCHAR(20) NOT NULL DEFAULT 'running',  -- running | completed | aborted
+    notes           TEXT
+);
+
+CREATE INDEX ON runs (condition);
+CREATE INDEX ON runs (config_hash);
+```
+
+### `session_metrics`
+
+One row per session; deterministic metrics computed after the session ends. Rewritten on recompute (PK = `session_id`).
+
+```sql
+CREATE TABLE session_metrics (
+    session_id            UUID          PRIMARY KEY REFERENCES sessions(id) ON DELETE CASCADE,
+    turns_to_convergence  SMALLINT,                        -- NULL if session was abandoned
+    avg_cognitive_load    FLOAT,
+    converged             BOOLEAN       NOT NULL,
+    explicit_acceptance   BOOLEAN       NOT NULL DEFAULT FALSE,
+    drift_events          SMALLINT      NOT NULL DEFAULT 0,
+    total_input_tokens    INTEGER       NOT NULL DEFAULT 0,
+    total_output_tokens   INTEGER       NOT NULL DEFAULT 0,
+    total_cost_usd        NUMERIC(10,4) NOT NULL DEFAULT 0,
+    computed_at           TIMESTAMPTZ   NOT NULL DEFAULT NOW()
+);
+```
+
+### `judge_scores`
+
+LLM-judge dimension scores. Append-only; `judge_prompt_hash` lets multiple judge versions coexist and deduplicates re-runs.
+
+```sql
+CREATE TABLE judge_scores (
+    id                UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    session_id        UUID        NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    dimension         VARCHAR(40) NOT NULL,    -- clustering_coherence | question_quality | profile_fidelity
+    score             SMALLINT    NOT NULL CHECK (score BETWEEN 1 AND 5),
+    rationale         TEXT,
+    judge_model       TEXT        NOT NULL,
+    judge_prompt_hash CHAR(64)    NOT NULL,
+    created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (session_id, dimension, judge_prompt_hash)
+);
+
+CREATE INDEX ON judge_scores (session_id);
+CREATE INDEX ON judge_scores (dimension);
+```
+
+---
+
 ## Session tables
 
 To store various per session data, we have the following tables. These are written to at runtime by the conversational loop to capture the evolving state of each session, including the turns taken, the cluster states, and the oracle feedback.
@@ -221,13 +290,21 @@ Table that identifies a single session. Each time a new conversation is started,
 
 ```sql
 CREATE TABLE sessions (
-    id                 UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
-    created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    status             VARCHAR(20) NOT NULL DEFAULT 'active',  -- active | converged | abandoned
-    max_turns          INTEGER     NOT NULL DEFAULT 15,
-    preference_profile JSONB                  -- codified oracle preferences after convergence
+    id                 UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
+    run_id             UUID         NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+    seed               BIGINT       NOT NULL,         -- per-session RNG seed for exact replay
+    config_hash        CHAR(64)     NOT NULL,          -- SHA-256 hex of the YAML config snapshot
+    model_version      TEXT         NOT NULL,
+    persona_id         TEXT,                           -- NULL for human oracles; persona ID for LLM-simulated oracles
+    created_at         TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    updated_at         TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    status             VARCHAR(20)  NOT NULL DEFAULT 'active',  -- active | converged | abandoned
+    max_turns          INTEGER      NOT NULL DEFAULT 15,
+    cost_limit_usd     NUMERIC(10,4),
+    preference_profile JSONB                           -- codified oracle preferences after convergence
 );
+
+CREATE INDEX ON sessions (run_id);
 ```
 
 ---
@@ -335,8 +412,10 @@ collections ◄── movies ──► movie_genres     ──► genres
                     ├──► movie_spoken_languages ──► languages
                     └──► movie_countries ──► countries
 
-sessions ──► turns ──► clusters ──► cluster_assignments ──► movies
-                  └──► oracle_feedback
+runs ──► sessions ──► turns ──► clusters ──► cluster_assignments ──► movies
+                  ├──► oracle_feedback
+                  ├──► session_metrics  (1:1)
+                  └──► judge_scores     (1:N)
 ```
 
 ---
