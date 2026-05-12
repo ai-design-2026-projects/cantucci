@@ -149,14 +149,16 @@ This is the conversational clustering setting: instead of asking the user to fil
 
 ### 3.2 What the system does on each turn {#system-on-each-turn}
 
-The system runs five core functions on each turn: 
-1. `f_output` generates a best-guess ranked recommendation; 
-2. `f_uncertainty` surfaces boundary cases (titles that could belong to multiple clusters); 
-3. `f_assess` evaluates convergence and extracts a preference profile; 
-4. `f_next_best_step` is a router that chooses one of three dispatches — **Show** (display titles), **Ask** (ask a targeted question), or **Stop** (declare convergence); and 
-5. `f_next_state` updates session state from oracle feedback.
+The system runs a named-agent loop on each turn:
+1. **Retrieval System** embeds the current query and fetches the top-K candidates from the vector store.
+2. **Cluster Agent** produces soft clusters with names and short descriptions.
+3. **Decision Agent** evaluates relevance and uncertainty to choose **Recommend** (show titles) or **Continue** (ask a clarifying question).
+4. **Ambiguity Resolver** generates a focused question when the Decision Agent chooses **Continue**.
+5. **Orchestrator** records state updates, prevents duplicate questions, and surfaces the UI response (recommendations or question).
 
-**For detailed component descriptions, communication paths, and the design rationale**, see [architecture_diagram.md](architecture_diagram.md). The architecture document provides a component table, communication constraints, and explanations for role separation.
+Persistent storage lives in the **Vector Database**, and the **LLM Judge** scores archived sessions offline without influencing live decisions.
+
+**For detailed component descriptions, communication paths, and the design rationale**, see [architecture/architecture_diagram.md](architecture/architecture_diagram.md). The architecture document provides a component table, communication constraints, and explanations for role separation.
 
 ---
 
@@ -198,7 +200,9 @@ The pipeline runs in two stages to handle a catalogue of ~45,000 titles.
 On the first oracle message, the system embeds the query and retrieves the top-K most relevant movies by cosine similarity, producing a candidate pool of ~50–200 titles.
 We will consider also fine-tuned transformers for the movie domain like `fine-tuned_movie_retriever-all-minilm-l6-v2`.
 
-**Stage 2 — LLM clustering.** The LLM reads the candidate pool and assigns each title to 3–6 named clusters, with a soft confidence score per assignment. It also writes a short description for each cluster.
+**Stage 2 — Clustering.** The system produces a soft clustering of the candidate pool into N groups, using an hybrid approach:
+- A **clustering algorithm** (e.g., K-Means, HDBSCAN) produces an initial partitioning based on the embedding vectors alone;
+- The **Cluster Agent** then labels each cluster with a name and description, and adjusts the cluster boundaries by moving borderline titles based on the cluster's overall theme and the oracle's feedback history.
 
 On each subsequent turn, oracle feedback (**accept, reject, split, merge**) is injected as explicit constraints into the next clustering prompt. The embeddings never change — only the grouping and labels update. The config exposes a `representation.strategy` flag to swap the embedding model without touching the rest of the pipeline.
 
@@ -214,7 +218,7 @@ The system exposes a **two-level hierarchy**: a coarse level (3–6 broad cluste
 
 ### What does the system ask, and when?
 
-Every turn has a cognitive-load cost. `f_next_best_step` must choose between:
+Every turn has a cognitive-load cost. The **Decision Agent** chooses between:
 
 1. **Show** — display top titles from the current best cluster (high load, high information if oracle reacts)
 2. **Ask** — pose a targeted binary question about a boundary title or a proposed split/merge (low load, high precision)
@@ -222,7 +226,7 @@ Every turn has a cognitive-load cost. `f_next_best_step` must choose between:
 
 The default strategy for the MVP is: **ask if uncertainty is high, show if uncertainty is low**.
 In order to define "high" vs. "low" uncertainty, we use the soft cluster assignments: if there are many titles with scores close to the cluster boundary, that's a sign that the system is unsure about the oracle's intent and should ask for clarification. If most titles have a clear assignment, it's safer to show some recommendations and let the oracle react.
-However, we will experiment different strategies in `f_next_best_step` to see how they affect convergence speed and oracle satisfaction.
+However, we will experiment different strategies in the **Decision Agent** to see how they affect convergence speed and oracle satisfaction.
 
 For example:
 - Always ask until the oracle accepts, then show the full cluster
@@ -235,7 +239,7 @@ For example:
 
 People change their minds. What looks like a contradiction is usually **preference evolution** — the oracle has seen more options and is refining their taste, not making a mistake. The system must treat it that way.
 
-The rule is: **latest intent wins**. If the oracle said "no horror" in turn 2 and then reacts positively to a horror title in turn 5, the turn-5 signal overrides the turn-2 rule. However, silently applying the new intent without acknowledgement erodes trust — the oracle starts to feel the system ignores what was said. So before overriding, `f_uncertainty` surfaces the conflict explicitly:
+The rule is: **latest intent wins**. If the oracle said "no horror" in turn 2 and then reacts positively to a horror title in turn 5, the turn-5 signal overrides the turn-2 rule. However, silently applying the new intent without acknowledgement erodes trust — the oracle starts to feel the system ignores what was said. So before overriding, the **Orchestrator** surfaces the conflict explicitly and the **Ambiguity Resolver** frames it as a question:
 
 > *"Earlier you said no horror — does The Babadook work as an exception, or should I drop that rule entirely?"*
 
@@ -252,7 +256,7 @@ Each resolution is logged as a new `oracle_feedback` row with `feedback_type = '
 
 Cluster names are the oracle's primary handle for navigating the recommendation space — they need to be stable enough to feel familiar across turns, and accurate enough to reflect any material change in the cluster's contents.
 
-Names and short descriptions are generated by the LLM as part of `f_output` on every re-clustering. The generation prompt includes the **previous turn's name** as a starting point and instructs the LLM to keep it unless the cluster's titles have changed significantly. This prevents cosmetic thrashing — names drifting between synonyms turn after turn for no meaningful reason — while still allowing genuine updates when a split or merge changes what the cluster actually contains.
+Names and short descriptions are generated by the **Cluster Agent** on every re-clustering. The generation prompt includes the **previous turn's name** as a starting point and instructs the LLM to keep it unless the cluster's titles have changed significantly. This prevents cosmetic thrashing — names drifting between synonyms turn after turn for no meaningful reason — while still allowing genuine updates when a split or merge changes what the cluster actually contains.
 
 A good name is short (2–4 words), descriptive of tone and genre rather than just genre alone, and consistent with the oracle's own vocabulary where possible. If the oracle has used a phrase like *"slow-burn stuff"* to describe a cluster, that phrasing is a stronger candidate than a generic LLM-generated label.
 
@@ -272,9 +276,9 @@ Dark comedy        0.35
 Drama              0.10
 ```
 
-Titles with a dominant score in one cluster are safe recommendations — the system is confident. Titles with roughly equal scores across two clusters are **boundary cases** — genuinely ambiguous, and the most informative ones to ask the oracle about next (see `f_uncertainty`).
+Titles with a dominant score in one cluster are safe recommendations — the system is confident. Titles with roughly equal scores across two clusters are **boundary cases** — genuinely ambiguous, and the most informative ones to ask the oracle about next (see the **Ambiguity Resolver**).
 
-Soft scores are produced by the LLM in a structured JSON response and stored in the `cluster_assignments` table as a `score` float per (cluster, title) pair. At the end of a session, soft-assignment calibration is validated: boundary-flagged titles should be ones the oracle also finds ambiguous on a pairwise check ("should X and Y be in the same group?"). If the system flags titles as uncertain that the oracle finds obvious, the scoring needs revision.
+Soft scores are produced by the **Cluster Agent** in a structured JSON response and stored in the `cluster_assignments` table as a `score` float per (cluster, title) pair. At the end of a session, soft-assignment calibration is validated: boundary-flagged titles should be ones the oracle also finds ambiguous on a pairwise check ("should X and Y be in the same group?"). If the system flags titles as uncertain that the oracle finds obvious, the scoring needs revision.
 
 ---
 
@@ -290,13 +294,13 @@ Cognitive load per turn is defined as three logged signals:
 | Clusters shown | Number of named groups visible at once | ≤ 6 |
 | Question complexity | Binary yes/no = 1; open-ended or multi-part = 2+ | 1 binary question |
 
-`f_next_best_step` uses the same budget when deciding whether to show or ask: showing 8 titles in one turn is discouraged even when uncertainty is low, because it exceeds the per-turn title budget. Cognitive load is a primary evaluation metric alongside turns to convergence — a strategy that converges in 6 turns but shows 15 titles per turn is not better than one that takes 8 turns at 4 titles per turn.
+The **Decision Agent** uses the same budget when deciding whether to show or ask, and the **Orchestrator** enforces title and cluster caps in the UI: showing 8 titles in one turn is discouraged even when uncertainty is low, because it exceeds the per-turn title budget. Cognitive load is a primary evaluation metric alongside turns to convergence — a strategy that converges in 6 turns but shows 15 titles per turn is not better than one that takes 8 turns at 4 titles per turn.
 
 ---
 
 ### Generalization: codifying oracle preferences
 
-Accepting a clustering is not the end of the session's usefulness. Once the oracle converges, `f_assess` attempts to distil everything learned during the conversation into a **preference profile** — a structured, portable summary of the oracle's stated and inferred rules. For example:
+Accepting a clustering is not the end of the session's usefulness. Once the oracle converges, the **Orchestrator** triggers a preference-profile extraction step to distil everything learned during the conversation into a **preference profile** — a structured, portable summary of the oracle's stated and inferred rules. For example:
 
 ```json
 {
@@ -319,23 +323,19 @@ Knowing when to stop is as important as knowing what to ask. Stopping too early 
 - **Behavioural convergence** — no corrective feedback for 2 consecutive turns. The oracle is only confirming or making minor tweaks, which means the clustering has stabilised even if they haven't said so explicitly. The threshold of 2 turns is a configurable parameter (`session.convergence_turns`).
 - **Turn budget** — a hard cap configured per session in YAML (`session.max_turns`, default 15). This exists to bound cost and prevent sessions that drift without converging. When the budget is hit, the system presents the current best clustering as the final result and notifies the oracle that the session has ended.
 
-When convergence is declared, the session status is set to `converged`, `f_assess` runs to produce the preference profile, and no further oracle turns are accepted.
+When convergence is declared, the session status is set to `converged`, the preference profile is produced, and no further oracle turns are accepted.
 
 ---
 
 ### Agentic pattern
 
-Each turn follows a clear, repeatable sequence: retrieve a candidate pool → cluster those candidates → choose the next action → execute that action → update session state — then wait for the oracle's reply. Separating these steps prevents silent failures (for example, missed clustering on broad queries or undetected drift) and lets us test and improve each piece independently.
+Each turn follows a clear, repeatable sequence: retrieve a candidate pool → cluster those candidates → decide the next action → ask or recommend → update session state — then wait for the oracle's reply. Separating these steps prevents silent failures (for example, missed clustering on broad queries or undetected drift) and lets us test and improve each piece independently.
 
-`f_next_best_step` is the **router agent**: given the current session state, it returns one dispatch — `show`, `ask`, or `stop` — plus the content required for that action (which titles to show, which question to ask, or the convergence signal). 
+The **Decision Agent** routes between **Recommend** and **Continue**. When continuing, the **Ambiguity Resolver** produces the question; when recommending, the **Orchestrator** presents the cluster output and records the result. The **Orchestrator** is the single state writer, keeping session history consistent and preventing duplicate questions.
 
-**Executor agents** such as `f_output` and `f_uncertainty` carry out the router's decision but do not implement routing logic themselves. This strict separation makes ablation straightforward: swap the routing strategy without touching other functions.
+Role responsibilities are intentionally narrow: retrieval retrieves, clustering clusters, the Decision Agent routes, the Ambiguity Resolver clarifies, and the Orchestrator writes state. This modularity supports targeted experiments, robust validation, and fully auditable session histories.
 
-`f_assess` is the **assessor**. It determines whether the session has converged and distils a structured preference profile from the oracle's feedback. Per the scaffolding requirements, `f_assess` outputs are validated against human-labelled transcripts on a held-out sample before they are used in any headline claim.
-
-Role responsibilities are intentionally narrow: the router routes, executors execute, and the assessor judges and summarises. This modularity supports targeted experiments, robust validation, and fully auditable session histories.
-
-Then we will have an **LLM-as-Judge** setup for evaluation, indipendent from the main conversational loop.
+An **LLM Judge** evaluates sessions offline, independent from the main conversational loop.
 
 ---
 
@@ -348,14 +348,14 @@ Then we will have an **LLM-as-Judge** setup for evaluation, indipendent from the
 | **Data ingestion** | Ingest catalogue into PostgreSQL: genre normalisation, crew linkage, embedding generation | `catalogue_loader.py` | MVP |
 | **Data ingestion** | Construct poster URLs from `poster_path`; verify synopsis field presence | `catalogue_loader.py` | MVP |
 | **Retrieval** | Embed oracle query and retrieve top-K candidate titles by cosine similarity | `embedding.py` + pgvector | MVP |
-| **Retrieval** | Filter candidate pool by year range, genre, runtime, rating threshold | `f_output` | MVP |
-| **Clustering** | Produce initial soft clustering of candidates into 3–6 named groups with descriptions | `f_output` | MVP |
+| **Retrieval** | Filter candidate pool by year range, genre, runtime, rating threshold | Retrieval System | MVP |
+| **Clustering** | Produce initial soft clustering of candidates into 3–6 named groups with descriptions | Cluster Agent | MVP |
 | **Clustering** | Maintain soft assignment scores (per title, per cluster) across all turns | `cluster_assignments` table | MVP |
-| **Clustering** | Support two-level hierarchy: coarse clusters expanded lazily on oracle request | `f_output` + `clusters.parent_cluster_id` | MVP |
-| **Interaction** | Accept oracle feedback at all four levels: global, cluster, point, instructional | `f_next_state` | MVP |
-| **Interaction** | Decide next action (show / ask / stop) within cognitive-load budget | `f_next_best_step` | MVP |
-| **Interaction** | Detect and surface preference drift before silently overriding earlier feedback | `f_next_state` | MVP |
-| **Interaction** | Emit convergence signal and produce preference profile when session ends | `f_assess` | MVP |
+| **Clustering** | Support two-level hierarchy: coarse clusters expanded lazily on oracle request | Cluster Agent + Orchestrator | MVP |
+| **Interaction** | Accept oracle feedback at all four levels: global, cluster, point, instructional | Orchestrator | MVP |
+| **Interaction** | Decide next action (show / ask / stop) within cognitive-load budget | Decision Agent | MVP |
+| **Interaction** | Detect and surface preference drift before silently overriding earlier feedback | Orchestrator | MVP |
+| **Interaction** | Emit convergence signal and produce preference profile when session ends | Orchestrator | MVP |
 | **Session** | Persist full conversation history and clustering snapshots — every turn replayable | PostgreSQL + `replay.py` | MVP |
 | **Session** | Provide shareable session URL (UUID-based) | `sessions` API | MVP |
 | **Session** | Mark session `abandoned` after 24 h of inactivity | background job | Post-MVP |
@@ -379,12 +379,12 @@ Then we will have an **LLM-as-Judge** setup for evaluation, indipendent from the
 
 | Trigger | System response | Component |
 |---|---|---|
-| Oracle contradicts earlier feedback | `f_next_state` detects the conflict by comparing the new message against the full `oracle_feedback` log. It surfaces the contradiction explicitly (*"Earlier you said no horror — is this an exception or should I drop that rule?"*) and waits for resolution before updating state. The resolution is stored as `feedback_type = 'resolve_drift'`. | `f_next_state` |
-| Very broad first query (*"a good movie"*) | The candidate pool would be effectively the entire catalogue. `f_next_best_step` detects when the query embedding produces uniformly high similarity scores across all genres and returns a targeted clarifying question instead of a cluster display (*"What kind of mood are you in — something intense, something light, or something in between?"*). | `f_next_best_step` |
-| Title not in catalogue | The catalogue is frozen at July 2017. If the oracle names a title the system cannot find, the LLM acknowledges the gap and returns the 3 most similar titles by cosine distance as alternatives, noting the cutoff date. | `f_output` |
+| Oracle contradicts earlier feedback | The Orchestrator detects the conflict by comparing the new message against the full `oracle_feedback` log. It surfaces the contradiction explicitly (*"Earlier you said no horror — is this an exception or should I drop that rule?"*) and waits for resolution before updating state. The resolution is stored as `feedback_type = 'resolve_drift'`. | Orchestrator |
+| Very broad first query (*"a good movie"*) | The candidate pool would be effectively the entire catalogue. The Decision Agent flags low specificity and the Ambiguity Resolver returns a targeted clarifying question instead of a cluster display (*"What kind of mood are you in — something intense, something light, or something in between?"*). | Decision Agent + Ambiguity Resolver |
+| Title not in catalogue | The catalogue is frozen at July 2017. If the oracle names a title the system cannot find, the system acknowledges the gap and returns the 3 most similar titles by cosine distance as alternatives, noting the cutoff date. | Orchestrator |
 | TMDB poster unavailable | `poster_path` is null or the CDN returns a 404. The UI falls back to a genre-specific placeholder image. The card layout is never broken or left blank. | `TitleCard` |
-| Oracle requests a title type excluded by active filter (e.g. short film, documentary) | The system notifies the oracle that the current filter excludes that type and offers to relax it with a single confirm. The relaxed filter is stored as an instructional feedback row. | `f_next_state` |
+| Oracle requests a title type excluded by active filter (e.g. short film, documentary) | The system notifies the oracle that the current filter excludes that type and offers to relax it with a single confirm. The relaxed filter is stored as an instructional feedback row. | Orchestrator |
 | Session idle > 24 h | The session status is set to `abandoned`. All state remains queryable and replayable, but no cluster is kept in active memory. If the oracle returns, they are shown the last clustering state and offered to resume or start a new session. | background job |
-| Oracle turn budget exhausted (`session.max_turns`) | The system presents the current best cluster as the final result, notifies the oracle that the turn budget has been reached, and triggers `f_assess` to produce the preference profile even without explicit convergence. | `f_next_best_step` + `f_assess` |
+| Oracle turn budget exhausted (`session.max_turns`) | The system presents the current best cluster as the final result, notifies the oracle that the turn budget has been reached, and produces the preference profile even without explicit convergence. | Decision Agent + Orchestrator |
 | LLM returns malformed JSON for cluster assignments | The harness catches the parse failure, retries with exponential backoff (max 3 attempts), and on persistent failure logs the error and returns the previous turn's clustering unchanged rather than crashing the session. | `llm_harness.py` |
-| Candidate pool is empty after filters are applied | Filters are relaxed one at a time in order of least impact (rating threshold first, then year range, then runtime) until at least 20 candidates are available. The oracle is notified of the relaxation. | `f_output` |
+| Candidate pool is empty after filters are applied | Filters are relaxed one at a time in order of least impact (rating threshold first, then year range, then runtime) until at least 20 candidates are available. The oracle is notified of the relaxation. | Retrieval System + Orchestrator |
