@@ -12,7 +12,9 @@ from uuid import UUID, uuid4
 import backend.api.retrieval as api_retrieval
 import backend.api.runs as api_runs
 import backend.api.sessions as api_sessions
+from backend.decision_agent import decision_agent
 from backend.llm.configs import load_config
+from backend.models.decision import DecisionAction
 from backend.models.exceptions import SessionNotFound
 from backend.models.sessions import SessionState, SessionStatus, StepType, TurnResult
 from backend.orchestrator import agent
@@ -71,18 +73,20 @@ class Orchestrator:
         )
 
     def handle_turn(self, session_id: UUID, user_message: str) -> TurnResult:
-        """Load history, call agent, record turn, return TurnResult.
+        """Load history, call Decision Agent + Orchestrator agent, record turn.
 
         Args:
             session_id:   UUID of the target session.
             user_message: The oracle's message.
 
         Returns:
-            A ``TurnResult`` with the LLM's reply and step_type=show.
+            A ``TurnResult`` with the LLM's reply, mapped step_type, and
+            convergence flag.
 
         Raises:
             SessionNotFound:   If *session_id* does not exist in the DB.
             CostLimitExceeded: If the session budget is exhausted before the call.
+            LLMParseError:     If the orchestrator LLM returns malformed JSON.
         """
         try:
             full = api_retrieval.get_session_full(session_id)
@@ -92,7 +96,18 @@ class Orchestrator:
         turn_id = uuid4()
         turn_number = len(full.turns) + 1
 
-        assistant_text = agent.respond(
+        decision = decision_agent.decide(
+            session_id=session_id,
+            run_id=full.run_id,
+            turn_id=turn_id,
+            turn_number=turn_number,
+            user_query=user_message,
+            clusters=[],
+            config_hash=full.config_hash,
+            model_version=full.model_version,
+        )
+
+        llm_out = agent.respond(
             session_id=session_id,
             run_id=full.run_id,
             turn_id=turn_id,
@@ -102,31 +117,49 @@ class Orchestrator:
             persona_id=full.persona_id,
             config_hash=full.config_hash,
             model_version=full.model_version,
+            max_turns=full.max_turns,
+            decision=decision,
         )
+
+        if llm_out.converged:
+            step_type = StepType.stop
+        elif decision.action == DecisionAction.recommend:
+            step_type = StepType.show
+        else:
+            step_type = StepType.ask
 
         state_tools.record_turn(
             session_id=session_id,
             turn_number=turn_number,
             user_message=user_message,
-            assistant_message=assistant_text,
-            step_type=StepType.show.value,
-            converged=False,
+            assistant_message=llm_out.reply,
+            step_type=step_type.value,
+            converged=llm_out.converged,
             turn_id=turn_id,
         )
+
+        if llm_out.converged:
+            assert llm_out.preference_profile is not None  # guaranteed by agent.respond
+            state_tools.declare_convergence(session_id, llm_out.preference_profile)
 
         now = datetime.now(timezone.utc)
         log.info(
             "turn handled",
-            extra={"session_id": str(session_id), "turn_number": turn_number},
+            extra={
+                "session_id": str(session_id),
+                "turn_number": turn_number,
+                "step_type": step_type.value,
+                "converged": llm_out.converged,
+            },
         )
         return TurnResult(
             turn_id=turn_id,
             session_id=session_id,
             turn_number=turn_number,
             user_message=user_message,
-            assistant_message=assistant_text,
-            step_type=StepType.show,
-            converged=False,
+            assistant_message=llm_out.reply,
+            step_type=step_type,
+            converged=llm_out.converged,
             created_at=now,
         )
 
