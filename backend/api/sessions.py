@@ -8,26 +8,13 @@ writes to these tables.
 
 import logging
 import uuid
-from dataclasses import dataclass
 from decimal import Decimal
 from typing import Any
 
-from src.api.db import tx
+from backend.api.db import tx
+from backend.models.clusters import ClusterSpec
 
 log = logging.getLogger(__name__)
-
-
-@dataclass
-class ClusterSpec:
-    """Input spec for snapshot_clusters: one item per cluster to insert."""
-
-    name: str
-    description: str | None
-    level: int
-    centroid: list[float] | None
-    parent_cluster_id: uuid.UUID | None
-    # List of (movie_id, score, excluded) tuples
-    assignments: list[tuple[int, float, bool]]
 
 
 def create_session(
@@ -78,30 +65,34 @@ def append_turn(
     assistant_message: str | None,
     step_type: str | None,
     converged: bool,
+    turn_id: uuid.UUID | None = None,
 ) -> uuid.UUID:
     """Insert a turn row and bump sessions.updated_at atomically.
 
     Args:
-        session_id: Parent session UUID.
-        turn_number: 1-based sequential index within the session.
-        user_message: Raw oracle utterance.
+        session_id:        Parent session UUID.
+        turn_number:       1-based sequential index within the session.
+        user_message:      Raw oracle utterance.
         assistant_message: System response (clusters + question / recommendation).
-        step_type: One of show | ask | stop.
-        converged: Whether this turn declared convergence.
+        step_type:         One of show | ask | stop.
+        converged:         Whether this turn declared convergence.
+        turn_id:           Pre-allocated UUID for log correlation. If None, the
+                           DB generates one via DEFAULT gen_random_uuid().
 
     Returns:
         UUID of the newly created turn.
     """
+    effective_id = turn_id if turn_id is not None else uuid.uuid4()
     with tx() as conn:
         row = conn.execute(
             """
             INSERT INTO turns
-                (session_id, turn_number, user_message, assistant_message,
+                (id, session_id, turn_number, user_message, assistant_message,
                  step_type, converged)
-            VALUES (%s, %s, %s, %s, %s, %s)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
             RETURNING id
             """,
-            (session_id, turn_number, user_message,
+            (effective_id, session_id, turn_number, user_message,
              assistant_message, step_type, converged),
         ).fetchone()
 
@@ -158,17 +149,18 @@ def snapshot_clusters(
             cluster_ids.append(cluster_id)
 
             if spec.assignments:
-                conn.executemany(
-                    """
-                    INSERT INTO cluster_assignments
-                        (cluster_id, movie_id, score, excluded)
-                    VALUES (%s, %s, %s, %s)
-                    """,
-                    [
-                        (cluster_id, movie_id, score, excluded)
-                        for movie_id, score, excluded in spec.assignments
-                    ],
-                )
+                with conn.cursor() as cur:
+                    cur.executemany(
+                        """
+                        INSERT INTO cluster_assignments
+                            (cluster_id, movie_id, score, excluded)
+                        VALUES (%s, %s, %s, %s)
+                        """,
+                        [
+                            (cluster_id, movie_id, score, excluded)
+                            for movie_id, score, excluded in spec.assignments
+                        ],
+                    )
 
     log.debug(
         "snapshot %d clusters for turn %s session=%s",

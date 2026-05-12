@@ -15,7 +15,7 @@ from typing import AsyncGenerator
 from fastapi import FastAPI
 
 from backend.logging import configure_logging
-from backend.orchestrator.orchestrator import EchoOrchestrator
+from backend.orchestrator.orchestrator import Orchestrator
 from backend.routers import sessions
 
 log = logging.getLogger(__name__)
@@ -37,7 +37,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         Control to the request-handling phase.
     """
     configure_logging()
-    app.state.orchestrator = EchoOrchestrator()
+    app.state.orchestrator = Orchestrator()
 
     host = os.environ.get("HOST", "127.0.0.1")
     port = os.environ.get("PORT", "8000")

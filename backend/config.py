@@ -21,3 +21,8 @@ def database_url() -> str:
 def log_level() -> str:
     """Return the log level string (default INFO)."""
     return os.environ.get("LOG_LEVEL", "INFO").upper()
+
+
+def openai_api_key() -> str:
+    """Return the OpenAI API key. Raises KeyError if OPENAI_API_KEY is unset."""
+    return os.environ["OPENAI_API_KEY"]

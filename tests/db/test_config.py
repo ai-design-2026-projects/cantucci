@@ -16,7 +16,7 @@ import psycopg
 import pytest
 from testcontainers.postgres import PostgresContainer
 
-import src.api.db as db_module
+import backend.api.db as db_module
 from db.apply import apply
 
 

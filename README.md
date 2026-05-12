@@ -1,4 +1,4 @@
-# Conversational Clustering
+# Conversational Clustering - CinePal
 
 An AI system that clusters a dataset by *conversing* with a human, proposing a grouping, explaining it, and refining it through dialogue, where the human (the **oracle**) is the sole judge of quality and no intrinsic ground truth exists.
 
@@ -64,11 +64,15 @@ _Catalogue ingestion and the conversational loop are not yet implemented._
 ### Repository Structure
 
 ```
-db/                     SQL migrations and migration runner
-docs/                   Architecture, specifications, requirements
-src/
-  api/                  All SQL access (only layer that touches the DB)
-  config.py             Environment variable loader
-  logging_setup.py      JSON-line structured logger
-tests/                  Schema smoke tests (real Postgres via testcontainers)
+backend/
+  api/           All SQL access (only layer that touches the DB)
+  models/
+  orchestrator/  EchoOrchestrator stub; real impl goes here
+  routers/       HTTP endpoints
+  app.py         FastAPI entry point
+  config.py      Environment variable loader
+  logging.py     Structured logging + log_llm_call() helper
+db/              SQL migrations and migration runner
+docs/            Architecture, specifications, requirements
+tests/           Schema smoke tests (real Postgres via testcontainers)
 ```

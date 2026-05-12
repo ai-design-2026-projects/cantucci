@@ -1,0 +1,12 @@
+model:
+  name: "gpt-4o-mini"
+  seed: 42
+  max_tokens: 1024
+
+session:
+  max_turns: 15
+  cost_limit_usd: 5.0
+  convergence_turns: 2
+
+retrieval:
+  top_k: 50

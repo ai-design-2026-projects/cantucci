@@ -1,20 +1,12 @@
-"""Data types shared between the HTTP layer, orchestrator, and (future) data-access layer.
-
-All pydantic models here mirror the ``sessions`` and ``turns`` tables defined in
-``docs/specifications/architecture/data_schema.md``.  The ``Orchestrator``
-Protocol defines the interface the router calls; concrete implementations live
-in ``backend/orchestrator/``.
-"""
+"""Pydantic models and enums for the HTTP session/turn API."""
 
 from datetime import datetime
 from enum import Enum
-from typing import Protocol
 from uuid import UUID
 
 from pydantic import BaseModel, field_validator
 
 
-# Enums and pydantic models for the HTTP API and orchestrator protocol.
 class SessionStatus(str, Enum):
     """Lifecycle state of a session (maps to the ``status`` column)."""
 
@@ -22,7 +14,7 @@ class SessionStatus(str, Enum):
     converged = "converged"
     abandoned = "abandoned"
 
-# The StepType enum is used in TurnResult to indicate whether the assistant's
+
 class StepType(str, Enum):
     """Kind of assistant turn (maps to the ``step_type`` column).
 
@@ -35,7 +27,7 @@ class StepType(str, Enum):
     ask = "ask"
     stop = "stop"
 
-# Pydantic models for the HTTP API and orchestrator protocol.
+
 class TurnResult(BaseModel):
     """Outcome of a single conversation turn, returned by the orchestrator.
 
@@ -106,20 +98,3 @@ class TurnRequest(BaseModel):
         if not v.strip():
             raise ValueError("user_message must not be empty or whitespace")
         return v
-
-
-# Exceptions raised by the orchestrator and handled by the HTTP layer to return appropriate status codes.
-class SessionNotFound(Exception):
-    """Raised by the orchestrator when a session_id does not exist.
-
-    The HTTP layer catches this and returns 404.
-
-    Attributes:
-        session_id: The UUID that was looked up and not found.
-    """
-
-    def __init__(self, session_id: UUID) -> None:
-        self.session_id = session_id
-        super().__init__(f"Session {session_id} not found")
-
-

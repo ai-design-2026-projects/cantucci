@@ -1,4 +1,4 @@
-"""Logging setup for the Cinepal backend.
+"""Logging setup for the CinePal backend.
 
 Call configure_logging() once at application startup (in app.py lifespan).
 Every other module then does:

@@ -18,8 +18,8 @@ import psycopg
 # Allow invocation as `python -m db.apply` from the repo root.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from src.config import database_url as get_database_url  # noqa: E402
-from src.logging_setup import configure_logging  # noqa: E402
+from backend.config import database_url as get_database_url  # noqa: E402
+from backend.logging import configure_logging  # noqa: E402
 
 log = logging.getLogger(__name__)
 

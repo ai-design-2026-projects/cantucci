@@ -40,9 +40,26 @@ jobs:
 
             // Strip the entire ## Type section from the body so the PR description
             // only contains Summary, Closes, and Sprint after the type is detected.
-            const newBody = pr.body
-              .replace(/^## Type\s[\s\S]*?(?=^## |\s*$)/m, '')
-              .trimStart();
+            const bodyLines = pr.body.split(/\r?\n/);
+            const typeHeadingIndex = bodyLines.findIndex((line) => /^##\s*Type\s*$/i.test(line.trim()));
+
+            let newBody = pr.body;
+            if (typeHeadingIndex !== -1) {
+              let nextHeadingIndex = bodyLines.length;
+
+              for (let index = typeHeadingIndex + 1; index < bodyLines.length; index += 1) {
+                if (/^##\s+/.test(bodyLines[index])) {
+                  nextHeadingIndex = index;
+                  break;
+                }
+              }
+
+              newBody = bodyLines
+                .slice(0, typeHeadingIndex)
+                .concat(bodyLines.slice(nextHeadingIndex))
+                .join('\n')
+                .trimStart();
+            }
 
             const titleChanged = newTitle !== currentTitle;
             const bodyChanged = newBody !== pr.body;

@@ -17,9 +17,9 @@ import psycopg
 import pytest
 
 from db.apply import apply
-from src.api import eval as eval_api
-from src.api import retrieval, runs, sessions
-from src.api.sessions import ClusterSpec
+from backend.api import eval as eval_api
+from backend.api import retrieval, runs, sessions
+from backend.models.clusters import ClusterSpec
 
 
 # ---------------------------------------------------------------------------
@@ -389,14 +389,7 @@ def test_fk_cascade_run_delete(db_url, db_conn):
     db_conn.execute("DELETE FROM runs WHERE id = %s", (run_id,))
     db_conn.commit()
 
-    for table in ("sessions", "turns", "clusters", "cluster_assignments", "session_metrics"):
-        count = db_conn.execute(
-            f"SELECT COUNT(*) FROM {table} WHERE id IS NOT NULL"
-        ).fetchone()[0]
-        # Cascade should leave 0 rows that belong to the deleted run
-        # (other tests may have rows; we just check our specific session)
-
-    # More precise: check our session_id is gone
+    # Check our session_id is gone (cascade from run delete)
     assert db_conn.execute(
         "SELECT COUNT(*) FROM sessions WHERE id = %s", (session_id,)
     ).fetchone()[0] == 0

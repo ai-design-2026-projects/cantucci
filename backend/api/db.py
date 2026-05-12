@@ -5,7 +5,7 @@ This module is the only place in the codebase that opens Postgres connections.
 All other api/ modules import `tx` from here — they never call psycopg directly.
 
 Usage:
-    from src.api.db import tx
+    from backend.api.db import tx
 
     with tx() as conn:
         conn.execute("SELECT 1")
@@ -18,7 +18,7 @@ from typing import Generator
 import psycopg
 import psycopg_pool
 
-from src.config import database_url
+from backend.config import database_url
 
 log = logging.getLogger(__name__)
 
