@@ -78,6 +78,38 @@ def record_turn(
     )
 
 
+def record_feedback(
+    session_id: uuid.UUID,
+    turn_id: uuid.UUID,
+    feedback_level: str,
+    feedback_type: str,
+    content: str,
+    target_id: str | None = None,
+) -> uuid.UUID:
+    """Append an oracle_feedback row and return its UUID.
+
+    Args:
+        session_id:     Parent session UUID.
+        turn_id:        Turn UUID this feedback was captured on.
+        feedback_level: One of global | cluster | point | instructional.
+        feedback_type:  One of accept | reject | split | merge |
+                        resolve_drift | constraint.
+        content:        Raw oracle utterance or parsed rule text.
+        target_id:      Cluster UUID or TMDB movie ID as string (nullable).
+
+    Returns:
+        UUID of the persisted oracle_feedback row.
+    """
+    return api_sessions.write_feedback(
+        session_id=session_id,
+        turn_id=turn_id,
+        feedback_level=feedback_level,
+        feedback_type=feedback_type,
+        content=content,
+        target_id=target_id,
+    )
+
+
 def declare_convergence(
     session_id: uuid.UUID,
     preference_profile: dict[str, Any],

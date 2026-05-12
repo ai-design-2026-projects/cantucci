@@ -1,9 +1,31 @@
 """Orchestrator Protocol — the interface the HTTP router calls."""
 
-from typing import Protocol
+from dataclasses import dataclass
+from typing import Any, Protocol
 from uuid import UUID
 
 from backend.models.sessions import SessionState, TurnResult
+
+
+@dataclass
+class OrchestratorTurnResponse:
+    """Structured output parsed from the Orchestrator LLM call.
+
+    The orchestrator's prompt instructs the model to return valid JSON
+    matching this shape.  ``agent.respond()`` parses and validates the raw
+    string; any mismatch raises ``LLMParseError``.
+
+    Attributes:
+        reply:              User-facing assistant text.
+        converged:          True when the LLM judges preferences sufficiently
+                            clear to terminate the session.
+        preference_profile: Structured profile extracted from oracle feedback.
+                            Must be non-None when ``converged=True``.
+    """
+
+    reply: str
+    converged: bool
+    preference_profile: dict[str, Any] | None
 
 
 class Orchestrator(Protocol):
