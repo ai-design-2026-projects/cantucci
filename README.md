@@ -57,9 +57,37 @@ Tests spin up a throwaway Postgres container automatically via `testcontainers` 
 pytest tests/
 ```
 
+### Catalogue Ingestion
+
+**Prerequisites:** Kaggle credentials at `~/.kaggle/kaggle.json` (or `KAGGLE_USERNAME` / `KAGGLE_KEY` env vars).
+
+```bash
+# Full pipeline: download → clean → embed → ingest main set into DB
+python -m db.ingest
+
+# Produce artifacts only (no DB writes) — useful to pre-generate data/artifacts/
+python -m db.ingest --no-ingest
+
+# Fast dev/CI path: ingest only the 200-movie mini set (requires artifacts to exist)
+python -m db.ingest --ingest mini
+
+# Skip re-download if data/raw/ is already populated
+python -m db.ingest --no-download
+```
+
+The pipeline writes three parquet files under `data/artifacts/`:
+
+| File | Description |
+|---|---|
+| `main.parquet` | Full training set with embeddings (~40k movies) |
+| `mini.parquet` | 200 popular movies — fast to load in dev/CI |
+| `eval_holdout.parquet` | Disjoint 10% slice for system evaluation (never in DB) |
+
+`data/` is gitignored. Re-running ingestion is safe — all inserts are idempotent (upsert).
+
 ### Quick Start
 
-_Catalogue ingestion and the conversational loop are not yet implemented._
+_Conversational loop (HTTP layer, UI) is not yet implemented._
 
 ### Repository Structure
 

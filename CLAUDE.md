@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Course project for "Designing Large Scale AI Systems" (Prof. Fabio Casati). Authors: Davide Donà, Andrea Blushi. Declared profile: **build-heavy** (see `docs/requirements/deliverables.md` §2) — the system is the contribution, so engineering quality, UI, and robustness carry more weight than a long related-work survey.
 
-**Current status:** DB layer implemented (`db/migrations/`, `db/apply.py`, `src/api/`). Catalogue ingestion, agent logic, HTTP layer, and UI are next.
+**Current status:** DB layer and catalogue ingestion implemented (`db/migrations/`, `db/apply.py`, `db/ingest.py`). Agent logic, HTTP layer, and UI are next.
 
 ---
 
@@ -115,6 +115,8 @@ Stdlib `logging`, configured once in `src/logging_setup.py`. One JSON line per r
 - Inline comments explain non-obvious logic, not obvious mechanics.
 - Blank line between code blocks with different purposes.
 - Typed interfaces between modules (pydantic / dataclasses).
+- NEVER REMOVE ANY COMMENTS
+- NEVER ADD COMMENTS TO SEPARATE LOGICAL BLOCKS OF CODE OR FUNCTIONS SUCH as `# ---
 
 ---
 
