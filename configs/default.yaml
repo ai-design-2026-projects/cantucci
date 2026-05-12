@@ -10,3 +10,7 @@ session:
 
 retrieval:
   top_k: 50
+
+representation:
+  strategy: sentence-transformers/all-MiniLM-L6-v2
+  dim: 384
