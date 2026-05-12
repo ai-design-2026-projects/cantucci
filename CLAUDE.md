@@ -14,12 +14,12 @@ Course project for "Designing Large Scale AI Systems" (Prof. Fabio Casati). Auth
 
 ## Canonical docs — read before designing
 
-### Always read — source of truth
+### ALWAYS READ — source of truth
 These contain implementation details and are consulted when designing or implementing specific components:
 
-- `docs/specifications/data_model.md` — database schema, data types, session / turn / feedback entities, reproducibility invariants.
-- `docs/specifications/api.md` — system interfaces: input/output contracts for `f_*` functions, session harness API, LLM call signatures.
-- `docs/specifications/architecture_diagram.md` — system block diagram and component relationships.
+- `docs/specifications/data_schema.md` — MUST be READ before designing the DB layer or any code that interacts with it. database schema, data types, session / turn / feedback entities, reproducibility invariants. 
+- `docs/specifications/api.md` — MUST BE READ before designing any code that implements or calls these interfaces. System interfaces: input/output contracts for `f_*` functions, session harness API, LLM call signatures.
+- `docs/specifications/architecture.md` — MUST BE READ before designing any component, to understand its role and interactions in the system. System block diagram and component relationships.
 
 ### Reference — read on demand
 These files define the project requirements and evaluation strategy. When a user request conflicts with them, surface the conflict before changing them.
@@ -29,31 +29,6 @@ These files define the project requirements and evaluation strategy. When a user
 - `docs/requirements/universal_scaffolding.md` — the 13 mandatory components. "Minimum acceptable" bullets per section are the floor, not the goal.
 - `docs/specifications/problem_statement.md` — authoritative design spec: data model, agentic pattern, evaluation strategy, edge cases, and requirements summary (§8). When it conflicts with the above, raise the discrepancy before acting.
 - `docs/specifications/evaluation.md` — detailed evaluation protocol: component-level tests, oracle satisfaction metrics, LLM-as-judge validation, experimental conditions A–D, system-level metrics, human study design.
-- `docs/requirements/best_practices.md` — coding standards, testing conventions, logging rules, run commands, environment variables.
-
----
-
-## System decomposition — the `f_*` functions
-
-The brief structures the system as functions over the current state. When adding features, map them to one of these rather than inventing a parallel structure:
-
-- `f_output` — best-guess clustering given state ("here is my best recommendation right now")
-- `f_uncertainty` — what's known vs. unknown; drives `f_next_best_step`'s ask/show decision
-- `f_next_best_step` — **router agent**: returns one dispatch (`show`, `ask`, or `stop`) plus required content; does not implement execution logic
-- `f_next_state` — update state from an oracle reply (latest intent wins, but surface drift explicitly before overriding)
-- `f_assess` — **assessor**: determines convergence, distils a structured preference profile from the session's `oracle_feedback` log, validates LLM-judge outputs against human-labelled transcripts
-
-> **Note:** `f_eval` was renamed `f_assess`. Do not use the old name in new code or docs.
-
-**Role separation is strict — never cross these boundaries:**
-- The router (`f_next_best_step`) routes and does nothing else. It does not execute actions or update state.
-- Executors (`f_output`, `f_uncertainty`) execute and do nothing else. They do not make routing decisions.
-- The updater (`f_next_state`) updates state and does nothing else. It does not route or execute.
-- The assessor (`f_assess`) judges convergence and distils the preference profile. It does not influence the loop.
-
-Oracle input flows at four levels: **global**, **cluster-level**, **point-level**, **instructional**. Outputs are **soft assignments** (distribution over K clusters) plus a two-level **hierarchy** (coarse clusters generated on turn 1; fine levels generated lazily on oracle request), not hard labels only.
-
-Separate from the conversational loop, an **LLM-as-Judge** scores completed session transcripts on clustering coherence, question quality, and preference-profile fidelity (1–5 each). It is an evaluation tool only — it never influences session state.
 
 ---
 
@@ -116,29 +91,12 @@ Stdlib `logging`, configured once in `src/logging_setup.py`. One JSON line per r
 
 ---
 
-## Scaffolding obligations (non-negotiable)
-
-From `universal_scaffolding.md`. Failing any = scaffolding check fail.
-
-- **Prompts as versioned files.** (See Architectural rules above.)
-- **Harness, not bespoke scripts.** `llm_harness.py` with sync / async / batch `call`, retry, model + version from config, seed-controlled, stateless where possible. Must have a `dry_run` mode that returns stub outputs without hitting the API — used in all component tests and CI.
-- **Structured logging per run-step.** JSONL or Parquet. `replay.py` must re-execute a run from its log.
-- **Config-driven conditions.** One YAML file per experimental condition.
-- **Memory separation.** Working memory per-run, reset between runs. No global module-level caches.
-- **Resilience.** Transient errors → retry. Permanent errors → fail loudly. Never swallow.
-- **Cost tracking.** Token counts logged per call (input/output separately). Hard-stop on budget exceeded.
-- **Quality spec before experiments.** Primary outcome pre-committed. LLM-as-judge validated against human labels (κ ≥ 0.6). CIs on every quantitative claim.
-- **Smoke test.** `scripts/smoke_test.sh` runs the full pipeline on a toy dataset in < 1 minute, exercising the critical path: retrieval → `f_output` → `f_next_best_step` → oracle stub → `f_next_state` → `f_assess`.
-
----
-
 ## Testing conventions
 
 - Write `tests/tests.md` (behavior spec, one section per component) before writing `test_*.py`.
 - Every component test uses a fresh, empty state — no shared state between tests.
-- **Component tests for each `f_*` function** use the harness `dry_run` mode (no live LLM calls). They are re-run after any prompt file change.
+- **Component tests for each Agent** use the harness `dry_run` mode (no live LLM calls). They are re-run after any prompt file change.
 - **`db` fixture** opens a fresh in-memory DB per test. Include `check_same_thread=False` in both the test fixture and the production `connect()` call — FastAPI offloads sync handlers to a worker thread.
-- CI runs two matrix legs: `STRICT_MODE=0` (lax, production behavior) and `STRICT_MODE=1` (strict, every annotated deviation crashes). Both must pass.
 
 ---
 
@@ -156,7 +114,7 @@ From `universal_scaffolding.md`. Failing any = scaffolding check fail.
 - Every function has a docstring: purpose, parameters, return values.
 - Inline comments explain non-obvious logic, not obvious mechanics.
 - Blank line between code blocks with different purposes.
-- Typed interfaces between modules (pydantic / dataclasses). The `f_*` functions are the natural module boundaries.
+- Typed interfaces between modules (pydantic / dataclasses).
 
 ---
 
