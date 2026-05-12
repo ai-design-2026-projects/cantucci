@@ -1,4 +1,6 @@
 annotated-types==0.7.0
+fastapi>=0.115
+uvicorn[standard]>=0.30
 anyio==4.13.0
 asttokens==3.0.1
 certifi==2026.4.22
