@@ -1,6 +1,7 @@
 .venv/
-.env/
+.env
 /build
 .DS_Store
 build/
 /.vscode
+__pycache__/
