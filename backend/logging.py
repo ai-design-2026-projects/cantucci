@@ -1,4 +1,4 @@
-"""Logging setup for the Cantucci backend.
+"""Logging setup for the CinePal backend.
 
 Call configure_logging() once at application startup (in app.py lifespan).
 Every other module then does:

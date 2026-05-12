@@ -3,7 +3,7 @@
 from typing import Protocol
 from uuid import UUID
 
-from backend.models.schemas import SessionState, TurnResult
+from backend.models.sessions import SessionState, TurnResult
 
 
 class Orchestrator(Protocol):
