@@ -1,46 +1,80 @@
-"""Prompt file loader for the cantucci backend.
+"""Jinja2 prompt loader factory for cantucci agents.
 
-All agent prompts live in ``prompts/`` at the repository root, one file per
-named prompt, named ``{function}_{version}.txt`` (e.g. ``cluster_agent_v1.txt``).
+Each agent module calls ``make_prompt_loader`` once at module level,
+binding the returned callable to its own ``prompts/`` subdirectory::
 
-Usage::
+    from pathlib import Path
+    from backend.llm.prompts import make_prompt_loader
 
-    from backend.prompts import load_prompt
+    load_prompt = make_prompt_loader(Path(__file__).parent / "prompts")
+    text, prompt_hash = load_prompt("orchestrator_system_v1", {"max_turns": 15})
 
-    text, prompt_hash = load_prompt("cluster_agent_v1", vars={"query": user_query})
-    # pass text to llm_harness as a message, pass prompt_hash for logging
+Prompts are versioned Jinja2 files colocated with the agent that owns them,
+one file per named prompt, named ``{function}_{version}.j2``.
 """
 
 import hashlib
+from collections.abc import Callable, Mapping
 from pathlib import Path
+from typing import Any
 
-# Resolved once at import time; stable for the process lifetime.
-_PROMPTS_DIR = Path(__file__).parents[1] / "prompts"
+import jinja2
 
 
-def load_prompt(name: str, vars: dict[str, str] | None = None) -> tuple[str, str]:
-    """Load and render a prompt file, returning its text and a content hash.
+def make_prompt_loader(
+    prompts_dir: Path,
+) -> Callable[[str, Mapping[str, Any] | None], tuple[str, str]]:
+    """Return a prompt loader bound to *prompts_dir*.
+
+    The returned callable resolves ``{name}.j2`` inside *prompts_dir*,
+    renders the Jinja2 template with *vars*, and returns ``(rendered_text,
+    sha256_8char_prefix)`` of the rendered content.
+
+    The Jinja2 Environment is built once and closed over, so each call to
+    ``make_prompt_loader`` pays the construction cost once.
 
     Args:
-        name: Prompt file stem without extension, e.g. ``"cluster_agent_v1"``.
-              The file ``prompts/{name}.txt`` must exist.
-        vars: Optional mapping for ``str.format_map`` substitution.
-              Missing keys raise ``KeyError`` immediately (fail-loudly rule).
+        prompts_dir: Directory containing ``.j2`` prompt templates.
 
     Returns:
-        A tuple ``(rendered_text, sha256_8char_prefix)``.  The hash covers the
-        *rendered* text so that two calls with different ``vars`` produce
-        different hashes.
-
-    Raises:
-        FileNotFoundError: If ``prompts/{name}.txt`` does not exist.
-        KeyError: If ``vars`` is missing a placeholder used in the template.
+        A ``load_prompt(name, vars)`` callable bound to *prompts_dir*.
     """
-    path = _PROMPTS_DIR / f"{name}.txt"
-    if not path.exists():
-        raise FileNotFoundError(f"Prompt file not found: {path}")
+    env = jinja2.Environment(
+        loader=jinja2.FileSystemLoader(str(prompts_dir)),
+        undefined=jinja2.StrictUndefined,
+        autoescape=False,
+        keep_trailing_newline=True,
+    )
 
-    raw = path.read_text(encoding="utf-8")
-    rendered = raw.format_map(vars) if vars else raw
-    digest = hashlib.sha256(rendered.encode()).hexdigest()[:8]
-    return rendered, digest
+    def load_prompt(
+        name: str,
+        vars: Mapping[str, Any] | None = None,
+    ) -> tuple[str, str]:
+        """Load and render a Jinja2 prompt template.
+
+        Args:
+            name: Template stem without extension, e.g. ``"orchestrator_system_v1"``.
+                  Resolves to ``{prompts_dir}/{name}.j2``.
+            vars: Variables for Jinja2 substitution. Missing required variables
+                  raise ``jinja2.UndefinedError`` (StrictUndefined).
+
+        Returns:
+            ``(rendered_text, sha256_8char_prefix)`` where the hash covers the
+            rendered text (so two calls with different vars produce different hashes).
+
+        Raises:
+            FileNotFoundError: If ``{name}.j2`` does not exist in *prompts_dir*.
+            jinja2.UndefinedError: If a required template variable is missing.
+        """
+        try:
+            template = env.get_template(f"{name}.j2")
+        except jinja2.TemplateNotFound:
+            raise FileNotFoundError(
+                f"Prompt template not found: {prompts_dir / name}.j2"
+            )
+
+        rendered = template.render(**(vars or {}))
+        digest = hashlib.sha256(rendered.encode()).hexdigest()[:8]
+        return rendered, digest
+
+    return load_prompt

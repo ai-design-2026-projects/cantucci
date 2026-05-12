@@ -1,115 +1,171 @@
-"""EchoOrchestrator — placeholder implementation of the Orchestrator protocol.
+"""Real Orchestrator — DB-backed, LLM-driven coordinator.
 
-Satisfies ``backend.models.protocol.Orchestrator`` without a database or LLM.
-All session state is held in an instance-level dict so there is no module-level
-cache and no cross-session leakage.  Timestamps are always server-set in UTC.
-
-Replacement path: when the real orchestrator is ready, replace the body of this
-file (keeping the class name and import path stable) and update the single
-construction site in ``backend/app.py``.
+Implements the ``backend.models.orchestrator.Orchestrator`` Protocol.
+No in-memory session state: all persistence flows through ``backend.api``.
 """
 
 import logging
 from datetime import datetime, timezone
+from decimal import Decimal
 from uuid import UUID, uuid4
 
+import backend.api.retrieval as api_retrieval
+import backend.api.runs as api_runs
+import backend.api.sessions as api_sessions
+from backend.llm.configs import load_config
 from backend.models.exceptions import SessionNotFound
 from backend.models.sessions import SessionState, SessionStatus, StepType, TurnResult
+from backend.orchestrator import agent
+from backend.orchestrator.tools import state as state_tools
 
 log = logging.getLogger(__name__)
 
 
-class EchoOrchestrator:
-    """Stub orchestrator: creates sessions and echoes every user message back.
+class Orchestrator:
+    """LLM-backed orchestrator. No in-memory session state; all persistence in DB.
 
-    State is stored in ``self._sessions`` — never at module scope — so multiple
-    instances are isolated and tests can construct fresh instances freely.
+    Each ``create_session`` call inserts one run + one session row. In the full
+    system, runs are managed externally and ``create_session`` accepts a run_id.
+    For the scaffold, a run is created implicitly per interactive session.
     """
 
-    def __init__(self) -> None:
-        # Keyed by session UUID; values are mutated in place by handle_turn.
-        self._sessions: dict[UUID, SessionState] = {}
-
     def create_session(self) -> SessionState:
-        """Allocate a new active session with an empty turn list.
+        """Create a run + session row and return the initial SessionState.
+
+        Loads the default config for model, seed, and session parameters.
 
         Returns:
-            A ``SessionState`` with status=active and server-set UTC timestamps.
+            A ``SessionState`` with status=active and an empty turn list.
         """
+        cfg, config_hash = load_config("default")
+
+        run_id = api_runs.create_run(
+            name="interactive",
+            condition="baseline",
+            config_snapshot=cfg,
+            seed=cfg["model"]["seed"],
+            model_version=cfg["model"]["name"],
+        )
+
         now = datetime.now(timezone.utc)
-        state = SessionState(
-            session_id=uuid4(),
+        session_id = api_sessions.create_session(
+            run_id=run_id,
+            seed=cfg["model"]["seed"],
+            config_hash=config_hash,
+            model_version=cfg["model"]["name"],
+            max_turns=cfg["session"]["max_turns"],
+            cost_limit_usd=Decimal(str(cfg["session"]["cost_limit_usd"])),
+        )
+
+        log.info(
+            "session created",
+            extra={"session_id": str(session_id), "run_id": str(run_id)},
+        )
+        return SessionState(
+            session_id=session_id,
             status=SessionStatus.active,
-            max_turns=15,
+            max_turns=cfg["session"]["max_turns"],
             created_at=now,
             updated_at=now,
             turns=[],
         )
-        self._sessions[state.session_id] = state
-        log.debug("session created", extra={"session_id": str(state.session_id)})
-        return state
 
     def handle_turn(self, session_id: UUID, user_message: str) -> TurnResult:
-        """Append a turn whose assistant_message mirrors user_message (echo).
+        """Load history, call agent, record turn, return TurnResult.
 
         Args:
             session_id:   UUID of the target session.
             user_message: The oracle's message.
 
         Returns:
-            A ``TurnResult`` with assistant_message==user_message and
-            step_type=show, converged=False.
+            A ``TurnResult`` with the LLM's reply and step_type=show.
 
         Raises:
-            SessionNotFound: If *session_id* is not in this instance's store.
+            SessionNotFound:   If *session_id* does not exist in the DB.
+            CostLimitExceeded: If the session budget is exhausted before the call.
         """
-        state = self._get_or_raise(session_id)
-        now = datetime.now(timezone.utc)
-        turn = TurnResult(
-            turn_id=uuid4(),
+        try:
+            full = api_retrieval.get_session_full(session_id)
+        except ValueError as exc:
+            raise SessionNotFound(session_id) from exc
+
+        turn_id = uuid4()
+        turn_number = len(full.turns) + 1
+
+        assistant_text = agent.respond(
             session_id=session_id,
-            turn_number=len(state.turns) + 1,
+            run_id=full.run_id,
+            turn_id=turn_id,
+            turn_number=turn_number,
             user_message=user_message,
-            assistant_message=user_message,  # echo
+            history=full.turns,
+            persona_id=full.persona_id,
+            config_hash=full.config_hash,
+            model_version=full.model_version,
+        )
+
+        state_tools.record_turn(
+            session_id=session_id,
+            turn_number=turn_number,
+            user_message=user_message,
+            assistant_message=assistant_text,
+            step_type=StepType.show.value,
+            converged=False,
+            turn_id=turn_id,
+        )
+
+        now = datetime.now(timezone.utc)
+        log.info(
+            "turn handled",
+            extra={"session_id": str(session_id), "turn_number": turn_number},
+        )
+        return TurnResult(
+            turn_id=turn_id,
+            session_id=session_id,
+            turn_number=turn_number,
+            user_message=user_message,
+            assistant_message=assistant_text,
             step_type=StepType.show,
             converged=False,
             created_at=now,
         )
-        state.turns.append(turn)
-        state.updated_at = now
-        log.debug(
-            "turn handled",
-            extra={"session_id": str(session_id), "turn_number": turn.turn_number},
-        )
-        return turn
 
     def get_session(self, session_id: UUID) -> SessionState:
-        """Return the full state of a session including its turn history.
+        """Return full session state including all turns from the DB.
 
         Args:
-            session_id: UUID of the session to look up.
+            session_id: UUID of the session to retrieve.
 
         Returns:
-            The ``SessionState`` with all turns in ascending turn_number order.
+            A ``SessionState`` with turns in ascending turn_number order.
 
         Raises:
-            SessionNotFound: If *session_id* is not in this instance's store.
+            SessionNotFound: If *session_id* does not exist in the DB.
         """
-        return self._get_or_raise(session_id)
+        try:
+            full = api_retrieval.get_session_full(session_id)
+        except ValueError as exc:
+            raise SessionNotFound(session_id) from exc
 
-    def _get_or_raise(self, session_id: UUID) -> SessionState:
-        """Look up a session or raise SessionNotFound — never return None silently.
+        turns = [
+            TurnResult(
+                turn_id=t.id,
+                session_id=session_id,
+                turn_number=t.turn_number,
+                user_message=t.user_message,
+                assistant_message=t.assistant_message or "",
+                step_type=StepType(t.step_type) if t.step_type else StepType.show,
+                converged=t.converged,
+                created_at=t.created_at,
+            )
+            for t in full.turns
+        ]
 
-        Args:
-            session_id: The UUID to look up.
-
-        Returns:
-            The ``SessionState`` for that session.
-
-        Raises:
-            SessionNotFound: If the session does not exist.
-        """
-        state = self._sessions.get(session_id)
-        if state is None:
-            raise SessionNotFound(session_id)
-        return state
+        return SessionState(
+            session_id=full.session_id,
+            status=SessionStatus(full.status),
+            max_turns=full.max_turns,
+            created_at=full.created_at,
+            updated_at=full.updated_at,
+            turns=turns,
+        )

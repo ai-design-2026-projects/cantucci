@@ -48,7 +48,7 @@ These files define the project requirements and evaluation strategy. When a user
 - **All timestamps are UTC, ISO-8601, server-set.** Never trust timestamps from the client or from LLM responses.
 
 ### Prompts
-- **Prompts are versioned files in `prompts/`.** One file per named prompt, explicit variable substitution, prompt file-hash logged per run. Naming: `{function}_{version}.txt` (e.g., `f_output_v1.txt`, `judge_coherence_v1.txt`).
+- **Prompts are versioned Jinja2 files in a `prompts/` subdir colocated with the agent module that owns them** (e.g. `backend/orchestrator/prompts/orchestrator_system_v1.j2`). One file per named prompt, explicit Jinja2 variables, prompt-hash logged per run. Naming: `{function}_{version}.j2`.
 - **Never embed prompts as f-strings or triple-quoted strings inside functions.** This is a scaffolding-check failure.
 - When a prompt changes, create a new version file. Keep the old one. The prompt version used in a session must be reconstructible from the session log.
 

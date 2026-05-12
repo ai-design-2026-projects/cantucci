@@ -2,6 +2,7 @@
 
 import uuid
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any
 
 from backend.models.clusters import ClusterSnapshot
@@ -17,6 +18,7 @@ class TurnDetail:
     step_type: str | None
     converged: bool
     clusters: list[ClusterSnapshot]
+    created_at: datetime
 
 
 @dataclass
@@ -74,3 +76,6 @@ class SessionFull:
     feedback: list[FeedbackEntry]
     metrics: SessionMetrics | None
     judge_scores: list[JudgeScore]
+    created_at: datetime
+    updated_at: datetime
+    max_turns: int

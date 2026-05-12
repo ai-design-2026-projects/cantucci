@@ -188,7 +188,8 @@ def get_session_full(session_id: uuid.UUID) -> SessionFull:
         sess_row = conn.execute(
             """
             SELECT id, run_id, seed, config_hash, model_version,
-                   persona_id, status, preference_profile
+                   persona_id, status, preference_profile,
+                   created_at, updated_at, max_turns
             FROM sessions
             WHERE id = %s
             """,
@@ -201,7 +202,7 @@ def get_session_full(session_id: uuid.UUID) -> SessionFull:
         turn_rows = conn.execute(
             """
             SELECT id, turn_number, user_message, assistant_message,
-                   step_type, converged
+                   step_type, converged, created_at
             FROM turns
             WHERE session_id = %s
             ORDER BY turn_number
@@ -292,6 +293,7 @@ def get_session_full(session_id: uuid.UUID) -> SessionFull:
             id=r[0], turn_number=r[1], user_message=r[2],
             assistant_message=r[3], step_type=r[4], converged=r[5],
             clusters=clusters_by_turn.get(r[0], []),
+            created_at=r[6],
         )
         for r in turn_rows
     ]
@@ -333,6 +335,9 @@ def get_session_full(session_id: uuid.UUID) -> SessionFull:
         persona_id=sess_row[5],
         status=sess_row[6],
         preference_profile=sess_row[7],
+        created_at=sess_row[8],
+        updated_at=sess_row[9],
+        max_turns=sess_row[10],
         turns=turns,
         feedback=feedback,
         metrics=metrics,
