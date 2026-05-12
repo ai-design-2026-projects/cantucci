@@ -19,19 +19,17 @@ The comparison is a **one-shot vector search**: the oracle's first message is em
 
 The central question is whether *how* the system selects its next question affects convergence speed and oracle satisfaction. In order to evaluate different approaches to question selection.
 
-**Fixed across all conditions:**
+**Fixed across all experiments:**
 - Retrieval: sentence-transformer + pgvector cosine similarity, top-K candidates
 - LLM clustering model and prompt template
 - State update logic in the Orchestrator, including drift detection
-- Convergence detection in the session assessor and the turn budget
 - Cognitive-load budget: ≤ 5 titles shown per turn, 1 binary question per turn
-- Show vs. ask vs. stop routing logic (only the *which title* selection changes)
 
-**What varies:** the criterion used by the Decision Agent to select the title to ask about when it has decided to ask.
+**What varies:** the criterion used by the Decision Agent and the Resolver Agent to select what to ask about each turn and when to stop. The cluster assignment and ambiguity scoring logic is the same across all conditions; only the selection rule changes.
 
 We are considering four types of selection criteria:
 
-- **Uncertainty-driven:** Select the title with the smallest gap between its top-two cluster soft-assignment scores. If a title scores 0.48 on cluster X and 0.45 on cluster Y, the system is nearly indifferent — that title is asked about first. *Hypothesis:* Targeting the most uncertain title maximises expected information gain per question. The oracle's answer resolves the largest possible mass of ambiguous assignments in one reply, leading to faster convergence.
+- **Uncertainty-driven:** Select the question based on title with the smallest gap between its top-two cluster soft-assignment scores. If a title scores 0.48 on cluster X and 0.45 on cluster Y, the system is nearly indifferent — that cluster assignment is maximally uncertain and therefore most likely to yield informative feedback.
 
 - **Random (control):** Select uniformly at random from the *ambiguous pool* — all titles where the gap between the top-two cluster scores is below a fixed threshold (configurable, default `0.2`). *Hypothesis:* Random selection within the ambiguous pool is the performance floor. A targeted strategy that cannot beat random is not worth its added complexity. This condition isolates the value of the *selection criterion* from the value of *restricting questions to ambiguous titles* at all.
 
@@ -130,7 +128,7 @@ Each agent/component is tested independently before the full conversational loop
 
 ### 5.1 Why this is hard
 
-Evaluating whether a cluster satisfies the oracle's desires is the central unsolved problem in conversational clustering. There is no external ground truth: the oracle *is* the objective function. Using a database-derived proxy (e.g., TMDB genre labels) as a stand-in for oracle preference systematically fails because oracle preferences are frequently cross-genre, mood-based, or director-driven in ways that genre taxonomies do not capture. This is well-documented in the CRS literature: static ground-truth approaches over-emphasise catalogue structure and under-emphasise the subjective, emergent nature of user preferences (Jannach et al., 2022; Wang et al., 2023).
+Evaluating whether a cluster satisfies the oracle's desires is the central unsolved problem in conversational clustering. There is no external ground truth: the oracle *is* the objective function. Using a database-derived proxy (e.g., TMDB genre labels) as a stand-in for oracle preference systematically fails because oracle preferences are frequently cross-genre, mood-based, or director-driven in ways that genre taxonomies do not capture. This is well-documented in the CRS literature: static ground-truth approaches over-emphasise catalogue structure and under-emphasise the subjective, emergent nature of user preferences 
 
 The question is not "does the cluster match the catalogue's label for this oracle?" but "does the cluster match what the oracle actually wants, given that the oracle may not have known what they wanted before the conversation started?" These are fundamentally different questions, and only the second one is meaningful.
 
@@ -138,26 +136,11 @@ The question is not "does the cluster match the catalogue's label for this oracl
 
 We track a portfolio of approaches as complementary signals rather than picking one. Each has known strengths and failure modes; no single approach is authoritative in isolation.
 
-**Approach 1 — Explicit acceptance (primary behavioral signal).** The oracle signals satisfaction explicitly (*"perfect"*, *"yes, that's it"*) or behaviorally (no corrective feedback for 2 consecutive turns). This is the cleanest, most direct signal available and is always the first criterion checked. It requires no proxy and no judge: the oracle's own behavior is the measurement. Weakness: it conflates genuine satisfaction with fatigue or giving up, particularly in long sessions. Behavioral convergence is therefore supplemented by the signals below, not replaced by them.
+**Approach 1 — Explicit acceptance (primary behavioral signal).** The oracle signals satisfaction explicitly (*"perfect"*, *"yes, that's it"*) or behaviorally (no corrective feedback for 2 consecutive turns).
 
-**Approach 2 — Pairwise probe (behavioral, no ground truth needed).** After convergence, the system (or the judge) samples pairs of titles from the final accepted cluster and asks the oracle: *"Do these two belong together, given what you told me you wanted?"* A high must-link agreement rate indicates that the cluster is internally coherent from the oracle's perspective; a high cannot-link rate on pairs straddling different output clusters indicates that the system's boundaries match the oracle's intuitions. This approach is grounded in the semi-supervised clustering literature (Wagstaff et al., 2001; Kim & Ghosh, 2017; Wang et al., 2022) and treats the oracle as a noisy pairwise comparator rather than a label source. For simulated oracles, pairwise probes are answered programmatically from the persona's hidden preference spec. For human oracles, a small sample of 10–15 pairs is presented post-session as a structured questionnaire. **Primary metric:** must-link agreement rate on 15 sampled within-cluster pairs; cannot-link agreement rate on 10 sampled across-cluster pairs (cluster boundary pairs from the final state).
+**Approach 2 — Pairwise probe (behavioral, no ground truth needed).** After convergence, the system (or the judge) samples pairs of titles from the final accepted cluster and asks the oracle: *"Do these two belong together, given what you told me you wanted?"* 
 
-**Approach 3 — Preference profile fidelity (after convergence).** When the session assessor produces a preference profile at session end, that profile is checked against what the oracle explicitly stated during the session. This is not pure self-reference: the check is between the *profile* (produced by the session assessor from the oracle's feedback log) and the *oracle's actual utterances* (the ground truth within the session). An LLM judge scores how completely and accurately the profile captures explicit rules, inferred preferences, and declared exceptions. For simulated oracles, the profile is also compared against the hidden persona spec. **Primary metric:** LLM-judge preference-rule recall score (1–5); for simulated oracles, rule coverage rate against hidden spec.
-
-**Approach 4 — Hidden-spec overlap for simulated oracles (weak external signal).** In simulated sessions, each oracle persona has a structured preference specification (genres, director styles, exclusions, exceptions) written before the session. After convergence, the titles in the accepted cluster are scored against this spec: for each title, a binary signal indicates whether it satisfies the spec's positive criteria and avoids the negative ones. This is a *weak* external signal because the spec is not oracle-driven and the mapping from spec to title is imperfect (a title may satisfy a spec it was not tagged for in the catalogue). It is reported as a secondary diagnostic alongside Approaches 1–3, not as a primary outcome. **Primary metric:** spec-satisfaction rate of titles in the converged cluster (fraction of titles that satisfy all positive and no negative criteria from the hidden spec).
-
-**Summary table:**
-
-| Approach | Oracle type | Ground truth needed | Primary metric | Role |
-|---|---|---|---|---|
-| Explicit acceptance | Human + simulated | None | Oracle satisfaction rate | Primary behavioral |
-| Pairwise probe | Human + simulated | None (oracle is comparator) | Must/cannot-link agreement | Primary outcome |
-| Preference profile fidelity | Human + simulated | Oracle utterances | LLM-judge recall score | Primary outcome |
-| Hidden-spec overlap | Simulated only | Hidden persona spec | Spec-satisfaction rate | Secondary / diagnostic |
-
-### 5.3 Position in the literature
-
-The standard evaluation paradigm for CRS — hide a target item, check if the system recommends it — is known to be poorly suited to subjective, preference-driven tasks. Wang et al. (2023) demonstrate that this protocol penalises systems that ask good clarifying questions rather than guessing early, which is exactly the behavior we want to encourage. Jannach et al. (2022) note that offline CRS evaluation systematically discards the interactive dimension that makes these systems useful. The pairwise probe approach used here is closest in spirit to COBRAS (Brus et al., 2018) and ABCDE (Ainslie et al., 2024), both of which evaluate clustering quality through oracle-answered same-cluster questions rather than against a fixed label set. The preference profile fidelity approach is closest to the iEvaLM framework (Wang et al., 2023), which proposes LLM-based user simulators and explainability evaluation as replacements for item-matching metrics.
+**Approach 4 — Hidden-spec overlap for simulated oracles (weak external signal).** In simulated sessions, each oracle persona has a structured preference specification (genres, director styles, exclusions, exceptions) written before the session. After convergence, the titles in the accepted cluster are scored against this spec: for each title, a binary signal indicates whether it satisfies the spec's positive criteria and avoids the negative ones. **Primary metric:** spec-satisfaction rate of titles in the converged cluster (fraction of titles that satisfy all positive and no negative criteria from the hidden spec).
 
 ---
 
@@ -176,8 +159,6 @@ The retrieval system (sentence-transformer embedding + pgvector cosine search) i
 | **Search latency (p95)** | Wall-clock time from query embedding to ranked list returned, over 100 repeated queries at the same catalogue size | < 200 ms (matches the NFR in the system spec) |
 
 **Hard-negative sanity check.** For 10 of the 30 queries, a deliberately wrong title is identified (a title a reasonable person would not recommend given the query). The check verifies that no hard-negative title appears in the top-5 for its query. Failure here indicates an embedding or indexing problem that would corrupt the session before any LLM call is made.
-
-**What is not evaluated here.** The retrieval system does not filter by oracle preferences — that is the Cluster Agent's job. The evaluation above tests only the embedding model's ability to retrieve thematically relevant titles from an unconstrained query. Filter correctness (year, genre, runtime) is tested in the Cluster Agent's component test (§4).
 
 ---
 
@@ -206,35 +187,6 @@ All quantitative claims carry **95% bootstrap confidence intervals**. Point esti
 
 ---
 
-## 9 Database schema for experiment reproducibility
-
-This section specifies the invariants that the experiment database must satisfy to support coherent replay, condition isolation, and audit. Column-level schema is left to the data model document (`docs/data_model.md`); only the logical structure and the reproducibility guarantees are specified here.
-
-**Entities required:**
-
-- **`personas`** — one row per simulated oracle persona. Stores the full preference specification, cognitive-load budget, and the random seed used to instantiate the persona. A persona row is write-once: it is created before the experiment run and never modified. If a persona needs to change, a new row is created with a new ID.
-
-- **`sessions`** — one row per conversation. Linked to exactly one persona (or `null` for human sessions) and exactly one experimental condition. Stores the session seed, the YAML config snapshot used for that session (serialised), and a status field (`running`, `converged`, `abandoned`, `budget_exhausted`). The config snapshot is what makes the session replayable: given the same seed and config, the same transcript is reproduced.
-
-- **`turns`** — one row per oracle turn within a session. Stores the full oracle utterance, the system's response, the action taken (`show` / `ask` / `stop`), the cognitive-load score for that turn, and a foreign key to the session. Turn rows are immutable once written.
-
-- **`cluster_snapshots`** — one row per turn, storing the full soft-assignment matrix as JSON. This is what makes clustering state replayable without re-running the LLM: any turn's clustering state can be reconstructed from its snapshot.
-
-- **`oracle_feedback`** — one row per feedback event within a turn. Stores the feedback type (`global`, `cluster`, `point`, `instructional`, `resolve_drift`), the target entity, and the content. Linked to its parent turn.
-
-- **`runs`** — one row per full experimental run (one invocation of the evaluation harness across all conditions and personas). Stores the git commit hash, the harness version, the start/end time, and a `completed` flag. All sessions created in a run reference their parent run ID.
-
-**Isolation invariants:**
-
-- No session shares working memory with any other session. All state for a session is reconstructible from its rows in `sessions`, `turns`, `cluster_snapshots`, and `oracle_feedback` alone — no in-memory caches, no module-level state.
-- Condition assignment is stored on the `sessions` row and never inferred from code. Ablating a condition means filtering by `condition_id`; it does not require any code change.
-- The persona spec stored in `personas` is the spec that was *actually used*, not the template. If the template changes between runs, old sessions are still replayable from their stored spec.
-- Every LLM call is logged with its prompt hash, model version, and token counts. A session can be re-scored (e.g., with a new LLM judge) without re-running the conversation, because the full turn history is persisted.
-
-**Replay guarantee.** Given a `session_id`, the command `python replay.py --session <id>` must reproduce the full transcript deterministically from the stored seed, config snapshot, and turn history, without any live LLM calls. This is the single cheapest check of experiment integrity.
-
----
-
 ## 10 LLM-as-Judge for automated benchmarking
 
 A dedicated **LLM-as-Judge** scores completed session transcripts on three dimensions that cannot be computed from logs alone:
@@ -252,29 +204,3 @@ The judge returns a structured JSON response with one score and a one-sentence r
 **Scope.** The judge does not replace deterministic metrics (turns to convergence, cognitive load, oracle satisfaction) — those are read directly from logs. It does not replace the pairwise probe or the human study. It is strictly an efficiency tool for scaling the ablation scoring.
 
 ---
-
-## 11 Null result policy
-
-A result where conversational refinement does not outperform the one-shot baseline is a valid, reportable finding — not a failure to be buried. If the primary claim does not hold, the report will state this directly, discuss plausible explanations (e.g., the oracle's first query is already specific enough that retrieval saturates quality), and present it as a contribution to understanding the limits of conversational clustering. Negative results are reported with the same confidence intervals and the same level of detail as positive ones.
-
----
-
-## References
-
-Ainslie et al. (2024). *ABCDE: Application-Based Cluster Diff Evals.* arXiv:2407.21430.
-
-Brus et al. (2018). *COBRAS: Fast, Iterative, Active Clustering with Pairwise Constraints.* arXiv:1803.11060.
-
-Jannach, D. et al. (2022). *Evaluating conversational recommender systems.* Artificial Intelligence Review. Springer.
-
-Kim, T. & Ghosh, J. (2017). *Semi-Supervised Active Clustering with Weak Oracles.* arXiv:1709.03202.
-
-Lajewska, W. et al. (2025). *On the Reliability of User-Centric Evaluation of Conversational Recommender Systems.* arXiv:2602.17264.
-
-Lajewska, W. et al. (2025). *Limitations of Current Evaluation Practices for Conversational Recommender Systems and the Potential of User Simulation.* SIGIR-AP 2025. arXiv:2510.05624.
-
-Wagstaff, K. et al. (2001). *Constrained K-means Clustering with Background Knowledge.* ICML 2001.
-
-Wang, Y. et al. (2022). *Oracle-guided Contrastive Clustering.* arXiv:2211.00409.
-
-Wang, Y. et al. (2023). *Rethinking the Evaluation for Conversational Recommendation in the Era of Large Language Models (iEvaLM).* arXiv:2305.13112.
