@@ -200,7 +200,9 @@ The pipeline runs in two stages to handle a catalogue of ~45,000 titles.
 On the first oracle message, the system embeds the query and retrieves the top-K most relevant movies by cosine similarity, producing a candidate pool of ~50–200 titles.
 We will consider also fine-tuned transformers for the movie domain like `fine-tuned_movie_retriever-all-minilm-l6-v2`.
 
-**Stage 2 — LLM clustering.** The LLM reads the candidate pool and assigns each title to 3–6 named clusters, with a soft confidence score per assignment. It also writes a short description for each cluster.
+**Stage 2 — Clustering.** The system produces a soft clustering of the candidate pool into N groups, using an hybrid approach:
+- A **clustering algorithm** (e.g., K-Means, HDBSCAN) produces an initial partitioning based on the embedding vectors alone;
+- The **Cluster Agent** then labels each cluster with a name and description, and adjusts the cluster boundaries by moving borderline titles based on the cluster's overall theme and the oracle's feedback history.
 
 On each subsequent turn, oracle feedback (**accept, reject, split, merge**) is injected as explicit constraints into the next clustering prompt. The embeddings never change — only the grouping and labels update. The config exposes a `representation.strategy` flag to swap the embedding model without touching the rest of the pipeline.
 
