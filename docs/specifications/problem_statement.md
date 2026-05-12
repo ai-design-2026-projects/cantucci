@@ -231,7 +231,6 @@ However, we will experiment different strategies in the **Decision Agent** to se
 For example:
 - Always ask until the oracle accepts, then show the full cluster
 - Always show the top 3 titles from the best cluster, then ask if the oracle wants to drill into it or see another cluster
-- Ask about the most popular title that is not in the best cluster — this tests whether popularity is a strong signal for the oracle
 
 ---
 
@@ -248,7 +247,7 @@ This gives the oracle three natural paths:
 - **Rule update** — the old rule is replaced; horror is now in scope.
 - **Reaffirm** — the oracle confirms the old rule and rejects the new title.
 
-Each resolution is logged as a new `oracle_feedback` row with `feedback_type = 'resolve_drift'`, keeping the full preference history — including reversals and exceptions — auditable for replay and the generalization profile.
+If the oracle preference is contradicting the old rule, the system should retrieve new top-K candidates based on the updated intent and re-cluster from scratch, rather than trying to patch the old clusters. This is because the original clusters were formed under a different intent and may not make sense with the new one. A fresh retrieval and clustering ensures the system's understanding is aligned with the oracle's current preferences.
 
 ---
 
@@ -266,7 +265,7 @@ Both the name and the description are stored as columns on the `clusters` table,
 
 ### Soft assignments
 
-The system does not assign each title to a single cluster with a hard label. Instead, every title in the candidate pool receives a **soft assignment**: a confidence score per cluster representing how strongly the LLM believes the title belongs there. The scores across all clusters for a given title sum to 1.
+The system does not assign each title to a single cluster with a hard label. Instead, every title in the candidate pool receives a **soft assignment**: a confidence score per cluster representing how strongly the LLM/cluster algorithm believes the title belongs there. The scores across all clusters for a given title sum to 1.
 
 For example, a film like *Parasite* might be assigned:
 
@@ -284,7 +283,7 @@ Soft scores are produced by the **Cluster Agent** in a structured JSON response 
 
 ### Cognitive load per turn
 
-The brief requires cognitive load to be budgeted from turn one, not discovered at study time. Every turn has a cost for the oracle — reading titles, evaluating a question, deciding how to respond. If that cost is too high the oracle disengages or gives low-quality feedback.
+Every turn has a cost for the oracle — reading titles, evaluating a question, deciding how to respond. If that cost is too high the oracle disengages or gives low-quality feedback.
 
 Cognitive load per turn is defined as three logged signals:
 
@@ -324,18 +323,6 @@ Knowing when to stop is as important as knowing what to ask. Stopping too early 
 - **Turn budget** — a hard cap configured per session in YAML (`session.max_turns`, default 15). This exists to bound cost and prevent sessions that drift without converging. When the budget is hit, the system presents the current best clustering as the final result and notifies the oracle that the session has ended.
 
 When convergence is declared, the session status is set to `converged`, the preference profile is produced, and no further oracle turns are accepted.
-
----
-
-### Agentic pattern
-
-Each turn follows a clear, repeatable sequence: retrieve a candidate pool → cluster those candidates → decide the next action → ask or recommend → update session state — then wait for the oracle's reply. Separating these steps prevents silent failures (for example, missed clustering on broad queries or undetected drift) and lets us test and improve each piece independently.
-
-The **Decision Agent** routes between **Recommend** and **Continue**. When continuing, the **Ambiguity Resolver** produces the question; when recommending, the **Orchestrator** presents the cluster output and records the result. The **Orchestrator** is the single state writer, keeping session history consistent and preventing duplicate questions.
-
-Role responsibilities are intentionally narrow: retrieval retrieves, clustering clusters, the Decision Agent routes, the Ambiguity Resolver clarifies, and the Orchestrator writes state. This modularity supports targeted experiments, robust validation, and fully auditable session histories.
-
-An **LLM Judge** evaluates sessions offline, independent from the main conversational loop.
 
 ---
 

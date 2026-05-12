@@ -17,17 +17,17 @@ The comparison is a **one-shot vector search**: the oracle's first message is em
 
 ## 3 Experimental conditions
 
-The central question is whether *how* the system selects its next question affects convergence speed and oracle satisfaction. All four conditions share the same conversational loop; only the routing logic inside `f_next_best_step` changes — specifically, the rule used to pick which title to ask about when the router decides to ask.
+The central question is whether *how* the system selects its next question affects convergence speed and oracle satisfaction. In order to evaluate different approaches to question selection.
 
 **Fixed across all conditions:**
 - Retrieval: sentence-transformer + pgvector cosine similarity, top-K candidates
 - LLM clustering model and prompt template
-- State update logic (`f_next_state`), including drift detection
-- Convergence detection (`f_assess`) and turn budget
+- State update logic in the Orchestrator, including drift detection
+- Convergence detection in the session assessor and the turn budget
 - Cognitive-load budget: ≤ 5 titles shown per turn, 1 binary question per turn
 - Show vs. ask vs. stop routing logic (only the *which title* selection changes)
 
-**What varies:** the criterion used by `f_next_best_step` to select the title to ask about when it has decided to ask.
+**What varies:** the criterion used by the Decision Agent to select the title to ask about when it has decided to ask.
 
 We are considering four types of selection criteria:
 
@@ -43,9 +43,9 @@ We are considering four types of selection criteria:
 
 ## 4 Component-level evaluation
 
-Each `f_*` function is tested independently before the full conversational loop is evaluated. The goal is to isolate failures: a bad session could stem from poor retrieval, misclustered assignments, a bad routing decision, or a broken state update. Without component-level checks, these causes are conflated. All component tests run on a fixed held-out slice of the catalogue and a set of 10 scripted oracle transcripts; they are re-run after any prompt change.
+Each agent/component is tested independently before the full conversational loop is evaluated. The goal is to isolate failures: a bad session could stem from poor retrieval, misclustered assignments, a bad routing decision, or a broken state update. Without component-level checks, these causes are conflated. All component tests run on a fixed held-out slice of the catalogue and a set of 10 scripted oracle transcripts; they are re-run after any prompt change.
 
-### 4.1 `f_output` — Initial soft clustering
+### 4.1 Cluster Agent — Initial soft clustering
 
 **What it does:** Produces initial soft clustering of candidates into 3–6 named groups.
 
@@ -62,7 +62,7 @@ Each `f_*` function is tested independently before the full conversational loop 
 - Structural pass rate (must = 100%)
 - LLM-judge coherence score ≥ 3/5 on held-out sample
 
-### 4.2 `f_uncertainty` — Assignment ambiguity scoring
+### 4.2 Decision Agent — Assignment ambiguity scoring
 
 **What it does:** Scores each title by assignment ambiguity.
 
@@ -74,7 +74,7 @@ Each `f_*` function is tested independently before the full conversational loop 
 
 **Primary metric:** Spearman ρ between predicted and ground-truth uncertainty rank.
 
-### 4.3 `f_next_best_step` — Turn routing and title selection
+### 4.3 Decision Agent — Turn routing and title selection
 
 **What it does:** Routes each turn to show / ask / stop and selects the title to ask about.
 
@@ -90,7 +90,7 @@ Each `f_*` function is tested independently before the full conversational loop 
 - Action-rule compliance rate
 - Mean cognitive load per turn
 
-### 4.4 `f_next_state` — State update and drift detection
+### 4.4 Orchestrator — State update and drift detection
 
 **What it does:** Updates session state from oracle reply; detects preference drift.
 
@@ -104,7 +104,7 @@ Each `f_*` function is tested independently before the full conversational loop 
 - Drift detection rate (target ≥ 0.80)
 - False-positive rate on non-contradictory turns
 
-### 4.5 `f_assess` — Convergence declaration and preference profiling
+### 4.5 Session Assessor — Convergence declaration and preference profiling
 
 **What it does:** Declares convergence; produces preference profile.
 
@@ -122,7 +122,7 @@ Each `f_*` function is tested independently before the full conversational loop 
 
 ---
 
-**Engineering notes.** Each component is tested with a minimal stub harness that bypasses the full pipeline: `f_next_state` can be called with a frozen session snapshot and a synthetic oracle reply without needing a live LLM session. This is the "dry-run mode" from the agentic harness spec. All component test runs are logged under `run_type = component_test` with the same structured logger used in full sessions.
+**Engineering notes.** Each component is tested with a minimal stub harness that bypasses the full pipeline: the Orchestrator can be called with a frozen session snapshot and a synthetic oracle reply without needing a live LLM session. This is the "dry-run mode" from the agentic harness spec. All component test runs are logged under `run_type = component_test` with the same structured logger used in full sessions.
 
 ---
 
@@ -142,7 +142,7 @@ We track a portfolio of approaches as complementary signals rather than picking 
 
 **Approach 2 — Pairwise probe (behavioral, no ground truth needed).** After convergence, the system (or the judge) samples pairs of titles from the final accepted cluster and asks the oracle: *"Do these two belong together, given what you told me you wanted?"* A high must-link agreement rate indicates that the cluster is internally coherent from the oracle's perspective; a high cannot-link rate on pairs straddling different output clusters indicates that the system's boundaries match the oracle's intuitions. This approach is grounded in the semi-supervised clustering literature (Wagstaff et al., 2001; Kim & Ghosh, 2017; Wang et al., 2022) and treats the oracle as a noisy pairwise comparator rather than a label source. For simulated oracles, pairwise probes are answered programmatically from the persona's hidden preference spec. For human oracles, a small sample of 10–15 pairs is presented post-session as a structured questionnaire. **Primary metric:** must-link agreement rate on 15 sampled within-cluster pairs; cannot-link agreement rate on 10 sampled across-cluster pairs (cluster boundary pairs from the final state).
 
-**Approach 3 — Preference profile fidelity (after convergence).** When `f_assess` produces a preference profile at session end, that profile is checked against what the oracle explicitly stated during the session. This is not pure self-reference: the check is between the *profile* (produced by `f_assess` from the oracle's feedback log) and the *oracle's actual utterances* (the ground truth within the session). An LLM judge scores how completely and accurately the profile captures explicit rules, inferred preferences, and declared exceptions. For simulated oracles, the profile is also compared against the hidden persona spec. **Primary metric:** LLM-judge preference-rule recall score (1–5); for simulated oracles, rule coverage rate against hidden spec.
+**Approach 3 — Preference profile fidelity (after convergence).** When the session assessor produces a preference profile at session end, that profile is checked against what the oracle explicitly stated during the session. This is not pure self-reference: the check is between the *profile* (produced by the session assessor from the oracle's feedback log) and the *oracle's actual utterances* (the ground truth within the session). An LLM judge scores how completely and accurately the profile captures explicit rules, inferred preferences, and declared exceptions. For simulated oracles, the profile is also compared against the hidden persona spec. **Primary metric:** LLM-judge preference-rule recall score (1–5); for simulated oracles, rule coverage rate against hidden spec.
 
 **Approach 4 — Hidden-spec overlap for simulated oracles (weak external signal).** In simulated sessions, each oracle persona has a structured preference specification (genres, director styles, exclusions, exceptions) written before the session. After convergence, the titles in the accepted cluster are scored against this spec: for each title, a binary signal indicates whether it satisfies the spec's positive criteria and avoids the negative ones. This is a *weak* external signal because the spec is not oracle-driven and the mapping from spec to title is imperfect (a title may satisfy a spec it was not tagged for in the catalogue). It is reported as a secondary diagnostic alongside Approaches 1–3, not as a primary outcome. **Primary metric:** spec-satisfaction rate of titles in the converged cluster (fraction of titles that satisfy all positive and no negative criteria from the hidden spec).
 
@@ -177,7 +177,7 @@ The retrieval system (sentence-transformer embedding + pgvector cosine search) i
 
 **Hard-negative sanity check.** For 10 of the 30 queries, a deliberately wrong title is identified (a title a reasonable person would not recommend given the query). The check verifies that no hard-negative title appears in the top-5 for its query. Failure here indicates an embedding or indexing problem that would corrupt the session before any LLM call is made.
 
-**What is not evaluated here.** The retrieval system does not filter by oracle preferences — that is `f_output`'s job. The evaluation above tests only the embedding model's ability to retrieve thematically relevant titles from an unconstrained query. Filter correctness (year, genre, runtime) is tested in `f_output`'s component test (§4).
+**What is not evaluated here.** The retrieval system does not filter by oracle preferences — that is the Cluster Agent's job. The evaluation above tests only the embedding model's ability to retrieve thematically relevant titles from an unconstrained query. Filter correctness (year, genre, runtime) is tested in the Cluster Agent's component test (§4).
 
 ---
 
@@ -190,7 +190,7 @@ These metrics are computed over full sessions, across all conditions, after the 
 | **Turns to convergence** | Count of oracle turns from session start to convergence signal (explicit or behavioural); capped at `session.max_turns` | Primary |
 | **Cognitive load per turn** | Sum of: titles shown (weight 1 each) + clusters shown (weight 1 each) + question complexity (1 = binary, 2 = open); logged per turn, averaged across the session | Primary |
 | **Oracle satisfaction rate** | Fraction of sessions where convergence is declared before the turn budget is exhausted | Primary |
-| **Drift detection rate** | In simulated sessions with injected contradictions, fraction of contradictions correctly surfaced by `f_next_state` before being silently overridden | Secondary |
+| **Drift detection rate** | In simulated sessions with injected contradictions, fraction of contradictions correctly surfaced by the Orchestrator before being silently overridden | Secondary |
 | **LLM-judge scores** | Clustering coherence, question quality, preference profile fidelity — each 1–5, averaged across sessions per condition (see §8) | Secondary |
 | **Silhouette score** | How well each title fits its assigned cluster versus the next closest one (−1 = wrong cluster, +1 = clearly correct); tracked per turn to monitor whether cluster assignments are geometrically coherent | Diagnostic only |
 
@@ -243,7 +243,7 @@ A dedicated **LLM-as-Judge** scores completed session transcripts on three dimen
 |---|---|---|
 | **Clustering coherence** | Are the named clusters internally consistent and meaningfully distinct from each other throughout the session? | 1–5 |
 | **Question quality** | Are the system's questions targeted, binary, and non-redundant? | 1–5 |
-| **Preference profile fidelity** | Does the `f_assess` output accurately reflect the oracle's stated and inferred rules? | 1–5 |
+| **Preference profile fidelity** | Does the session-end preference profile accurately reflect the oracle's stated and inferred rules? | 1–5 |
 
 The judge returns a structured JSON response with one score and a one-sentence rationale per dimension. It operates entirely outside the conversational loop — it reads transcripts, scores them, and has no influence on any session.
 
