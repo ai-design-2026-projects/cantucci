@@ -51,7 +51,8 @@ def _director(crew_list: list) -> str:
     return ""
 
 
-def _composite_text(row) -> str:
+def _composite_text(row: pd.Series) -> str:
+    """Combine multiple text fields into one for embedding."""
     genres_str = " ".join(g.get("name", "") for g in (row["genres"] or []))
     cast_str = " ".join(row["top3_cast"])
     parts = [
@@ -63,7 +64,8 @@ def _composite_text(row) -> str:
         cast_str,
         row["director"],
     ]
-    return " ".join(p.strip() for p in parts if p.strip())
+    parts_str = [str(p).strip() for p in parts if not pd.isna(p)]
+    return " ".join(p for p in parts_str if p)
 
 
 def prepare(raw_dir: Path) -> pd.DataFrame:
@@ -116,6 +118,8 @@ def prepare(raw_dir: Path) -> pd.DataFrame:
     # Merge credits and keywords
     for df in (credits, kw_df):
         df["id"] = pd.to_numeric(df["id"], errors="coerce")
+    credits = credits.drop_duplicates(subset=["id"], keep="last")
+    kw_df = kw_df.drop_duplicates(subset=["id"], keep="last")
     credits["cast"] = credits["cast"].apply(_parse_list)
     credits["crew"] = credits["crew"].apply(_parse_list)
     kw_df["keywords"] = kw_df["keywords"].apply(_parse_list)
@@ -137,10 +141,12 @@ def prepare(raw_dir: Path) -> pd.DataFrame:
     result["bayesian_rating"] = (vc * va + m * C) / (vc + m)
 
     result["composite_text"] = result.apply(_composite_text, axis=1)
+    result = result.drop_duplicates(subset=["id"], keep="last")
 
     # Post-condition guards
     assert len(result) >= 40_000, f"Expected ≥40k rows after cleaning, got {len(result)}"
     assert result["id"].isna().sum() == 0, "NaN ids remain after cleaning"
+    assert result["id"].is_unique, "Duplicate ids remain after cleaning"
     assert (result["composite_text"].str.strip() == "").sum() == 0, "Empty composite_text rows"
 
     log.info("cleaning complete", extra={"rows": len(result)})

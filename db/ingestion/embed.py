@@ -12,6 +12,7 @@ log = logging.getLogger(__name__)
 _DEFAULT_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 _EXPECTED_DIM = 384
 
+# Implement a SINGLETON cache for loaded models to avoid redundant loading and memory usage
 _cache: dict[str, "SentenceTransformer"] = {}
 
 
