@@ -133,51 +133,85 @@ class Orchestrator:
         turn_id = uuid4()
         turn_number = len(full.turns) + 1
 
+        clusters = cluster_agent.cluster(
+            session_id=session_id,
+            run_id=full.run_id,
+            turn_id=turn_id,
+            turn_number=turn_number,
+            candidates=[],
+            config_hash=full.config_hash,
+            model_version=full.model_version,
+        )
+
         decision = decision_agent.decide(
             session_id=session_id,
             run_id=full.run_id,
             turn_id=turn_id,
             turn_number=turn_number,
             user_query=user_message,
-            clusters=[],
+            clusters=clusters,
             config_hash=full.config_hash,
             model_version=full.model_version,
         )
 
-        llm_out = agent.respond(
-            session_id=session_id,
-            run_id=full.run_id,
-            turn_id=turn_id,
-            turn_number=turn_number,
-            user_message=user_message,
-            history=full.turns,
-            persona_id=full.persona_id,
-            config_hash=full.config_hash,
-            model_version=full.model_version,
-            max_turns=full.max_turns,
-            decision=decision,
-        )
+        reply: str
+        converged: bool
+        preference_profile: dict | None
 
-        if llm_out.converged:
-            step_type = StepType.stop
-        elif decision.action == DecisionAction.recommend:
-            step_type = StepType.show
-        else:
+        if decision.action == DecisionAction.continue_:
+            prior_questions = [
+                t.assistant_message
+                for t in full.turns
+                if t.step_type == StepType.ask.value and t.assistant_message
+            ]
+            question = ambiguity_agent.generate_question(
+                session_id=session_id,
+                run_id=full.run_id,
+                turn_id=turn_id,
+                turn_number=turn_number,
+                user_query=user_message,
+                clusters=clusters,
+                entropy_score=decision.entropy_score,
+                prior_questions=prior_questions,
+                config_hash=full.config_hash,
+                model_version=full.model_version,
+            )
+            reply, converged, preference_profile = question.question_text, False, None
             step_type = StepType.ask
+        else:
+            llm_out = agent.respond(
+                session_id=session_id,
+                run_id=full.run_id,
+                turn_id=turn_id,
+                turn_number=turn_number,
+                user_message=user_message,
+                history=full.turns,
+                persona_id=full.persona_id,
+                config_hash=full.config_hash,
+                model_version=full.model_version,
+                max_turns=full.max_turns,
+                decision=decision,
+            )
+            reply, converged, preference_profile = (
+                llm_out.reply,
+                llm_out.converged,
+                llm_out.preference_profile,
+            )
+            step_type = StepType.stop if converged else StepType.show
 
         state_tools.record_turn(
             session_id=session_id,
             turn_number=turn_number,
             user_message=user_message,
-            assistant_message=llm_out.reply,
+            assistant_message=reply,
             step_type=step_type.value,
-            converged=llm_out.converged,
+            converged=converged,
             turn_id=turn_id,
         )
 
-        if llm_out.converged:
-            assert llm_out.preference_profile is not None  # guaranteed by agent.respond
-            state_tools.declare_convergence(session_id, llm_out.preference_profile)
+        if converged:
+            assert preference_profile is not None  # guaranteed by agent.respond
+            state_tools.declare_convergence(session_id, preference_profile)
 
         now = datetime.now(timezone.utc)
         log.info(
@@ -186,7 +220,7 @@ class Orchestrator:
                 "session_id": str(session_id),
                 "turn_number": turn_number,
                 "step_type": step_type.value,
-                "converged": llm_out.converged,
+                "converged": converged,
             },
         )
         return TurnResult(
@@ -194,9 +228,9 @@ class Orchestrator:
             session_id=session_id,
             turn_number=turn_number,
             user_message=user_message,
-            assistant_message=llm_out.reply,
+            assistant_message=reply,
             step_type=step_type,
-            converged=llm_out.converged,
+            converged=converged,
             created_at=now,
         )
 
