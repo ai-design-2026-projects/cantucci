@@ -86,7 +86,7 @@ Stdlib `logging`, configured once in `src/logging_setup.py`. One JSON line per r
 
 **Where to log:**
 - At the HTTP boundary: log call and outcome; `deviation()` on unexpected branches; `log.error(..., exc_info=True)` if the underlying call raises.
-- Inside `agents/` (`f_*`): log deviations and decisions (fallbacks, retries, drift events) at WARNING; successes at DEBUG.
+- Inside each agent dir: log deviations and decisions (fallbacks, retries, drift events) at WARNING; successes at DEBUG.
 - Never log on both sides of a re-raise. Log at the layer that *handles* the exception, not every layer it passes through.
 
 ---
