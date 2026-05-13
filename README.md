@@ -68,8 +68,8 @@ The embedding step runs `sentence-transformers/all-MiniLM-L6-v2` over ~45k movie
 **Prerequisites:** `CINEPAL_ARTIFACTS_REPO` set in `.env`. `HF_TOKEN` only required for private repos.
 
 ```bash
-python -m db.apply            # apply migrations (idempotent)
-python -m db.ingest           # HF download → ingest mini (200 popular movies; dev default)
+python -m db.apply              # apply migrations (idempotent)
+python -m db.ingest             # HF download → ingest mini (200 popular movies; dev default)
 python -m db.ingest --set main  # HF download → ingest full production set (~40k movies)
 ```
 

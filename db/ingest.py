@@ -94,7 +94,9 @@ def run_from_artifact(name: str) -> None:
 def run_full(args: argparse.Namespace) -> None:
     """Download from Kaggle, clean, split, embed all sets, save artifacts, optionally ingest."""
     ARTIFACTS_DIR.mkdir(parents=True, exist_ok=True)
-    representation = get_settings().representation
+    settings = get_settings()
+    representation = settings.representation
+    split_config = settings.split
 
     if not args.force_download:
         download.fetch(RAW_DATA_DIR)
@@ -104,9 +106,9 @@ def run_full(args: argparse.Namespace) -> None:
     df = clean.prepare(RAW_DATA_DIR)
     main_df, mini_df, eval_df = split.three_way(
         df,
-        mini_size=args.mini_size,
-        eval_frac=args.eval_frac,
-        seed=args.seed,
+        mini_size=split_config.mini_size if args.mini_size is None else args.mini_size,
+        eval_frac=split_config.eval_frac if args.eval_frac is None else args.eval_frac,
+        seed=split_config.seed if args.seed is None else args.seed,
     )
 
     all_texts = list(main_df["composite_text"]) + list(eval_df["composite_text"])
@@ -162,16 +164,16 @@ def _parse_args() -> argparse.Namespace:
         help="(kaggle only) Re-download raw data even if already present.",
     )
     p.add_argument(
-        "--mini-size", type=int, default=200, metavar="N",
-        help="(kaggle only) Number of movies in the mini set (default: 200).",
+        "--mini-size", type=int, default=None, metavar="N",
+        help="(kaggle only) Number of movies in the mini set (default: config split.mini_size).",
     )
     p.add_argument(
-        "--eval-frac", type=float, default=0.10, metavar="F",
-        help="(kaggle only) Fraction of the dataset held out for evaluation (default: 0.10).",
+        "--eval-frac", type=float, default=None, metavar="F",
+        help="(kaggle only) Fraction of the dataset held out for evaluation (default: config split.eval_frac).",
     )
     p.add_argument(
-        "--seed", type=int, default=42,
-        help="(kaggle only) Random seed for reproducible splits (default: 42).",
+        "--seed", type=int, default=None,
+        help="(kaggle only) Random seed for reproducible splits (default: config split.seed).",
     )
     p.add_argument(
         "--embed-batch-size", type=int, default=256, metavar="B",

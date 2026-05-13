@@ -86,6 +86,20 @@ class RetrievalConfig(BaseModel):
     top_k: int
 
 
+class SplitConfig(BaseModel):
+    """Dataset-generation split parameters.
+
+    Attributes:
+        mini_size: Number of rows kept in the mini subset.
+        eval_frac: Fraction of the dataset reserved for evaluation holdout.
+        seed: Random seed for the split.
+    """
+
+    mini_size: int
+    eval_frac: float
+    seed: int
+
+
 class RepresentationConfig(BaseModel):
     """Embedding model configuration.
     Attributes:
@@ -123,6 +137,7 @@ class Settings(BaseModel):
         model:          LLM model parameters.
         session:        Session runtime limits.
         retrieval:      Vector-search parameters.
+        split:          Dataset-generation split parameters.
         representation: Embedding model configuration.
         clustering:     HDBSCAN parameters.
     """
@@ -130,6 +145,7 @@ class Settings(BaseModel):
     model: ModelConfig
     session: SessionConfig
     retrieval: RetrievalConfig
+    split: SplitConfig
     representation: RepresentationConfig
     clustering: ClusteringConfig
 
