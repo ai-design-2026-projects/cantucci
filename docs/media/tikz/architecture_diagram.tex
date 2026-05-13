@@ -74,13 +74,19 @@
     % ---- Decision Agent to Orchestrator (feedback loop) ----
     \draw[arrow] (decision.north) |-
         (orchestratorDown3 -| decision.north) --
-        node[left, pos=0.3, font=\footnotesize] {ASK / SHOW / STOP}
+        node[left, pos=0.3, font=\footnotesize] {SHOW}
         (orchestrator.south);
 
     % ---- Resolver Agent <-> Decision Agent (horizontal, same level) ----
-    \draw[biarrow] (resolver.east) --
-        node[above, pos=0.5, font=\footnotesize] {Ambiguity\\Resolution}
-        (decision.west);
+    \draw[arrow] (decision.west) |-
+        node[above, pos=0.75, font=\footnotesize] {ASK}
+        (resolver.east);
+
+    % ---- Resolver Agent to Orchestrator (feedback loop) ----
+    \draw[arrow] (resolver.north) |-
+        node[left, pos=0.3, font=\footnotesize] {Question}
+        ([yshift=-0.25cm]orchestrator.west -| resolver.north) --
+        ([yshift=-0.25cm]orchestrator.west);
 
     % --- Orchestrator to Cluster Agent ---
     \coordinate (orchestratorLeft) at ([xshift=-7cm, yshift=0]orchestrator.west);
@@ -96,7 +102,7 @@
 
     % ---- cluster <-> Retrieval (left, entering from north) ----
     \draw[biarrow] ([xshift=0cm]cluster.south) --
-        node[left, pos=0.5, font=\footnotesize] {Retrieve /\\Top-K}
+        node[left, pos=0.5, font=\footnotesize] {Retrieve \\Top-K}
         (retrieval.north);
 
     % ---- Retrieval <-> Database (horizontal, same level) ----

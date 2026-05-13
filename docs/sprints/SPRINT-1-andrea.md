@@ -1,4 +1,4 @@
-# CinePal – Sprint 1 | Davide Donà
+# CinePal – Sprint 1 | Andrea Blushi
 
 ## Overview
 The first sprint focused on laying the groundwork for CinePal: establishing project documentation, configuring the development environment, and delivering an initial MVP for the movie recommendation system.
@@ -25,6 +25,3 @@ My hands-on work centered on the following components:
 - **Minimal Frontend** – I created a minimal frontend using React to allow a human user to interact with the system in order to have a more structured overview of the system's capabilities and to test the backend components in a more user-friendly way. 
 *[PR #5](https://github.com/ai-design-2026-projects/cantucci/issues/5)*
 
-## What's Next
-At the moment, this is still a basic implementation that serves as a baseline for the next sprints, but several behaviors described in the documentation are not yet implemented.
-The focus of the next sprint will be to iterate toward a first complete version, starting also by setting up an evaluation framework.
