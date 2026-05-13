@@ -59,21 +59,40 @@ pytest tests/
 
 ### Catalogue Ingestion
 
+The embedding step runs `sentence-transformers/all-MiniLM-L6-v2` over ~45k movies and is slow on CPU. **The team default is to embed once on a GPU and distribute the artifacts via Hugging Face Datasets.** The full-pipeline path is still available for reproducibility or when artifacts need to be regenerated.
+
+#### Path A — fetch pre-built artifacts (recommended)
+
+**Prerequisites:** `CINEPAL_ARTIFACTS_REPO` set in `.env`. `HF_TOKEN` only required for private repos.
+
+```bash
+python -m db.apply                                  # apply migrations (idempotent)
+python -m db.ingestion.fetch                        # download data/artifacts/*.parquet from HF
+python -m db.ingest --ingest all --from-artifact    # ingest main + mini into DB
+```
+
+For dev/CI (200-movie subset only):
+
+```bash
+python -m db.ingest --ingest mini --from-artifact
+```
+
+#### Path B — full local pipeline (slow; regenerates artifacts)
+
 **Prerequisites:** Kaggle credentials at `~/.kaggle/kaggle.json` (or `KAGGLE_USERNAME` / `KAGGLE_KEY` env vars).
 
 ```bash
 # Full pipeline: download → clean → embed → ingest main set into DB
 python -m db.ingest
 
-# Produce artifacts only (no DB writes) — useful to pre-generate data/artifacts/
+# Produce artifacts only (no DB writes) — useful when re-publishing to HF from Colab
 python -m db.ingest --no-ingest
-
-# Fast dev/CI path: ingest only the 200-movie mini set (requires artifacts to exist)
-python -m db.ingest --ingest mini
 
 # Skip re-download if data/raw/ is already populated
 python -m db.ingest --no-download
 ```
+
+To regenerate artifacts using a GPU, open `notebooks/embed_in_colab.ipynb` in Google Colab (Runtime → T4 GPU), run all cells, and the notebook will upload fresh artifacts to the configured HF repo.
 
 The pipeline writes three parquet files under `data/artifacts/`:
 
