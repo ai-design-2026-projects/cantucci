@@ -10,9 +10,10 @@ Every agent must call ``llm_harness.call()`` — never instantiate an OpenAI
 - A ``dry_run`` mode that returns a canned response without hitting the API,
   used by component tests.
 
-The OpenAI client is constructed inside ``call()`` on every invocation so
-there is no module-level mutable state (which would bleed across sessions).
-The overhead is negligible compared to a live network round-trip.
+The OpenAI client is a module-level singleton so the underlying ``httpx``
+connection pool is reused across calls, saving TCP + TLS setup per round-trip.
+The client itself carries no per-session state — only the API key — so
+reuse is safe.
 """
 
 import logging
@@ -158,9 +159,15 @@ def call(
     raise last_exc  # type: ignore[misc]
 
 
+_openai_client: openai.OpenAI | None = None
+
+
 def _client() -> openai.OpenAI:
-    """Construct a fresh OpenAI client using the configured API key."""
-    return openai.OpenAI(api_key=openai_api_key())
+    """Return the shared OpenAI client, creating it on first call."""
+    global _openai_client
+    if _openai_client is None:
+        _openai_client = openai.OpenAI(api_key=openai_api_key())
+    return _openai_client
 
 
 def _backoff(attempt: int) -> float:
