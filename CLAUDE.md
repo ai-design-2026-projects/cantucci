@@ -4,31 +4,101 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-**Conversational Clustering** — an AI system that clusters a dataset by *conversing* with a human (the **oracle**) who is the sole judge of quality. There is no intrinsic ground truth; the oracle's acceptance *is* the objective function.
-
-Course project for "Designing Large Scale AI Systems" (Prof. Fabio Casati). Authors: Davide Donà, Andrea Blushi. Declared profile: **build-heavy** (see `docs/requirements/deliverables.md` §2) — the system is the contribution, so engineering quality, UI, and robustness carry more weight than a long related-work survey.
-
-**Current status:** DB layer and catalogue ingestion implemented (`db/migrations/`, `db/apply.py`, `db/ingest.py`). Agent logic, HTTP layer, and UI are next.
+**CinePal — Conversational Clustering** — an AI system that clusters a movie catalogue by *conversing* with a human (the **oracle**) who is the sole judge of quality. There is no intrinsic ground truth; the oracle's acceptance *is* the objective function.
 
 ---
 
-## Canonical docs — read before designing
+## Repository layout
 
-### ALWAYS READ — source of truth
-These contain implementation details and are consulted when designing or implementing specific components:
+```
+backend/
+  app.py               FastAPI entry (lifespan wires logging, orchestrator, embedder preload)
+  settings.py          Pydantic Settings + EnvSettings; YAML config loader + config hash
+  logging_setup.py     configure_logging() + log_llm_call() helper
+  exceptions.py        SessionNotFound, SessionNotConverged, MovieNotFound
+  api/                 ONLY layer that runs SQL (db, sessions, runs, eval, retrieval, movies)
+  models/              Pydantic schemas + domain types (sessions, clusters, runs, eval, llm, …)
+  llm/llm_harness.py   Single gateway for all LLM calls; cost guard; retries; dry_run mode
+  orchestrator/        Orchestrator + convergence policy; tools/{feedback,policy,render,state}
+  cluster/             Cluster agent; tools/{cluster_describer,soft_cluster_engine,…}
+  decision/            Decision agent; tools/{entropy_calculator,relevance_scorer}
+  ambiguity/           Ambiguity agent
+  retrieval/           Retrieval agent; tools/{vector_search,query_reformulator,…}
+  routers/sessions.py  HTTP endpoints: POST /sessions, POST /sessions/{id}/turns, GET /sessions/{id}
+configs/default.yaml   Active experimental condition (model, session, retrieval, clustering, …)
+db/
+  migrations/00X_*.sql Numbered SQL; apply.py runs them; never edit applied files
+  apply.py             Migration runner (idempotent)
+  ingest.py            Single ingestion entry point
+  ingestion/           download → clean → split → embed → load; fetch.py pulls HF artifacts
+frontend/              React + Vite + TypeScript; zustand + react-query; vitest
+tests/                 agents/, api/, cluster/, db/, retrieval/ — Postgres via testcontainers
+notebooks/embed_in_colab.ipynb  GPU embedding path; uploads parquet artifacts to HF
+```
 
-- `docs/specifications/architecture/data_schema.md` — MUST be READ before designing the DB layer or any code that interacts with it. Database schema, data types, session / turn / feedback entities, reproducibility invariants.
-- `docs/specifications/architecture/api.md` — MUST BE READ before designing any code that implements or calls these interfaces. System interfaces: input/output contracts for `f_*` functions, session harness API, LLM call signatures.
-- `docs/specifications/architecture/architecture.md` — MUST BE READ before designing any component, to understand its role and interactions in the system. System block diagram and component relationships.
+---
 
-### Reference — read on demand
-These files define the project requirements and evaluation strategy. When a user request conflicts with them, surface the conflict before changing them.
+## Commands
 
-- `docs/requirements/conversational_clustering.md` — project brief: MVB, `f_*` function decomposition, oracle feedback levels, evaluation strategy.
-- `docs/requirements/deliverables.md` — what ships (code+UI, data artifacts, findings, report, presentation), build-heavy vs study-heavy framing, sprint rules, grading criteria.
-- `docs/requirements/universal_scaffolding.md` — the 13 mandatory components. "Minimum acceptable" bullets per section are the floor, not the goal.
-- `docs/specifications/problem_statement.md` — authoritative design spec: data model, agentic pattern, evaluation strategy, edge cases, and requirements summary (§8). When it conflicts with the above, raise the discrepancy before acting.
-- `docs/specifications/evaluation.md` — detailed evaluation protocol: component-level tests, oracle satisfaction metrics, LLM-as-judge validation, experimental conditions A–D, system-level metrics, human study design.
+### Backend
+
+```bash
+pip install -r requirements.txt
+
+python -m db.apply              # apply migrations (idempotent)
+python -m db.ingest             # fetch pre-built HF artifacts → ingest mini (dev default)
+python -m db.ingest --set main  # ingest full ~40k set
+python -m db.ingest --source kaggle       # regenerate artifacts locally (slow)
+python -m db.ingest --source kaggle --no-db  # build artifacts only, no DB writes
+
+uvicorn backend.app:app --reload   # API server; Swagger at /docs
+
+pytest tests/                              # full suite
+pytest tests/api/test_sessions_api.py::test_name  # single test
+pytest -k "fragment"                       # filter by name
+```
+
+### Frontend (run from `frontend/`)
+
+```bash
+npm install
+npm run dev         # Vite dev server
+npm run build       # tsc -b && vite build
+npm run typecheck
+npm test            # vitest (single run)
+npm run test:watch
+```
+
+### Key env vars (full list in `.env.example`)
+
+| Variable | Required | Purpose |
+|---|---|---|
+| `DATABASE_URL` | yes | Postgres connection string |
+| `OPENAI_API_KEY` | yes (live) | LLM calls |
+| `CONFIG_PATH` | no | Override active YAML config (default `configs/default.yaml`) |
+| `LOG_LEVEL` | no | `DEBUG \| INFO \| WARNING \| ERROR \| CRITICAL` (default `INFO`) |
+| `CINEPAL_ARTIFACTS_REPO` | ingestion | HF dataset repo id |
+| `HF_TOKEN` | ingestion | Only for private HF repos |
+| `KAGGLE_USERNAME` / `KAGGLE_KEY` | kaggle path | Local artifact regen only |
+
+---
+
+## Architecture — things that span files
+
+**Per-turn flow** (orchestrator is the sole DB writer):
+Oracle → `routers/sessions.py` → `Orchestrator.run_turn` → Retrieval Agent → Cluster Agent → Decision Agent → (Ambiguity Agent if *continue*) → Orchestrator writes turn / clusters / feedback → response to client. Sub-agents are read-only.
+
+**Replayability contract**: every session row stores `seed` + full YAML `config_snapshot`. `runs.config_hash` is the SHA-256 prefix from `backend.settings.get_config_hash()`. Any non-deterministic change to the turn path breaks this and must be flagged.
+
+**Config → code path**: `configs/<name>.yaml` is loaded by `backend.settings.get_settings()` into typed Pydantic models (`ModelConfig`, `SessionConfig`, `ClusteringConfig`, …). `get_env()` is separate — secrets only, via pydantic-settings. Switching experimental condition = set `CONFIG_PATH`, never edit code.
+
+**Prompts**: each agent owns a `prompts/` subdir of versioned Jinja files (e.g. `backend/orchestrator/prompts/orchestrator_system_v1.j2`). `backend.settings.prompts_dir("orchestrator")` resolves the path. New prompt version = new file; old file stays for replay.
+
+**LLM harness** (`backend/llm/llm_harness.py`): `call()` is the only entry point. Enforces `cost_limit_usd` before each call (raises `CostLimitExceeded`), retries 3× on transient OpenAI errors with exponential backoff, supports `dry_run=True` for tests, emits one `log_llm_call(...)` record per attempt.
+
+**DB access boundary**: nothing outside `backend/api/` opens a cursor. `backend/api/db.py` exposes a connection pool + `transaction()` context manager; the other `api/*.py` files are typed CRUD helpers consumed by the orchestrator, routers, and tests.
+
+**Tests boot real Postgres**: `tests/db/test_config.py` registers the `db_url` fixture via `testcontainers`. `pyproject.toml` injects it with `addopts = "-p tests.db.test_config"`. Each test gets a fresh schema. No SQLite fallback exists.
 
 ---
 
@@ -37,25 +107,25 @@ These files define the project requirements and evaluation strategy. When a user
 **These are absolute. If a proposed change would violate one, flag it rather than quietly going along.**
 
 ### Layer boundaries
-- **`api/` (or `src/api/`) is the ONLY layer that touches SQL.** SQL outside `api/` is a bug — fix it, do not work around it. HTTP routes, `f_*` agents, evaluation scripts, and notebooks all go through the API layer.
-- **All LLM calls go through `llm_harness.py`.** Never instantiate a model client (Anthropic, OpenAI, etc.) directly in any other module.
-- **Auth/authorization lives on the HTTP layer.** The `api/` layer takes IDs and trusts them. This keeps `api/` callable from tests, scripts, and MCP tools without dragging auth-aware logic into the data path.
+- **`backend/api/` is the ONLY layer that touches SQL.** SQL outside `backend/api/` is a bug — fix it, do not work around it. HTTP routes, agents, evaluation scripts, and notebooks all go through the API layer.
+- **All LLM calls go through `backend/llm/llm_harness.py`.** Never instantiate a model client (OpenAI, Anthropic, etc.) directly in any other module.
+- **Auth/authorization lives on the HTTP layer.** The `api/` layer takes IDs and trusts them.
 
 ### Data and state
-- **Every session is replayable** from its stored seed + YAML config snapshot + turn history alone, with no live LLM calls required. `replay.py` must demonstrate this.
+- **Every session is replayable** from its stored seed + YAML config snapshot + turn history alone, with no live LLM calls required.
 - **Working memory is per-session and reset between sessions.** No module-level caches, no global state that bleeds across runs. Cross-session leakage is a silent bug that invalidates experimental conditions.
 - **Persistent memory (personas, configs) has a versioned initial state.** Persona rows are write-once: created before the experiment run, never mutated. Changes create new rows with new IDs.
 - **All timestamps are UTC, ISO-8601, server-set.** Never trust timestamps from the client or from LLM responses.
 
 ### Prompts
-- **Prompts are versioned Jinja2 files in a `prompts/` subdir colocated with the agent module that owns them** (e.g. `backend/orchestrator/prompts/orchestrator_system_v1.j2`). One file per named prompt, explicit Jinja2 variables, prompt-hash logged per run. Naming: `{function}_{version}.j2`.
+- **Prompts are versioned Jinja2 files in a `prompts/` subdir colocated with the agent module that owns them.** One file per named prompt, explicit Jinja2 variables, prompt-hash logged per run. Naming: `{function}_{version}.j2`.
 - **Never embed prompts as f-strings or triple-quoted strings inside functions.** This is a scaffolding-check failure.
-- When a prompt changes, create a new version file. Keep the old one. The prompt version used in a session must be reconstructible from the session log.
+- When a prompt changes, create a new version file. Keep the old one.
 
 ### Configuration
 - **Each experimental condition (A–D) is a YAML config file, not a forked script.** Ablating a condition means switching the config, never editing code.
-- **Model, version, and seed come from config — never hard-coded in calling code.** The YAML config snapshot is stored in the `sessions` table so a session is replayable with the exact model it used.
-- **Cost hard-stop.** Every session has a `cost_limit_usd` from its config. The harness raises `CostLimitExceeded` (a named exception) when the limit is hit. Never a silent runover.
+- **Model, version, and seed come from config — never hard-coded in calling code.**
+- **Cost hard-stop.** Every session has a `cost_limit_usd` from its config. The harness raises `CostLimitExceeded` when the limit is hit. Never a silent runover.
 
 ---
 
@@ -73,19 +143,19 @@ These files define the project requirements and evaluation strategy. When a user
 
 ## Logging
 
-Stdlib `logging`, configured once in `src/logging_setup.py`. One JSON line per record. Level via `LOG_LEVEL` env var. Each module: `log = logging.getLogger(__name__)` — never the root logger.
+Stdlib `logging`, configured once in `backend/logging_setup.py`. One ANSI-coloured key=value line per record in dev. Level via `LOG_LEVEL` env var. Each module: `log = logging.getLogger(__name__)` — never the root logger.
 
-**Every LLM call log record must include:** `run_id`, `session_id`, `turn_id`, `seed`, `config_hash`, `model_and_version`, `prompt_hash`, `timestamp`, `step_type`, token counts (input and output separately), latency. No `print()` as logs.
+**Every LLM call log record must include:** `run_id`, `session_id`, `turn_id`, `seed`, `config_hash`, `model_and_version`, `prompt_hash`, `timestamp`, `step_type`, token counts (input and output separately), latency. Use the `log_llm_call()` helper from `backend.logging_setup`. No `print()` as logs.
 
 **Level semantics:**
 - `DEBUG` — active debugging only; off in production.
 - `INFO` — normal operational events ("session started", "convergence declared", "turn N completed").
-- `WARNING` — deviation from expectation, system kept going
+- `WARNING` — deviation from expectation, system kept going.
 - `ERROR` — a user-visible operation failed.
 - `CRITICAL` — process is degraded or shutting down.
 
 **Where to log:**
-- At the HTTP boundary: log call and outcome; `deviation()` on unexpected branches; `log.error(..., exc_info=True)` if the underlying call raises.
+- At the HTTP boundary: log call and outcome; `WARNING` on unexpected branches; `log.error(..., exc_info=True)` if the underlying call raises.
 - Inside each agent dir: log deviations and decisions (fallbacks, retries, drift events) at WARNING; successes at DEBUG.
 - Never log on both sides of a re-raise. Log at the layer that *handles* the exception, not every layer it passes through.
 
@@ -116,11 +186,13 @@ Stdlib `logging`, configured once in `src/logging_setup.py`. One JSON line per r
 - Blank line between code blocks with different purposes.
 - Typed interfaces between modules (pydantic / dataclasses).
 - NEVER REMOVE ANY COMMENTS
-- NEVER ADD COMMENTS TO SEPARATE LOGICAL BLOCKS OF CODE OR FUNCTIONS SUCH as `# ---
+- NEVER ADD COMMENTS TO SEPARATE LOGICAL BLOCKS OF CODE OR FUNCTIONS SUCH as `# ---`
 
 ---
 
 ## See also
 
-- `README.md` — project overview, directory structure, run instructions
-- `.env.example` — required environment variables
+- `README.md` — setup, Docker instructions, catalogue ingestion (HF vs Kaggle paths)
+- `backend/README.md` — endpoint table, env-var table, `log_llm_call()` usage
+- `db/README.md` — migration conventions and file index
+- `.env.example` — full env-var list

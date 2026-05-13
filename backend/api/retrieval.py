@@ -11,14 +11,16 @@ import logging
 import uuid
 from typing import Any
 
-from backend.api.db import tx
-from backend.models.clusters import ClusterAssignment, ClusterSnapshot
-from backend.models.eval import JudgeScore, SessionMetrics
-from backend.models.retrieval import (
+from backend.api.db import transaction
+from backend.api.types import (
+    ClusterAssignment,
+    ClusterSnapshot,
     FeedbackEntry,
+    JudgeScore,
     RunAggregate,
     RunResults,
     SessionFull,
+    SessionMetrics,
     SessionSummary,
     TurnDetail,
 )
@@ -35,7 +37,7 @@ def get_run_results(run_id: uuid.UUID) -> RunResults:
     Returns:
         RunResults with sessions, per-session data, and SQL-computed aggregates.
     """
-    with tx() as conn:
+    with transaction() as conn:
         # Sessions with turn counts and convergence turn
         session_rows = conn.execute(
             """
@@ -184,7 +186,7 @@ def get_session_full(session_id: uuid.UUID) -> SessionFull:
     Raises:
         ValueError: If the session does not exist.
     """
-    with tx() as conn:
+    with transaction() as conn:
         sess_row = conn.execute(
             """
             SELECT id, run_id, seed, config_hash, model_version,

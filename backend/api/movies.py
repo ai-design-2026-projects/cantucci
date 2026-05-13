@@ -11,9 +11,9 @@ from typing import Union
 
 import numpy as np
 
-from backend.api.db import tx
-from backend.models.movies import MovieHit, MovieMetadata
-from backend.models.public import MoviePublic
+from backend.api.db import transaction
+from backend.api.types import MovieHit, MovieMetadata
+from backend.routers.dtos import MoviePublic
 
 _TMDB_POSTER_BASE = "https://image.tmdb.org/t/p/w500"
 
@@ -48,7 +48,7 @@ def vector_search(
     else:
         vec = list(embedding)
 
-    with tx() as conn:
+    with transaction() as conn:
         rows = conn.execute(
             """
             SELECT id, title, 1 - (embedding <=> %s::vector) AS score
@@ -84,7 +84,7 @@ def fetch_metadata(movie_ids: list[int]) -> list[MovieMetadata]:
     if not movie_ids:
         return []
 
-    with tx() as conn:
+    with transaction() as conn:
         rows = conn.execute(
             """
             SELECT
@@ -146,7 +146,7 @@ def fetch_embeddings(movie_ids: list[int]) -> dict[int, list[float]]:
     if not movie_ids:
         return {}
 
-    with tx() as conn:
+    with transaction() as conn:
         rows = conn.execute(
             "SELECT id, embedding::text FROM movies WHERE id = ANY(%s)",
             (movie_ids,),

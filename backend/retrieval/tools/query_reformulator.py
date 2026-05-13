@@ -1,24 +1,25 @@
-"""query_reformulator — expand the oracle's query before retrieval.
+"""query_reformulator — expand the oracle's query before vector retrieval.
 
-Makes a single LLM call (step_type="cluster_reformulate") to enrich the
-oracle's raw utterance with themes, tone, era, and aesthetic cues that
-improve vector-search recall.
+Makes a single LLM call (step_type="retrieval_reformulate") to enrich the
+oracle's raw utterance with themes, tone, era, and aesthetic cues that improve
+vector-search recall.  Owned by the Retrieval System per architecture.md.
 """
 
 import json
 import logging
+from pathlib import Path
 from uuid import UUID
 
 from backend.llm import llm_harness
 from backend.llm.prompts import make_prompt_loader
-from backend.models.llm import LLMParseError
-from pathlib import Path
+from backend.llm.types import LLMParseError
+from backend.settings import get_settings
 
 log = logging.getLogger(__name__)
 
 load_prompt = make_prompt_loader(Path(__file__).parent.parent / "prompts")
 
-_STEP_TYPE = "cluster_reformulate"
+_STEP_TYPE = "retrieval_reformulate"
 
 
 def reformulate(
@@ -30,31 +31,30 @@ def reformulate(
     turn_id: UUID,
     config_hash: str,
     model_version: str,
-    cfg: dict,
+    accumulated_cost_usd: float = 0.0,
     dry_run: bool = False,
 ) -> str:
     """Return a vibe-enriched search query derived from *user_query*.
 
     On ``dry_run=True``, the raw *user_query* is returned unchanged (the LLM
-    call is skipped by ``llm_harness`` and the canned ``[DRY RUN]`` content
-    would fail JSON parsing anyway).
+    call is skipped and the canned ``[DRY RUN]`` content would fail JSON parsing).
 
     Args:
-        user_query:    Oracle's raw utterance for this turn.
-        turn_number:   1-based turn index within the session.
-        session_id:    UUID of the current session.
-        run_id:        UUID of the parent run.
-        turn_id:       UUID of the current turn.
-        config_hash:   SHA-256 prefix of the session's YAML config snapshot.
-        model_version: LLM model string stored on the session row.
-        cfg:           Parsed config dict (for model seed, max_tokens, cost limit).
-        dry_run:       If ``True``, skip the LLM call and return *user_query*.
+        user_query:           Oracle's raw utterance for this turn.
+        turn_number:          1-based turn index within the session.
+        session_id:           UUID of the current session.
+        run_id:               UUID of the parent run.
+        turn_id:              UUID of the current turn.
+        config_hash:          SHA-256 prefix of the session's YAML config snapshot.
+        model_version:        LLM model string stored on the session row.
+        accumulated_cost_usd: Running USD cost for the current turn (for cost guard).
+        dry_run:              If ``True``, skip the LLM call and return *user_query*.
 
     Returns:
         Reformulated query string enriched with cinematic themes and aesthetics.
 
     Raises:
-        LLMParseError: If the model returns non-JSON or a missing field.
+        LLMParseError:     If the model returns non-JSON or a missing field.
         CostLimitExceeded: If the session budget is exhausted.
     """
     if dry_run:
@@ -64,12 +64,14 @@ def reformulate(
         )
         return user_query
 
+    cfg = get_settings()
+
     system_text, prompt_hash = load_prompt(
         "query_reformulate_v1",
         {
             "user_query": user_query,
             "turn_number": turn_number,
-            "max_turns": cfg["session"]["max_turns"],
+            "max_turns": cfg.session.max_turns,
         },
     )
 
@@ -84,13 +86,13 @@ def reformulate(
         turn_id=turn_id,
         config_hash=config_hash,
         model_and_version=model_version,
-        seed=cfg["model"]["seed"],
-        max_tokens=cfg["model"]["max_tokens"],
+        seed=cfg.model.seed,
+        max_tokens=cfg.model.max_tokens,
         step_type=_STEP_TYPE,
         messages=messages,
         prompt_hash=prompt_hash,
-        cost_limit_usd=float(cfg["session"]["cost_limit_usd"]),
-        accumulated_cost_usd=0.0,
+        cost_limit_usd=cfg.session.cost_limit_usd,
+        accumulated_cost_usd=accumulated_cost_usd,
     )
 
     try:
@@ -106,7 +108,7 @@ def reformulate(
         raise LLMParseError(step_type=_STEP_TYPE, raw=response.content)
 
     log.debug(
-        "query_reformulator complete",
-        extra={"session_id": str(session_id), "query_len": len(reformulated)},
+        "Query reformulation complete",
+        extra={"session_id": str(session_id), "turn_number": turn_number, "query_len": len(reformulated)},
     )
     return reformulated

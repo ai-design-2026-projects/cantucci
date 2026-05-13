@@ -1,6 +1,6 @@
-# Cantucci Backend
+# CinePal Backend
 
-HTTP API for the Cantucci conversational clustering system. The backend exposes
+HTTP API for the CinePal conversational clustering system. The backend exposes
 a session / turn interface consumed by the frontend: the user opens a session,
 sends messages, and the system responds with recommendations and follow-up
 questions. Session logic is owned by the orchestrator, which will eventually
@@ -13,10 +13,10 @@ call LLM-backed agents and a PostgreSQL database — both are stubbed for now.
 ```
 backend/
 ├── app.py               FastAPI application, lifespan wiring, router mount.
-├── config.py            Environment variable loader (DATABASE_URL, LOG_LEVEL).
-├── logging.py           Logging setup: ANSI-coloured key=value lines + log_llm_call().
+├── settings.py          Typed config loader (Pydantic) + env-var helpers.
+├── logging_setup.py     Logging setup: ANSI-coloured key=value lines + log_llm_call().
 ├── api/                 Data-access layer — the ONLY place SQL is allowed.
-│   ├── db.py            Connection pool and tx() context manager.
+│   ├── db.py            Connection pool and transaction() context manager.
 │   ├── sessions.py      CRUD: sessions, turns, clusters, oracle_feedback.
 │   ├── runs.py          CRUD: runs table, config hashing.
 │   ├── eval.py          Write: session_metrics, judge_scores.
@@ -30,9 +30,9 @@ backend/
 │   ├── eval.py          SessionMetrics, JudgeScore.
 │   └── retrieval.py     Query result types: SessionFull, RunResults, TurnDetail, etc.
 ├── orchestrator/
-│   ├── orchestrator.py  EchoOrchestrator stub (real impl will live here).
-│   ├── agent.py         LLM reasoning agent (not yet implemented).
-│   └── tools.py         Agent tool definitions (not yet implemented).
+│   ├── orchestrator.py  Orchestrator: sole DB writer, coordinates the turn pipeline.
+│   ├── convergence.py   Convergence policy and should_retrieve guard.
+│   └── tools/           feedback.py, policy.py, render.py, state.py
 └── routers/
     └── sessions.py      HTTP endpoints: POST /sessions, POST /sessions/{id}/turns,
                          GET /sessions/{id}.
@@ -44,7 +44,7 @@ backend/
 
 - **`backend/api/` is the only place SQL runs.** Routers, the orchestrator,
   agents, notebooks, and scripts all go through that layer.
-- **All LLM calls go through `backend/llm_harness.py`** (not yet written).
+- **All LLM calls go through `backend/llm/llm_harness.py`.**
   Never import a model client directly elsewhere.
 - **No module-level state.** The orchestrator instance lives on `app.state`;
   nothing at module scope accumulates cross-request data.
@@ -64,6 +64,14 @@ uvicorn backend.app:app --reload
 ```
 
 Swagger UI: <http://127.0.0.1:8000/docs>
+
+### Tests
+
+```bash
+pytest tests/
+```
+
+Tests spin up a throwaway pgvector container automatically via `testcontainers` — no manual Postgres setup required. The `db_url` fixture is registered globally by `tests/db/test_config.py`.
 
 ---
 
@@ -91,13 +99,13 @@ All responses are JSON. Unknown `session_id` → 404. Empty `user_message` → 4
 ## Logging
 
 Every module uses `log = logging.getLogger(__name__)`. All records route
-through `backend/logging.py`, including uvicorn's own access and error logs.
+through `backend/logging_setup.py`, including uvicorn's own access and error logs.
 
 For LLM calls, use the helper to ensure the full CLAUDE.md-required field set
 is always emitted:
 
 ```python
-from backend.logging import log_llm_call
+from backend.logging_setup import log_llm_call
 
 log_llm_call(
     log,

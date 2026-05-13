@@ -10,7 +10,7 @@ import pandas as pd
 import psycopg
 import pgvector.psycopg
 
-import backend.config as config
+from backend.settings import get_env
 
 log = logging.getLogger(__name__)
 
@@ -160,7 +160,7 @@ def _upsert_movies(cur, df: pd.DataFrame, embeddings: np.ndarray) -> None:
         rows.append((
             int(row["id"]),
             _none(row.get("imdb_id")),
-            _none(row.get("title")),
+            _none(row.get("title")) or _none(row.get("original_title")),
             _none(row.get("original_title")),
             _none(row.get("original_language")),
             _none(row.get("overview")),
@@ -375,7 +375,7 @@ def ingest(df: pd.DataFrame, embeddings: np.ndarray) -> None:
     if len(df) != len(embeddings):
         raise ValueError(f"df has {len(df)} rows but embeddings has {len(embeddings)} rows")
 
-    url = config.database_url()
+    url = get_env().database_url
     log.info("connecting to DB for ingest", extra={"rows": len(df)})
 
     with psycopg.connect(url) as conn:

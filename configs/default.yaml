@@ -1,24 +1,67 @@
+# CinePal — default experimental condition config
+# Loaded by backend/settings.py:get_settings().
+# Override path: set CONFIG_PATH env var to point to a different file.
+# All secrets (API keys, DB URL) remain in .env — never put them here.
+
 model:
+  # LLM model identifier — must match a key prefix in llm_harness._COST_PER_M
+  # for cost estimation to work. Used by every agent LLM call.
   name: "gpt-4o-mini"
+  # RNG seed passed to the chat completion API. Combined with session seed for
+  # exact replay (same seed + config → same transcript given same oracle inputs).
   seed: 42
+  # Maximum completion tokens per LLM call. Applies to all agents.
   max_tokens: 1024
 
 session:
+  # Hard turn budget. The orchestrator stops accepting new turns after this limit.
   max_turns: 15
-  cost_limit_usd: 5.0
+  # Number of consecutive show-type turns with no oracle rejection needed to
+  # trigger automatic convergence. See _convergence_policy in orchestrator.py.
   convergence_turns: 2
+  # Per-session USD spend ceiling. CostLimitExceeded is raised before any call
+  # that would push accumulated cost past this threshold.
+  cost_limit_usd: 5.0
 
 retrieval:
+  # Maximum number of candidate films fetched from pgvector per turn.
+  # Larger values improve recall but slow down HDBSCAN and increase token counts.
   top_k: 50
 
+split:
+  # Number of rows retained in the mini subset (strict subset of main).
+  mini_size: 200
+  # Fraction of the dataset held out before main/mini generation.
+  eval_frac: 0.10
+  # Random seed for the dataset split.
+  seed: 42
+
 representation:
-  strategy: sentence-transformers/all-MiniLM-L6-v2
-  dim: 384
+  # Sentence-transformer model used to embed oracle queries and catalogue films.
+  # Must match the model used during ingestion (db/ingest.py).
+  model: BAAI/bge-large-en-v1.5
+  # Embedding dimensionality — must match the pgvector column size in clusters.centroid.
+  embedding_dim: 1024
 
 clustering:
+  # HDBSCAN minimum cluster size. Smaller values create more fine-grained clusters
+  # but increase noise sensitivity.
   min_cluster_size: 5
+  # HDBSCAN min_samples — controls how conservative the algorithm is about noise.
   min_samples: 2
+  # Cluster selection method: "eom" (excess of mass) tends to produce fewer,
+  # larger clusters; "leaf" produces smaller, tighter ones.
   cluster_selection_method: eom
+  # Soft-assignment threshold: films below this score are excluded from a cluster's
+  # assignment list. Used in cluster_agent.py to filter low-confidence assignments.
   assignment_threshold: 0.05
+  # How many top-scoring films to pass to cluster_describer per cluster.
+  # Keeps prompt size bounded; the describer sees at most this many titles.
   top_titles_per_cluster: 8
+  # Minimum number of candidates required before the all-noise fallback was
+  # considered. Now unused (fallback removed); kept for config schema stability.
   min_singleton_floor: 3
+
+ambiguity:
+  # Maximum number of top clusters to consider when generating a clarifying question.
+  max_cluster_context: 3

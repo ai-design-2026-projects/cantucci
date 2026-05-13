@@ -1,6 +1,6 @@
-# Cantucci Frontend
+# CinePal Frontend
 
-React + Vite UI for the Cantucci conversational clustering system. The frontend presents the session flow: create a session, send oracle messages, inspect the conversation, and view the converged cluster plus movie details when the backend declares convergence.
+React + Vite UI for the CinePal conversational clustering system. The frontend presents the session flow: create a session, send oracle messages, inspect the conversation, and view the converged cluster plus movie details when the backend declares convergence.
 
 ---
 
@@ -10,7 +10,7 @@ React + Vite UI for the Cantucci conversational clustering system. The frontend 
 
 - Node.js 18+
 - npm
-- The backend running locally at `http://127.0.0.1:8000`
+- The backend reachable at the host the Vite proxy points to (configurable via `VITE_API_BASE`; defaults to `http://127.0.0.1:8000`)
 
 ### Setup
 

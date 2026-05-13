@@ -11,17 +11,12 @@ from uuid import uuid4
 import pytest
 
 from backend.cluster.tools.cluster_describer import describe
-from backend.models.llm import LLMParseError
+from backend.llm.types import LLMParseError
 
 
 _SESSION_ID = uuid4()
 _RUN_ID = uuid4()
 _TURN_ID = uuid4()
-
-_CFG = {
-    "model": {"seed": 42, "max_tokens": 512, "name": "gpt-4o-mini"},
-    "session": {"max_turns": 15, "cost_limit_usd": 5.0},
-}
 
 _PAYLOAD = [
     {
@@ -50,7 +45,6 @@ class TestDescribeDryRun:
             turn_id=_TURN_ID,
             config_hash="abc12345",
             model_version="gpt-4o-mini",
-            cfg=_CFG,
             dry_run=True,
         )
 
@@ -68,7 +62,6 @@ class TestDescribeDryRun:
             turn_id=_TURN_ID,
             config_hash="abc12345",
             model_version="gpt-4o-mini",
-            cfg=_CFG,
             dry_run=True,
         )
         assert result == []
@@ -88,8 +81,7 @@ class TestDescribeLLM:
                 turn_id=_TURN_ID,
                 config_hash="abc12345",
                 model_version="gpt-4o-mini",
-                cfg=_CFG,
-                dry_run=False,
+                    dry_run=False,
             )
 
     def test_valid_response_parsed_correctly(self):
