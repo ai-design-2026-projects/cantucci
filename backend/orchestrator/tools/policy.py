@@ -31,24 +31,6 @@ def collect_prior_candidates(turn: TurnDetail) -> list[int]:
     return ids
 
 
-def is_duplicate_question(text: str, turns: list[TurnDetail]) -> bool:
-    """Return True if *text* exactly matches a prior ask-type assistant message.
-
-    The Orchestrator is the authoritative deduplication source per architecture.md.
-
-    Args:
-        text:  Proposed question text from the Ambiguity Resolver.
-        turns: Prior turns in ascending turn_number order.
-
-    Returns:
-        True if the question has already been asked.
-    """
-    for t in turns:
-        if t.step_type == StepType.ask.value and t.assistant_message == text:
-            return True
-    return False
-
-
 def prior_questions(turns: list[TurnDetail]) -> list[str]:
     """Collect all prior clarifying-question texts in turn order.
 

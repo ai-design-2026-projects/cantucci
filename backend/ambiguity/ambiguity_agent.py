@@ -23,9 +23,6 @@ log = logging.getLogger(__name__)
 
 load_prompt = make_prompt_loader(Path(__file__).parent / "prompts")
 
-_MAX_CLUSTER_CONTEXT = 3
-
-
 def generate_question(
     *,
     session_id: UUID,
@@ -65,15 +62,16 @@ def generate_question(
         CostLimitExceeded:   If the session budget is exhausted.
         openai.APIError:     On a non-transient API error.
     """
-    top_clusters = clusters[:_MAX_CLUSTER_CONTEXT]
+    cfg = get_settings()
+    top_clusters = clusters[:cfg.ambiguity.max_cluster_context]
 
+    # Prepare cluster context for the prompt, including ID, name, and description.
     cluster_vars = [
         {"id": str(c.id), "name": c.name, "description": c.description or ""}
         for c in top_clusters
     ]
 
-    cfg = get_settings()
-
+    # Load the prompt template and fill in the variables, including the user query,
     system_text, prompt_hash = load_prompt(
         "ambiguity_v1",
         {
@@ -86,11 +84,13 @@ def generate_question(
         },
     )
 
+    # Construct the messages for the LLM call
     messages: list[dict[str, str]] = [
         {"role": "system", "content": system_text},
         {"role": "user", "content": user_query},
     ]
 
+    # Call the LLM harness to generate the question, passing all relevant metadata for logging and cost tracking
     response = llm_harness.call(
         run_id=run_id,
         session_id=session_id,
@@ -105,12 +105,13 @@ def generate_question(
         cost_limit_usd=cfg.session.cost_limit_usd,
         accumulated_cost_usd=accumulated_cost_usd,
     )
-
+    # Parse the LLM response, expecting a JSON object with 'question_text', 'ui_format', and 'cluster_refs' fields. Validate the types and handle any parsing errors.
     try:
         parsed = json.loads(response.content)
     except json.JSONDecodeError:
         raise LLMParseError(step_type="ambiguity_question", raw=response.content)
 
+    # Validate the presence and types of the expected fields in the parsed response
     if (
         not isinstance(parsed.get("question_text"), str)
         or not isinstance(parsed.get("ui_format"), str)
@@ -118,6 +119,7 @@ def generate_question(
     ):
         raise LLMParseError(step_type="ambiguity_question", raw=response.content)
 
+    # Convert the cluster_refs from strings to UUIDs, handling any invalid UUIDs gracefully by logging a warning and skipping them.
     cluster_refs: list[UUID] = []
     for raw_id in parsed["cluster_refs"]:
         try:
@@ -128,6 +130,7 @@ def generate_question(
                 extra={"raw": raw_id, "session_id": str(session_id)},
             )
 
+    # Log the generated question and its UI format for monitoring and debugging purposes
     log.debug(
         "ambiguity agent generated question",
         extra={

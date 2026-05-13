@@ -61,3 +61,7 @@ clustering:
   # Minimum number of candidates required before the all-noise fallback was
   # considered. Now unused (fallback removed); kept for config schema stability.
   min_singleton_floor: 3
+
+ambiguity:
+  # Maximum number of top clusters to consider when generating a clarifying question.
+  max_cluster_context: 3

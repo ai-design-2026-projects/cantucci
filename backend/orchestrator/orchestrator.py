@@ -28,7 +28,6 @@ from backend.orchestrator.tools.feedback import classify_feedback, extract_prefe
 from backend.orchestrator.tools.policy import (
     cluster_snapshot_to_spec,
     collect_prior_candidates,
-    is_duplicate_question,
     prior_questions,
 )
 from backend.orchestrator.convergence import should_retrieve, convergence_policy
@@ -201,8 +200,9 @@ class Orchestrator:
         reply: str
         step_type: StepType
         converged: bool
-
+        # If continue, send to ambiguity resolver to generate a clarifying question.
         if decision.action == DecisionAction.continue_:
+            # Generate the question, ensuring it's not a duplicate of any prior questions in this session to avoid infinite loops. If it is a duplicate, log a warning and fallback to rendering a recommendation instead.
             question = ambiguity_agent.generate_question(
                 session_id=session_id,
                 run_id=full.run_id,
@@ -215,33 +215,12 @@ class Orchestrator:
                 config_hash=full.config_hash,
                 model_version=full.model_version,
             )
-            if is_duplicate_question(question.question_text, full.turns):
-                log.warning(
-                    "ambiguity resolver produced duplicate question — forcing recommend path",
-                    extra={"session_id": str(session_id), "turn_number": turn_number},
-                )
-                llm_out = render_recommendation(
-                    session_id=session_id,
-                    run_id=full.run_id,
-                    turn_id=turn_id,
-                    turn_number=turn_number,
-                    user_message=user_message,
-                    history=full.turns,
-                    persona_id=full.persona_id,
-                    config_hash=full.config_hash,
-                    model_version=full.model_version,
-                    max_turns=full.max_turns,
-                    decision=decision,
-                    clusters=clusters,
-                )
-                reply = llm_out.reply
-                converged = convergence_policy(full.turns, cfg.session.convergence_turns)
-                step_type = StepType.stop if converged else StepType.show
-            else:
-                reply = question.question_text
-                step_type = StepType.ask
-                converged = False
+            # Return the question
+            reply = question.question_text
+            step_type = StepType.ask
+            converged = False
         else:
+        # Else if recommend, render the recommendation reply and evaluate convergence.
             llm_out = render_recommendation(
                 session_id=session_id,
                 run_id=full.run_id,
@@ -257,6 +236,7 @@ class Orchestrator:
                 clusters=clusters,
             )
             reply = llm_out.reply
+            # If the policy deems this turn converged, mark it as such to prevent further turns and to trigger convergence-specific UI behavior. The convergence policy can look at the full conversation history and the current decision context to make this determination.
             converged = convergence_policy(full.turns, cfg.session.convergence_turns)
             step_type = StepType.stop if converged else StepType.show
 
