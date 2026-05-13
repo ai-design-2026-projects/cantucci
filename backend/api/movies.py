@@ -13,6 +13,9 @@ import numpy as np
 
 from backend.api.db import tx
 from backend.models.movies import MovieHit, MovieMetadata
+from backend.models.public import MoviePublic
+
+_TMDB_POSTER_BASE = "https://image.tmdb.org/t/p/w500"
 
 log = logging.getLogger(__name__)
 

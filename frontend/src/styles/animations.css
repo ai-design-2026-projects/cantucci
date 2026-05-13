@@ -1,0 +1,31 @@
+/* Reveal scrim: sweeps top-to-bottom across the screen */
+@keyframes scrim-sweep {
+  0% {
+    transform: translateY(-100%);
+  }
+  45% {
+    transform: translateY(0%);
+  }
+  55% {
+    transform: translateY(0%);
+  }
+  100% {
+    transform: translateY(100%);
+  }
+}
+
+.reveal-scrim {
+  position: fixed;
+  inset: 0;
+  background: var(--bg-base);
+  z-index: 100;
+  pointer-events: none;
+  animation: scrim-sweep 0.9s cubic-bezier(0.76, 0, 0.24, 1) forwards;
+}
+
+/* Spinner pulse */
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
