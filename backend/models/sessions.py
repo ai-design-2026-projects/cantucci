@@ -6,6 +6,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, field_validator
 
+from backend.models.public import AmbiguityMeta
+
 
 class SessionStatus(str, Enum):
     """Lifecycle state of a session (maps to the ``status`` column)."""
@@ -50,6 +52,7 @@ class TurnResult(BaseModel):
     step_type: StepType
     converged: bool
     created_at: datetime
+    ambiguity_meta: AmbiguityMeta | None = None
 
 
 class SessionState(BaseModel):

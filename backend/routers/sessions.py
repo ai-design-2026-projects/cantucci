@@ -15,8 +15,9 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 
-from backend.models.exceptions import SessionNotFound
+from backend.models.exceptions import MovieNotFound, SessionNotConverged, SessionNotFound
 from backend.models.orchestrator import Orchestrator
+from backend.models.public import ConvergedClusterPublic, MoviePublic
 from backend.models.sessions import SessionState, TurnRequest, TurnResult
 
 log = logging.getLogger(__name__)
@@ -121,3 +122,71 @@ def get_session(
         log.warning("session not found", extra={"session_id": str(session_id)})
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return state
+
+
+@router.get("/{session_id}/converged-cluster", response_model=ConvergedClusterPublic)
+def get_converged_cluster(
+    session_id: UUID,
+    orchestrator: Orchestrator = Depends(_orchestrator),
+) -> ConvergedClusterPublic:
+    """Return the fine cluster and enriched movie list for a converged session.
+
+    The cluster and movies are drawn from the last turn's cluster snapshot.
+    Call this once after the client detects ``converged=true`` in a TurnResult.
+
+    Args:
+        session_id:   UUID of the converged session.
+        orchestrator: Injected via ``_orchestrator`` dependency.
+
+    Returns:
+        A ``ConvergedClusterPublic`` with cluster, movies, and preference profile.
+
+    Raises:
+        HTTPException(404): If *session_id* does not exist.
+        HTTPException(409): If the session has not yet converged.
+    """
+    try:
+        result = orchestrator.get_converged_cluster(session_id)
+    except SessionNotFound as exc:
+        log.warning("session not found", extra={"session_id": str(session_id)})
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except SessionNotConverged as exc:
+        log.warning(
+            "session not converged",
+            extra={"session_id": str(session_id), "status": exc.status},
+        )
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "not_converged", "message": str(exc)},
+        ) from exc
+    return result
+
+
+# ── Movie catalogue ───────────────────────────────────────────────────────────
+
+movies_router = APIRouter(prefix="/movies", tags=["movies"])
+
+
+@movies_router.get("/{movie_id}", response_model=MoviePublic)
+def get_movie(
+    movie_id: int,
+    orchestrator: Orchestrator = Depends(_orchestrator),
+) -> MoviePublic:
+    """Return full catalogue metadata for a single movie.
+
+    Args:
+        movie_id:     TMDB integer movie id (path parameter).
+        orchestrator: Injected via ``_orchestrator`` dependency.
+
+    Returns:
+        A ``MoviePublic`` with poster URL, synopsis, genres, cast, and ratings.
+
+    Raises:
+        HTTPException(404): If *movie_id* is not in the catalogue.
+    """
+    try:
+        movie = orchestrator.get_movie(movie_id)
+    except MovieNotFound as exc:
+        log.warning("movie not found", extra={"movie_id": movie_id})
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return movie
