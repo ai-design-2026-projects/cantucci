@@ -78,6 +78,7 @@ def apply(database_url: str | None = None) -> int:
 
 
 def main() -> None:
+    log.info("applying pending migrations to database at %s", get_database_url())
     configure_logging()
     try:
         n = apply()

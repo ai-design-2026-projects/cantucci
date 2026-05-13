@@ -1,10 +1,13 @@
-"""CinePal catalogue ingestion pipeline.
-
+"""
+CinePal catalogue ingestion pipeline.
 Usage:
-    python -m db.ingest                      # full pipeline (download → clean → embed → ingest)
-    python -m db.ingest --no-download        # skip Kaggle download, use existing data/raw/
-    python -m db.ingest --no-ingest          # produce artifacts only, skip DB writes
-    python -m db.ingest --ingest mini        # ingest the mini artifact (fast, for dev/CI)
+    python -m db.ingest                                  # full pipeline (download → clean → embed → ingest)
+    python -m db.ingest --no-download                    # skip Kaggle download, use existing data/raw/
+    python -m db.ingest --no-ingest                      # produce artifacts only, skip DB writes
+    python -m db.ingest --ingest mini                    # ingest the mini artifact (fast, for dev/CI)
+    python -m db.ingestion.fetch                         # download pre-built artifacts from Hugging Face
+    python -m db.ingest --ingest main --from-artifact    # ingest main set from pre-built artifact
+    python -m db.ingest --ingest all --from-artifact     # ingest main + mini from pre-built artifacts
     python -m db.ingest --mini-size 200 --eval-frac 0.10 --seed 42
     python -m db.ingest --model sentence-transformers/all-MiniLM-L6-v2
 
@@ -43,13 +46,15 @@ def _save(df: pd.DataFrame, embeddings: np.ndarray, path: Path) -> None:
     """Persist *df* with an embedding column to a parquet file.
 
     Nested list/dict columns are JSON-encoded so pyarrow can serialise them
-    reliably; _load_artifact reverses this.
+    reliably,
     """
     out = df.copy()
+    # Add the embedding column
     out["embedding"] = [arr.tolist() for arr in embeddings]
     for col in _NESTED_COLS:
         if col in out.columns:
             out[col] = out[col].apply(json.dumps)
+    # Write to parquet
     out.to_parquet(path, index=False)
     log.info("artifact saved", extra={"path": str(path), "rows": len(out)})
 
@@ -64,8 +69,37 @@ def _load_artifact(path: Path) -> tuple[pd.DataFrame, np.ndarray]:
     return df, embeddings
 
 
+def run_from_artifact(name: str) -> None:
+    """Ingest pre-built parquet artifact(s) without running the embedding pipeline.
+
+    Args:
+        name: Which artifact(s) to ingest — "main", "mini", or "all" (main + mini).
+
+    Raises:
+        FileNotFoundError: If the requested parquet file does not exist under
+            data/artifacts/. Run `python -m db.ingestion.fetch` to download it.
+        ValueError: If *name* is "eval" — eval_holdout is never ingested by design.
+    """
+    if name == "eval":
+        raise ValueError(
+            "eval_holdout is intentionally kept out of the DB — "
+            "use it only for offline evaluation."
+        )
+    names = ["main", "mini"] if name == "all" else [name]
+    for n in names:
+        path = _ARTIFACTS_DIR / f"{n}.parquet"
+        if not path.exists():
+            raise FileNotFoundError(
+                f"Artifact not found at {path}.\n"
+                "Run `python -m db.ingestion.fetch` to download pre-built artifacts,\n"
+                "or `python -m db.ingest --no-ingest` to build them locally."
+            )
+        df, embeddings = _load_artifact(path)
+        load.ingest(df, embeddings)
+
+
 def run_full(args: argparse.Namespace) -> None:
-    """Download, clean, split, embed all three sets, save artifacts, ingest main."""
+    """Download, clean, split, embed all three sets, save artifacts, optionally ingest."""
     _ARTIFACTS_DIR.mkdir(parents=True, exist_ok=True)
 
     if not args.no_download:
@@ -97,19 +131,11 @@ def run_full(args: argparse.Namespace) -> None:
     _save(eval_df, eval_emb, _ARTIFACTS_DIR / "eval_holdout.parquet")
 
     if not args.no_ingest:
-        load.ingest(main_df, main_emb)
-
-
-def run_mini(args: argparse.Namespace) -> None:
-    """Ingest the pre-built mini artifact — fast path for dev/CI."""
-    path = _ARTIFACTS_DIR / "mini.parquet"
-    if not path.exists():
-        raise FileNotFoundError(
-            f"Mini artifact not found at {path}.\n"
-            "Run `python -m db.ingest --no-ingest` first to generate all artifacts."
-        )
-    df, embeddings = _load_artifact(path)
-    load.ingest(df, embeddings)
+        names = ["main", "mini"] if args.ingest == "all" else [args.ingest]
+        dfs = {"main": main_df, "mini": mini_df}
+        embs = {"main": main_emb, "mini": mini_emb}
+        for n in names:
+            load.ingest(dfs[n], embs[n])
 
 
 def _parse_args() -> argparse.Namespace:
@@ -118,8 +144,12 @@ def _parse_args() -> argparse.Namespace:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     p.add_argument(
-        "--ingest", choices=["main", "mini"], default="main",
-        help="Which set to write to the DB. 'mini' loads a pre-built artifact (default: main).",
+        "--ingest", choices=["main", "mini", "all"], default="main",
+        help="Which set(s) to write to the DB (default: main).",
+    )
+    p.add_argument(
+        "--from-artifact", action="store_true",
+        help="Load from pre-built parquet artifacts; skip download, clean, embed.",
     )
     p.add_argument("--no-download", action="store_true",
                    help="Skip Kaggle download; reuse existing data/raw/.")
@@ -145,10 +175,11 @@ def main() -> None:
     configure_logging()
     args = _parse_args()
 
-    if args.ingest == "mini":
+    use_artifact = args.from_artifact or args.ingest == "mini"
+    if use_artifact:
         if args.no_ingest:
-            log.warning("--no-ingest has no effect when --ingest mini is used")
-        run_mini(args)
+            log.warning("--no-ingest has no effect when loading from an artifact")
+        run_from_artifact(args.ingest)
     else:
         run_full(args)
 
