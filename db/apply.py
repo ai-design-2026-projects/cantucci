@@ -18,12 +18,10 @@ import psycopg
 # Allow invocation as `python -m db.apply` from the repo root.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from backend.settings import database_url as get_database_url  # noqa: E402
+from backend.settings import MIGRATIONS_DIR, database_url as get_database_url  # noqa: E402
 from backend.logging_setup import configure_logging  # noqa: E402
 
 log = logging.getLogger(__name__)
-
-MIGRATIONS_DIR = Path(__file__).parent / "migrations"
 
 
 def _ensure_migrations_table(conn: psycopg.Connection) -> None:

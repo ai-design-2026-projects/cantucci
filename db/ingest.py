@@ -9,7 +9,6 @@ Usage:
     python -m db.ingest --ingest main --from-artifact    # ingest main set from pre-built artifact
     python -m db.ingest --ingest all --from-artifact     # ingest main + mini from pre-built artifacts
     python -m db.ingest --mini-size 200 --eval-frac 0.10 --seed 42
-    python -m db.ingest --model sentence-transformers/all-MiniLM-L6-v2
 
 Artifacts produced under data/artifacts/:
     main.parquet         — full training set with embeddings
@@ -25,14 +24,10 @@ import numpy as np
 import pandas as pd
 
 from backend.logging_setup import configure_logging
+from backend.settings import ARTIFACTS_DIR, RAW_DATA_DIR, get_settings
 from db.ingestion import clean, download, embed, load, split
 
 log = logging.getLogger(__name__)
-
-_ROOT = Path(__file__).resolve().parent.parent
-_RAW_DIR = _ROOT / "data" / "raw"
-_ARTIFACTS_DIR = _ROOT / "data" / "artifacts"
-_DEFAULT_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 
 # Columns with nested Python objects that need JSON escaping for parquet compat.
 _NESTED_COLS = (
@@ -87,7 +82,7 @@ def run_from_artifact(name: str) -> None:
         )
     names = ["main", "mini"] if name == "all" else [name]
     for n in names:
-        path = _ARTIFACTS_DIR / f"{n}.parquet"
+        path = ARTIFACTS_DIR / f"{n}.parquet"
         if not path.exists():
             raise FileNotFoundError(
                 f"Artifact not found at {path}.\n"
@@ -100,12 +95,13 @@ def run_from_artifact(name: str) -> None:
 
 def run_full(args: argparse.Namespace) -> None:
     """Download, clean, split, embed all three sets, save artifacts, optionally ingest."""
-    _ARTIFACTS_DIR.mkdir(parents=True, exist_ok=True)
+    ARTIFACTS_DIR.mkdir(parents=True, exist_ok=True)
+    representation = get_settings().representation
 
     if not args.no_download:
-        download.fetch(_RAW_DIR, force=args.force_download)
+        download.fetch(RAW_DATA_DIR, force=args.force_download)
 
-    df = clean.prepare(_RAW_DIR)
+    df = clean.prepare(RAW_DATA_DIR)
     main_df, mini_df, eval_df = split.three_way(
         df,
         mini_size=args.mini_size,
@@ -119,16 +115,21 @@ def run_full(args: argparse.Namespace) -> None:
         + list(mini_df["composite_text"])
         + list(eval_df["composite_text"])
     )
-    all_emb = embed.encode_all(all_texts, model_name=args.model, batch_size=args.embed_batch_size)
+    all_emb = embed.encode_all(
+        all_texts,
+        model_name=representation.model,
+        expected_dim=representation.embedding_dim,
+        batch_size=args.embed_batch_size,
+    )
 
     n_main, n_mini = len(main_df), len(mini_df)
     main_emb = all_emb[:n_main]
     mini_emb = all_emb[n_main : n_main + n_mini]
     eval_emb = all_emb[n_main + n_mini :]
 
-    _save(main_df, main_emb, _ARTIFACTS_DIR / "main.parquet")
-    _save(mini_df, mini_emb, _ARTIFACTS_DIR / "mini.parquet")
-    _save(eval_df, eval_emb, _ARTIFACTS_DIR / "eval_holdout.parquet")
+    _save(main_df, main_emb, ARTIFACTS_DIR / "main.parquet")
+    _save(mini_df, mini_emb, ARTIFACTS_DIR / "mini.parquet")
+    _save(eval_df, eval_emb, ARTIFACTS_DIR / "eval_holdout.parquet")
 
     if not args.no_ingest:
         names = ["main", "mini"] if args.ingest == "all" else [args.ingest]
@@ -165,8 +166,6 @@ def _parse_args() -> argparse.Namespace:
                    help="Random seed for reproducible splits (default: 42).")
     p.add_argument("--embed-batch-size", type=int, default=256, metavar="B",
                    help="Sentence-transformer encoding batch size (default: 256).")
-    p.add_argument("--model", default=_DEFAULT_MODEL,
-                   help=f"Embedding model name (default: {_DEFAULT_MODEL}).")
     return p.parse_args()
 
 

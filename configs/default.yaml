@@ -31,9 +31,9 @@ retrieval:
 representation:
   # Sentence-transformer model used to embed oracle queries and catalogue films.
   # Must match the model used during ingestion (db/ingest.py).
-  strategy: sentence-transformers/all-MiniLM-L6-v2
+  model: sentence-transformers/all-MiniLM-L6-v2
   # Embedding dimensionality — must match the pgvector column size in clusters.centroid.
-  dim: 384
+  embedding_dim: 384
 
 clustering:
   # HDBSCAN minimum cluster size. Smaller values create more fine-grained clusters

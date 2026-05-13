@@ -6,10 +6,9 @@ from pathlib import Path
 
 from huggingface_hub import snapshot_download
 
-log = logging.getLogger(__name__)
+from backend.settings import ARTIFACTS_DIR
 
-_ROOT = Path(__file__).resolve().parent.parent.parent
-_ARTIFACTS_DIR = _ROOT / "data" / "artifacts"
+log = logging.getLogger(__name__)
 
 
 def fetch_artifacts(
@@ -40,7 +39,7 @@ def fetch_artifacts(
             "or pass --repo explicitly."
         )
     resolved_token = token or os.environ.get("HF_TOKEN") or None
-    dest = artifacts_dir or _ARTIFACTS_DIR
+    dest = artifacts_dir or ARTIFACTS_DIR
     dest.mkdir(parents=True, exist_ok=True)
 
     log.info("downloading artifacts", extra={"repo": resolved_repo, "dest": str(dest)})
