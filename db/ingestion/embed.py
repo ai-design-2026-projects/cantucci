@@ -23,6 +23,18 @@ def _load(model_name: str) -> "SentenceTransformer":
     return _cache[model_name]
 
 
+def preload_model() -> None:
+    """Preload the configured embedding model into cache at startup.
+
+    Call this during application startup to eliminate first-call latency.
+    If the model is already cached, this is a no-op.
+    """
+    representation = get_settings().representation
+    model_name = representation.model
+    _ = _load(model_name)
+    log.info("embedding model preloaded", extra={"model": model_name})
+
+
 def encode_all(
     texts: list[str],
     *,

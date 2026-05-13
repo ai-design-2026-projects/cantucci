@@ -76,83 +76,85 @@ def _composite_text(row: pd.Series) -> str:
 
 
 def prepare(raw_dir: Path) -> pd.DataFrame:
-    """Load, clean, and enrich the raw Kaggle CSVs; return one row per movie.
+    """
+    Load, clean, and enrich the raw Kaggle CSVs; return one row per movie.
     Args:
         raw_dir: Directory containing movies_metadata.csv, credits.csv, keywords.csv.
     Returns:
         Cleaned DataFrame with composite_text column ready for embedding.
     """
     log.info("loading CSVs", extra={"raw_dir": str(raw_dir)})
-    meta = pd.read_csv(raw_dir / "movies_metadata.csv", low_memory=False)
-    credits = pd.read_csv(raw_dir / "credits.csv")
-    kw_df = pd.read_csv(raw_dir / "keywords.csv")
+    metadata_df = pd.read_csv(raw_dir / "movies_metadata.csv", low_memory=False)
+    credits_df = pd.read_csv(raw_dir / "credits.csv")
+    keywords_df = pd.read_csv(raw_dir / "keywords.csv")
 
-    # Drop 3 known-corrupt rows with non-numeric id
-    meta = meta[pd.to_numeric(meta["id"], errors="coerce").notna()].copy()
-    meta["id"] = meta["id"].astype(int)
+    # Drop rows with missing or non-numeric ids, convert to int
+    metadata_df = metadata_df[pd.to_numeric(metadata_df["id"], errors="coerce").notna()].copy()
+    metadata_df["id"] = metadata_df["id"].astype(int)
 
     # Dedup by TMDB id (keep last)
-    meta = meta.drop_duplicates(subset=["id"], keep="last")
+    metadata_df = metadata_df.drop_duplicates(subset=["id"], keep="last")
 
     # Dedup by imdb_id for rows that have one (keep last)
-    has_imdb = meta["imdb_id"].notna() & (meta["imdb_id"].astype(str).str.strip() != "")
-    meta = pd.concat([
-        meta[has_imdb].drop_duplicates(subset=["imdb_id"], keep="last"),
-        meta[~has_imdb],
+    has_imdb = metadata_df["imdb_id"].notna() & (metadata_df["imdb_id"].astype(str).str.strip() != "")
+    metadata_df = pd.concat([
+        metadata_df[has_imdb].drop_duplicates(subset=["imdb_id"], keep="last"),
+        metadata_df[~has_imdb],
     ])
 
-    # Numeric coercions; 0 budget/revenue treated as missing
+    # Numeric coercions; 0 budget/revenue treated as missing (NaN)
     for col in ("budget", "revenue"):
-        meta[col] = pd.to_numeric(meta[col], errors="coerce").replace(0.0, np.nan)
+        metadata_df[col] = pd.to_numeric(metadata_df[col], errors="coerce").replace(0.0, np.nan)
     for col in ("vote_average", "vote_count", "popularity", "runtime"):
-        meta[col] = pd.to_numeric(meta[col], errors="coerce")
+        metadata_df[col] = pd.to_numeric(metadata_df[col], errors="coerce")
 
     # Booleans
-    meta["adult"] = meta["adult"].apply(_parse_bool)
-    meta["video"] = meta["video"].apply(_parse_bool)
+    metadata_df["adult"] = metadata_df["adult"].apply(_parse_bool)
+    metadata_df["video"] = metadata_df["video"].apply(_parse_bool)
 
     # Release date as "YYYY-MM-DD" string or None
-    parsed_dates = pd.to_datetime(meta["release_date"], errors="coerce")
-    meta["release_date"] = [d.strftime("%Y-%m-%d") if pd.notna(d) else None for d in parsed_dates]
+    parsed_dates = pd.to_datetime(metadata_df["release_date"], errors="coerce")
+    metadata_df["release_date"] = [d.strftime("%Y-%m-%d") if pd.notna(d) else None for d in parsed_dates]
 
     # Parse JSON-as-literal-string columns
     for col in ("genres", "production_companies", "production_countries", "spoken_languages"):
-        meta[col] = meta[col].apply(_parse_list)
-    meta["belongs_to_collection"] = meta["belongs_to_collection"].apply(_parse_dict)
+        metadata_df[col] = metadata_df[col].apply(_parse_list)
+    metadata_df["belongs_to_collection"] = metadata_df["belongs_to_collection"].apply(_parse_dict)
 
-    # Merge credits and keywords
-    for df in (credits, kw_df):
+    # Transform credits and keywords to have one row per movie id, with nested lists for cast/crew/keywords
+    for df in (credits, keywords_df):
         df["id"] = pd.to_numeric(df["id"], errors="coerce")
     credits = credits.drop_duplicates(subset=["id"], keep="last")
-    kw_df = kw_df.drop_duplicates(subset=["id"], keep="last")
+    keywords_df = keywords_df.drop_duplicates(subset=["id"], keep="last")
     credits["cast"] = credits["cast"].apply(_parse_list)
     credits["crew"] = credits["crew"].apply(_parse_list)
-    kw_df["keywords"] = kw_df["keywords"].apply(_parse_list)
+    keywords_df["keywords"] = keywords_df["keywords"].apply(_parse_list)
 
-    result = meta.merge(credits, on="id", how="left").merge(kw_df, on="id", how="left")
-    result["cast"] = result["cast"].apply(lambda v: v if isinstance(v, list) else [])
-    result["crew"] = result["crew"].apply(lambda v: v if isinstance(v, list) else [])
-    result["keywords"] = result["keywords"].apply(lambda v: v if isinstance(v, list) else [])
+    # Merge metadata with credits and keywords; fill missing nested fields with empty lists
+    result_df = metadata_df.merge(credits, on="id", how="left").merge(keywords_df, on="id", how="left")
+    result_df["cast"] = result_df["cast"].apply(lambda v: v if isinstance(v, list) else [])
+    result_df["crew"] = result_df["crew"].apply(lambda v: v if isinstance(v, list) else [])
+    result_df["keywords"] = result_df["keywords"].apply(lambda v: v if isinstance(v, list) else [])
 
-    # Derived columns
-    result["top3_cast"] = result["cast"].apply(_top3_cast)
-    result["director"] = result["crew"].apply(_director)
+    # Compute the derived fields: top3_cast, director, bayesian_rating, composite_text
+    result_df["top3_cast"] = result_df["cast"].apply(_top3_cast)
+    result_df["director"] = result_df["crew"].apply(_director)
 
     # Bayesian rating: (v*R + m*C) / (v+m), m=50, C = vote_count-weighted mean
-    vc = result["vote_count"].fillna(0)
-    va = result["vote_average"].fillna(0)
+    vc = result_df["vote_count"].fillna(0)
+    va = result_df["vote_average"].fillna(0)
     C = float((va * vc).sum() / vc.sum()) if vc.sum() > 0 else 0.0
     m = 50
-    result["bayesian_rating"] = (vc * va + m * C) / (vc + m)
-
-    result["composite_text"] = result.apply(_composite_text, axis=1)
-    result = result.drop_duplicates(subset=["id"], keep="last")
+    result_df["bayesian_rating"] = (vc * va + m * C) / (vc + m)
+    
+    # Add composite_text column for embedding
+    result_df["composite_text"] = result_df.apply(_composite_text, axis=1)
 
     # Post-condition guards
-    assert len(result) >= 40_000, f"Expected ≥40k rows after cleaning, got {len(result)}"
-    assert result["id"].isna().sum() == 0, "NaN ids remain after cleaning"
-    assert result["id"].is_unique, "Duplicate ids remain after cleaning"
-    assert (result["composite_text"].str.strip() == "").sum() == 0, "Empty composite_text rows"
+    assert len(result_df) >= 40_000, f"Expected ≥40k rows after cleaning, got {len(result_df)}"
+    assert result_df["id"].isna().sum() == 0, "NaN ids remain after cleaning"
+    assert result_df["id"].is_unique, "Duplicate ids remain after cleaning"
+    assert (result_df["composite_text"].str.strip() == "").sum() == 0, "Empty composite_text rows"
 
-    log.info("cleaning complete", extra={"rows": len(result)})
-    return result.reset_index(drop=True)
+    log.info("cleaning complete", extra={"rows": len(result_df)})
+    return result_df.reset_index(drop=True)

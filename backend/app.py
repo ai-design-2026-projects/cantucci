@@ -17,6 +17,7 @@ from fastapi import FastAPI
 from backend.logging_setup import configure_logging
 from backend.orchestrator.orchestrator import Orchestrator
 from backend.routers.sessions import router as sessions_router
+from db.ingestion.embed import preload_model
 
 log = logging.getLogger(__name__)
 
@@ -38,6 +39,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """
     configure_logging()
     app.state.orchestrator = Orchestrator()
+    preload_model()
 
     host = os.environ.get("HOST", "127.0.0.1")
     port = os.environ.get("PORT", "8000")
