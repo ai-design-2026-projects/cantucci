@@ -13,11 +13,12 @@ def three_way(
     eval_frac: float = 0.10,
     seed: int = 42,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    """Split df into (main, mini, eval_holdout). All three are disjoint by id.
+    """Split df into (main, mini, eval_holdout).
 
-    Eval holdout is a random slice taken first. Mini is drawn from the remaining
-    rows ranked by popularity (vote_count desc, popularity desc) so it contains
-    well-known titles suitable for dev/CI use. Main is everything else.
+    Eval holdout is a random slice taken first and is disjoint from everything
+    else. Main is all remaining rows. Mini is the top-ranked subset of main by
+    popularity (vote_count desc, popularity desc) — it is a strict subset of
+    main, not a separate partition. Ingesting main always includes the mini movies.
 
     Args:
         df: Cleaned DataFrame from clean.prepare().
@@ -26,19 +27,17 @@ def three_way(
         seed: Random state for reproducibility.
 
     Returns:
-        Tuple of (main_df, mini_df, eval_df).
+        Tuple of (main_df, mini_df, eval_df). mini_df IDs are a subset of main_df IDs.
     """
     eval_df = df.sample(frac=eval_frac, random_state=seed)
-    remainder = df.drop(index=eval_df.index)
+    main_df = df.drop(index=eval_df.index)
 
-    # Mini: top-ranked by popularity so it's useful as demo data
-    ranked = remainder.sort_values(["vote_count", "popularity"], ascending=False)
+    ranked = main_df.sort_values(["vote_count", "popularity"], ascending=False)
     mini_df = ranked.head(mini_size)
-    main_df = remainder.drop(index=mini_df.index)
 
-    assert len(main_df) + len(mini_df) + len(eval_df) == len(df), "Split sizes do not sum"
+    assert len(main_df) + len(eval_df) == len(df), "Split sizes do not sum"
     assert set(main_df["id"]).isdisjoint(eval_df["id"]), "main/eval overlap"
-    assert set(mini_df["id"]).isdisjoint(eval_df["id"]), "mini/eval overlap"
+    assert set(mini_df["id"]).issubset(set(main_df["id"])), "mini not a subset of main"
 
     log.info(
         "split complete",
