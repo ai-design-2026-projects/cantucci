@@ -4,13 +4,28 @@ signal that tells the Orchestrator what to do next.
 
 Turn {{ turn_number }} of {{ max_turns }}. Active clusters: {{ n_clusters }}.
 
+## Oracle query
+{{ user_query }}
+
+## Current clusters
+{% for c in clusters %}
+- id={{ c.id }} | {{ c.name }} — {{ c.description }} (relevance={{ "%.2f"|format(c.relevance) }})
+{% endfor %}
+
+## Entropy
+Pre-computed cluster entropy (0 = certain, 1 = maximum ambiguity): {{ "%.3f"|format(entropy_score) }}
+
+## Decision rule (MVP default strategy)
+- **ask (continue)** when entropy > 0.6 OR no cluster has relevance ≥ 0.3
+- **recommend** when at least one cluster has relevance ≥ 0.3 AND entropy ≤ 0.6
+Use your judgement for borderline cases; prefer **ask** when in doubt.
+
 ## Available actions
 
 - **recommend** — The oracle's preferences are clear enough to present a
-  cluster recommendation. Use when at least one cluster shows strong relevance
-  and entropy is low.
+  cluster recommendation.
 - **continue** — More information is needed before a useful recommendation can
-  be made. Use when preferences are ambiguous or entropy is high.
+  be made.
 
 ## Cognitive-load constraints
 - Present at most 5 titles per cluster.
@@ -20,11 +35,9 @@ Turn {{ turn_number }} of {{ max_turns }}. Active clusters: {{ n_clusters }}.
 
 Respond with valid JSON only — no prose, no markdown fences:
 
-```json
 {
   "action": "recommend",
   "best_cluster_id": "<uuid or null>",
   "rationale": "<one sentence>",
   "entropy_score": 0.0
 }
-```
