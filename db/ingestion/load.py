@@ -160,7 +160,7 @@ def _upsert_movies(cur, df: pd.DataFrame, embeddings: np.ndarray) -> None:
         rows.append((
             int(row["id"]),
             _none(row.get("imdb_id")),
-            _none(row.get("title")),
+            _none(row.get("title")) or _none(row.get("original_title")),
             _none(row.get("original_title")),
             _none(row.get("original_language")),
             _none(row.get("overview")),
