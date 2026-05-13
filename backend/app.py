@@ -16,7 +16,7 @@ from fastapi import FastAPI
 
 from backend.logging import configure_logging
 from backend.orchestrator.orchestrator import Orchestrator
-from backend.routers import sessions
+from backend.routers.sessions import movies_router, router as sessions_router
 
 log = logging.getLogger(__name__)
 
@@ -58,4 +58,5 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-app.include_router(sessions.router)
+app.include_router(sessions_router)
+app.include_router(movies_router)

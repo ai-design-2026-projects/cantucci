@@ -6,3 +6,5 @@ build/
 /.vscode
 __pycache__/
 data/
+node_modules/
+dist/

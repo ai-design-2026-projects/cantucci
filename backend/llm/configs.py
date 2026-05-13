@@ -19,7 +19,7 @@ from typing import Any
 
 import yaml
 
-_CONFIGS_DIR = Path(__file__).parents[1] / "configs"
+_CONFIGS_DIR = Path(__file__).parents[2] / "configs"
 
 
 def load_config(name: str) -> tuple[dict[str, Any], str]:
