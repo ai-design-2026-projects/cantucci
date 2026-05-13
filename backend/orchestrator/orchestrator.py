@@ -37,6 +37,7 @@ from backend.settings import get_config_hash, get_config_snapshot, get_settings
 
 log = logging.getLogger(__name__)
 
+
 class Orchestrator:
     """LLM-backed orchestrator. No in-memory session state; all persistence in DB.
 
@@ -124,6 +125,7 @@ class Orchestrator:
         turn_number = len(full.turns) + 1
         cfg = get_settings()
  
+        #TODO: Implement a more robust policy around when to retrieve 
         if should_retrieve(full):
             # Remove the prior candidates
             prior = None

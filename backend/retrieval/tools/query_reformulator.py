@@ -108,7 +108,7 @@ def reformulate(
         raise LLMParseError(step_type=_STEP_TYPE, raw=response.content)
 
     log.debug(
-        "query_reformulator complete",
+        "Query reformulation complete",
         extra={"session_id": str(session_id), "turn_number": turn_number, "query_len": len(reformulated)},
     )
     return reformulated
