@@ -9,11 +9,9 @@ import logging
 import numpy as np
 
 import backend.api.movies as api_movies
+from backend.settings import get_settings
 
 log = logging.getLogger(__name__)
-
-_EXPECTED_DIM = 384
-
 
 def fetch(movie_ids: list[int]) -> tuple[list[int], np.ndarray]:
     """Return aligned (kept_ids, embedding_matrix) for *movie_ids*.
@@ -28,12 +26,13 @@ def fetch(movie_ids: list[int]) -> tuple[list[int], np.ndarray]:
         A tuple ``(kept_ids, matrix)`` where:
         - ``kept_ids`` is the subset of *movie_ids* found in the catalogue,
           in the same relative order.
-        - ``matrix`` is a float32 NumPy array of shape ``(len(kept_ids), 384)``.
+                - ``matrix`` is a float32 NumPy array with the configured embedding dimension.
 
     Raises:
         ValueError: If no embeddings are found for any of *movie_ids*, or if
-                    any stored embedding has a dimension other than 384.
+                    any stored embedding has a dimension other than the configured one.
     """
+    expected_dim = get_settings().representation.embedding_dim
     raw = api_movies.fetch_embeddings(movie_ids)
 
     kept_ids = [mid for mid in movie_ids if mid in raw]
@@ -44,9 +43,9 @@ def fetch(movie_ids: list[int]) -> tuple[list[int], np.ndarray]:
 
     rows = [raw[mid] for mid in kept_ids]
     for i, row in enumerate(rows):
-        if len(row) != _EXPECTED_DIM:
+        if len(row) != expected_dim:
             raise ValueError(
-                f"movie_id {kept_ids[i]}: expected embedding dim {_EXPECTED_DIM}, "
+                f"movie_id {kept_ids[i]}: expected embedding dim {expected_dim}, "
                 f"got {len(row)}"
             )
 

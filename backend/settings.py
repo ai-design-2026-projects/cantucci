@@ -7,7 +7,6 @@ Two concerns live here:
      Secrets (API keys, DB URL) come from the environment via ``.env``.
 
 Usage::
-
     from backend.settings import get_settings, get_config_hash, BACKEND_DIR, prompts_dir
 
     cfg = get_settings()
@@ -15,7 +14,6 @@ Usage::
     seed = cfg.model.seed
     prompt_path = prompts_dir("orchestrator") / "system_v1.j2"
 """
-
 import functools
 import hashlib
 import os
@@ -35,6 +33,15 @@ PROJECT_ROOT: Path = Path(__file__).resolve().parent.parent
 BACKEND_DIR: Path = PROJECT_ROOT / "backend"
 """Absolute path to the ``backend/`` package directory."""
 
+DATA_DIR: Path = PROJECT_ROOT / "data"
+"""Directory that holds the raw CSVs and generated artifacts."""
+
+RAW_DATA_DIR: Path = DATA_DIR / "raw"
+"""Directory containing the Kaggle source CSVs."""
+
+ARTIFACTS_DIR: Path = DATA_DIR / "artifacts"
+"""Directory containing generated parquet artifacts."""
+
 CONFIGS_DIR: Path = PROJECT_ROOT / "configs"
 """Directory that holds YAML condition configs (``default.yaml``, etc.)."""
 
@@ -45,19 +52,6 @@ MIGRATIONS_DIR: Path = PROJECT_ROOT / "db" / "migrations"
 """Directory containing numbered ``.sql`` migration files."""
 
 
-def prompts_dir(agent: str) -> Path:
-    """Return the prompts directory for the named agent module.
-
-    Args:
-        agent: Agent module name as it appears under ``backend/``,
-               e.g. ``"orchestrator"``, ``"cluster"``, ``"ambiguity"``.
-
-    Returns:
-        ``Path`` to ``backend/<agent>/prompts/``.
-    """
-    return BACKEND_DIR / agent / "prompts"
-
-
 class ModelConfig(BaseModel):
     """LLM model parameters.
 
@@ -66,7 +60,6 @@ class ModelConfig(BaseModel):
         seed:       RNG seed for reproducible completions.
         max_tokens: Maximum completion tokens per call.
     """
-
     name: str
     seed: int
     max_tokens: int
@@ -74,14 +67,12 @@ class ModelConfig(BaseModel):
 
 class SessionConfig(BaseModel):
     """Per-session runtime limits.
-
     Attributes:
         max_turns:         Hard turn budget before the session is auto-closed.
         convergence_turns: Number of consecutive show-type turns without
                            oracle rejection required to declare convergence.
         cost_limit_usd:    Maximum USD spend allowed for one session.
     """
-
     max_turns: int
     convergence_turns: int
     cost_limit_usd: float
@@ -89,29 +80,38 @@ class SessionConfig(BaseModel):
 
 class RetrievalConfig(BaseModel):
     """Vector-search parameters.
-
     Attributes:
         top_k: Maximum number of candidate films to retrieve per turn.
     """
-
     top_k: int
+
+
+class SplitConfig(BaseModel):
+    """Dataset-generation split parameters.
+
+    Attributes:
+        mini_size: Number of rows kept in the mini subset.
+        eval_frac: Fraction of the dataset reserved for evaluation holdout.
+        seed: Random seed for the split.
+    """
+
+    mini_size: int
+    eval_frac: float
+    seed: int
 
 
 class RepresentationConfig(BaseModel):
     """Embedding model configuration.
-
     Attributes:
-        strategy: Sentence-transformer model identifier.
-        dim:      Embedding vector dimensionality.
+        model:          Sentence-transformer model identifier.
+        embedding_dim:  Embedding vector dimensionality.
     """
-
-    strategy: str
-    dim: int
+    model: str
+    embedding_dim: int
 
 
 class ClusteringConfig(BaseModel):
     """HDBSCAN soft-clustering parameters.
-
     Attributes:
         min_cluster_size:        Minimum points to form a cluster.
         min_samples:             HDBSCAN ``min_samples`` (controls noise).
@@ -137,6 +137,7 @@ class Settings(BaseModel):
         model:          LLM model parameters.
         session:        Session runtime limits.
         retrieval:      Vector-search parameters.
+        split:          Dataset-generation split parameters.
         representation: Embedding model configuration.
         clustering:     HDBSCAN parameters.
     """
@@ -144,8 +145,21 @@ class Settings(BaseModel):
     model: ModelConfig
     session: SessionConfig
     retrieval: RetrievalConfig
+    split: SplitConfig
     representation: RepresentationConfig
     clustering: ClusteringConfig
+
+def prompts_dir(agent: str) -> Path:
+    """Return the prompts directory for the named agent module.
+
+    Args:
+        agent: Agent module name as it appears under ``backend/``,
+               e.g. ``"orchestrator"``, ``"cluster"``, ``"ambiguity"``.
+
+    Returns:
+        ``Path`` to ``backend/<agent>/prompts/``.
+    """
+    return BACKEND_DIR / agent / "prompts"
 
 
 def database_url() -> str:
@@ -155,6 +169,41 @@ def database_url() -> str:
         KeyError: If ``DATABASE_URL`` is not set.
     """
     return os.environ["DATABASE_URL"]
+
+def kaggle_username() -> str:
+    """Return the Kaggle API username from the environment.
+
+    Raises:
+        KeyError: If ``KAGGLE_USERNAME`` is not set.
+    """
+    return os.environ["KAGGLE_USERNAME"]
+
+
+def kaggle_key() -> str:
+    """Return the Kaggle API key from the environment.
+
+    Raises:
+        KeyError: If ``KAGGLE_KEY`` is not set.
+    """
+    return os.environ["KAGGLE_KEY"]
+
+
+def cinepal_artifacts_repo() -> str:
+    """Return the Hugging Face repo id for pre-built parquet artifacts.
+
+    Raises:
+        KeyError: If ``CINEPAL_ARTIFACTS_REPO`` is not set.
+    """
+    return os.environ["CINEPAL_ARTIFACTS_REPO"]
+
+
+def hf_token() -> str:
+    """Return the Hugging Face API token from the environment.
+
+    Raises:
+        KeyError: If ``HF_TOKEN`` is not set.
+    """
+    return os.environ["HF_TOKEN"]
 
 
 def openai_api_key() -> str:
@@ -205,6 +254,12 @@ def get_settings() -> Settings:
     """
     path = os.environ.get("CONFIG_PATH", str(DEFAULT_CONFIG_PATH))
     data, _ = _load_raw(path)
+    representation = data.get("representation", {})
+    if isinstance(representation, dict):
+        if "model" not in representation and "strategy" in representation:
+            representation["model"] = representation.pop("strategy")
+        if "embedding_dim" not in representation and "dim" in representation:
+            representation["embedding_dim"] = representation.pop("dim")
     return Settings(**data)
 
 

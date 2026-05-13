@@ -32,6 +32,7 @@ def _parse_dict(val) -> dict | None:
 
 
 def _parse_bool(val) -> bool:
+    """Parse a value to boolean; treat NaN as False, strings "true"/"false" (case-insensitive), and pass through actual booleans."""
     if pd.isna(val):
         return False
     if isinstance(val, bool):
@@ -40,11 +41,13 @@ def _parse_bool(val) -> bool:
 
 
 def _top3_cast(cast_list: list) -> list[str]:
+    """Extract the top 3 cast member names based on "order" field; return empty list if not present."""
     sorted_cast = sorted(cast_list, key=lambda c: c.get("order", 999))
     return [c["name"] for c in sorted_cast[:3] if "name" in c]
 
 
 def _director(crew_list: list) -> str:
+    """Extract the director's name from the crew list; return empty string if not found."""
     for c in crew_list:
         if c.get("job") == "Director" and "name" in c:
             return c["name"]
@@ -52,7 +55,11 @@ def _director(crew_list: list) -> str:
 
 
 def _composite_text(row: pd.Series) -> str:
-    """Combine multiple text fields into one for embedding."""
+    """
+    Combine multiple text fields into one for embedding.
+    Fields used: title, original_title, overview, tagline, genres (names), 
+    top3_cast, director.
+    """
     genres_str = " ".join(g.get("name", "") for g in (row["genres"] or []))
     cast_str = " ".join(row["top3_cast"])
     parts = [
@@ -70,10 +77,8 @@ def _composite_text(row: pd.Series) -> str:
 
 def prepare(raw_dir: Path) -> pd.DataFrame:
     """Load, clean, and enrich the raw Kaggle CSVs; return one row per movie.
-
     Args:
         raw_dir: Directory containing movies_metadata.csv, credits.csv, keywords.csv.
-
     Returns:
         Cleaned DataFrame with composite_text column ready for embedding.
     """

@@ -423,7 +423,7 @@ runs ──► sessions ──► turns ──► clusters ──► cluster_ass
 ## Notes on pgvector usage
 
 - Extension: `CREATE EXTENSION IF NOT EXISTS vector;`
-- Embedding dimension: 384 (matches `all-MiniLM-L6-v2`). If the embedding model is changed via `representation.strategy` config, the column must be recreated with the new dimension.
+- Embedding dimension: 384 (matches `all-MiniLM-L6-v2`). If the embedding model is changed via `representation.model` / `representation.embedding_dim` config, the column must be recreated with the new dimension.
 - Index type: `IVFFlat` with `lists = 100` for the catalogue (tuned for ~45k vectors). Increase `lists` proportionally if the catalogue grows.
 - Similarity metric: cosine distance (`vector_cosine_ops`). Query pattern: `ORDER BY embedding <=> $query_vec LIMIT k`.
 - Cluster centroids (`clusters.centroid`) are not indexed — they are used for display and drift detection only, not for ANN search.

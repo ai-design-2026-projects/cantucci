@@ -34,6 +34,12 @@ class TestGetSettings:
     def test_retrieval_top_k_positive(self):
         assert get_settings().retrieval.top_k > 0
 
+    def test_split_parameters_positive(self):
+        cfg = get_settings().split
+        assert cfg.mini_size > 0
+        assert 0.0 < cfg.eval_frac < 1.0
+        assert isinstance(cfg.seed, int)
+
     def test_clustering_min_cluster_size_positive(self):
         assert get_settings().clustering.min_cluster_size > 0
 
