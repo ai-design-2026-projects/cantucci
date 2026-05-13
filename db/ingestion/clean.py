@@ -56,22 +56,55 @@ def _director(crew_list: list) -> str:
 
 def _composite_text(row: pd.Series) -> str:
     """
-    Combine multiple text fields into one for embedding.
-    Fields used: title, original_title, overview, tagline, genres (names), 
-    top3_cast, director.
+    Construct a composite text string for embedding from multiple metadata fields,
+    prioritising high-signal information and ensuring non-empty output.
+
+    Row keys consumed (all must be present in the DataFrame before calling):
+        title           (str)           Primary movie title.
+        original_title  (str)           Original-language title; appended only if
+                                        different from title.
+        release_year    (int | float)   4-digit year derived from release_date.
+        genres          (list[dict])    Each dict must have a "name" key.
+        tagline         (str)           Short marketing tagline.
+        overview        (str)           Plot synopsis.
+        top3_cast       (list[str])     Up to 3 actor names, billing order.
+        director        (str)           Director name from crew; "" if absent.
+        keywords        (list[dict])    Each dict must have a "name" key.
+
+    Returns:
+        Non-empty space-joined string of all non-blank parts.
     """
-    genres_str = " ".join(g.get("name", "") for g in (row["genres"] or []))
-    cast_str = " ".join(row["top3_cast"])
-    parts = [
-        row.get("title") or "",
-        row.get("original_title") or "",
-        row.get("overview") or "",
-        row.get("tagline") or "",
-        genres_str,
-        cast_str,
-        row["director"],
-    ]
-    parts_str = [str(p).strip() for p in parts if not pd.isna(p)]
+    parts = []
+
+    # Title (deduplicated)
+    title = row.get("title") or ""
+    original_title = row.get("original_title") or ""
+    parts.append(title)
+    if original_title and original_title.lower() != title.lower():
+        parts.append(original_title)
+
+    # High-signal metadata upfront
+    year = row.get("release_year")
+    if year and not pd.isna(year):
+        parts.append(str(int(year)))
+
+    genres_str = " ".join(g.get("name", "") for g in (row.get("genres") or []))
+    parts.append(genres_str)
+
+    # Narrative content
+    parts.append(row.get("tagline") or "")
+    parts.append(row.get("overview") or "")
+
+    # People
+    cast_str = " ".join(row.get("top3_cast") or [])
+    parts.append(cast_str)
+    parts.append(row.get("director") or "")
+
+    # Keywords if available
+    keywords_str = " ".join(k.get("name", "") for k in (row.get("keywords") or []))
+    parts.append(keywords_str)
+
+    parts_str = [str(p).strip() for p in parts if p and not pd.isna(p)]
     return " ".join(p for p in parts_str if p)
 
 
@@ -112,9 +145,10 @@ def prepare(raw_dir: Path) -> pd.DataFrame:
     metadata_df["adult"] = metadata_df["adult"].apply(_parse_bool)
     metadata_df["video"] = metadata_df["video"].apply(_parse_bool)
 
-    # Release date as "YYYY-MM-DD" string or None
+    # Release date as "YYYY-MM-DD" string or None; year extracted for composite_text
     parsed_dates = pd.to_datetime(metadata_df["release_date"], errors="coerce")
     metadata_df["release_date"] = [d.strftime("%Y-%m-%d") if pd.notna(d) else None for d in parsed_dates]
+    metadata_df["release_year"] = [d.year if pd.notna(d) else None for d in parsed_dates]
 
     # Parse JSON-as-literal-string columns
     for col in ("genres", "production_companies", "production_countries", "spoken_languages"):
@@ -122,16 +156,16 @@ def prepare(raw_dir: Path) -> pd.DataFrame:
     metadata_df["belongs_to_collection"] = metadata_df["belongs_to_collection"].apply(_parse_dict)
 
     # Transform credits and keywords to have one row per movie id, with nested lists for cast/crew/keywords
-    for df in (credits, keywords_df):
+    for df in (credits_df, keywords_df):
         df["id"] = pd.to_numeric(df["id"], errors="coerce")
-    credits = credits.drop_duplicates(subset=["id"], keep="last")
+    credits_df = credits_df.drop_duplicates(subset=["id"], keep="last")
     keywords_df = keywords_df.drop_duplicates(subset=["id"], keep="last")
-    credits["cast"] = credits["cast"].apply(_parse_list)
-    credits["crew"] = credits["crew"].apply(_parse_list)
+    credits_df["cast"] = credits_df["cast"].apply(_parse_list)
+    credits_df["crew"] = credits_df["crew"].apply(_parse_list)
     keywords_df["keywords"] = keywords_df["keywords"].apply(_parse_list)
 
     # Merge metadata with credits and keywords; fill missing nested fields with empty lists
-    result_df = metadata_df.merge(credits, on="id", how="left").merge(keywords_df, on="id", how="left")
+    result_df = metadata_df.merge(credits_df, on="id", how="left").merge(keywords_df, on="id", how="left")
     result_df["cast"] = result_df["cast"].apply(lambda v: v if isinstance(v, list) else [])
     result_df["crew"] = result_df["crew"].apply(lambda v: v if isinstance(v, list) else [])
     result_df["keywords"] = result_df["keywords"].apply(lambda v: v if isinstance(v, list) else [])
