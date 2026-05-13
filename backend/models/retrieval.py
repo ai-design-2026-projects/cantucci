@@ -11,6 +11,8 @@ from backend.models.eval import JudgeScore, SessionMetrics
 
 @dataclass
 class TurnDetail:
+    """Full data for a single completed turn, as returned by get_session_full."""
+
     id: uuid.UUID
     turn_number: int
     user_message: str
@@ -23,6 +25,8 @@ class TurnDetail:
 
 @dataclass
 class FeedbackEntry:
+    """Oracle feedback record for a single turn."""
+
     id: uuid.UUID
     turn_id: uuid.UUID
     feedback_level: str
@@ -33,6 +37,8 @@ class FeedbackEntry:
 
 @dataclass
 class SessionSummary:
+    """Lightweight session overview used in run-level aggregates."""
+
     session_id: uuid.UUID
     run_id: uuid.UUID
     seed: int
@@ -48,6 +54,8 @@ class SessionSummary:
 
 @dataclass
 class RunAggregate:
+    """Computed statistics across all sessions in a run."""
+
     n_sessions: int
     convergence_rate: float
     mean_turns_to_convergence: float | None
@@ -57,6 +65,8 @@ class RunAggregate:
 
 @dataclass
 class RunResults:
+    """Full results for a run: all session summaries plus aggregate stats."""
+
     run_id: uuid.UUID
     sessions: list[SessionSummary]
     aggregate: RunAggregate
@@ -64,6 +74,8 @@ class RunResults:
 
 @dataclass
 class SessionFull:
+    """Complete session state including all turns, feedback, and eval data."""
+
     session_id: uuid.UUID
     run_id: uuid.UUID
     seed: int

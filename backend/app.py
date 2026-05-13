@@ -14,7 +14,7 @@ from typing import AsyncGenerator
 
 from fastapi import FastAPI
 
-from backend.logging import configure_logging
+from backend.logging_setup import configure_logging
 from backend.orchestrator.orchestrator import Orchestrator
 from backend.routers.sessions import movies_router, router as sessions_router
 
@@ -52,7 +52,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
 
 app = FastAPI(
-    title="Cinepal",
+    title="CinePal",
     description="Conversational movie recommender — session/turn API.",
     docs_url=DOCS_PATH,
     lifespan=lifespan,

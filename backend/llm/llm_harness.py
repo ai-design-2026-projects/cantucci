@@ -1,4 +1,4 @@
-"""Single gateway for all LLM calls in the cantucci backend.
+"""Single gateway for all LLM calls in the CinePal backend.
 
 Every agent must call ``llm_harness.call()`` — never instantiate an OpenAI
 (or any other) client directly.  This module enforces:
@@ -21,13 +21,25 @@ from uuid import UUID
 
 import openai
 
-import backend.config as config
-from backend.logging import log_llm_call
+from backend.logging_setup import log_llm_call
+from backend.settings import openai_api_key
 from backend.models.llm import CostLimitExceeded, LLMResponse
 
 log = logging.getLogger(__name__)
 
 _MAX_ATTEMPTS = 3
+
+# USD per million tokens for known model families.  Used to estimate cost_usd
+# on each LLMResponse.  Models are matched by prefix so version suffixes are
+# tolerated (e.g. "gpt-4o-mini-2024-07-18" matches "gpt-4o-mini").
+_COST_PER_M: dict[str, dict[str, float]] = {
+    "gpt-4o-mini": {"input": 0.15, "output": 0.60},
+    "gpt-4o": {"input": 2.50, "output": 10.00},
+    "claude-opus": {"input": 15.0, "output": 75.0},
+    "claude-sonnet": {"input": 3.0, "output": 15.0},
+    "claude-haiku": {"input": 0.80, "output": 4.0},
+}
+
 _TRANSIENT_ERRORS = (
     openai.RateLimitError,
     openai.APITimeoutError,
@@ -133,12 +145,14 @@ def call(
             latency_ms=latency_ms,
         )
 
+        cost = _estimate_cost(model_and_version, input_tokens, output_tokens)
         content = response.choices[0].message.content or ""
         return LLMResponse(
             content=content,
             input_tokens=input_tokens,
             output_tokens=output_tokens,
             latency_ms=latency_ms,
+            cost_usd=cost,
         )
 
     raise last_exc  # type: ignore[misc]
@@ -146,9 +160,17 @@ def call(
 
 def _client() -> openai.OpenAI:
     """Construct a fresh OpenAI client using the configured API key."""
-    return openai.OpenAI(api_key=config.openai_api_key())
+    return openai.OpenAI(api_key=openai_api_key())
 
 
 def _backoff(attempt: int) -> float:
     """Return exponential backoff delay in seconds for a given attempt index."""
     return float(2**attempt)
+
+
+def _estimate_cost(model: str, input_tokens: int, output_tokens: int) -> float:
+    """Estimate USD cost from token counts using the _COST_PER_M pricing table."""
+    for prefix, rates in _COST_PER_M.items():
+        if model.startswith(prefix):
+            return (input_tokens * rates["input"] + output_tokens * rates["output"]) / 1_000_000
+    return 0.0

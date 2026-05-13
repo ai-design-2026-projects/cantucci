@@ -10,7 +10,7 @@ Uvicorn's own loggers (uvicorn, uvicorn.error, uvicorn.access) are routed
 through the same formatter so all backend output has a consistent shape.
 
 LLM calls:
-    from backend.logging import log_llm_call
+    from backend.logging_setup import log_llm_call
     log_llm_call(log, run_id=..., session_id=..., ...)
 Emits a structured INFO record containing the exact field set mandated by CLAUDE.md.
 """

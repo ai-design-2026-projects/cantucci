@@ -24,7 +24,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from backend.logging import configure_logging
+from backend.logging_setup import configure_logging
 from db.ingestion import clean, download, embed, load, split
 
 log = logging.getLogger(__name__)

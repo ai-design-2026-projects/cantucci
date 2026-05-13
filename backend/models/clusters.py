@@ -19,6 +19,8 @@ class ClusterSpec:
 
 @dataclass
 class ClusterAssignment:
+    """Soft-cluster membership score for a single film."""
+
     movie_id: int
     score: float
     excluded: bool
@@ -26,6 +28,8 @@ class ClusterAssignment:
 
 @dataclass
 class ClusterSnapshot:
+    """In-memory cluster state for one turn — never written directly to DB."""
+
     id: uuid.UUID
     name: str
     description: str | None

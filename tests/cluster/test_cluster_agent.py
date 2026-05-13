@@ -73,8 +73,9 @@ class TestClusterEmptyRetrieval:
         assert result == []
 
 
-class TestClusterAllNoiseFallback:
-    def test_all_noise_creates_single_fallback_cluster(self, seeded_db, caplog):
+class TestClusterAllNoise:
+    def test_all_noise_returns_empty_list(self, seeded_db, caplog):
+        """All-noise HDBSCAN result returns [] and logs a WARNING (fail-loudly policy)."""
         rng = np.random.default_rng(0)
         n = len(_CATALOGUE)
         synthetic_embs = rng.uniform(size=(n, 384)).astype(np.float32)
@@ -90,25 +91,5 @@ class TestClusterAllNoiseFallback:
                 **_COMMON_KWARGS,
             )
 
-        assert len(result) == 1
-        assert any("fallback" in rec.message.lower() for rec in caplog.records)
-
-    def test_fallback_cluster_covers_all_candidates(self, seeded_db):
-        rng = np.random.default_rng(1)
-        n = len(_CATALOGUE)
-        synthetic_embs = rng.uniform(size=(n, 384)).astype(np.float32)
-        fake_ids = [r["id"] for r in _CATALOGUE]
-
-        with patch(
-            "backend.cluster.cluster_agent.embedding_fetcher.fetch",
-            return_value=(fake_ids, synthetic_embs),
-        ):
-            result = cluster(
-                user_query="mystery film",
-                dry_run=True,
-                **_COMMON_KWARGS,
-            )
-
-        assert len(result) == 1
-        assigned_ids = {a.movie_id for a in result[0].assignments}
-        assert assigned_ids == set(fake_ids)
+        assert result == []
+        assert any("noise" in rec.message.lower() for rec in caplog.records)

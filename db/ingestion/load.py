@@ -10,7 +10,7 @@ import pandas as pd
 import psycopg
 import pgvector.psycopg
 
-import backend.config as config
+from backend.settings import database_url as _database_url
 
 log = logging.getLogger(__name__)
 
@@ -375,7 +375,7 @@ def ingest(df: pd.DataFrame, embeddings: np.ndarray) -> None:
     if len(df) != len(embeddings):
         raise ValueError(f"df has {len(df)} rows but embeddings has {len(embeddings)} rows")
 
-    url = config.database_url()
+    url = _database_url()
     log.info("connecting to DB for ingest", extra={"rows": len(df)})
 
     with psycopg.connect(url) as conn:

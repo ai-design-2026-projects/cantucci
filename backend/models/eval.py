@@ -7,6 +7,8 @@ from decimal import Decimal
 
 @dataclass
 class SessionMetrics:
+    """Aggregate quality metrics for a completed session."""
+
     session_id: uuid.UUID
     converged: bool
     turns_to_convergence: int | None
@@ -20,6 +22,8 @@ class SessionMetrics:
 
 @dataclass
 class JudgeScore:
+    """LLM-as-judge score for a single evaluation dimension."""
+
     id: uuid.UUID
     dimension: str
     score: int

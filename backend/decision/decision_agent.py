@@ -15,8 +15,8 @@ from uuid import UUID
 
 from backend.decision.tools import entropy_calculator, relevance_scorer
 from backend.llm import llm_harness
-from backend.llm.configs import load_config
 from backend.llm.prompts import make_prompt_loader
+from backend.settings import get_settings
 from backend.models.clusters import ClusterSnapshot
 from backend.models.decision import DecisionAction, DecisionResult
 from backend.models.llm import LLMParseError
@@ -36,6 +36,7 @@ def decide(
     clusters: list[ClusterSnapshot],
     config_hash: str,
     model_version: str,
+    accumulated_cost_usd: float = 0.0,
 ) -> DecisionResult:
     """Return a routing decision for the current turn.
 
@@ -43,14 +44,15 @@ def decide(
     to ``continue_`` with entropy 1.0 without making an LLM call.
 
     Args:
-        session_id:    UUID of the current session.
-        run_id:        UUID of the parent run.
-        turn_id:       UUID of the current turn.
-        turn_number:   1-based turn index within the session.
-        user_query:    Oracle's message for this turn.
-        clusters:      Current cluster snapshots.
-        config_hash:   SHA-256 prefix of the session's YAML config snapshot.
-        model_version: LLM model string stored on the session row.
+        session_id:           UUID of the current session.
+        run_id:               UUID of the parent run.
+        turn_id:              UUID of the current turn.
+        turn_number:          1-based turn index within the session.
+        user_query:           Oracle's message for this turn.
+        clusters:             Current cluster snapshots.
+        config_hash:          SHA-256 prefix of the session's YAML config snapshot.
+        model_version:        LLM model string stored on the session row.
+        accumulated_cost_usd: Running USD cost for the current turn (for cost guard).
 
     Returns:
         A ``DecisionResult`` with routing action, best cluster id, rationale,
@@ -77,7 +79,7 @@ def decide(
     entropy = entropy_calculator.compute(soft_scores)
     relevance = relevance_scorer.score(user_query, clusters)
 
-    cfg, _ = load_config("default")
+    cfg = get_settings()
 
     cluster_vars = [
         {
@@ -93,7 +95,7 @@ def decide(
         "decision_v1",
         {
             "turn_number": turn_number,
-            "max_turns": cfg["session"]["max_turns"],
+            "max_turns": cfg.session.max_turns,
             "n_clusters": len(clusters),
             "user_query": user_query,
             "clusters": cluster_vars,
@@ -112,13 +114,13 @@ def decide(
         turn_id=turn_id,
         config_hash=config_hash,
         model_and_version=model_version,
-        seed=cfg["model"]["seed"],
-        max_tokens=cfg["model"]["max_tokens"],
+        seed=cfg.model.seed,
+        max_tokens=cfg.model.max_tokens,
         step_type="decision_route",
         messages=messages,
         prompt_hash=prompt_hash,
-        cost_limit_usd=float(cfg["session"]["cost_limit_usd"]),
-        accumulated_cost_usd=0.0,
+        cost_limit_usd=cfg.session.cost_limit_usd,
+        accumulated_cost_usd=accumulated_cost_usd,
     )
 
     try:

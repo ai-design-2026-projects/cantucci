@@ -1,46 +1,16 @@
 """DB-backed state helpers for the Orchestrator.
 
-Thin wrappers around ``backend.api.sessions`` and ``backend.api.retrieval``
-so the Orchestrator itself never touches SQL directly.
+Thin wrappers around ``backend.api.sessions`` so the Orchestrator itself
+never touches SQL directly.
 """
 
 import logging
 import uuid
 from typing import Any
 
-import backend.api.retrieval as api_retrieval
 import backend.api.sessions as api_sessions
-from backend.models.retrieval import TurnDetail
 
 log = logging.getLogger(__name__)
-
-
-def load_history(session_id: uuid.UUID) -> list[TurnDetail]:
-    """Return all turns for a session in ascending turn_number order.
-
-    Args:
-        session_id: UUID of the session.
-
-    Returns:
-        Ordered list of TurnDetail objects.
-
-    Raises:
-        ValueError: If the session does not exist (propagated from get_session_full).
-    """
-    full = api_retrieval.get_session_full(session_id)
-    return full.turns
-
-
-def next_turn_number(session_id: uuid.UUID) -> int:
-    """Return the 1-based index of the next turn for a session.
-
-    Args:
-        session_id: UUID of the session.
-
-    Returns:
-        len(history) + 1.
-    """
-    return len(load_history(session_id)) + 1
 
 
 def record_turn(
@@ -62,7 +32,7 @@ def record_turn(
         step_type:         One of show | ask | stop.
         converged:         Whether this turn declared convergence.
         turn_id:           Pre-allocated UUID (used for LLM log correlation).
-                           If None, the DB generates one.
+                           If None, a new UUID is generated.
 
     Returns:
         UUID of the persisted turn row.

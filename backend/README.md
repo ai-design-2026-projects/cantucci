@@ -1,6 +1,6 @@
-# Cantucci Backend
+# CinePal Backend
 
-HTTP API for the Cantucci conversational clustering system. The backend exposes
+HTTP API for the CinePal conversational clustering system. The backend exposes
 a session / turn interface consumed by the frontend: the user opens a session,
 sends messages, and the system responds with recommendations and follow-up
 questions. Session logic is owned by the orchestrator, which will eventually
@@ -13,10 +13,10 @@ call LLM-backed agents and a PostgreSQL database — both are stubbed for now.
 ```
 backend/
 ├── app.py               FastAPI application, lifespan wiring, router mount.
-├── config.py            Environment variable loader (DATABASE_URL, LOG_LEVEL).
-├── logging.py           Logging setup: ANSI-coloured key=value lines + log_llm_call().
+├── settings.py          Typed config loader (Pydantic) + env-var helpers.
+├── logging_setup.py     Logging setup: ANSI-coloured key=value lines + log_llm_call().
 ├── api/                 Data-access layer — the ONLY place SQL is allowed.
-│   ├── db.py            Connection pool and tx() context manager.
+│   ├── db.py            Connection pool and transaction() context manager.
 │   ├── sessions.py      CRUD: sessions, turns, clusters, oracle_feedback.
 │   ├── runs.py          CRUD: runs table, config hashing.
 │   ├── eval.py          Write: session_metrics, judge_scores.
@@ -91,13 +91,13 @@ All responses are JSON. Unknown `session_id` → 404. Empty `user_message` → 4
 ## Logging
 
 Every module uses `log = logging.getLogger(__name__)`. All records route
-through `backend/logging.py`, including uvicorn's own access and error logs.
+through `backend/logging_setup.py`, including uvicorn's own access and error logs.
 
 For LLM calls, use the helper to ensure the full CLAUDE.md-required field set
 is always emitted:
 
 ```python
-from backend.logging import log_llm_call
+from backend.logging_setup import log_llm_call
 
 log_llm_call(
     log,

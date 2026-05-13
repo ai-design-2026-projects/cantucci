@@ -11,7 +11,7 @@ import uuid
 from decimal import Decimal
 from typing import Any
 
-from backend.api.db import tx
+from backend.api.db import transaction
 from backend.models.clusters import ClusterSpec
 
 log = logging.getLogger(__name__)
@@ -40,7 +40,7 @@ def create_session(
     Returns:
         UUID of the newly created session.
     """
-    with tx() as conn:
+    with transaction() as conn:
         row = conn.execute(
             """
             INSERT INTO sessions
@@ -83,7 +83,7 @@ def append_turn(
         UUID of the newly created turn.
     """
     effective_id = turn_id if turn_id is not None else uuid.uuid4()
-    with tx() as conn:
+    with transaction() as conn:
         row = conn.execute(
             """
             INSERT INTO turns
@@ -129,7 +129,7 @@ def snapshot_clusters(
     """
     cluster_ids: list[uuid.UUID] = []
 
-    with tx() as conn:
+    with transaction() as conn:
         for spec in clusters:
             row = conn.execute(
                 """
@@ -190,7 +190,7 @@ def write_feedback(
     Returns:
         UUID of the new feedback row.
     """
-    with tx() as conn:
+    with transaction() as conn:
         row = conn.execute(
             """
             INSERT INTO oracle_feedback
@@ -223,7 +223,7 @@ def mark_converged(
     """
     import json
 
-    with tx() as conn:
+    with transaction() as conn:
         conn.execute(
             """
             UPDATE sessions

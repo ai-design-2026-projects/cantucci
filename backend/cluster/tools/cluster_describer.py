@@ -9,10 +9,12 @@ import json
 import logging
 from uuid import UUID
 
+from pathlib import Path
+
 from backend.llm import llm_harness
 from backend.llm.prompts import make_prompt_loader
 from backend.models.llm import LLMParseError
-from pathlib import Path
+from backend.settings import get_settings
 
 log = logging.getLogger(__name__)
 
@@ -31,7 +33,7 @@ def describe(
     turn_id: UUID,
     config_hash: str,
     model_version: str,
-    cfg: dict,
+    accumulated_cost_usd: float = 0.0,
     dry_run: bool = False,
 ) -> list[tuple[str, str]]:
     """Return ``[(name, description), ...]`` aligned with *clusters_payload*.
@@ -39,18 +41,18 @@ def describe(
     On ``dry_run=True``, returns synthetic placeholder names without an LLM call.
 
     Args:
-        clusters_payload:  List of dicts, one per cluster, each containing
-                           ``cluster_index``, ``top_titles``, ``top_genres``,
-                           and ``sample_overviews``.
-        user_query:        Oracle's original utterance.
-        reformulated_query: Enriched query from the reformulator step.
-        session_id:        UUID of the current session.
-        run_id:            UUID of the parent run.
-        turn_id:           UUID of the current turn.
-        config_hash:       SHA-256 prefix of the session's YAML config snapshot.
-        model_version:     LLM model string stored on the session row.
-        cfg:               Parsed config dict.
-        dry_run:           If ``True``, return placeholder names without LLM call.
+        clusters_payload:     List of dicts, one per cluster, each containing
+                              ``cluster_index``, ``top_titles``, ``top_genres``,
+                              and ``sample_overviews``.
+        user_query:           Oracle's original utterance.
+        reformulated_query:   Enriched query from the reformulator step.
+        session_id:           UUID of the current session.
+        run_id:               UUID of the parent run.
+        turn_id:              UUID of the current turn.
+        config_hash:          SHA-256 prefix of the session's YAML config snapshot.
+        model_version:        LLM model string stored on the session row.
+        accumulated_cost_usd: Running USD cost for the current turn (for cost guard).
+        dry_run:              If ``True``, return placeholder names without LLM call.
 
     Returns:
         List of ``(name, description)`` tuples in the same order as
@@ -66,6 +68,8 @@ def describe(
             (f"Cluster {item['cluster_index']}", "dry-run description")
             for item in clusters_payload
         ]
+
+    cfg = get_settings()
 
     system_text, prompt_hash = load_prompt(
         "cluster_describe_v1",
@@ -94,13 +98,13 @@ def describe(
         turn_id=turn_id,
         config_hash=config_hash,
         model_and_version=model_version,
-        seed=cfg["model"]["seed"],
-        max_tokens=cfg["model"]["max_tokens"],
+        seed=cfg.model.seed,
+        max_tokens=cfg.model.max_tokens,
         step_type=_STEP_TYPE,
         messages=messages,
         prompt_hash=prompt_hash,
-        cost_limit_usd=float(cfg["session"]["cost_limit_usd"]),
-        accumulated_cost_usd=0.0,
+        cost_limit_usd=cfg.session.cost_limit_usd,
+        accumulated_cost_usd=accumulated_cost_usd,
     )
 
     try:

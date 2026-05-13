@@ -1,7 +1,7 @@
 """Orchestrator Protocol — the interface the HTTP router calls."""
 
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import Protocol
 from uuid import UUID
 
 from backend.models.public import ConvergedClusterPublic, MoviePublic
@@ -9,24 +9,21 @@ from backend.models.sessions import SessionState, TurnResult
 
 
 @dataclass
-class OrchestratorTurnResponse:
-    """Structured output parsed from the Orchestrator LLM call.
+class OrchestratorRecommendation:
+    """Structured output parsed from the Orchestrator's render step.
 
     The orchestrator's prompt instructs the model to return valid JSON
-    matching this shape.  ``agent.respond()`` parses and validates the raw
-    string; any mismatch raises ``LLMParseError``.
+    matching this shape. ``agent.render_recommendation()`` parses and validates
+    the raw string; any mismatch raises ``LLMParseError``.
+
+    Convergence is determined by the Orchestrator's policy (not the LLM).
 
     Attributes:
-        reply:              User-facing assistant text.
-        converged:          True when the LLM judges preferences sufficiently
-                            clear to terminate the session.
-        preference_profile: Structured profile extracted from oracle feedback.
-                            Must be non-None when ``converged=True``.
+        reply: User-facing message presenting the current clusters and
+               inviting oracle feedback.
     """
 
     reply: str
-    converged: bool
-    preference_profile: dict[str, Any] | None
 
 
 class Orchestrator(Protocol):

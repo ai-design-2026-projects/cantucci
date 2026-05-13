@@ -70,7 +70,7 @@ def _parse_args() -> argparse.Namespace:
 
 
 if __name__ == "__main__":
-    from backend.logging import configure_logging
+    from backend.logging_setup import configure_logging
     configure_logging()
     args = _parse_args()
     fetch_artifacts(repo_id=args.repo, token=args.token, artifacts_dir=args.dest)
