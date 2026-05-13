@@ -109,6 +109,37 @@ def append_turn(
     return turn_id
 
 
+def update_turn(
+    turn_id: uuid.UUID,
+    assistant_message: str,
+    step_type: str,
+    converged: bool,
+) -> None:
+    """Update an existing turn row with its final reply fields.
+
+    Used when the turn row must be inserted before cluster snapshots (to satisfy
+    the FK on clusters.turn_id) but the reply is only known after agent calls.
+
+    Args:
+        turn_id:           UUID of the turn to update.
+        assistant_message: Final reply text from the Orchestrator.
+        step_type:         One of show | ask | stop.
+        converged:         Whether this turn declared convergence.
+    """
+    with transaction() as conn:
+        conn.execute(
+            """
+            UPDATE turns
+            SET assistant_message = %s,
+                step_type = %s,
+                converged = %s
+            WHERE id = %s
+            """,
+            (assistant_message, step_type, converged, turn_id),
+        )
+    log.debug("updated turn %s step=%s converged=%s", turn_id, step_type, converged)
+
+
 def snapshot_clusters(
     session_id: uuid.UUID,
     turn_id: uuid.UUID,

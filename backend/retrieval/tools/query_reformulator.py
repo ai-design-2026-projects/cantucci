@@ -109,6 +109,6 @@ def reformulate(
 
     log.debug(
         "query_reformulator complete",
-        extra={"session_id": str(session_id), "query_len": len(reformulated)},
+        extra={"session_id": str(session_id), "turn_number": turn_number, "query_len": len(reformulated)},
     )
     return reformulated

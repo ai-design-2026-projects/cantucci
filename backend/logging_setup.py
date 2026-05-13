@@ -69,7 +69,7 @@ class _PrettyFormatter(logging.Formatter):
 
         line = f"{ts}  {level}  {msg}"
         if extras:
-            line += f"  {extras}"
+            line += f"\n\t\t{extras}"
         if record.exc_info:
             line += f"\n{self.formatException(record.exc_info)}"
         return line

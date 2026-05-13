@@ -26,7 +26,7 @@ from backend.cluster.tools import (
 )
 from backend.models.clusters import ClusterAssignment, ClusterSnapshot
 from backend.settings import get_settings
-from backend.retrieval.tools import query_reformulator
+from backend.retrieval.tools import metadata_fetcher, query_reformulator
 
 log = logging.getLogger(__name__)
 
@@ -41,12 +41,18 @@ def cluster(
     config_hash: str,
     model_version: str,
     accumulated_cost_usd: float = 0.0,
+    prior_candidates: list[int] | None = None,
     dry_run: bool = False,
 ) -> list[ClusterSnapshot]:
     """Retrieve candidates and produce soft-assigned, named clusters.
 
-    Drives the Retrieval System internally: reformulates the query, fetches
-    top-K candidates, clusters their embeddings, and returns named snapshots.
+    When *prior_candidates* is None (default), drives the Retrieval System
+    internally: reformulates the query, fetches top-K candidates via vector
+    search, clusters their embeddings, and returns named snapshots.
+
+    When *prior_candidates* is provided, skips vector search and reuses the
+    supplied movie IDs as the candidate pool, re-running HDBSCAN and the
+    cluster describer on the fixed pool with the newly reformulated query.
 
     Args:
         session_id:           UUID of the current session.
@@ -57,6 +63,8 @@ def cluster(
         config_hash:          SHA-256 prefix of the session's YAML config snapshot.
         model_version:        LLM model string stored on the session row.
         accumulated_cost_usd: Running USD cost for the current turn (for cost guard).
+        prior_candidates:     Optional list of TMDB movie IDs from a prior turn's
+                              cluster pool; when provided, vector search is skipped.
         dry_run:              If ``True``, skip all LLM calls; HDBSCAN still runs
                               deterministically on real embeddings.
 
@@ -84,17 +92,21 @@ def cluster(
         dry_run=dry_run,
     )
 
-    retrieval_result = retrieval_agent.retrieve(query=reformulated, k=k)
-    candidates = retrieval_result.candidates
+    if prior_candidates is not None:
+        movie_ids = prior_candidates
+        metas = metadata_fetcher.fetch(movie_ids)
+    else:
+        retrieval_result = retrieval_agent.retrieve(query=reformulated, k=k)
+        metas = retrieval_result.candidates
 
-    if not candidates:
+    if not metas:
         log.warning(
-            "cluster agent: retrieval returned no candidates",
+            "cluster agent: no candidates available",
             extra={"session_id": str(session_id), "turn_number": turn_number},
         )
         return []
 
-    movie_ids = [c.movie_id for c in candidates]
+    movie_ids = [c.movie_id for c in metas]
     kept_ids, embeddings = embedding_fetcher.fetch(movie_ids)
 
     result = soft_cluster_engine.cluster(
@@ -104,7 +116,7 @@ def cluster(
         cluster_selection_method=cfg.clustering.cluster_selection_method,
     )
 
-    meta_by_id = {c.movie_id: c for c in candidates}
+    meta_by_id = {c.movie_id: c for c in metas}
 
     if result.n_clusters == 0:
         log.warning(
@@ -154,7 +166,12 @@ def cluster(
     for ci, (name, description) in enumerate(labels):
         scores = membership[:, ci]
         assignments = [
-            ClusterAssignment(movie_id=kept_ids[i], score=float(scores[i]), excluded=False)
+            ClusterAssignment(
+                movie_id=kept_ids[i],
+                score=float(scores[i]),
+                excluded=False,
+                title=meta_by_id[kept_ids[i]].title if kept_ids[i] in meta_by_id else None,
+            )
             for i in range(len(kept_ids))
             if scores[i] >= threshold
         ]

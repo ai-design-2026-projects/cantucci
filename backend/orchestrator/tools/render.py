@@ -1,4 +1,4 @@
-"""LLM-backed agent for the Orchestrator's recommendation-presentation step.
+"""Recommendation rendering tool for the Orchestrator's presentation step.
 
 One public function: ``render_recommendation()``. It renders the system prompt
 with the current cluster data and Decision Agent routing signal, assembles the
@@ -6,7 +6,7 @@ conversation history, calls ``llm_harness.call()``, parses the JSON response,
 and returns a structured ``OrchestratorRecommendation``.
 
 Convergence is NOT decided here — that is the Orchestrator's policy responsibility
-(see ``_convergence_policy`` in orchestrator.py).  This step only produces the
+(see ``convergence_policy`` in tools/policy.py). This step only produces the
 user-facing reply text for a recommend-action turn.
 
 Raises ``LLMParseError`` immediately on malformed JSON — no retry loop.
@@ -14,21 +14,39 @@ Raises ``LLMParseError`` immediately on malformed JSON — no retry loop.
 
 import json
 import logging
+from dataclasses import dataclass
 from pathlib import Path
 from uuid import UUID
 
 from backend.llm import llm_harness
 from backend.llm.prompts import make_prompt_loader
-from backend.settings import get_settings
 from backend.models.clusters import ClusterSnapshot
 from backend.models.decision import DecisionResult
 from backend.models.llm import LLMParseError
-from backend.models.orchestrator import OrchestratorRecommendation
 from backend.models.retrieval import TurnDetail
+from backend.settings import get_settings
 
 log = logging.getLogger(__name__)
 
-load_prompt = make_prompt_loader(Path(__file__).parent / "prompts")
+load_prompt = make_prompt_loader(Path(__file__).parent.parent / "prompts")
+
+
+@dataclass
+class OrchestratorRecommendation:
+    """Structured output parsed from the render step.
+
+    The orchestrator's prompt instructs the model to return valid JSON
+    matching this shape. ``render_recommendation()`` parses and validates
+    the raw string; any mismatch raises ``LLMParseError``.
+
+    Convergence is determined by the Orchestrator's policy (not the LLM).
+
+    Attributes:
+        reply: User-facing message presenting the current clusters and
+               inviting oracle feedback.
+    """
+
+    reply: str
 
 
 def render_recommendation(
@@ -81,7 +99,7 @@ def render_recommendation(
             "name": c.name,
             "description": c.description or "",
             "top_titles": [
-                a.movie_id
+                a.title or str(a.movie_id)
                 for a in sorted(c.assignments, key=lambda x: x.score, reverse=True)
                 if not a.excluded
             ][:5],
@@ -120,12 +138,12 @@ def render_recommendation(
         turn_id=turn_id,
         config_hash=config_hash,
         model_and_version=model_version,
-        seed=cfg["model"]["seed"],
-        max_tokens=cfg["model"]["max_tokens"],
+        seed=cfg.model.seed,
+        max_tokens=cfg.model.max_tokens,
         step_type="orchestrator_render",
         messages=messages,
         prompt_hash=prompt_hash,
-        cost_limit_usd=float(cfg["session"]["cost_limit_usd"]),
+        cost_limit_usd=float(cfg.session.cost_limit_usd),
         accumulated_cost_usd=accumulated_cost_usd,
     )
 
@@ -139,9 +157,6 @@ def render_recommendation(
 
     log.debug(
         "orchestrator render complete",
-        extra={
-            "session_id": str(session_id),
-            "turn_number": turn_number,
-        },
+        extra={"session_id": str(session_id), "turn_number": turn_number},
     )
     return OrchestratorRecommendation(reply=parsed["reply"])

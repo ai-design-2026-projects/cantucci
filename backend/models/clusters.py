@@ -24,6 +24,7 @@ class ClusterAssignment:
     movie_id: int
     score: float
     excluded: bool
+    title: str | None = None
 
 
 @dataclass
