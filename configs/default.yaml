@@ -14,3 +14,11 @@ retrieval:
 representation:
   strategy: sentence-transformers/all-MiniLM-L6-v2
   dim: 384
+
+clustering:
+  min_cluster_size: 5
+  min_samples: 2
+  cluster_selection_method: eom
+  assignment_threshold: 0.05
+  top_titles_per_cluster: 8
+  min_singleton_floor: 3

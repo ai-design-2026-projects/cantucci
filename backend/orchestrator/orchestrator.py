@@ -103,7 +103,7 @@ class Orchestrator:
             run_id=full.run_id,
             turn_id=turn_id,
             turn_number=turn_number,
-            candidates=[],
+            user_query=user_message,
             config_hash=full.config_hash,
             model_version=full.model_version,
         )

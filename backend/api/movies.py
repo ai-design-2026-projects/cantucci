@@ -1,7 +1,9 @@
-"""Read-only catalogue queries: vector search and metadata enrichment.
+"""Read-only catalogue queries: vector search, metadata enrichment, and embedding fetch.
 
-Both functions are called exclusively by the Retrieval System tools
-(backend/retrieval/tools/). No other module should call these directly.
+``vector_search`` and ``fetch_metadata`` are called by the Retrieval System tools
+(backend/retrieval/tools/).  ``fetch_embeddings`` is called exclusively by the
+Cluster Agent embedding_fetcher tool (backend/cluster/tools/embedding_fetcher.py).
+No other modules should call these directly.
 """
 
 import logging
@@ -123,4 +125,37 @@ def fetch_metadata(movie_ids: list[int]) -> list[MovieMetadata]:
 
     result = [by_id[mid] for mid in movie_ids if mid in by_id]
     log.debug("fetch_metadata", extra={"requested": len(movie_ids), "returned": len(result)})
+    return result
+
+
+def fetch_embeddings(movie_ids: list[int]) -> dict[int, list[float]]:
+    """Return raw embeddings keyed by movie_id for the given IDs.
+
+    Missing IDs are silently omitted — callers must check the returned dict
+    against the requested list if order or completeness matters.
+
+    Args:
+        movie_ids: TMDB integer IDs to look up.
+
+    Returns:
+        Dict mapping movie_id → 384-dim embedding as a list of floats.
+    """
+    if not movie_ids:
+        return {}
+
+    with tx() as conn:
+        rows = conn.execute(
+            "SELECT id, embedding::text FROM movies WHERE id = ANY(%s)",
+            (movie_ids,),
+        ).fetchall()
+
+    result: dict[int, list[float]] = {}
+    for row_id, emb_text in rows:
+        floats = [float(x) for x in emb_text.strip("[]").split(",")]
+        result[row_id] = floats
+
+    log.debug(
+        "fetch_embeddings",
+        extra={"requested": len(movie_ids), "returned": len(result)},
+    )
     return result
