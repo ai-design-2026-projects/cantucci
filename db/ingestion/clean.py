@@ -77,8 +77,8 @@ def _composite_text(row: pd.Series) -> str:
     parts = []
 
     # Title (deduplicated)
-    title = row.get("title") or ""
-    original_title = row.get("original_title") or ""
+    title = "" if pd.isna(row.get("title")) else str(row.get("title"))
+    original_title = "" if pd.isna(row.get("original_title")) else str(row.get("original_title"))
     parts.append(title)
     if original_title and original_title.lower() != title.lower():
         parts.append(original_title)
