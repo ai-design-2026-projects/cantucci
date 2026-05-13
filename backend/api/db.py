@@ -2,12 +2,12 @@
 Database connection pool and transaction helper.
 
 This module is the only place in the codebase that opens Postgres connections.
-All other api/ modules import `tx` from here — they never call psycopg directly.
+All other api/ modules import `transaction` from here — they never call psycopg directly.
 
 Usage:
-    from backend.api.db import tx
+    from backend.api.db import transaction
 
-    with tx() as conn:
+    with transaction() as conn:
         conn.execute("SELECT 1")
 """
 
@@ -18,7 +18,7 @@ from typing import Generator
 import psycopg
 import psycopg_pool
 
-from backend.config import database_url
+from backend.settings import get_env
 
 log = logging.getLogger(__name__)
 
@@ -27,10 +27,11 @@ _pool: psycopg_pool.ConnectionPool | None = None
 
 
 def _get_pool() -> psycopg_pool.ConnectionPool:
+    """Return the module-level connection pool, creating it on first use."""
     global _pool
     if _pool is None:
         _pool = psycopg_pool.ConnectionPool(
-            conninfo=database_url(),
+            conninfo=get_env().database_url,
             min_size=1,
             max_size=10,
             open=True,
@@ -46,7 +47,7 @@ def _configure_connection(conn: psycopg.Connection) -> None:
 
 
 @contextmanager
-def tx() -> Generator[psycopg.Connection, None, None]:
+def transaction() -> Generator[psycopg.Connection, None, None]:
     """Yield a connection inside an explicit transaction.
 
     Commits on clean exit, rolls back on any exception. Callers should never

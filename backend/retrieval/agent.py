@@ -9,7 +9,7 @@ Pipeline:
 
 import logging
 
-from backend.models.movies import RetrievalResult
+from backend.retrieval.types import RetrievalResult
 from backend.retrieval.tools import metadata_fetcher, vector_search
 
 log = logging.getLogger(__name__)

@@ -1,4 +1,4 @@
-"""LLM-related models: response type and domain exceptions for the harness."""
+"""LLM-related types: response type and domain exceptions for the harness."""
 
 from dataclasses import dataclass
 
@@ -12,12 +12,14 @@ class LLMResponse:
         input_tokens:  Prompt tokens consumed (billed separately from output).
         output_tokens: Completion tokens produced.
         latency_ms:    Wall-clock duration of the API call in milliseconds.
+        cost_usd:      Estimated USD cost based on token counts and model pricing.
     """
 
     content: str
     input_tokens: int
     output_tokens: int
     latency_ms: float
+    cost_usd: float = 0.0
 
 
 class CostLimitExceeded(Exception):

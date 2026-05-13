@@ -204,7 +204,7 @@ We will consider also fine-tuned transformers for the movie domain like `fine-tu
 - A **clustering algorithm** (e.g., K-Means, HDBSCAN) produces an initial partitioning based on the embedding vectors alone;
 - The **Cluster Agent** then labels each cluster with a name and description, and adjusts the cluster boundaries by moving borderline titles based on the cluster's overall theme and the oracle's feedback history.
 
-On each subsequent turn, oracle feedback (**accept, reject, split, merge**) is injected as explicit constraints into the next clustering prompt. The embeddings never change — only the grouping and labels update. The config exposes a `representation.strategy` flag to swap the embedding model without touching the rest of the pipeline.
+On each subsequent turn, oracle feedback (**accept, reject, split, merge**) is injected as explicit constraints into the next clustering prompt. The embeddings never change — only the grouping and labels update. The config exposes `representation.model` and `representation.embedding_dim` to swap the embedding model without touching the rest of the pipeline.
 
 All this behaviour should be abstract to the user. They just see a conversation and a set of recommendations that evolve turn by turn.
 

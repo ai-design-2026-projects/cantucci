@@ -1,4 +1,4 @@
-"""Jinja2 prompt loader factory for cantucci agents.
+"""Jinja2 prompt loader factory for CinePal agents.
 
 Each agent module calls ``make_prompt_loader`` once at module level,
 binding the returned callable to its own ``prompts/`` subdirectory::

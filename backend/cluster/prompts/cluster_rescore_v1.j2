@@ -1,0 +1,12 @@
+You are scoring movies for relevance to an oracle's stated preference.
+
+User query: {{ user_query }}
+The oracle {% if feedback_type == "accept" %}liked{% else %}disliked{% endif %} the cluster "{{ cluster_name }}": {{ cluster_description }}
+
+For each movie, assign a relevance score between 0.0 and 1.0.
+{% if feedback_type == "accept" %}Score 1.0 means the movie strongly fits the oracle's taste based on the liked cluster; 0.0 means unrelated.{% else %}Score 1.0 means the movie is strongly unlike the disliked cluster; 0.0 means similar to it.{% endif %}
+
+Base your scores on the movie title and overview alone.
+
+Return ONLY a JSON array with one entry per movie, in the same order:
+[{"movie_id": <int>, "score": <float>}, ...]

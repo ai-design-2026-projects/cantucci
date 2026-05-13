@@ -3,7 +3,7 @@
 import logging
 
 import backend.api.movies as api_movies
-from backend.models.movies import MovieMetadata
+from backend.api.types import MovieMetadata
 
 log = logging.getLogger(__name__)
 

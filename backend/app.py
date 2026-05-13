@@ -14,9 +14,10 @@ from typing import AsyncGenerator
 
 from fastapi import FastAPI
 
-from backend.logging import configure_logging
+from backend.logging_setup import configure_logging
 from backend.orchestrator.orchestrator import Orchestrator
-from backend.routers.sessions import movies_router, router as sessions_router
+from backend.routers.sessions import router as sessions_router
+from db.ingestion.embed import preload_model
 
 log = logging.getLogger(__name__)
 
@@ -38,6 +39,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """
     configure_logging()
     app.state.orchestrator = Orchestrator()
+    preload_model()
 
     host = os.environ.get("HOST", "127.0.0.1")
     port = os.environ.get("PORT", "8000")
@@ -52,11 +54,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
 
 app = FastAPI(
-    title="Cinepal",
+    title="CinePal",
     description="Conversational movie recommender — session/turn API.",
     docs_url=DOCS_PATH,
     lifespan=lifespan,
 )
 
 app.include_router(sessions_router)
-app.include_router(movies_router)

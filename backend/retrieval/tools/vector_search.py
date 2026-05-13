@@ -4,7 +4,8 @@ import logging
 import time
 
 import backend.api.movies as api_movies
-from backend.models.movies import MovieHit
+from backend.api.types import MovieHit
+from backend.settings import get_settings
 
 log = logging.getLogger(__name__)
 
@@ -33,8 +34,13 @@ def search(query: str, k: int) -> list[MovieHit]:
 
     from db.ingestion.embed import encode_all
 
+    representation = get_settings().representation
     t0 = time.monotonic()
-    embedding = encode_all([query])[0]
+    embedding = encode_all(
+        [query],
+        model_name=representation.model,
+        expected_dim=representation.embedding_dim,
+    )[0]
     latency_ms = (time.monotonic() - t0) * 1000.0
 
     hits = api_movies.vector_search(embedding, k)

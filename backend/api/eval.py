@@ -9,7 +9,7 @@ import logging
 import uuid
 from decimal import Decimal
 
-from backend.api.db import tx
+from backend.api.db import transaction
 
 log = logging.getLogger(__name__)
 
@@ -41,7 +41,7 @@ def upsert_session_metrics(
         total_output_tokens: Sum of output tokens across all LLM calls.
         total_cost_usd: Estimated API cost for the session.
     """
-    with tx() as conn:
+    with transaction() as conn:
         conn.execute(
             """
             INSERT INTO session_metrics
@@ -93,7 +93,7 @@ def write_judge_score(
     Returns:
         UUID of the inserted row.
     """
-    with tx() as conn:
+    with transaction() as conn:
         row = conn.execute(
             """
             INSERT INTO judge_scores

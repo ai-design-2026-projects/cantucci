@@ -9,12 +9,13 @@ import logging
 import re
 from uuid import UUID
 
-from backend.models.clusters import ClusterSnapshot
+from backend.api.types import ClusterSnapshot
 
 log = logging.getLogger(__name__)
 
 
 def _tokens(text: str) -> set[str]:
+    """Return lowercase alphanumeric token set from *text*."""
     return set(re.findall(r"[a-z0-9]+", text.lower()))
 
 

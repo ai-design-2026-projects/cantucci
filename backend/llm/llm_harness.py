@@ -1,4 +1,4 @@
-"""Single gateway for all LLM calls in the cantucci backend.
+"""Single gateway for all LLM calls in the CinePal backend.
 
 Every agent must call ``llm_harness.call()`` — never instantiate an OpenAI
 (or any other) client directly.  This module enforces:
@@ -10,9 +10,10 @@ Every agent must call ``llm_harness.call()`` — never instantiate an OpenAI
 - A ``dry_run`` mode that returns a canned response without hitting the API,
   used by component tests.
 
-The OpenAI client is constructed inside ``call()`` on every invocation so
-there is no module-level mutable state (which would bleed across sessions).
-The overhead is negligible compared to a live network round-trip.
+The OpenAI client is a module-level singleton so the underlying ``httpx``
+connection pool is reused across calls, saving TCP + TLS setup per round-trip.
+The client itself carries no per-session state — only the API key — so
+reuse is safe.
 """
 
 import logging
@@ -21,13 +22,25 @@ from uuid import UUID
 
 import openai
 
-import backend.config as config
-from backend.logging import log_llm_call
-from backend.models.llm import CostLimitExceeded, LLMResponse
+from backend.logging_setup import log_llm_call
+from backend.settings import get_env
+from backend.llm.types import CostLimitExceeded, LLMResponse
 
 log = logging.getLogger(__name__)
 
 _MAX_ATTEMPTS = 3
+
+# USD per million tokens for known model families.  Used to estimate cost_usd
+# on each LLMResponse.  Models are matched by prefix so version suffixes are
+# tolerated (e.g. "gpt-4o-mini-2024-07-18" matches "gpt-4o-mini").
+_COST_PER_M: dict[str, dict[str, float]] = {
+    "gpt-4o-mini": {"input": 0.15, "output": 0.60},
+    "gpt-4o": {"input": 2.50, "output": 10.00},
+    "claude-opus": {"input": 15.0, "output": 75.0},
+    "claude-sonnet": {"input": 3.0, "output": 15.0},
+    "claude-haiku": {"input": 0.80, "output": 4.0},
+}
+
 _TRANSIENT_ERRORS = (
     openai.RateLimitError,
     openai.APITimeoutError,
@@ -133,22 +146,38 @@ def call(
             latency_ms=latency_ms,
         )
 
+        cost = _estimate_cost(model_and_version, input_tokens, output_tokens)
         content = response.choices[0].message.content or ""
         return LLMResponse(
             content=content,
             input_tokens=input_tokens,
             output_tokens=output_tokens,
             latency_ms=latency_ms,
+            cost_usd=cost,
         )
 
     raise last_exc  # type: ignore[misc]
 
 
+_openai_client: openai.OpenAI | None = None
+
+
 def _client() -> openai.OpenAI:
-    """Construct a fresh OpenAI client using the configured API key."""
-    return openai.OpenAI(api_key=config.openai_api_key())
+    """Return the shared OpenAI client, creating it on first call."""
+    global _openai_client
+    if _openai_client is None:
+        _openai_client = openai.OpenAI(api_key=get_env().openai_api_key)
+    return _openai_client
 
 
 def _backoff(attempt: int) -> float:
     """Return exponential backoff delay in seconds for a given attempt index."""
     return float(2**attempt)
+
+
+def _estimate_cost(model: str, input_tokens: int, output_tokens: int) -> float:
+    """Estimate USD cost from token counts using the _COST_PER_M pricing table."""
+    for prefix, rates in _COST_PER_M.items():
+        if model.startswith(prefix):
+            return (input_tokens * rates["input"] + output_tokens * rates["output"]) / 1_000_000
+    return 0.0

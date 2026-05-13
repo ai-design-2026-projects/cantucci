@@ -12,8 +12,8 @@ import logging
 import uuid
 from typing import Any, Literal
 
-from backend.api.db import tx
-from backend.models.runs import Run
+from backend.api.db import transaction
+from backend.api.types import Run
 
 log = logging.getLogger(__name__)
 
@@ -48,7 +48,7 @@ def create_run(
     """
     config_hash = _hash_config(config_snapshot)
 
-    with tx() as conn:
+    with transaction() as conn:
         row = conn.execute(
             """
             INSERT INTO runs (name, condition, config_hash, config_snapshot,
@@ -75,7 +75,7 @@ def finalize_run(
         run_id: UUID of the run to finalize.
         status: Terminal status value.
     """
-    with tx() as conn:
+    with transaction() as conn:
         conn.execute(
             """
             UPDATE runs
@@ -96,7 +96,7 @@ def get_run(run_id: uuid.UUID) -> Run:
     Returns:
         Run dataclass with all fields populated.
     """
-    with tx() as conn:
+    with transaction() as conn:
         row = conn.execute(
             """
             SELECT id, name, condition, config_hash, config_snapshot,
@@ -148,7 +148,7 @@ def list_runs(
 
     where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
 
-    with tx() as conn:
+    with transaction() as conn:
         rows = conn.execute(
             f"""
             SELECT id, name, condition, config_hash, config_snapshot,

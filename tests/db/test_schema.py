@@ -19,7 +19,7 @@ import pytest
 from db.apply import apply
 from backend.api import eval as eval_api
 from backend.api import retrieval, runs, sessions
-from backend.models.clusters import ClusterSpec
+from backend.api.types import ClusterSpec
 
 
 # ---------------------------------------------------------------------------
