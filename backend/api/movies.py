@@ -1,7 +1,9 @@
-"""Read-only catalogue queries: vector search and metadata enrichment.
+"""Read-only catalogue queries: vector search, metadata enrichment, and embedding fetch.
 
-``vector_search`` and ``fetch_metadata`` are called by the Retrieval System tools.
-``fetch_movies_public`` is called by the Orchestrator to build frontend payloads.
+``vector_search`` and ``fetch_metadata`` are called by the Retrieval System tools
+(backend/retrieval/tools/).  ``fetch_embeddings`` is called exclusively by the
+Cluster Agent embedding_fetcher tool (backend/cluster/tools/embedding_fetcher.py).
+No other modules should call these directly.
 """
 
 import logging
@@ -129,91 +131,34 @@ def fetch_metadata(movie_ids: list[int]) -> list[MovieMetadata]:
     return result
 
 
-def fetch_movies_public(movie_ids: list[int]) -> list[MoviePublic]:
-    """Return full frontend-facing metadata for each movie in *movie_ids*.
+def fetch_embeddings(movie_ids: list[int]) -> dict[int, list[float]]:
+    """Return raw embeddings keyed by movie_id for the given IDs.
 
-    Joins movies, movie_genres, genres, crew_members (Director), and
-    cast_members (top-3 billed cast).  Returns results in the same order
-    as *movie_ids*; missing IDs are silently omitted.
+    Missing IDs are silently omitted — callers must check the returned dict
+    against the requested list if order or completeness matters.
 
     Args:
         movie_ids: TMDB integer IDs to look up.
 
     Returns:
-        List of MoviePublic in *movie_ids* order, with missing IDs dropped.
+        Dict mapping movie_id → 384-dim embedding as a list of floats.
     """
     if not movie_ids:
-        return []
+        return {}
 
     with tx() as conn:
         rows = conn.execute(
-            """
-            SELECT
-                m.id,
-                m.title,
-                m.release_year,
-                m.runtime,
-                m.vote_average,
-                m.vote_count,
-                m.bayesian_rating,
-                m.overview,
-                m.poster_path,
-                m.original_language,
-                COALESCE(
-                    ARRAY_AGG(DISTINCT g.name) FILTER (WHERE g.name IS NOT NULL),
-                    '{}'
-                ) AS genres,
-                (
-                    SELECT p.name
-                    FROM crew_members cm2
-                    JOIN people p ON p.id = cm2.person_id
-                    WHERE cm2.movie_id = m.id AND cm2.job = 'Director'
-                    LIMIT 1
-                ) AS director,
-                COALESCE(
-                    ARRAY(
-                        SELECT p2.name
-                        FROM cast_members cm3
-                        JOIN people p2 ON p2.id = cm3.person_id
-                        WHERE cm3.movie_id = m.id
-                        ORDER BY cm3.cast_order ASC
-                        LIMIT 3
-                    ),
-                    '{}'
-                ) AS top_cast
-            FROM movies m
-            LEFT JOIN movie_genres mg ON mg.movie_id = m.id
-            LEFT JOIN genres g ON g.id = mg.genre_id
-            WHERE m.id = ANY(%s)
-            GROUP BY m.id, m.title, m.release_year, m.runtime, m.vote_average,
-                     m.vote_count, m.bayesian_rating, m.overview, m.poster_path,
-                     m.original_language
-            """,
+            "SELECT id, embedding::text FROM movies WHERE id = ANY(%s)",
             (movie_ids,),
         ).fetchall()
 
-    by_id: dict[int, MoviePublic] = {
-        r[0]: MoviePublic(
-            id=r[0],
-            title=r[1],
-            release_year=r[2],
-            runtime=r[3],
-            vote_average=r[4],
-            vote_count=r[5],
-            bayesian_rating=r[6],
-            overview=r[7],
-            poster_url=f"{_TMDB_POSTER_BASE}{r[8]}" if r[8] else None,
-            original_language=r[9],
-            genres=list(r[10]) if r[10] else [],
-            director=r[11],
-            top_cast=list(r[12]) if r[12] else [],
-        )
-        for r in rows
-    }
+    result: dict[int, list[float]] = {}
+    for row_id, emb_text in rows:
+        floats = [float(x) for x in emb_text.strip("[]").split(",")]
+        result[row_id] = floats
 
-    result = [by_id[mid] for mid in movie_ids if mid in by_id]
     log.debug(
-        "fetch_movies_public",
+        "fetch_embeddings",
         extra={"requested": len(movie_ids), "returned": len(result)},
     )
     return result
