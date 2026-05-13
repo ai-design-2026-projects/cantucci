@@ -3,6 +3,7 @@ import logging
 from typing import TYPE_CHECKING
 
 import numpy as np
+import torch
 
 from backend.settings import get_settings
 
@@ -18,8 +19,13 @@ _cache: dict[str, "SentenceTransformer"] = {}
 def _load(model_name: str) -> "SentenceTransformer":
     if model_name not in _cache:
         from sentence_transformers import SentenceTransformer
-        log.info("loading embedding model", extra={"model": model_name})
-        _cache[model_name] = SentenceTransformer(model_name)
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        log.info("loading embedding model", extra={"model": model_name, "device": device})
+        model = SentenceTransformer(model_name, device=device)
+        if device == "cuda":
+            model.half()
+            log.info("model cast to float16", extra={"model": model_name})
+        _cache[model_name] = model
     return _cache[model_name]
 
 
@@ -63,13 +69,14 @@ def encode_all(
     log.info("encoding", extra={"n": len(texts), "batch_size": batch_size, "model": resolved_model})
 
     prefixed = [f"{query_prefix}{t}" for t in texts] if query_prefix else texts
-    embeddings = model.encode(
-        prefixed,
-        batch_size=batch_size,
-        show_progress_bar=True,
-        convert_to_numpy=True,
-        normalize_embeddings=True,
-    )
+    with torch.no_grad():
+        embeddings = model.encode(
+            prefixed,
+            batch_size=batch_size,
+            show_progress_bar=True,
+            convert_to_numpy=True,
+            normalize_embeddings=True,
+        )
 
     if embeddings.shape != (len(texts), resolved_dim):
         raise ValueError(
