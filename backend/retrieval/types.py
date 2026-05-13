@@ -1,29 +1,8 @@
-"""Types for the Retrieval System — vector search hits and enriched film metadata."""
+"""Output types for the Retrieval System agent."""
 
 from dataclasses import dataclass, field
 
-
-@dataclass
-class MovieHit:
-    """A single vector-search result before metadata enrichment."""
-    movie_id: int
-    title: str
-    score: float  # cosine similarity in [0, 1]; higher is more relevant
-
-
-@dataclass
-class MovieMetadata:
-    """Enriched film metadata returned by the Librarian (metadata_fetcher) tool.
-
-    Matches the synopsis, genre, and director fields named in architecture.md.
-    """
-    movie_id: int
-    title: str
-    overview: str | None
-    tagline: str | None
-    release_year: int | None
-    genres: list[str] = field(default_factory=list)
-    director: str | None = None
+from backend.api.types import MovieMetadata
 
 
 @dataclass

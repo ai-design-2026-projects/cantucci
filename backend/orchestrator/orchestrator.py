@@ -21,9 +21,10 @@ import backend.api.sessions as api_sessions
 from backend.ambiguity import ambiguity_agent
 from backend.cluster import cluster_agent
 from backend.decision import decision_agent
-from backend.models.decision import DecisionAction
-from backend.models.exceptions import SessionNotFound
-from backend.models.sessions import SessionState, SessionStatus, StepType, TurnResult
+from backend.api.types import SessionStatus, StepType
+from backend.decision.types import DecisionAction
+from backend.exceptions import SessionNotFound
+from backend.routers.dtos import SessionState, TurnResult
 from backend.orchestrator.tools.feedback import classify_feedback, extract_preference_profile
 from backend.orchestrator.tools.policy import (
     cluster_snapshot_to_spec,

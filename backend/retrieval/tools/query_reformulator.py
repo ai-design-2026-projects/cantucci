@@ -12,7 +12,7 @@ from uuid import UUID
 
 from backend.llm import llm_harness
 from backend.llm.prompts import make_prompt_loader
-from backend.models.llm import LLMParseError
+from backend.llm.types import LLMParseError
 from backend.settings import get_settings
 
 log = logging.getLogger(__name__)

@@ -18,7 +18,7 @@ from typing import Generator
 import psycopg
 import psycopg_pool
 
-from backend.settings import database_url
+from backend.settings import get_env
 
 log = logging.getLogger(__name__)
 
@@ -31,7 +31,7 @@ def _get_pool() -> psycopg_pool.ConnectionPool:
     global _pool
     if _pool is None:
         _pool = psycopg_pool.ConnectionPool(
-            conninfo=database_url(),
+            conninfo=get_env().database_url,
             min_size=1,
             max_size=10,
             open=True,

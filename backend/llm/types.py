@@ -1,4 +1,4 @@
-"""LLM-related models: response type and domain exceptions for the harness."""
+"""LLM-related types: response type and domain exceptions for the harness."""
 
 from dataclasses import dataclass
 

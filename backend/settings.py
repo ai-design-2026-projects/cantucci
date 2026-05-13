@@ -1,18 +1,23 @@
 """Centralized configuration and path management for the CinePal backend.
 
-Two concerns live here:
+Three concerns live here:
   1. **Filesystem paths** — module-level constants so callers never recompute
      ``Path(__file__).parents[N]``.
-  2. **Runtime config** — typed Pydantic models that mirror ``configs/default.yaml``.
-     Secrets (API keys, DB URL) come from the environment via ``.env``.
+  2. **Environment settings** — typed ``EnvSettings`` (pydantic-settings) for secrets and
+     runtime knobs. Use ``get_env()`` to access; fields map directly to env-var names.
+  3. **Runtime config** — typed Pydantic models that mirror ``configs/default.yaml``.
+     Use ``get_settings()`` to load and validate the active YAML config file.
 
 Usage::
-    from backend.settings import get_settings, get_config_hash, BACKEND_DIR, prompts_dir
+    from backend.settings import get_settings, get_config_hash, get_env, BACKEND_DIR, prompts_dir
 
     cfg = get_settings()
     model_name = cfg.model.name
     seed = cfg.model.seed
     prompt_path = prompts_dir("orchestrator") / "system_v1.j2"
+
+    db_url = get_env().database_url
+    api_key = get_env().openai_api_key
 """
 import functools
 import hashlib
@@ -21,10 +26,8 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from dotenv import load_dotenv
 from pydantic import BaseModel
-
-load_dotenv()
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 PROJECT_ROOT: Path = Path(__file__).resolve().parent.parent
@@ -161,6 +164,52 @@ class Settings(BaseModel):
     clustering: ClusteringConfig
     ambiguity: AmbiguityConfig
 
+class EnvSettings(BaseSettings):
+    """Typed environment settings loaded from the environment and ``.env`` file.
+
+    Each field maps directly to an environment variable of the same name
+    (upper-cased automatically by pydantic-settings).  Missing required fields
+    raise ``pydantic.ValidationError`` at instantiation time.
+
+    Attributes:
+        database_url:           Postgres connection string.
+        openai_api_key:         OpenAI API key for LLM calls.
+        kaggle_username:        Kaggle API username (used by the ingestion pipeline).
+        kaggle_key:             Kaggle API key (used by the ingestion pipeline).
+        cinepal_artifacts_repo: Hugging Face dataset repo id for pre-built parquet artifacts.
+        hf_token:               Hugging Face API token (for private repos).
+        log_level:              Root logging level (default ``INFO``).
+    """
+
+    model_config = SettingsConfigDict(
+        env_file=str(PROJECT_ROOT / ".env"),
+        extra="ignore",
+    )
+
+    database_url: str
+    openai_api_key: str
+    kaggle_username: str = ""
+    kaggle_key: str = ""
+    cinepal_artifacts_repo: str = ""
+    hf_token: str = ""
+    log_level: str = "INFO"
+
+
+def get_env() -> EnvSettings:
+    """Return a fresh ``EnvSettings`` instance reflecting the current environment.
+
+    Reads env vars and the ``.env`` file on every call so that monkeypatching
+    in tests is reflected immediately.
+
+    Returns:
+        A validated ``EnvSettings`` instance.
+
+    Raises:
+        pydantic.ValidationError: If a required env var (e.g. ``DATABASE_URL``) is unset.
+    """
+    return EnvSettings()
+
+
 def prompts_dir(agent: str) -> Path:
     """Return the prompts directory for the named agent module.
 
@@ -173,63 +222,6 @@ def prompts_dir(agent: str) -> Path:
     """
     return BACKEND_DIR / agent / "prompts"
 
-
-def database_url() -> str:
-    """Return the Postgres connection string from the environment.
-
-    Raises:
-        KeyError: If ``DATABASE_URL`` is not set.
-    """
-    return os.environ["DATABASE_URL"]
-
-def kaggle_username() -> str:
-    """Return the Kaggle API username from the environment.
-
-    Raises:
-        KeyError: If ``KAGGLE_USERNAME`` is not set.
-    """
-    return os.environ["KAGGLE_USERNAME"]
-
-
-def kaggle_key() -> str:
-    """Return the Kaggle API key from the environment.
-
-    Raises:
-        KeyError: If ``KAGGLE_KEY`` is not set.
-    """
-    return os.environ["KAGGLE_KEY"]
-
-
-def cinepal_artifacts_repo() -> str:
-    """Return the Hugging Face repo id for pre-built parquet artifacts.
-
-    Raises:
-        KeyError: If ``CINEPAL_ARTIFACTS_REPO`` is not set.
-    """
-    return os.environ["CINEPAL_ARTIFACTS_REPO"]
-
-
-def hf_token() -> str:
-    """Return the Hugging Face API token from the environment.
-
-    Raises:
-        KeyError: If ``HF_TOKEN`` is not set.
-    """
-    return os.environ["HF_TOKEN"]
-
-
-def openai_api_key() -> str:
-    """Return the OpenAI API key from the environment.
-
-    Raises:
-        KeyError: If ``OPENAI_API_KEY`` is not set.
-    """
-    return os.environ["OPENAI_API_KEY"]
-
-
-def log_level() -> str:
-    """Return the log level string from the environment (default ``INFO``)."""
-    return os.environ.get("LOG_LEVEL", "INFO").upper()
 
 
 @functools.cache

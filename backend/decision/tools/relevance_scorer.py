@@ -9,7 +9,7 @@ import logging
 import re
 from uuid import UUID
 
-from backend.models.clusters import ClusterSnapshot
+from backend.api.types import ClusterSnapshot
 
 log = logging.getLogger(__name__)
 

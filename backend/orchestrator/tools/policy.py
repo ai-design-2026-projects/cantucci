@@ -4,9 +4,7 @@ All functions operate on already-fetched state and return simple values.
 No DB access, no LLM calls.
 """
 
-from backend.models.clusters import ClusterSnapshot
-from backend.models.retrieval import SessionFull, TurnDetail
-from backend.models.sessions import StepType
+from backend.api.types import ClusterSnapshot, SessionFull, StepType, TurnDetail
 
 
 def collect_prior_candidates(turn: TurnDetail) -> list[int]:
@@ -56,7 +54,7 @@ def cluster_snapshot_to_spec(snapshot: "ClusterSnapshot") -> "ClusterSpec":
     Returns:
         ClusterSpec suitable for ``api_sessions.snapshot_clusters``.
     """
-    from backend.models.clusters import ClusterSpec
+    from backend.api.types import ClusterSpec
     return ClusterSpec(
         name=snapshot.name,
         description=snapshot.description,

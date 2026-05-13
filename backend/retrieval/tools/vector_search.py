@@ -4,7 +4,7 @@ import logging
 import time
 
 import backend.api.movies as api_movies
-from backend.models.movies import MovieHit
+from backend.api.types import MovieHit
 from backend.settings import get_settings
 
 log = logging.getLogger(__name__)

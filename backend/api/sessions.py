@@ -12,7 +12,7 @@ from decimal import Decimal
 from typing import Any
 
 from backend.api.db import transaction
-from backend.models.clusters import ClusterSpec
+from backend.api.types import ClusterSpec
 
 log = logging.getLogger(__name__)
 

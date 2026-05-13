@@ -7,7 +7,7 @@ import pytest
 
 from backend.api import runs as api_runs
 from backend.api import sessions as api_sessions
-from backend.models.clusters import ClusterSpec
+from backend.api.types import ClusterSpec
 
 
 _CONFIG = {"model": {"name": "gpt-4o-mini", "seed": 42, "max_tokens": 512}}

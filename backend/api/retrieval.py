@@ -12,13 +12,15 @@ import uuid
 from typing import Any
 
 from backend.api.db import transaction
-from backend.models.clusters import ClusterAssignment, ClusterSnapshot
-from backend.models.eval import JudgeScore, SessionMetrics
-from backend.models.retrieval import (
+from backend.api.types import (
+    ClusterAssignment,
+    ClusterSnapshot,
     FeedbackEntry,
+    JudgeScore,
     RunAggregate,
     RunResults,
     SessionFull,
+    SessionMetrics,
     SessionSummary,
     TurnDetail,
 )

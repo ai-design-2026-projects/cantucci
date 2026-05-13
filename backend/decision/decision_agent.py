@@ -17,9 +17,9 @@ from backend.decision.tools import entropy_calculator, relevance_scorer
 from backend.llm import llm_harness
 from backend.llm.prompts import make_prompt_loader
 from backend.settings import get_settings
-from backend.models.clusters import ClusterSnapshot
-from backend.models.decision import DecisionAction, DecisionResult
-from backend.models.llm import LLMParseError
+from backend.api.types import ClusterSnapshot
+from backend.decision.types import DecisionAction, DecisionResult
+from backend.llm.types import LLMParseError
 
 log = logging.getLogger(__name__)
 

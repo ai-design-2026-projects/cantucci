@@ -10,9 +10,9 @@ from unittest.mock import patch
 import pytest
 
 from backend.ambiguity import ambiguity_agent
-from backend.models.ambiguity import AmbiguityQuestion
-from backend.models.clusters import ClusterAssignment, ClusterSnapshot
-from backend.models.llm import LLMParseError, LLMResponse
+from backend.ambiguity.types import AmbiguityQuestion
+from backend.api.types import ClusterAssignment, ClusterSnapshot
+from backend.llm.types import LLMParseError, LLMResponse
 
 
 _SESSION_ID = uuid.uuid4()

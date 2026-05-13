@@ -13,7 +13,7 @@ import uuid
 from typing import Any, Literal
 
 from backend.api.db import transaction
-from backend.models.runs import Run
+from backend.api.types import Run
 
 log = logging.getLogger(__name__)
 

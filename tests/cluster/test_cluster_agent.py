@@ -15,7 +15,7 @@ import numpy as np
 import pytest
 
 from backend.cluster.cluster_agent import cluster
-from backend.models.clusters import ClusterSnapshot
+from backend.api.types import ClusterSnapshot
 from tests.retrieval.test_movies import _CATALOGUE, _seed_movies
 
 
@@ -64,7 +64,7 @@ class TestClusterDryRun:
 
 class TestClusterEmptyRetrieval:
     def test_empty_candidates_returns_empty_list(self, seeded_db):
-        from backend.models.movies import RetrievalResult
+        from backend.retrieval.types import RetrievalResult
 
         empty_result = RetrievalResult(query="nothing", k=10, candidates=[], scores={})
         with patch("backend.cluster.cluster_agent.retrieval_agent.retrieve", return_value=empty_result):

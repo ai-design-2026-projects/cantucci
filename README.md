@@ -1,35 +1,30 @@
-# Conversational Clustering - CinePal
+# Conversational Clustering — CinePal
 
-An AI system that clusters a dataset by *conversing* with a human, proposing a grouping, explaining it, and refining it through dialogue, where the human (the **oracle**) is the sole judge of quality and no intrinsic ground truth exists.
+An AI system that clusters a movie catalogue by *conversing* with a human oracle who proposes groupings, explains them, and refines them through dialogue. The oracle's acceptance is the objective function — no intrinsic ground truth exists.
 
-**Course:** Designing Large Scale AI Systems
-**Professors:** Prof. Fabio Casati
+**Course:** Designing Large Scale AI Systems — Prof. Fabio Casati
 **Authors:** Davide Donà, Andrea Blushi
 
-----
+---
 
-## Overview
+## Component docs
 
-### Prerequisites
+- [`backend/README.md`](backend/README.md) — FastAPI service, endpoints, env vars, logging helper.
+- [`db/README.md`](db/README.md) — Postgres migrations and catalogue ingestion.
+- [`frontend/README.md`](frontend/README.md) — React + Vite UI.
 
-- Python 3.11+
-- Docker (for Postgres with pgvector, and for running tests)
-- [pgvector/pgvector:pg16](https://hub.docker.com/r/pgvector/pgvector) image
+---
 
-### Setup Environment
+## Quick start
 
 ```bash
-cp .env.example .env   # fill in API keys and DATABASE_URL
+# 1. Environment
+cp .env.example .env   # fill DATABASE_URL, OPENAI_API_KEY, CINEPAL_ARTIFACTS_REPO
+
+# 2. Python dependencies
 pip install -r requirements.txt
-```
 
-### Database
-
-Start a pgvector-enabled Postgres instance and apply all migrations:
-
-```bash
-docker pull pgvector/pgvector:pg16
-
+# 3. Start Postgres + pgvector
 docker run -d \
   --name cinepal-pg \
   -e POSTGRES_USER=cinepal \
@@ -37,87 +32,46 @@ docker run -d \
   -e POSTGRES_DB=cinepal \
   -p 4321:5432 \
   pgvector/pgvector:pg16
+# On subsequent runs: docker start cinepal-pg
 
-# On subsequent runs, just start the existing container:
-# docker start cinepal-pg
-
-export DATABASE_URL=postgresql://cinepal:cinepal@localhost:4321/cinepal
+# 4. Apply migrations
 python -m db.apply
-```
 
-Re-running `python -m db.apply` is safe — already-applied migrations are skipped.
+# 5. Ingest catalogue (mini set — 200 popular movies, fast)
+python -m db.ingest
+# See db/README.md for full set, Kaggle source, and GPU embedding options.
 
-See `db/README.md` for migration conventions.
+# 6. Run backend
+uvicorn backend.app:app --reload
+# API at http://127.0.0.1:8000 — Swagger at /docs
 
-### Running tests
+# 7. Run frontend
+cd frontend && npm install && npm run dev
+# UI at http://127.0.0.1:5173
 
-Tests spin up a throwaway Postgres container automatically via `testcontainers` — no manual setup required.
-
-```bash
+# 8. Run tests (testcontainers spins a throwaway pgvector container automatically)
 pytest tests/
+
+# 9. Evaluation
+# The eval harness is forthcoming. The test suite (pytest tests/) currently
+# exercises agents and the data layer end-to-end.
 ```
 
-### Catalogue Ingestion
+---
 
-The embedding step runs `sentence-transformers/all-MiniLM-L6-v2` over ~45k movies and is slow on CPU. **The team default is to embed once on a GPU and distribute the artifacts via Hugging Face Datasets.** The full-pipeline path is still available for reproducibility or when artifacts need to be regenerated.
-
-**`python -m db.ingest`** is the single entry point. It defaults to downloading pre-built artifacts from Hugging Face and ingesting the `mini` set.
-
-#### Default path — pre-built artifacts from HF (recommended)
-
-**Prerequisites:** `CINEPAL_ARTIFACTS_REPO` set in `.env`. `HF_TOKEN` only required for private repos.
-
-```bash
-python -m db.apply              # apply migrations (idempotent)
-python -m db.ingest             # HF download → ingest mini (200 popular movies; dev default)
-python -m db.ingest --set main  # HF download → ingest full production set (~40k movies)
-```
-
-**For dev/CI use the default `mini` set.** Mini is a strict subset of main — all 200 popular movies are also present in main, so ingesting main later with `--set main` is safe (upsert) and won't duplicate or lose any data.
-
-#### Full local pipeline — regenerate artifacts from Kaggle (slow)
-
-**Prerequisites:** Kaggle credentials at `~/.kaggle/kaggle.json` (or `KAGGLE_USERNAME` / `KAGGLE_KEY` env vars).
-
-```bash
-# Full pipeline: download → clean → embed → ingest mini into DB
-python -m db.ingest --source kaggle
-
-# Build artifacts only (no DB writes) — useful when re-publishing to HF from Colab
-python -m db.ingest --source kaggle --no-db
-
-# Re-download raw data even if already present
-python -m db.ingest --source kaggle --force-download
-```
-
-To regenerate artifacts using a GPU, open `notebooks/embed_in_colab.ipynb` in Google Colab (Runtime → T4 GPU), run all cells, and the notebook will upload fresh artifacts to the configured HF repo.
-
-The pipeline writes three parquet files under `data/artifacts/`:
-
-| File | Description |
-|---|---|
-| `main.parquet` | Full training set with embeddings (~40k movies) |
-| `mini.parquet` | Top-200 popular movies — a **subset** of main; fast to load in dev/CI |
-| `eval_holdout.parquet` | Disjoint 10% slice for system evaluation (never in DB) |
-
-`data/` is gitignored. Re-running ingestion is safe — all inserts are idempotent (upsert).
-
-### Quick Start
-
-_Conversational loop (HTTP layer, UI) is not yet implemented._
-
-### Repository Structure
+## Repository structure
 
 ```
-backend/
-  api/           All SQL access (only layer that touches the DB)
-  models/
-  orchestrator/  EchoOrchestrator stub; real impl goes here
-  routers/       HTTP endpoints
-  app.py         FastAPI entry point
-  config.py      Environment variable loader
-  logging.py     Structured logging + log_llm_call() helper
-db/              SQL migrations and migration runner
-docs/            Architecture, specifications, requirements
-tests/           Schema smoke tests (real Postgres via testcontainers)
+backend/    FastAPI service, agents, LLM harness, DB access layer
+configs/    YAML experimental-condition configs (model, clustering, …)
+db/         Migrations + catalogue ingestion pipeline
+frontend/   React + Vite UI
+notebooks/  Colab GPU embedding notebook
+tests/      Pytest suite (real Postgres via testcontainers)
 ```
+
+---
+
+## License
+
+See [LICENSE](LICENSE).

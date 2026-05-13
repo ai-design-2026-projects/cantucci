@@ -11,7 +11,7 @@ from uuid import uuid4
 import pytest
 
 from backend.cluster.tools.cluster_describer import describe
-from backend.models.llm import LLMParseError
+from backend.llm.types import LLMParseError
 
 
 _SESSION_ID = uuid4()

@@ -23,8 +23,8 @@ from uuid import UUID
 import openai
 
 from backend.logging_setup import log_llm_call
-from backend.settings import openai_api_key
-from backend.models.llm import CostLimitExceeded, LLMResponse
+from backend.settings import get_env
+from backend.llm.types import CostLimitExceeded, LLMResponse
 
 log = logging.getLogger(__name__)
 
@@ -166,7 +166,7 @@ def _client() -> openai.OpenAI:
     """Return the shared OpenAI client, creating it on first call."""
     global _openai_client
     if _openai_client is None:
-        _openai_client = openai.OpenAI(api_key=openai_api_key())
+        _openai_client = openai.OpenAI(api_key=get_env().openai_api_key)
     return _openai_client
 
 

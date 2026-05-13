@@ -14,11 +14,12 @@ import sys
 from pathlib import Path
 
 import psycopg
+from pydantic import ValidationError
 
 # Allow invocation as `python -m db.apply` from the repo root.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from backend.settings import MIGRATIONS_DIR, database_url as get_database_url  # noqa: E402
+from backend.settings import MIGRATIONS_DIR, get_env  # noqa: E402
 from backend.logging_setup import configure_logging  # noqa: E402
 
 log = logging.getLogger(__name__)
@@ -42,7 +43,7 @@ def _applied_versions(conn: psycopg.Connection) -> set[str]:
 
 def apply(database_url: str | None = None) -> int:
     """Apply all pending migrations. Returns the number of migrations applied."""
-    url = database_url or get_database_url()
+    url = database_url or get_env().database_url
 
     # Get all the migration files and sort them lexicographically (respecting the intended order).
     migration_files = sorted(MIGRATIONS_DIR.glob("*.sql"))
@@ -80,11 +81,11 @@ def apply(database_url: str | None = None) -> int:
 
 def main() -> None:
     configure_logging()
-    log.info("applying pending migrations to database at %s", get_database_url())
+    log.info("applying pending migrations to database at %s", get_env().database_url)
 
     try:
         applied_migrations = apply()
-    except KeyError:
+    except ValidationError:
         log.critical("DATABASE_URL environment variable is not set")
         sys.exit(1)
 

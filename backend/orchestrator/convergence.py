@@ -1,5 +1,5 @@
 from backend.orchestrator.tools.policy import SessionFull, StepType, StepType
-from backend.models.retrieval import TurnDetail
+from backend.api.types import TurnDetail
 
 
 def should_retrieve(full: SessionFull) -> bool:

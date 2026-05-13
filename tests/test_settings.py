@@ -1,15 +1,13 @@
 """Tests for backend/settings.py — config load, hash, snapshot, env override."""
 
-import os
-
 import pytest
+from pydantic import ValidationError
 
 from backend.settings import (
     get_config_hash,
     get_config_snapshot,
+    get_env,
     get_settings,
-    openai_api_key,
-    database_url,
     _load_raw,
 )
 
@@ -68,22 +66,30 @@ class TestGetConfigSnapshot:
 
 class TestEnvOverride:
     def test_missing_database_url_raises(self, monkeypatch):
+        # Use _env_file=None to bypass .env so only os.environ is consulted.
+        from backend.settings import EnvSettings
         monkeypatch.delenv("DATABASE_URL", raising=False)
-        with pytest.raises(KeyError):
-            database_url()
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+        with pytest.raises(ValidationError):
+            EnvSettings(_env_file=None)
 
     def test_database_url_from_env(self, monkeypatch):
         monkeypatch.setenv("DATABASE_URL", "postgres://test")
-        assert database_url() == "postgres://test"
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+        assert get_env().database_url == "postgres://test"
 
     def test_missing_openai_key_raises(self, monkeypatch):
+        # Use _env_file=None to bypass .env so only os.environ is consulted.
+        from backend.settings import EnvSettings
+        monkeypatch.setenv("DATABASE_URL", "postgres://test")
         monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-        with pytest.raises(KeyError):
-            openai_api_key()
+        with pytest.raises(ValidationError):
+            EnvSettings(_env_file=None)
 
     def test_openai_key_from_env(self, monkeypatch):
+        monkeypatch.setenv("DATABASE_URL", "postgres://test")
         monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
-        assert openai_api_key() == "sk-test"
+        assert get_env().openai_api_key == "sk-test"
 
 
 class TestLoadRawMissingFile:

@@ -9,9 +9,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from backend.models.clusters import ClusterAssignment, ClusterSnapshot
-from backend.models.decision import DecisionAction, DecisionResult
-from backend.models.retrieval import TurnDetail
+from backend.api.types import ClusterAssignment, ClusterSnapshot, TurnDetail
+from backend.decision.types import DecisionAction, DecisionResult
 from backend.orchestrator.orchestrator import (
     _build_refined_query,
     _classify_feedback,

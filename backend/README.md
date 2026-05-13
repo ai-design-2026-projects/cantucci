@@ -30,9 +30,9 @@ backend/
 │   ├── eval.py          SessionMetrics, JudgeScore.
 │   └── retrieval.py     Query result types: SessionFull, RunResults, TurnDetail, etc.
 ├── orchestrator/
-│   ├── orchestrator.py  EchoOrchestrator stub (real impl will live here).
-│   ├── agent.py         LLM reasoning agent (not yet implemented).
-│   └── tools.py         Agent tool definitions (not yet implemented).
+│   ├── orchestrator.py  Orchestrator: sole DB writer, coordinates the turn pipeline.
+│   ├── convergence.py   Convergence policy and should_retrieve guard.
+│   └── tools/           feedback.py, policy.py, render.py, state.py
 └── routers/
     └── sessions.py      HTTP endpoints: POST /sessions, POST /sessions/{id}/turns,
                          GET /sessions/{id}.
@@ -44,7 +44,7 @@ backend/
 
 - **`backend/api/` is the only place SQL runs.** Routers, the orchestrator,
   agents, notebooks, and scripts all go through that layer.
-- **All LLM calls go through `backend/llm_harness.py`** (not yet written).
+- **All LLM calls go through `backend/llm/llm_harness.py`.**
   Never import a model client directly elsewhere.
 - **No module-level state.** The orchestrator instance lives on `app.state`;
   nothing at module scope accumulates cross-request data.
@@ -64,6 +64,14 @@ uvicorn backend.app:app --reload
 ```
 
 Swagger UI: <http://127.0.0.1:8000/docs>
+
+### Tests
+
+```bash
+pytest tests/
+```
+
+Tests spin up a throwaway pgvector container automatically via `testcontainers` — no manual Postgres setup required. The `db_url` fixture is registered globally by `tests/db/test_config.py`.
 
 ---
 

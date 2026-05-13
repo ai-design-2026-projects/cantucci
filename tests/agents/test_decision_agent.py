@@ -11,9 +11,9 @@ from unittest.mock import patch
 import pytest
 
 from backend.decision import decision_agent
-from backend.models.clusters import ClusterAssignment, ClusterSnapshot
-from backend.models.decision import DecisionAction, DecisionResult
-from backend.models.llm import LLMParseError, LLMResponse
+from backend.api.types import ClusterAssignment, ClusterSnapshot
+from backend.decision.types import DecisionAction, DecisionResult
+from backend.llm.types import LLMParseError, LLMResponse
 
 
 _SESSION_ID = uuid.uuid4()

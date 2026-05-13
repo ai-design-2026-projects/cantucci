@@ -25,7 +25,7 @@ from backend.cluster.tools import (
     embedding_fetcher,
     soft_cluster_engine,
 )
-from backend.models.clusters import ClusterAssignment, ClusterSnapshot
+from backend.api.types import ClusterAssignment, ClusterSnapshot
 from backend.settings import get_settings
 from backend.retrieval.tools import metadata_fetcher, query_reformulator
 

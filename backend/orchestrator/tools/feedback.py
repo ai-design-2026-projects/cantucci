@@ -4,10 +4,8 @@ MVP heuristic classifiers; an LLM-based ``f_next_state`` classifier is a future
 iteration described in docs/specifications/problem_statement.md §4.
 """
 
-from backend.models.clusters import ClusterSnapshot
-from backend.models.decision import DecisionResult
-from backend.models.retrieval import TurnDetail
-from backend.models.sessions import StepType
+from backend.api.types import ClusterSnapshot, StepType, TurnDetail
+from backend.decision.types import DecisionResult
 
 _NEGATIVE_LEXICON = frozenset({
     "no", "not", "wrong", "don't", "doesn't", "didn't", "never", "nothing",

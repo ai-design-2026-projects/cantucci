@@ -20,10 +20,9 @@ from uuid import UUID
 
 from backend.llm import llm_harness
 from backend.llm.prompts import make_prompt_loader
-from backend.models.clusters import ClusterSnapshot
-from backend.models.decision import DecisionResult
-from backend.models.llm import LLMParseError
-from backend.models.retrieval import TurnDetail
+from backend.api.types import ClusterSnapshot, TurnDetail
+from backend.decision.types import DecisionResult
+from backend.llm.types import LLMParseError
 from backend.settings import get_settings
 
 log = logging.getLogger(__name__)
