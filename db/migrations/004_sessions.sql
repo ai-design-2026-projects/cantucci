@@ -51,7 +51,7 @@ CREATE TABLE clusters (
     -- 0 = coarse, 1 = fine (drilled into on oracle request)
     level             SMALLINT    NOT NULL DEFAULT 0,
     -- Mean embedding of assigned titles; used for drift detection and display only (not indexed for ANN)
-    centroid          VECTOR(384),
+    centroid          VECTOR(1024),
     created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 

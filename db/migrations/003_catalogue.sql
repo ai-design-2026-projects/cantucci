@@ -32,7 +32,7 @@ CREATE TABLE movies (
     poster_path      TEXT,
     homepage         TEXT,
     collection_id    BIGINT       REFERENCES collections(id),
-    embedding        VECTOR(384)  NOT NULL
+    embedding        VECTOR(1024)  NOT NULL
 );
 
 CREATE INDEX ON movies USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100);

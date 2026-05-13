@@ -41,14 +41,17 @@ def encode_all(
     model_name: str | None = None,
     expected_dim: int | None = None,
     batch_size: int = 256,
+    query_prefix: str | None = None,
 ) -> np.ndarray:
     """Encode *texts* and return a float32 array with the configured dimension.
-
     Args:
-        texts: One composite text string per movie.
-        model_name: HuggingFace model identifier; defaults to YAML config.
-        expected_dim: Embedding dimensionality; defaults to YAML config.
-        batch_size: Encoding batch size.
+        - texts: List of strings to embed. Could be composite_text or the user's query in the vector_search tool.
+        - model_name: HuggingFace model identifier; defaults to YAML config.
+        - expected_dim: Embedding dimensionality; defaults to YAML config.
+        - batch_size: Encoding batch size.
+        - query_prefix: Instruction prefix prepended to each text before encoding.
+            For BGE models, pass "Represent this sentence for searching relevant passages: "
+            when encoding user queries. Leave None for catalogue passages (composite_text).
 
     Returns:
         Float32 ndarray of shape (len(texts), expected_dim), L2-normalised.
@@ -59,8 +62,9 @@ def encode_all(
     model = _load(resolved_model)
     log.info("encoding", extra={"n": len(texts), "batch_size": batch_size, "model": resolved_model})
 
+    prefixed = [f"{query_prefix}{t}" for t in texts] if query_prefix else texts
     embeddings = model.encode(
-        texts,
+        prefixed,
         batch_size=batch_size,
         show_progress_bar=True,
         convert_to_numpy=True,
