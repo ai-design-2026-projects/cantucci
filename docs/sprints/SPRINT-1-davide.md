@@ -20,3 +20,15 @@ My hands-on work centered on the following components:
 - **Retrieval System** – Implemented a system to fetch relevant movie recommendations in response to user queries. *[PR #22](https://github.com/ai-design-2026-projects/cantucci/issues/22)*
 - **Colab-Runnable Notebook** – Added a notebook to run the ingestion pipeline on Google Colab, bypassing the long processing times caused by the lack of a local GPU. Data is uploaded to Hugging Face and fetched from there as needed. *[PR #26](https://github.com/ai-design-2026-projects/cantucci/issues/26)*
 - **Clustering Agent** – Developed an agent that takes a user query, refines it for better retrieval, fetches relevant movies, and clusters them by similarity. Each cluster is then given a generated title and summary, providing users with a more structured and insightful set of recommendations. *[PR #29](https://github.com/ai-design-2026-projects/cantucci/issues/29)*
+
+## What's Next
+
+Sprint 2 will focus on four main areas:
+
+1. **Complete the architecture.** Several components are still stubs or missing entirely — notably the convergence check (currently a placeholder) and user profile handling (not yet implemented).
+
+2. **Improve prompt engineering.** MVP prompts were kept as-is once functional, but there's clear room for improvement. The disambiguation agent produces unhelpful questions; the clustering agent would benefit from more structured prompts.
+
+3. **Improve responsiveness.** LLM API calls make the system slow. We plan to parallelize calls across two rounds: the first running convergence check, profile computation, and retrieval+clustering simultaneously; the second (triggered if not converged) running disambiguation in parallel with cluster selection. To guide this, we'll track time and token costs per component to identify bottlenecks. We'll also explore using smaller models for less critical agents.
+
+4. **Frontend & evaluation.** On the frontend, we'll show representative movies alongside disambiguation questions to help users better understand and answer them, and add loading animations to mask latency. For evaluation, we'll build the dataset, define metrics, implement a humanoid oracle and judge, and set up a dashboard to visualize results.
