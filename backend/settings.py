@@ -60,10 +60,12 @@ class ModelConfig(BaseModel):
 
     Attributes:
         name:       Model identifier string (e.g. ``"gpt-4o-mini"``).
+        provider:   API provider — ``"openai"`` or ``"openrouter"``.
         seed:       RNG seed for reproducible completions.
         max_tokens: Maximum completion tokens per call.
     """
     name: str
+    provider: str = "openai"
     seed: int
     max_tokens: int
 
@@ -187,7 +189,8 @@ class EnvSettings(BaseSettings):
     )
 
     database_url: str
-    openai_api_key: str
+    openai_api_key: str = ""
+    openrouter_api_key: str = ""
     kaggle_username: str = ""
     kaggle_key: str = ""
     cinepal_artifacts_repo: str = ""

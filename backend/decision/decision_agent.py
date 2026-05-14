@@ -120,6 +120,7 @@ def decide(
         turn_id=turn_id,
         config_hash=config_hash,
         model_and_version=model_version,
+        provider=cfg.model.provider,
         seed=cfg.model.seed,
         max_tokens=cfg.model.max_tokens,
         step_type="decision_route",
