@@ -3,7 +3,7 @@
 Covers, against the real mini-catalogue fixture:
   - ``api.movies.resolve_titles_to_ids`` fuzzy-matches titles and stems
   - ``api.movies.vector_search(exclude_ids=...)`` actually drops the listed IDs
-  - ``retrieval.agent.retrieve(exclude_titles=...)`` plumbs everything together
+  - ``retrieval.agent.retrieve`` plumbs reformulator exclusions through end-to-end
 
 The mini catalogue is small (~200 rows) and content-dependent, so the tests
 discover representative titles at runtime rather than hard-coding film names
@@ -12,10 +12,15 @@ that may not exist in the artifact.
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
+from uuid import uuid4
+
 import psycopg
 
 from backend.api import movies as api_movies
 from backend.retrieval import agent as retrieval_agent
+from backend.retrieval.types import ReformulatedQuery
 
 
 def _sample_title(db_url: str) -> tuple[int, str]:
@@ -117,16 +122,59 @@ def test_vector_search_excludes_ids(db_url: str, mini_catalogue: int) -> None:
 
 
 def test_retrieval_agent_excludes_titles_end_to_end(
-    db_url: str, mini_catalogue: int
+    db_url: str, mini_catalogue: int, monkeypatch
 ) -> None:
-    """retrieval_agent.retrieve with exclude_titles drops matching films from candidates."""
+    """retrieval_agent.retrieve drops reformulator-emitted exclusions from candidates."""
     _, sample_title = _sample_title(db_url)
+
+    # Stub the reformulator so we can pin the exclusion list deterministically.
+    def _fake_reformulate(**_: object) -> ReformulatedQuery:
+        return ReformulatedQuery(
+            query="a contemplative film about identity and memory",
+            excluded_films=[sample_title],
+        )
+
+    monkeypatch.setattr(
+        "backend.retrieval.agent.query_reformulator.reformulate",
+        _fake_reformulate,
+    )
+
     result = retrieval_agent.retrieve(
-        query="a contemplative film about identity and memory",
+        user_query="something contemplative about identity and memory",
         k=10,
-        exclude_titles=[sample_title],
+        session_id=uuid4(),
+        run_id=uuid4(),
+        turn_id=uuid4(),
+        dry_run=True,
     )
     returned_titles = {c.title for c in result.candidates}
     assert sample_title not in returned_titles
     assert result.excluded_films == [sample_title]
     assert result.excluded_movie_ids, "expected fuzzy-match to resolve the sample title"
+    assert result.reformulated_query == "a contemplative film about identity and memory"
+    assert result.user_query == "something contemplative about identity and memory"
+
+
+def test_retrieval_agent_dry_run_returns_fixture_reformulation(
+    db_url: str, mini_catalogue: int
+) -> None:
+    """In dry_run, reformulated_query matches the canned fixture's `query` field."""
+    fixture_path = (
+        Path(__file__).resolve().parents[2]
+        / "tests"
+        / "fixtures"
+        / "dry_run"
+        / "retrieval_reformulate.json"
+    )
+    expected = json.loads(fixture_path.read_text())["query"]
+
+    result = retrieval_agent.retrieve(
+        user_query="anything",
+        k=5,
+        session_id=uuid4(),
+        run_id=uuid4(),
+        turn_id=uuid4(),
+        dry_run=True,
+    )
+    assert result.reformulated_query == expected
+    assert result.user_query == "anything"

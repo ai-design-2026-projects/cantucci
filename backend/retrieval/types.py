@@ -37,12 +37,12 @@ class RetrievalResult:
     re-joining.
 
     Attributes:
-        query:              Original oracle query passed to the retrieval system.
+        user_query:         Raw oracle utterance passed to the retrieval system.
+        reformulated_query: Vibe-enriched query produced by the reformulator step
+                            and fed to vector search.
         k:                  Maximum number of candidates requested.
         candidates:         Enriched film metadata in descending similarity order.
         scores:             movie_id → cosine similarity mapping.
-        reformulated_query: Vibe-enriched query produced by the reformulator step;
-                            empty string if reformulation was skipped (dry_run).
         excluded_films:     Raw title / series strings emitted by the reformulator
                             for this turn; preserved for replay and observability.
         excluded_movie_ids: Catalog IDs resolved from ``excluded_films`` via fuzzy
@@ -50,10 +50,10 @@ class RetrievalResult:
                             negative filter.
     """
 
-    query: str
+    user_query: str
+    reformulated_query: str
     k: int
     candidates: list[MovieMetadata]
     scores: dict[int, float]
-    reformulated_query: str = ""
     excluded_films: list[str] = field(default_factory=list)
     excluded_movie_ids: list[int] = field(default_factory=list)

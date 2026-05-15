@@ -28,7 +28,6 @@ _STEP_TYPE = "retrieval_reformulate"
 def reformulate(
     *,
     user_query: str,
-    turn_number: int,
     session_id: UUID,
     run_id: UUID,
     turn_id: UUID,
@@ -44,7 +43,6 @@ def reformulate(
 
     Args:
         user_query:           Oracle's raw utterance for this turn.
-        turn_number:          1-based turn index within the session.
         session_id:           UUID of the current session.
         run_id:               UUID of the parent run.
         turn_id:              UUID of the current turn.
@@ -67,9 +65,7 @@ def reformulate(
     system_text, prompt_hash = load_prompt(
         "query_reformulate_v2",
         {
-            "user_query": user_query,
-            "turn_number": turn_number,
-            "max_turns": cfg.session.max_turns,
+            "user_query": user_query
         },
     )
 
@@ -105,7 +101,6 @@ def reformulate(
         "Query reformulation complete",
         extra={
             "session_id": str(session_id),
-            "turn_number": turn_number,
             "query_len": len(result.query),
             "n_excluded": len(result.excluded_films),
         },

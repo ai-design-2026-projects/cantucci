@@ -1,60 +1,94 @@
 """Retrieval System agent — converts an oracle query into enriched film candidates.
 
-No LLM is used in this version. Query reformulation is performed upstream by
-``backend.retrieval.tools.query_reformulator``; the agent itself only embeds,
-optionally filters out caller-supplied excluded titles, and enriches with
-metadata.
+Pipeline (all owned by this agent, called from the cluster agent with the raw
+oracle utterance):
 
-Pipeline:
-    query (text) → embedded → vector_search (with exclusion filter)
-                  → metadata_fetcher → RetrievalResult
+    user_query → query_reformulator (LLM, JSON-validated by harness)
+              → resolve excluded titles → movie_ids
+              → vector_search (embeds reformulated query) → top-k hits
+              → metadata_fetcher → RetrievalResult
+
+The reformulator's LLM call is logged by the harness via ``log_llm_call(...)``;
+this module logs deterministic steps (exclusion resolution, vector-search
+completion) at INFO and never duplicates the harness record.
 """
 
 import logging
+from uuid import UUID
 
 from backend.api import movies as api_movies
+from backend.retrieval.tools import metadata_fetcher, query_reformulator, vector_search
 from backend.retrieval.types import RetrievalResult
-from backend.retrieval.tools import metadata_fetcher, vector_search
 
 log = logging.getLogger(__name__)
 
 
 def retrieve(
     *,
-    query: str,
+    user_query: str,
     k: int,
-    exclude_titles: list[str] | None = None,
+    session_id: UUID,
+    run_id: UUID,
+    turn_id: UUID,
+    accumulated_cost_usd: float = 0.0,
+    dry_run: bool = False,
 ) -> RetrievalResult:
-    """Return top-k candidate films matching *query*, enriched with metadata.
+    """Reformulate *user_query*, embed it, and return top-k enriched candidates.
 
-    When *exclude_titles* is non-empty, each title is fuzzy-matched against
-    ``movies.title`` (via :func:`backend.api.movies.resolve_titles_to_ids`) and
-    the resulting catalog IDs are excluded from the SQL vector search at the
-    source — so a request for ``"Lord of the Rings"`` removes all three films
-    from candidate consideration, ``"Spider-Man"`` removes every Spider-Man
-    release, and so on. Titles that fail to fuzzy-match anything are silently
-    skipped (the reformulator may invent or mis-spell titles).
+    The agent drives the full retrieval pipeline internally so callers (the
+    cluster agent) hand over the oracle's raw utterance and receive a
+    fully-resolved result. The reformulator is invoked through the LLM harness
+    with ``response_schema=ReformulatedQuery``, which guarantees JSON validation
+    and emits a ``log_llm_call`` record per attempt. Excluded titles surfaced by
+    the reformulator are fuzzy-matched against ``movies.title`` and pushed into
+    the SQL vector search as a negative filter at the source.
 
     Args:
-        query:          Natural-language preference string from the oracle.
-        k:              Maximum number of candidates to return.
-        exclude_titles: Optional film titles or series roots to exclude from
-                        the result set. Resolved to ``movie_id``s before
-                        retrieval.
+        user_query:           Oracle's raw utterance for this turn.
+        k:                    Maximum number of candidates to return; must be > 0.
+        session_id:           UUID of the current session.
+        run_id:               UUID of the parent run.
+        turn_id:              UUID of the current turn.
+        accumulated_cost_usd: Running USD cost for the current turn (cost guard).
+        dry_run:              If ``True``, the reformulator uses its canned
+                              fixture instead of calling the LLM; the rest of
+                              the pipeline runs normally against the catalogue.
 
     Returns:
-        RetrievalResult with candidates in descending similarity order plus the
-        raw and resolved exclusion lists for observability/replay.
+        ``RetrievalResult`` with candidates in descending similarity order plus
+        the raw oracle utterance, the reformulated search string, and the raw
+        and resolved exclusion lists for observability and replay.
 
     Raises:
-        ValueError: If *query* is empty or *k* is not positive.
+        ValueError:        If *user_query* is empty or *k* is not positive.
+        LLMParseError:     If reformulation fails JSON validation on every retry.
+        CostLimitExceeded: If the session budget is exhausted.
     """
-    if not query.strip():
-        raise ValueError("query must be a non-empty string")
+    if not user_query.strip():
+        raise ValueError("user_query must be a non-empty string")
     if k <= 0:
         raise ValueError(f"k must be positive, got {k}")
 
-    excluded_titles = list(exclude_titles) if exclude_titles else []
+    log.info(
+        "retrieval start",
+        extra={
+            "session_id": str(session_id),
+            "turn_id": str(turn_id),
+            "user_query_len": len(user_query),
+            "k": k,
+        },
+    )
+
+    reformulated = query_reformulator.reformulate(
+        user_query=user_query,
+        session_id=session_id,
+        run_id=run_id,
+        turn_id=turn_id,
+        accumulated_cost_usd=accumulated_cost_usd,
+        dry_run=dry_run,
+    )
+
+    excluded_titles = list(reformulated.excluded_films)
     exclude_ids: list[int] = (
         api_movies.resolve_titles_to_ids(excluded_titles) if excluded_titles else []
     )
@@ -68,7 +102,7 @@ def retrieve(
             },
         )
 
-    hits = vector_search.search(query, k, exclude_ids=exclude_ids or None)
+    hits = vector_search.search(reformulated.query, k, exclude_ids=exclude_ids or None)
     metas = metadata_fetcher.fetch([h.movie_id for h in hits])
 
     score_map = {h.movie_id: h.score for h in hits}
@@ -85,16 +119,19 @@ def retrieve(
     log.info(
         "retrieval complete",
         extra={
-            "query_len": len(query),
+            "session_id": str(session_id),
+            "turn_id": str(turn_id),
             "k": k,
             "n_returned": n_returned,
+            "reformulated_query_len": len(reformulated.query),
             "top_score": hits[0].score if hits else None,
-            "n_excluded": len(exclude_ids),
+            "n_excluded_resolved": len(exclude_ids),
         },
     )
 
     return RetrievalResult(
-        query=query,
+        user_query=user_query,
+        reformulated_query=reformulated.query,
         k=k,
         candidates=metas,
         scores=score_map,
