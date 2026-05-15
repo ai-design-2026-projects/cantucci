@@ -43,8 +43,6 @@ class TestDescribeDryRun:
             session_id=_SESSION_ID,
             run_id=_RUN_ID,
             turn_id=_TURN_ID,
-            config_hash="abc12345",
-            model_version="gpt-4o-mini",
             dry_run=True,
         )
 
@@ -60,8 +58,6 @@ class TestDescribeDryRun:
             session_id=_SESSION_ID,
             run_id=_RUN_ID,
             turn_id=_TURN_ID,
-            config_hash="abc12345",
-            model_version="gpt-4o-mini",
             dry_run=True,
         )
         assert result == []
@@ -79,9 +75,7 @@ class TestDescribeLLM:
                 session_id=_SESSION_ID,
                 run_id=_RUN_ID,
                 turn_id=_TURN_ID,
-                config_hash="abc12345",
-                model_version="gpt-4o-mini",
-                    dry_run=False,
+                dry_run=False,
             )
 
     def test_valid_response_parsed_correctly(self):

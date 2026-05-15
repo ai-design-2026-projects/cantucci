@@ -16,7 +16,7 @@ from uuid import UUID
 from backend.decision.tools import entropy_calculator, relevance_scorer
 from backend.llm import llm_harness
 from backend.llm.prompts import make_prompt_loader
-from backend.settings import get_settings
+from backend.settings import get_config_hash, get_settings
 from backend.api.types import ClusterSnapshot
 from backend.decision.types import DecisionAction, DecisionResult
 from backend.llm.types import LLMParseError
@@ -34,8 +34,6 @@ def decide(
     turn_number: int,
     user_query: str,
     clusters: list[ClusterSnapshot],
-    config_hash: str,
-    model_version: str,
     accumulated_cost_usd: float = 0.0,
 ) -> DecisionResult:
     """Return a routing decision for the current turn.
@@ -50,8 +48,6 @@ def decide(
         turn_number:          1-based turn index within the session.
         user_query:           Oracle's message for this turn.
         clusters:             Current cluster snapshots.
-        config_hash:          SHA-256 prefix of the session's YAML config snapshot.
-        model_version:        LLM model string stored on the session row.
         accumulated_cost_usd: Running USD cost for the current turn (for cost guard).
 
     Returns:
@@ -82,6 +78,8 @@ def decide(
     relevance = relevance_scorer.score(user_query, clusters)
 
     cfg = get_settings()
+    config_hash = get_config_hash()
+    model_and_version = cfg.model.name
 
     # For LLM logging and prompt construction, convert the clusters into dicts with the relevant fields and the relevance scores
     cluster_vars = [
@@ -119,7 +117,8 @@ def decide(
         session_id=session_id,
         turn_id=turn_id,
         config_hash=config_hash,
-        model_and_version=model_version,
+        model_and_version=model_and_version,
+        provider=cfg.model.provider,
         seed=cfg.model.seed,
         max_tokens=cfg.model.max_tokens,
         step_type="decision_route",

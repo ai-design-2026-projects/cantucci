@@ -26,8 +26,6 @@ _COMMON = dict(
     turn_id=_TURN_ID,
     turn_number=1,
     user_query="I want a tense sci-fi thriller",
-    config_hash="abc12345",
-    model_version="gpt-4o-mini",
 )
 
 

@@ -39,8 +39,6 @@ def cluster(
     turn_id: UUID,
     turn_number: int,
     user_query: str,
-    config_hash: str,
-    model_version: str,
     accumulated_cost_usd: float = 0.0,
     prior_candidates: list[int] | None = None,
     accepted_cluster: dict | None = None,
@@ -62,8 +60,6 @@ def cluster(
         turn_id:              UUID of the current turn.
         turn_number:          1-based turn index within the session.
         user_query:           Oracle's raw (or pre-refined) utterance.
-        config_hash:          SHA-256 prefix of the session's YAML config snapshot.
-        model_version:        LLM model string stored on the session row.
         accumulated_cost_usd: Running USD cost for the current turn (for cost guard).
         prior_candidates:     Optional list of TMDB movie IDs from a prior turn's
                               cluster pool; when provided, vector search is skipped.
@@ -96,16 +92,11 @@ def cluster(
         kept_ids, result = cluster_updater.update(
             movie_ids,
             metas=metas,
-            min_cluster_size=cfg.clustering.min_cluster_size,
-            min_samples=cfg.clustering.min_samples,
-            cluster_selection_method=cfg.clustering.cluster_selection_method,
             accepted_cluster=accepted_cluster,
             user_query=user_query,
             session_id=session_id,
             run_id=run_id,
             turn_id=turn_id,
-            config_hash=config_hash,
-            model_version=model_version,
             accumulated_cost_usd=accumulated_cost_usd,
             dry_run=dry_run,
         )
@@ -125,8 +116,6 @@ def cluster(
             session_id=session_id,
             run_id=run_id,
             turn_id=turn_id,
-            config_hash=config_hash,
-            model_version=model_version,
             accumulated_cost_usd=accumulated_cost_usd,
             dry_run=dry_run,
         )
@@ -196,8 +185,6 @@ def cluster(
         session_id=session_id,
         run_id=run_id,
         turn_id=turn_id,
-        config_hash=config_hash,
-        model_version=model_version,
         accumulated_cost_usd=accumulated_cost_usd,
         dry_run=dry_run,
     )

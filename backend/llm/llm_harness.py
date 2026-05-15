@@ -55,6 +55,7 @@ def call(
     turn_id: str | UUID,
     config_hash: str,
     model_and_version: str,
+    provider: str = "openai",
     seed: int,
     max_tokens: int,
     step_type: str,
@@ -72,6 +73,7 @@ def call(
         turn_id:              Turn identifier for logging.
         config_hash:          SHA-256 prefix of the YAML config in effect.
         model_and_version:    Full model string from config, e.g. ``"gpt-4o-2024-08-06"``.
+        provider:             API provider — ``"openai"`` (default) or ``"openrouter"``.
         seed:                 RNG seed from session config (for reproducibility).
         max_tokens:           Maximum completion tokens from config.
         step_type:            Name of the calling agent step, e.g. ``"cluster_agent"``.
@@ -115,12 +117,14 @@ def call(
             )
         try:
             t0 = time.monotonic()
-            response = _client().chat.completions.create(
+            kwargs: dict = dict(
                 model=model_and_version,
                 messages=messages,  # type: ignore[arg-type]
                 max_tokens=max_tokens,
-                seed=seed,
             )
+            if provider == "openai":
+                kwargs["seed"] = seed
+            response = _client(provider).chat.completions.create(**kwargs)
             latency_ms = (time.monotonic() - t0) * 1000.0
         except _TRANSIENT_ERRORS as exc:
             last_exc = exc
@@ -159,15 +163,33 @@ def call(
     raise last_exc  # type: ignore[misc]
 
 
-_openai_client: openai.OpenAI | None = None
+_clients: dict[str, openai.OpenAI] = {}
+
+_PROVIDER_BASE_URLS: dict[str, str] = {
+    "openrouter": "https://openrouter.ai/api/v1",
+}
 
 
-def _client() -> openai.OpenAI:
-    """Return the shared OpenAI client, creating it on first call."""
-    global _openai_client
-    if _openai_client is None:
-        _openai_client = openai.OpenAI(api_key=get_env().openai_api_key)
-    return _openai_client
+def _client(provider: str = "openai") -> openai.OpenAI:
+    """Return the shared client for *provider*, creating it on first call."""
+    if provider not in _clients:
+        env = get_env()
+        if provider == "openrouter":
+            if not env.openrouter_api_key:
+                raise ValueError(
+                    "OPENROUTER_API_KEY is not set. Add it to .env when using provider=openrouter."
+                )
+            _clients[provider] = openai.OpenAI(
+                base_url=_PROVIDER_BASE_URLS["openrouter"],
+                api_key=env.openrouter_api_key,
+            )
+        else:
+            if not env.openai_api_key:
+                raise ValueError(
+                    "OPENAI_API_KEY is not set. Add it to .env when using provider=openai."
+                )
+            _clients[provider] = openai.OpenAI(api_key=env.openai_api_key)
+    return _clients[provider]
 
 
 def _backoff(attempt: int) -> float:
@@ -180,4 +202,5 @@ def _estimate_cost(model: str, input_tokens: int, output_tokens: int) -> float:
     for prefix, rates in _COST_PER_M.items():
         if model.startswith(prefix):
             return (input_tokens * rates["input"] + output_tokens * rates["output"]) / 1_000_000
+    log.warning("unknown model for cost estimation, charging 0", extra={"model": model})
     return 0.0

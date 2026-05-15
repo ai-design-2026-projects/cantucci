@@ -5,7 +5,7 @@ from pathlib import Path
 
 from huggingface_hub import snapshot_download
 
-from backend.settings import ARTIFACTS_DIR, get_env
+from backend.settings import ARTIFACTS_DIR
 
 log = logging.getLogger(__name__)
 
@@ -19,7 +19,7 @@ def fetch_artifacts(
     """Download parquet artifacts from a Hugging Face Dataset repo, returning the local path.
     Args:
         - repo_id: HF dataset repo id (e.g. "user/cinepal-embeddings"). Falls back to the CINEPAL_ARTIFACTS_REPO env var.
-        - token: HF access token for private repos. Can be omitted for public repos. Falls back to HF_TOKEN env var.
+        - token: HF access token for private repos. Can be omitted for public repos. Falls back to HF_TOKEN env var. 
         - artifacts_dir: Local destination directory. Defaults to data/artifacts/.
     Returns:
         Path to the local artifacts directory.
@@ -33,7 +33,7 @@ def fetch_artifacts(
             "HF repo id is required. Set CINEPAL_ARTIFACTS_REPO in .env "
             "or pass --repo explicitly."
         )
-    resolved_token = token or env.hf_token or None
+    resolved_token = token or os.environ.get("HF_TOKEN") or None
     dest = artifacts_dir or ARTIFACTS_DIR
     dest.mkdir(parents=True, exist_ok=True)
 
