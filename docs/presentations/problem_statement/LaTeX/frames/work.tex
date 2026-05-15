@@ -1,7 +1,27 @@
 \section{Sprint}
 
 \begin{frame}{What We Did}
+  \begin{itemize}
+    \item Drafted comprehensive project documentation
+    \item Implemented core database schema, with full ingestion pipeline (Davide)
+    \item Built retrieval system with vector-based movie search (Davide)
+    \item Developed Cluster Agent (Davide)
+    \item Developed Orchestrator, Decision, Ambiguity (Andrea)
+    \item Created minimal React frontend (Andrea)
+  \end{itemize}
 \end{frame}
 
 \begin{frame}{What We Are Going To Do}
+  \begin{itemize}
+    \item \textbf{Complete the architecture}: several components are still stubs or missing entirely, in order to have a improved system for evaluation.
+    \item \textbf{Prompt engineering}: MVP prompts were kept as-is once functional, but they are very basic and likely suboptimal. 
+    \item \textbf{Responsiveness}: parallelise LLM calls as they are a major bottleneck, considering smaller models for less critical tasks.
+    \item \textbf{Evaluation setup}: build LLM Oracle, LLM Judge and structure experimentation framework
+    \item \textbf{Frontend \& dashboard}:
+            \begin{itemize}
+                \item Show representative movies alongside disambiguation questions to help users better understand and answer them;
+                \item Add message loading indicators to hide LLM latency and improve perceived responsiveness;
+                \item Build an admin panel to monitor through a dashboard experiment progress and quality metrics;
+            \end{itemize}
+  \end{itemize}
 \end{frame}

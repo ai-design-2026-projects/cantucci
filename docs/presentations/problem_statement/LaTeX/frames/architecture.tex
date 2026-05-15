@@ -1,8 +1,43 @@
 \section{Architecture}
 
 \begin{frame}{Architecture Diagram}
-
+  \centering
+  \includegraphics[width=0.7\textwidth]{../../../../media/architecture_diagram.pdf}
 \end{frame}
 
-\begin{frame}{Data Model}
+
+\begin{frame}{Orchestrator}
+  \begin{itemize}
+    \item Coordinates all agent handoffs 
+    \item Maintains the state of the conversation and builds the user preferences profile.
+    \item Single writer to database, and to communicate with the user interface
+    \item Handles conversation convergence and termination
+  \end{itemize}
 \end{frame}
+
+\begin{frame}{Cluster Agent}
+  \begin{itemize}
+    \item At the first turn or conversation drift, it retrieves new clusters.
+    \item Embed the query, enriched with LLM-generated context, and performs vector similarity search to retrieve top-K films.
+    \item Performs soft clustering using HDBSCAN on retrieved films' embeddings to identify a first set of clusters.
+    \item If exists already a cluster, uses the user feedback to update the cluster assignment through an LLM-based approach
+    \item LLM-assisted cluster title and description generation
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{Decision Agent}
+  \begin{itemize}
+    \item Determines next action: \textbf{Show} or \textbf{Ask}
+    \item It bases its decision on the current cluster distribution, and the user preferences profile
+    \item Measures entropy to detect high divergence requiring more signal
+    \item Identifies dominant cluster with high relevance for recommendation
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{Ambiguity Resolver}
+  \begin{itemize}
+    \item Activated only when Decision Agent chooses \textbf{Ask}
+    \item Generates targeted questions identifying specific attributes or preferences to clarify user intent
+  \end{itemize}
+\end{frame}
+
