@@ -20,7 +20,7 @@ from backend.cluster.tools.soft_cluster_engine import SoftClusterResult
 from backend.llm import llm_harness
 from backend.llm.prompts import make_prompt_loader
 from backend.llm.types import LLMParseError
-from backend.settings import get_settings
+from backend.settings import get_config_hash, get_settings
 
 log = logging.getLogger(__name__)
 
@@ -33,16 +33,11 @@ def update(
     movie_ids: list[int],
     *,
     metas: list,
-    min_cluster_size: int,
-    min_samples: int,
-    cluster_selection_method: str = "eom",
     accepted_cluster: dict | None = None,
     user_query: str = "",
     session_id: UUID | None = None,
     run_id: UUID | None = None,
     turn_id: UUID | None = None,
-    config_hash: str = "",
-    model_version: str = "",
     accumulated_cost_usd: float = 0.0,
     dry_run: bool = False,
 ) -> tuple[list[int], SoftClusterResult]:
@@ -59,9 +54,6 @@ def update(
         metas:                    Movie metadata objects (with ``movie_id``, ``title``,
                                   ``overview``) aligned with *movie_ids*; used to build
                                   the LLM context without an extra DB round-trip.
-        min_cluster_size:         HDBSCAN ``min_cluster_size`` (from config).
-        min_samples:              HDBSCAN ``min_samples`` (from config).
-        cluster_selection_method: ``"eom"`` (default) or ``"leaf"``.
         accepted_cluster:         Dict with keys ``name``, ``description``,
                                   ``feedback_type`` (``"accept"`` or ``"reject"``).
                                   When ``None``, the LLM step is skipped.
@@ -69,8 +61,6 @@ def update(
         session_id:               UUID of the current session (for LLM harness logging).
         run_id:                   UUID of the parent run.
         turn_id:                  UUID of the current turn.
-        config_hash:              SHA-256 prefix of the session's YAML config snapshot.
-        model_version:            LLM model string.
         accumulated_cost_usd:     Running USD cost for the current turn.
         dry_run:                  If ``True``, skip the LLM rescore call.
 
@@ -85,6 +75,11 @@ def update(
         LLMParseError: If the LLM returns non-JSON, a non-list, a list of the wrong
                        length, or entries missing ``movie_id`` / ``score`` keys.
     """
+    cfg = get_settings()
+    min_cluster_size = cfg.clustering.min_cluster_size
+    min_samples = cfg.clustering.min_samples
+    cluster_selection_method = cfg.clustering.cluster_selection_method
+
     kept_ids, embeddings = embedding_fetcher.fetch(movie_ids)
 
     log.debug(
@@ -115,7 +110,8 @@ def update(
         for mid in kept_ids
     ]
 
-    cfg = get_settings()
+    config_hash = get_config_hash()
+    model_and_version = cfg.model.name
     system_text, prompt_hash = load_prompt(
         "cluster_rescore_v1",
         {
@@ -137,7 +133,7 @@ def update(
         session_id=session_id,
         turn_id=turn_id,
         config_hash=config_hash,
-        model_and_version=model_version,
+        model_and_version=model_and_version,
         provider=cfg.model.provider,
         seed=cfg.model.seed,
         max_tokens=cfg.model.max_tokens,

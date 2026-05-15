@@ -23,7 +23,7 @@ from backend.llm.prompts import make_prompt_loader
 from backend.api.types import ClusterSnapshot, TurnDetail
 from backend.decision.types import DecisionResult
 from backend.llm.types import LLMParseError
-from backend.settings import get_settings
+from backend.settings import get_config_hash, get_settings
 
 log = logging.getLogger(__name__)
 
@@ -57,9 +57,6 @@ def render_recommendation(
     user_message: str,
     history: list[TurnDetail],
     persona_id: str | None,
-    config_hash: str,
-    model_version: str,
-    max_turns: int,
     decision: DecisionResult,
     clusters: list[ClusterSnapshot],
     accumulated_cost_usd: float = 0.0,
@@ -74,9 +71,6 @@ def render_recommendation(
         user_message:         Oracle's message for this turn.
         history:              All prior turns in ascending turn_number order.
         persona_id:           Oracle persona identifier, or None for human oracles.
-        config_hash:          SHA-256 prefix of the session's YAML config snapshot.
-        model_version:        LLM model string stored on the session row.
-        max_turns:            Hard turn budget for this session.
         decision:             Routing signal from the Decision Agent for this turn.
         clusters:             Current cluster snapshots to present.
         accumulated_cost_usd: Running USD cost for the current turn (for cost guard).
@@ -92,6 +86,9 @@ def render_recommendation(
         openai.APIError:   On a non-transient API error.
     """
     cfg = get_settings()
+    config_hash = get_config_hash()
+    model_and_version = cfg.model.name
+    max_turns = cfg.session.max_turns
 
     cluster_vars = [
         {
@@ -136,7 +133,7 @@ def render_recommendation(
         session_id=session_id,
         turn_id=turn_id,
         config_hash=config_hash,
-        model_and_version=model_version,
+        model_and_version=model_and_version,
         provider=cfg.model.provider,
         seed=cfg.model.seed,
         max_tokens=cfg.model.max_tokens,

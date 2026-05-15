@@ -27,8 +27,6 @@ _COMMON = dict(
     user_query="Something tense and atmospheric",
     entropy_score=0.8,
     prior_questions=[],
-    config_hash="abc12345",
-    model_version="gpt-4o-mini",
 )
 
 

@@ -28,8 +28,6 @@ _COMMON_KWARGS = dict(
     run_id=_RUN_ID,
     turn_id=_TURN_ID,
     turn_number=1,
-    config_hash="abc12345",
-    model_version="gpt-4o-mini",
 )
 
 

@@ -14,7 +14,7 @@ from uuid import UUID
 
 from backend.llm import llm_harness
 from backend.llm.prompts import make_prompt_loader
-from backend.settings import get_settings
+from backend.settings import get_config_hash, get_settings
 from backend.ambiguity.types import AmbiguityQuestion
 from backend.api.types import ClusterSnapshot
 from backend.llm.types import LLMParseError
@@ -33,8 +33,6 @@ def generate_question(
     clusters: list[ClusterSnapshot],
     entropy_score: float,
     prior_questions: list[str],
-    config_hash: str,
-    model_version: str,
     accumulated_cost_usd: float = 0.0,
 ) -> AmbiguityQuestion:
     """Generate a clarifying question targeting the sharpest cluster divergence.
@@ -49,8 +47,6 @@ def generate_question(
         entropy_score:        Pre-computed entropy from the Decision Agent.
         prior_questions:      Assistant messages from previous ask-type turns,
                               used to avoid repeating questions.
-        config_hash:          SHA-256 prefix of the session's YAML config snapshot.
-        model_version:        LLM model string stored on the session row.
         accumulated_cost_usd: Running USD cost for the current turn (for cost guard).
 
     Returns:
@@ -63,6 +59,8 @@ def generate_question(
         openai.APIError:     On a non-transient API error.
     """
     cfg = get_settings()
+    config_hash = get_config_hash()
+    model_and_version = cfg.model.name
     top_clusters = clusters[:cfg.ambiguity.max_cluster_context]
 
     # Prepare cluster context for the prompt, including ID, name, and description.
@@ -96,7 +94,7 @@ def generate_question(
         session_id=session_id,
         turn_id=turn_id,
         config_hash=config_hash,
-        model_and_version=model_version,
+        model_and_version=model_and_version,
         provider=cfg.model.provider,
         seed=cfg.model.seed,
         max_tokens=cfg.model.max_tokens,

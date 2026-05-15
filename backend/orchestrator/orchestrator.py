@@ -158,8 +158,6 @@ class Orchestrator:
             turn_id=turn_id,
             turn_number=turn_number,
             user_query=user_message,
-            config_hash=full.config_hash,
-            model_version=full.model_version,
             prior_candidates=prior,
         )
 
@@ -194,8 +192,6 @@ class Orchestrator:
             turn_number=turn_number,
             user_query=user_message,
             clusters=clusters,
-            config_hash=full.config_hash,
-            model_version=full.model_version,
         )
 
         reply: str
@@ -213,8 +209,6 @@ class Orchestrator:
                 clusters=clusters,
                 entropy_score=decision.entropy_score,
                 prior_questions=prior_questions(full.turns),
-                config_hash=full.config_hash,
-                model_version=full.model_version,
             )
             # Return the question
             reply = question.question_text
@@ -230,9 +224,6 @@ class Orchestrator:
                 user_message=user_message,
                 history=full.turns,
                 persona_id=full.persona_id,
-                config_hash=full.config_hash,
-                model_version=full.model_version,
-                max_turns=full.max_turns,
                 decision=decision,
                 clusters=clusters,
             )
