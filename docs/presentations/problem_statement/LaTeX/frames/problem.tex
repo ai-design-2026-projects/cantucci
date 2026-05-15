@@ -1,10 +1,28 @@
 \section{Problem Statement}
 
-\begin{frame}{Dataset}
+\begin{frame}{Problem Statement}
+    \begin{itemize}
+        \item Standard movie recommenders optimise a \textbf{fixed signal} (clicks, ratings, watch-time).
+        \item Our system has \textbf{no fixed objective}, it rather uses the conversation to \textbf{discover} the user's preferences.
+        \item The \textbf{recommendation is the clustering}: the system proposes a final cluster of movies as the recommendation, and the conversation converges when the user accepts it.
+        \item Dataset: \textbf{$\sim$45,000 movies} (The Movies Dataset, extracted from TMDB).
+    \end{itemize}
 \end{frame}
 
 \begin{frame}{How Conversational Clustering Applies Here?}
+    \begin{itemize}
+        \item \textbf{Retrieval}: user query is used to retrieve a set of candidate movies from the catalogue
+        \item \textbf{Clustering}: candidates are soft-clustered into multiple named and described groups.
+        \item \textbf{Decision} chooses \textbf{Show}, \textbf{Ask} or \textbf{Stop} based on cluster uncertainty and session state.
+    \end{itemize}
 \end{frame}
 
-\begin{frame}{Key Design Choices}
+\begin{frame}{Challenges}
+    \begin{itemize}
+        \item \textbf{Stopping signal}: every turn has a cost, both the system and the user are incentivised to converge in fewer turns.
+        \item \textbf{Satisfaction}: there is no ground-truth label, quality is measured only by whether the user accepts the final cluster.
+        \item \textbf{Preference drift}: users may change their minds mid-session, and the system must adapt without feeling erratic or untrustworthy.
+        \item \textbf{Cognitive load}: presenting clusters and asking questions must be done in a way that doesn't overwhelm or confuse users, especially as the number of clusters grows.
+        \item \textbf{Cluster stability}: names must remain stable enough to feel familiar across turns yet update faithfully when splits or merges materially change a cluster's contents.
+    \end{itemize}
 \end{frame}

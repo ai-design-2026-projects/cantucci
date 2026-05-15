@@ -1,7 +1,6 @@
 """Download pre-built parquet artifacts from a Hugging Face Dataset repo."""
 import argparse
 import logging
-import os
 from pathlib import Path
 
 from huggingface_hub import snapshot_download
@@ -27,7 +26,8 @@ def fetch_artifacts(
     Raises:
         ValueError: If no repo id is provided and CINEPAL_ARTIFACTS_REPO is unset.
     """
-    resolved_repo = repo_id or os.environ.get("CINEPAL_ARTIFACTS_REPO", "")
+    env = get_env()
+    resolved_repo = repo_id or env.cinepal_artifacts_repo
     if not resolved_repo:
         raise ValueError(
             "HF repo id is required. Set CINEPAL_ARTIFACTS_REPO in .env "
