@@ -1,19 +1,21 @@
 \section{Evaluation}
 
 \begin{frame}{Our research question}
-    Does conversational refinement converge to an user-accepted recommendation \textbf{faster} and with \textbf{higher satisfaction} than a one-shot vector search baseline?
+    Does conversational refinement converge to an user-accepted recommendation with \textbf{higher satisfaction} 
+    than a one-shot vector search baseline and still maintain acceptable turns to convergence and cognitive load?
 \end{frame}
 
+
 %#TODO: I WOULD REMOVE THIS
-\begin{frame}{Different Decision Approaches}
-  We will compare the following Decision Agent strategies:
-  \begin{itemize}
-    \item \textbf{Uncertainty-driven}: ask about the title with the smallest gap between its top-two soft-assignment scores, maximally uncertain, most informative
-    \item \textbf{Random}: select uniformly from all titles with low confidence
-    \item \textbf{Boundary-driven}: select the title geometrically nearest to the midpoint between the two highest-weighted cluster centroids
-    \item \textbf{Popularity-first}: among ambiguous titles with low confidence, ask about the one with the highest vote count
-  \end{itemize}
-\end{frame}
+%\begin{frame}{Different Decision Approaches}
+%  We will compare the following Decision Agent strategies:
+%  \begin{itemize}
+%    \item \textbf{Uncertainty-driven}: ask about the title with the smallest gap between its top-two soft-assignment scores, maximally uncertain, most informative
+%    \item \textbf{Random}: select uniformly from all titles with low confidence
+%    \item \textbf{Boundary-driven}: select the title geometrically nearest to the midpoint between the two highest-weighted cluster centroids
+%    \item \textbf{Popularity-first}: among ambiguous titles with low confidence, ask about the one with the highest vote count
+%  \end{itemize}
+%\end{frame}
 
 \begin{frame}{Evaluation Metrics}
   \begin{itemize}
