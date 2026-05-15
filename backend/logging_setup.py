@@ -20,6 +20,15 @@ import os
 from typing import Any
 from uuid import UUID
 
+_NOISY_THIRD_PARTY_LOGGERS = (
+    "httpx",
+    "httpcore",
+    "huggingface_hub",
+    "transformers",
+    "sentence_transformers",
+    "urllib3",
+)
+
 # ANSI escape codes for coloured terminal output. Supported by most modern terminals.
 _RESET = "\033[0m"
 _DIM = "\033[2m"
@@ -106,6 +115,9 @@ def configure_logging() -> None:
         uv_log = logging.getLogger(name)
         uv_log.handlers = [handler]
         uv_log.propagate = False
+
+    for name in _NOISY_THIRD_PARTY_LOGGERS:
+        logging.getLogger(name).setLevel(logging.WARNING)
 
 
 def log_llm_call(

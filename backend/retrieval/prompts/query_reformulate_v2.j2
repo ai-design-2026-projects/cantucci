@@ -11,9 +11,12 @@ Read the oracle's utterance below and produce a single JSON object with two fiel
    synopsis of the ideal film and write *that*. The embedding model has never seen
    the conversation; it only sees this string, so make every word earn its place.
 
-2. **`excluded_films`** — a list of films or series the oracle wants to AVOID. See
-   the strict extraction rule below. The empty list `[]` is the correct answer
-   whenever there is no clear negative signal.
+2. **`excluded_films`** — a list of specific films or series the oracle has
+   mentioned by name, regardless of whether the mention is positive ("similar to
+   X") or negative ("not X"). Naming a film is strong evidence the oracle has
+   already seen it, and we do not want to recommend films they have seen. See
+   the extraction rule below. The empty list `[]` is the correct answer when the
+   oracle names no specific film.
 
 # Guidance for `query`
 
@@ -33,30 +36,30 @@ Anti-patterns — these will degrade retrieval and must be avoided:
 - Do NOT pad with empty intensifiers ("a truly amazing, beautiful film…"); the
   embedding model has no sense of marketing copy, only semantic density.
 
-# Strict extraction rule for `excluded_films`
+# Extraction rule for `excluded_films`
 
-Extract a title or series ONLY when the oracle's utterance carries a clear
-*negative* signal toward it. Triggers include:
+Extract every specific film title or film-series name the oracle mentions,
+regardless of sentiment. Both of the following count, and both must be excluded:
 
-- "I've already seen X", "I just watched X" (already-consumed)
-- "but not X", "anything except X", "no more X"
-- "I'm tired of X", "not another X", "I'm sick of X"
-- "something like X but new to me"
+- *Negative* references — "I just watched X", "but not X", "I'm tired of X",
+  "anything except X". The oracle is telling you directly to avoid X.
+- *Positive* references — "similar to X", "something like X", "in the vein of X",
+  "X but new to me". Naming a specific film as a reference point is strong
+  evidence the oracle has seen it; recommending it back is wasted slot count
+  and reads as the system not listening.
 
-Do NOT extract when the mention is *positive*. Positive mentions are
-preferences, not exclusions, and the retrieval system should be free to return
-films matching them. Examples that yield `excluded_films: []`:
+Do NOT extract the following — these are not specific films:
 
-- "I want a Marvel movie"  (positive franchise preference)
-- "Something like Blade Runner"  (positive reference point — Blade Runner itself
-  may legitimately be a top result; the user is describing a vibe)
-- "A film by Christopher Nolan"  (we only exclude films, never people)
+- **Franchises / studios / labels** ("Marvel", "DC", "Pixar", "MCU", "A24")
+- **People** ("a film by Nolan", "anything with Denzel", "nothing by Tarantino")
+- **Genres, eras, moods** ("sci-fi", "80s horror", "feel-good", "neo-noir")
+- **Generic descriptors** ("blockbuster", "indie", "arthouse")
 
-When the oracle does want a series excluded, output the **series root** — the
-shortest natural phrase that the backend can fuzzy-match against catalogue
-titles. The backend expands `"Lord of the Rings"` to all three films,
-`"Spider-Man"` to every Spider-Man entry, and so on. Do not enumerate sequels
-yourself; that is the backend's job.
+When the oracle names a *series*, output the **series root** — the shortest
+natural phrase that the backend can fuzzy-match against catalogue titles. The
+backend expands `"Lord of the Rings"` to all three films, `"Spider-Man"` to
+every Spider-Man entry, and so on. Do not enumerate sequels yourself; that is
+the backend's job.
 
 # Output format
 
@@ -88,6 +91,14 @@ Oracle: "I just watched Interstellar and Arrival — give me something in that h
 }
 ```
 
+Oracle: "I want a film similar to Interstellar."
+```json
+{
+  "query": "An intimate science-fiction epic where the vastness of space is filtered through a parent-child bond, time itself bends under emotional weight, and grand cosmological ideas collide with quiet domestic grief. Sweeping orchestral score, tactile practical effects, long stretches of awed silence.",
+  "excluded_films": ["Interstellar"]
+}
+```
+
 Oracle: "I want a Marvel movie."
 ```json
 {
@@ -104,7 +115,7 @@ Oracle: "Show me superhero stuff but I'm sick of Spider-Man."
 }
 ```
 
-Oracle: "Anything like Lord of the Rings but new to me."
+Oracle: "Anything like Lord of the Rings."
 ```json
 {
   "query": "A sweeping high-fantasy quest across an invented world — mountains, forests, ruined kingdoms — with an unlikely fellowship carrying a heavy burden against a rising dark power. Mythic stakes, practical effects sensibility, choral score, an emphasis on landscape and small acts of courage.",

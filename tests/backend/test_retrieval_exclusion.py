@@ -155,6 +155,32 @@ def test_retrieval_agent_excludes_titles_end_to_end(
     assert result.user_query == "something contemplative about identity and memory"
 
 
+def test_reformulator_prompt_extracts_positive_mentions() -> None:
+    """The v2 prompt must instruct the model to extract films from positive mentions too.
+
+    Guards against silent reversion to the old negative-only rule, which would
+    cause the system to recommend films the oracle just named as a reference.
+    """
+    prompt_path = (
+        Path(__file__).resolve().parents[2]
+        / "backend"
+        / "retrieval"
+        / "prompts"
+        / "query_reformulate_v2.j2"
+    )
+    body = prompt_path.read_text()
+
+    assert "regardless of sentiment" in body, (
+        "extraction rule must cover both positive and negative mentions"
+    )
+    assert "*Positive* references" in body, (
+        "extraction rule must explicitly call out positive references"
+    )
+    assert '"excluded_films": ["Interstellar"]' in body, (
+        "examples must demonstrate that 'similar to Interstellar' excludes Interstellar"
+    )
+
+
 def test_retrieval_agent_dry_run_returns_fixture_reformulation(
     db_url: str, mini_catalogue: int
 ) -> None:

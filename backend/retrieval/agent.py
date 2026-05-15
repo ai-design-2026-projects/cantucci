@@ -79,6 +79,7 @@ def retrieve(
         },
     )
 
+    # Reformulate the query and extract exclusions via the LLM harness
     reformulated = query_reformulator.reformulate(
         user_query=user_query,
         session_id=session_id,
@@ -87,7 +88,6 @@ def retrieve(
         accumulated_cost_usd=accumulated_cost_usd,
         dry_run=dry_run,
     )
-
     excluded_titles = list(reformulated.excluded_films)
     exclude_ids: list[int] = (
         api_movies.resolve_titles_to_ids(excluded_titles) if excluded_titles else []
