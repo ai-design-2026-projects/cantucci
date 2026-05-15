@@ -27,7 +27,7 @@ from backend.cluster.tools import (
 )
 from backend.api.types import ClusterAssignment, ClusterSnapshot
 from backend.settings import get_settings
-from backend.retrieval.tools import metadata_fetcher, query_reformulator
+from backend.retrieval.tools import metadata_fetcher
 
 log = logging.getLogger(__name__)
 
@@ -110,16 +110,15 @@ def cluster(
 
     # Otherwise, run the full retrieval pipeline to get candidates
     else:
-        reformulated = query_reformulator.reformulate(
+        retrieval_result = retrieval_agent.retrieve(
             user_query=user_query,
-            turn_number=turn_number,
+            k=k,
             session_id=session_id,
             run_id=run_id,
             turn_id=turn_id,
             accumulated_cost_usd=accumulated_cost_usd,
             dry_run=dry_run,
         )
-        retrieval_result = retrieval_agent.retrieve(query=reformulated, k=k)
         metas = retrieval_result.candidates
 
         # If no candidates are retrieved, return an empty list
@@ -181,7 +180,7 @@ def cluster(
     labels = cluster_describer.describe(
         clusters_payload=clusters_payload,
         user_query=user_query,
-        reformulated_query=user_query if prior_candidates is not None else reformulated,
+        reformulated_query=user_query if prior_candidates is not None else retrieval_result.reformulated_query,
         session_id=session_id,
         run_id=run_id,
         turn_id=turn_id,

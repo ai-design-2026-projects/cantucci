@@ -16,15 +16,17 @@ The client itself carries no per-session state — only the API key — so
 reuse is safe.
 """
 
+import json
 import logging
 import time
 from uuid import UUID
 
 import openai
+from pydantic import BaseModel, ValidationError
 
 from backend.logging_setup import log_llm_call
 from backend.settings import PROJECT_ROOT, get_env, get_settings
-from backend.llm.types import CostLimitExceeded, LLMResponse
+from backend.llm.types import CostLimitExceeded, LLMParseError, LLMResponse
 
 _DRY_RUN_FIXTURES_DIR = PROJECT_ROOT / "tests" / "fixtures" / "dry_run"
 
@@ -66,8 +68,16 @@ def call(
     cost_limit_usd: float,
     accumulated_cost_usd: float,
     dry_run: bool = False,
+    response_schema: type[BaseModel] | None = None,
 ) -> LLMResponse:
     """Make a single LLM chat-completion call with logging, retry, and cost guard.
+
+    When ``response_schema`` is provided, the harness switches the underlying
+    chat-completion to JSON-object mode, parses the response, and validates it
+    against the supplied Pydantic model. Parse and validation failures consume
+    the same retry budget as transient API errors (``_MAX_ATTEMPTS``); after
+    exhaustion the harness raises ``LLMParseError`` with the last raw payload.
+    The validated model is returned on ``LLMResponse.parsed``.
 
     Args:
         run_id:               Experiment run identifier for logging.
@@ -84,12 +94,19 @@ def call(
         cost_limit_usd:       Per-session cost ceiling from config.
         accumulated_cost_usd: Total USD spent so far this session (caller-tracked).
         dry_run:              If ``True``, skip the API call and return a canned response.
+        response_schema:      Optional Pydantic model the response must validate against.
+                              When set, JSON-mode is enabled and the harness owns parse
+                              + retry; ``LLMResponse.parsed`` carries the validated value.
 
     Returns:
         An ``LLMResponse`` with the model's reply text and token/latency data.
+        ``LLMResponse.parsed`` is the validated Pydantic instance when
+        ``response_schema`` was set, otherwise ``None``.
 
     Raises:
         CostLimitExceeded:   If ``accumulated_cost_usd >= cost_limit_usd`` before the call.
+        LLMParseError:       If ``response_schema`` was set and the model returned an
+                             invalid payload on all ``_MAX_ATTEMPTS`` attempts.
         openai.RateLimitError / APITimeoutError / APIConnectionError:
                              If all 3 retry attempts fail on a transient error.
         openai.APIError:     On any non-transient API error (raised immediately, no retry).
@@ -121,12 +138,20 @@ def call(
             output_tokens=0,
             latency_ms=0.0,
         )
-        return LLMResponse(content=content, input_tokens=0, output_tokens=0, latency_ms=0.0)
+        parsed = _validate_response(content, response_schema, step_type) if response_schema else None
+        return LLMResponse(
+            content=content,
+            input_tokens=0,
+            output_tokens=0,
+            latency_ms=0.0,
+            parsed=parsed,
+        )
 
     if accumulated_cost_usd >= cost_limit_usd:
         raise CostLimitExceeded(accumulated_cost_usd, cost_limit_usd)
 
     last_exc: Exception | None = None
+    last_raw: str | None = None
     for attempt in range(_MAX_ATTEMPTS):
         if attempt > 0:
             time.sleep(_backoff(attempt))
@@ -148,6 +173,8 @@ def call(
             )
             if provider == "openai":
                 kwargs["seed"] = seed
+            if response_schema is not None:
+                kwargs["response_format"] = {"type": "json_object"}
             response = _client(provider).chat.completions.create(**kwargs)
             latency_ms = (time.monotonic() - t0) * 1000.0
         except _TRANSIENT_ERRORS as exc:
@@ -158,6 +185,33 @@ def call(
 
         input_tokens = response.usage.prompt_tokens if response.usage else 0
         output_tokens = response.usage.completion_tokens if response.usage else 0
+        content = response.choices[0].message.content or ""
+        last_raw = content
+
+        parsed: BaseModel | None = None
+        if response_schema is not None:
+            try:
+                parsed = _validate_response(content, response_schema, step_type)
+            except LLMParseError as exc:
+                # Parse / schema failure consumes the same retry budget as a transient
+                # API error. We log the call (the request DID hit the API and burn tokens)
+                # before continuing so the failed attempt is auditable.
+                log_llm_call(
+                    log,
+                    run_id=run_id,
+                    session_id=session_id,
+                    turn_id=turn_id,
+                    seed=seed,
+                    config_hash=config_hash,
+                    model_and_version=model_and_version,
+                    prompt_hash=prompt_hash,
+                    step_type=step_type,
+                    input_tokens=input_tokens,
+                    output_tokens=output_tokens,
+                    latency_ms=latency_ms,
+                )
+                last_exc = exc
+                continue
 
         log_llm_call(
             log,
@@ -175,16 +229,39 @@ def call(
         )
 
         cost = _estimate_cost(model_and_version, input_tokens, output_tokens)
-        content = response.choices[0].message.content or ""
         return LLMResponse(
             content=content,
             input_tokens=input_tokens,
             output_tokens=output_tokens,
             latency_ms=latency_ms,
             cost_usd=cost,
+            parsed=parsed,
         )
 
+    if isinstance(last_exc, LLMParseError):
+        raise LLMParseError(step_type=step_type, raw=last_raw or "")
     raise last_exc  # type: ignore[misc]
+
+
+def _validate_response(
+    content: str,
+    schema: type[BaseModel],
+    step_type: str,
+) -> BaseModel:
+    """Parse *content* as JSON and validate it against *schema*.
+
+    Raises ``LLMParseError`` (with the raw payload) on either a JSON decode
+    failure or a Pydantic validation error.  Callers in the retry loop catch
+    this and either continue or re-raise after exhausting attempts.
+    """
+    try:
+        return schema.model_validate_json(content)
+    except (ValidationError, json.JSONDecodeError) as exc:
+        log.debug(
+            "llm_call schema validation failed",
+            extra={"step_type": step_type, "error": str(exc)[:200]},
+        )
+        raise LLMParseError(step_type=step_type, raw=content) from exc
 
 
 _clients: dict[str, openai.OpenAI] = {}

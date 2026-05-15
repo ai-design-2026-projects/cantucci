@@ -1,3 +1,4 @@
 {
-  "reformulated_query": "smoke-test reformulated query"
+  "query": "smoke-test reformulated query",
+  "excluded_films": []
 }

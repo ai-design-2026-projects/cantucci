@@ -2,6 +2,8 @@
 
 from dataclasses import dataclass
 
+from pydantic import BaseModel
+
 
 @dataclass
 class LLMResponse:
@@ -13,6 +15,8 @@ class LLMResponse:
         output_tokens: Completion tokens produced.
         latency_ms:    Wall-clock duration of the API call in milliseconds.
         cost_usd:      Estimated USD cost based on token counts and model pricing.
+        parsed:        Pydantic-validated payload when ``response_schema`` was set
+                       on the call; ``None`` when the caller asked for raw text only.
     """
 
     content: str
@@ -20,6 +24,7 @@ class LLMResponse:
     output_tokens: int
     latency_ms: float
     cost_usd: float = 0.0
+    parsed: BaseModel | None = None
 
 
 class CostLimitExceeded(Exception):
