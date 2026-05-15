@@ -53,14 +53,14 @@ def reformulate(
         LLMParseError:     If the model returns non-JSON or a missing field.
         CostLimitExceeded: If the session budget is exhausted.
     """
-    if dry_run:
+    cfg = get_settings()
+    if dry_run or cfg.model.dry_run:
         log.debug(
             "query_reformulator dry_run: returning raw query",
             extra={"session_id": str(session_id)},
         )
         return user_query
 
-    cfg = get_settings()
     config_hash = get_config_hash()
     model_and_version = cfg.model.name
 

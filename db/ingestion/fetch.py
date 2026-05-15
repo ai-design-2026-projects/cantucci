@@ -1,11 +1,12 @@
 """Download pre-built parquet artifacts from a Hugging Face Dataset repo."""
 import argparse
 import logging
+import os
 from pathlib import Path
 
 from huggingface_hub import snapshot_download
 
-from backend.settings import ARTIFACTS_DIR
+from backend.settings import ARTIFACTS_DIR, get_env
 
 log = logging.getLogger(__name__)
 

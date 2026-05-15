@@ -63,11 +63,15 @@ class ModelConfig(BaseModel):
         provider:   API provider — ``"openai"`` or ``"openrouter"``.
         seed:       RNG seed for reproducible completions.
         max_tokens: Maximum completion tokens per call.
+        dry_run:    When True, every ``llm_harness.call()`` short-circuits to a
+                    fixture response instead of hitting the real API. Used by
+                    the smoke-test config; never enable in production.
     """
     name: str
     provider: str = "openai"
     seed: int
     max_tokens: int
+    dry_run: bool = False
 
 
 class SessionConfig(BaseModel):

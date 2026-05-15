@@ -23,8 +23,10 @@ from uuid import UUID
 import openai
 
 from backend.logging_setup import log_llm_call
-from backend.settings import get_env
+from backend.settings import PROJECT_ROOT, get_env, get_settings
 from backend.llm.types import CostLimitExceeded, LLMResponse
+
+_DRY_RUN_FIXTURES_DIR = PROJECT_ROOT / "tests" / "fixtures" / "dry_run"
 
 log = logging.getLogger(__name__)
 
@@ -92,15 +94,37 @@ def call(
                              If all 3 retry attempts fail on a transient error.
         openai.APIError:     On any non-transient API error (raised immediately, no retry).
     """
+    # dry_run resolves to True when either the caller passes dry_run=True or
+    # the active YAML config sets model.dry_run=true (smoke-test mode). It is
+    # evaluated before the cost guard because a fixture response accrues no
+    # real cost, so the guard would spuriously reject configs with zero budget.
+    effective_dry_run = dry_run or get_settings().model.dry_run
+    if effective_dry_run:
+        fixture_path = _DRY_RUN_FIXTURES_DIR / f"{step_type}.json"
+        if not fixture_path.is_file():
+            raise FileNotFoundError(
+                f"dry_run fixture missing for step_type '{step_type}' at {fixture_path}. "
+                "Add a JSON fixture so the agent's parser receives a well-formed response."
+            )
+        content = fixture_path.read_text()
+        log_llm_call(
+            log,
+            run_id=run_id,
+            session_id=session_id,
+            turn_id=turn_id,
+            seed=seed,
+            config_hash=config_hash,
+            model_and_version=model_and_version,
+            prompt_hash=prompt_hash,
+            step_type=step_type,
+            input_tokens=0,
+            output_tokens=0,
+            latency_ms=0.0,
+        )
+        return LLMResponse(content=content, input_tokens=0, output_tokens=0, latency_ms=0.0)
+
     if accumulated_cost_usd >= cost_limit_usd:
         raise CostLimitExceeded(accumulated_cost_usd, cost_limit_usd)
-
-    if dry_run:
-        log.debug(
-            "llm_call dry_run",
-            extra={"step_type": step_type, "session_id": str(session_id)},
-        )
-        return LLMResponse(content="[DRY RUN]", input_tokens=0, output_tokens=0, latency_ms=0.0)
 
     last_exc: Exception | None = None
     for attempt in range(_MAX_ATTEMPTS):

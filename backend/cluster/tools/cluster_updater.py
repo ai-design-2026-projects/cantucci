@@ -97,7 +97,7 @@ def update(
     if result.n_clusters == 0 or result.membership is None:
         return kept_ids, result
 
-    if accepted_cluster is None or dry_run:
+    if accepted_cluster is None or dry_run or cfg.model.dry_run:
         return kept_ids, result
 
     meta_by_id = {m.movie_id: m for m in metas}
