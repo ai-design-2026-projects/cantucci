@@ -59,13 +59,13 @@ def describe(
                            of the wrong length.
         CostLimitExceeded: If the session budget is exhausted.
     """
-    if dry_run:
+    cfg = get_settings()
+    if dry_run or cfg.model.dry_run:
         return [
             (f"Cluster {item['cluster_index']}", "dry-run description")
             for item in clusters_payload
         ]
 
-    cfg = get_settings()
     config_hash = get_config_hash()
     model_and_version = cfg.model.name
 

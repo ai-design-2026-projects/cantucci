@@ -1,0 +1,92 @@
+name: smoke
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  changes:
+    name: detect changed scopes
+    runs-on: ubuntu-latest
+    outputs:
+      db: ${{ steps.filter.outputs.db }}
+      backend: ${{ steps.filter.outputs.backend }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            db:
+              - 'db/**'
+              - 'tests/db/**'
+              - 'configs/**'
+              - 'requirements.txt'
+              - 'pyproject.toml'
+              - 'tests/conftest.py'
+              - 'tests/__init__.py'
+              - 'tests/fixtures/**'
+              - '.github/workflows/smoke.yml'
+            backend:
+              - 'backend/**'
+              - 'tests/backend/**'
+              - 'configs/**'
+              - 'requirements.txt'
+              - 'pyproject.toml'
+              - 'tests/conftest.py'
+              - 'tests/__init__.py'
+              - 'tests/fixtures/**'
+              - 'tests/db/test_config.py'
+              - '.github/workflows/smoke.yml'
+
+  db-smoke:
+    name: db smoke
+    needs: changes
+    if: needs.changes.outputs.db == 'true'
+    runs-on: ubuntu-latest
+    env:
+      CONFIG_PATH: configs/test.yaml
+      CINEPAL_ARTIFACTS_REPO: ${{ vars.CINEPAL_ARTIFACTS_REPO }}
+      HF_HOME: ${{ github.workspace }}/.hf-cache
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+      - name: cache hugging face artifacts
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.HF_HOME }}
+          key: hf-${{ runner.os }}-${{ env.CINEPAL_ARTIFACTS_REPO }}-${{ hashFiles('configs/test.yaml') }}
+      - run: pip install -r requirements.txt
+      - run: pytest tests/db -v
+
+  backend-smoke:
+    name: backend smoke
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
+    runs-on: ubuntu-latest
+    env:
+      CONFIG_PATH: configs/test.yaml
+      CINEPAL_ARTIFACTS_REPO: ${{ vars.CINEPAL_ARTIFACTS_REPO }}
+      HF_HOME: ${{ github.workspace }}/.hf-cache
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+      - name: cache hugging face artifacts and embedding model
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.HF_HOME }}
+          key: hf-${{ runner.os }}-${{ env.CINEPAL_ARTIFACTS_REPO }}-${{ hashFiles('configs/test.yaml') }}
+      - run: pip install -r requirements.txt
+      - run: pytest tests/backend -v

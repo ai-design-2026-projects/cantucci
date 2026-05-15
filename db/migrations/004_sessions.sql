@@ -8,8 +8,10 @@ CREATE TABLE sessions (
     run_id             UUID         NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
     -- Per-session seed; combined with run seed for exact replay
     seed               BIGINT       NOT NULL,
-    -- SHA-256 hex of the YAML config snapshot used for this session
-    config_hash        CHAR(64)     NOT NULL,
+    -- 8-char SHA-256 prefix of the YAML config file bytes, from
+    -- backend.settings.get_config_hash(). Must match the parent run's
+    -- config_hash (see migration 002).
+    config_hash        VARCHAR(8)   NOT NULL,
     model_version      TEXT         NOT NULL,
     -- NULL for human oracles; set to persona identifier for LLM-simulated oracles
     persona_id         TEXT,

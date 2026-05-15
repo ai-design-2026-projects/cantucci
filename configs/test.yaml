@@ -1,0 +1,47 @@
+# CinePal — smoke-test config.
+# Selected by exporting CONFIG_PATH=configs/test.yaml before running pytest.
+# Mirrors configs/default.yaml shape (validated by Settings); only the values
+# below are intentionally different.
+
+model:
+  # Same model identifier as default — replay invariants check shape, not the
+  # actual API call, since dry_run=true bypasses every network round-trip.
+  name: "openai/gpt-oss-120b:free"
+  provider: openrouter
+  seed: 42
+  max_tokens: 1024
+  # Force every llm_harness.call() to load a fixture from tests/fixtures/dry_run/
+  # instead of hitting the real API. Must be false in production.
+  dry_run: true
+
+session:
+  max_turns: 15
+  convergence_turns: 2
+  # Any spend > 0 means the dry_run guard failed. Keep this at 0.0 so the very
+  # first byte of real LLM cost trips CostLimitExceeded.
+  cost_limit_usd: 0.0
+
+retrieval:
+  top_k: 50
+
+split:
+  mini_size: 200
+  eval_frac: 0.10
+  seed: 42
+
+representation:
+  # Must match the embeddings baked into the mini parquet on HF — otherwise the
+  # similarity query at retrieval time lives in a different vector space.
+  model: BAAI/bge-large-en-v1.5
+  embedding_dim: 1024
+
+clustering:
+  min_cluster_size: 5
+  min_samples: 2
+  cluster_selection_method: eom
+  assignment_threshold: 0.05
+  top_titles_per_cluster: 8
+  min_singleton_floor: 3
+
+ambiguity:
+  max_cluster_context: 3

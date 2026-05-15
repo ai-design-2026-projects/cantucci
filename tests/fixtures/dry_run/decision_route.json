@@ -1,0 +1,5 @@
+{
+  "action": "continue",
+  "rationale": "smoke-test fixture — route to ambiguity_question so a full turn exercises the continue branch",
+  "entropy_score": 0.42
+}

@@ -49,12 +49,14 @@ uvicorn backend.app:app --reload
 cd frontend && npm install && npm run dev
 # UI at http://127.0.0.1:5173
 
-# 8. Run tests (testcontainers spins a throwaway pgvector container automatically)
-pytest tests/
+# 8. Run smoke tests (testcontainers spins a throwaway pgvector container automatically;
+#    configs/test.yaml forces dry_run mode so no OPENAI_API_KEY is needed).
+CONFIG_PATH=configs/test.yaml pytest tests/
 
 # 9. Evaluation
-# The eval harness is forthcoming. The test suite (pytest tests/) currently
-# exercises agents and the data layer end-to-end.
+# The eval harness is forthcoming. The current suite under tests/ is intentionally
+# narrow — smoke tests that verify wiring between the DB, ingestion, and the
+# orchestrator/agents. Scoped CI runs them on every PR; see .github/workflows/smoke.yml.
 ```
 
 ---
@@ -67,7 +69,7 @@ configs/    YAML experimental-condition configs (model, clustering, …)
 db/         Migrations + catalogue ingestion pipeline
 frontend/   React + Vite UI
 notebooks/  Colab GPU embedding notebook
-tests/      Pytest suite (real Postgres via testcontainers)
+tests/      Smoke tests (real Postgres via testcontainers; dry_run LLM via fixtures)
 ```
 
 ---

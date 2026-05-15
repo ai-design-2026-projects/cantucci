@@ -62,6 +62,7 @@ class Orchestrator:
             name="interactive",
             condition="baseline",
             config_snapshot=config_snapshot,
+            config_hash=config_hash,
             seed=cfg.model.seed,
             model_version=cfg.model.name,
         )
