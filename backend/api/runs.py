@@ -6,7 +6,6 @@ config snapshot. Callers create a run before starting any sessions, then call
 finalize_run() when all sessions in the run are complete.
 """
 
-import hashlib
 import json
 import logging
 import uuid
@@ -18,16 +17,11 @@ from backend.api.types import Run
 log = logging.getLogger(__name__)
 
 
-def _hash_config(config_snapshot: dict[str, Any]) -> str:
-    """Return SHA-256 hex of the canonical (sorted-keys) JSON encoding."""
-    canonical = json.dumps(config_snapshot, sort_keys=True, ensure_ascii=True)
-    return hashlib.sha256(canonical.encode()).hexdigest()
-
-
 def create_run(
     name: str,
     condition: str,
     config_snapshot: dict[str, Any],
+    config_hash: str,
     seed: int,
     model_version: str,
     notes: str | None = None,
@@ -39,6 +33,10 @@ def create_run(
         condition: One of baseline | uncertainty | random | boundary | popularity
                    | component_test | human.
         config_snapshot: Full YAML config dict for this run (stored as JSONB).
+        config_hash: SHA-256 prefix of the YAML config file (from
+                     ``backend.settings.get_config_hash``). The replayability
+                     contract requires this match the value used by sessions
+                     and log records under the same config.
         seed: RNG seed shared across all sessions in this run.
         model_version: LLM model identifier (e.g. "claude-opus-4-7").
         notes: Optional free-text annotation.
@@ -46,8 +44,6 @@ def create_run(
     Returns:
         UUID of the newly created run.
     """
-    config_hash = _hash_config(config_snapshot)
-
     with transaction() as conn:
         row = conn.execute(
             """

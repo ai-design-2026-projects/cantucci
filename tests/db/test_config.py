@@ -23,6 +23,16 @@ from pathlib import Path
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]
 os.environ.setdefault("CONFIG_PATH", str(_PROJECT_ROOT / "configs" / "test.yaml"))
 
+# Docker Desktop on macOS exposes its daemon socket at ~/.docker/run/docker.sock
+# rather than the canonical /var/run/docker.sock that docker-py / testcontainers
+# probe by default. Point DOCKER_HOST at the user socket when the canonical one
+# is absent — no-op on Linux/CI where /var/run/docker.sock exists, and no-op
+# when the developer has already exported DOCKER_HOST themselves.
+if "DOCKER_HOST" not in os.environ:
+    _user_sock = Path.home() / ".docker" / "run" / "docker.sock"
+    if not Path("/var/run/docker.sock").exists() and _user_sock.exists():
+        os.environ["DOCKER_HOST"] = f"unix://{_user_sock}"
+
 import pytest
 from testcontainers.postgres import PostgresContainer
 

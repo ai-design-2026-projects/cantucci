@@ -7,8 +7,11 @@ CREATE TABLE runs (
     name            TEXT        NOT NULL,
     -- baseline | uncertainty | random | boundary | popularity | component_test | human
     condition       VARCHAR(20) NOT NULL,
-    -- SHA-256 hex of the canonical JSON of config_snapshot
-    config_hash     CHAR(64)    NOT NULL,
+    -- 8-char SHA-256 prefix of the raw YAML config file bytes, from
+    -- backend.settings.get_config_hash(). Replayability contract: this
+    -- value matches the config_hash logged on every LLM call for sessions
+    -- belonging to this run.
+    config_hash     VARCHAR(8)  NOT NULL,
     config_snapshot JSONB       NOT NULL,
     seed            BIGINT      NOT NULL,
     model_version   TEXT        NOT NULL,
