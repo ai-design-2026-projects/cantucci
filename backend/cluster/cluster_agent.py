@@ -119,7 +119,11 @@ def cluster(
             accumulated_cost_usd=accumulated_cost_usd,
             dry_run=dry_run,
         )
-        retrieval_result = retrieval_agent.retrieve(query=reformulated, k=k)
+        retrieval_result = retrieval_agent.retrieve(
+            query=reformulated.query,
+            k=k,
+            exclude_titles=reformulated.excluded_films,
+        )
         metas = retrieval_result.candidates
 
         # If no candidates are retrieved, return an empty list
@@ -181,7 +185,7 @@ def cluster(
     labels = cluster_describer.describe(
         clusters_payload=clusters_payload,
         user_query=user_query,
-        reformulated_query=user_query if prior_candidates is not None else reformulated,
+        reformulated_query=user_query if prior_candidates is not None else reformulated.query,
         session_id=session_id,
         run_id=run_id,
         turn_id=turn_id,

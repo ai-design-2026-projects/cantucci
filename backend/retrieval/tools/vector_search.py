@@ -10,7 +10,11 @@ from backend.settings import get_settings
 log = logging.getLogger(__name__)
 
 
-def search(query: str, k: int) -> list[MovieHit]:
+def search(
+    query: str,
+    k: int,
+    exclude_ids: list[int] | None = None,
+) -> list[MovieHit]:
     """Embed *query* and return top-k film hits ordered by cosine similarity.
 
     Delegates embedding to ``db.ingestion.embed.encode_all`` (same model and
@@ -18,8 +22,11 @@ def search(query: str, k: int) -> list[MovieHit]:
     ``backend.api.movies.vector_search``.
 
     Args:
-        query: Natural-language search string from the oracle.
-        k:     Maximum number of candidates to retrieve.
+        query:       Natural-language search string from the oracle.
+        k:           Maximum number of candidates to retrieve.
+        exclude_ids: Optional movie_ids to omit from the result (forwarded to
+                     ``api.movies.vector_search``); ``None`` or ``[]`` skips
+                     exclusion.
 
     Returns:
         List of MovieHit in descending similarity order.
@@ -43,7 +50,7 @@ def search(query: str, k: int) -> list[MovieHit]:
     )[0]
     latency_ms = (time.monotonic() - t0) * 1000.0
 
-    hits = api_movies.vector_search(embedding, k)
+    hits = api_movies.vector_search(embedding, k, exclude_ids=exclude_ids)
 
     log.debug(
         "vector_search tool",
@@ -52,6 +59,7 @@ def search(query: str, k: int) -> list[MovieHit]:
             "k": k,
             "top_score": hits[0].score if hits else None,
             "embed_latency_ms": round(latency_ms, 1),
+            "n_excluded": len(exclude_ids) if exclude_ids else 0,
         },
     )
     return hits
