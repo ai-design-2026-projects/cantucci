@@ -21,7 +21,7 @@ Bias toward **proceed** when ambiguous. The bar for the other two decisions is h
   - "Actually, I forgot to mention I also like documentaries"
   - "None of these feel quite right, can you try again?"
   - "What about something with strong female leads?"
-  
+
 - **natural_end**: explicit closing phrases, expressions of satisfaction, or clear
   signals the oracle wants to stop. A short or one-word reply is not enough on its own.
   Examples:
@@ -29,14 +29,14 @@ Bias toward **proceed** when ambiguous. The bar for the other two decisions is h
   - "Great! That's exactly what I was looking for. Thanks for your help!"
   - "I'm all set. See you next time!"
   - "Wonderful, this gives me plenty to choose from."
-  
+
 - **clarify_drift**: only when you are confident two statements are genuinely contradictory
   about the *same specific preference* — not just a shift in emphasis or new information.
-  Quote the earlier constraint verbatim from the preference profile above; do not infer
-  one. If no matching constraint exists, choose proceed. Examples:
-  - Prior: "I don't like horror" → Current: "Actually, show me a scary movie"
-  - Prior: "No war films" → Current: "I'm interested in WWII documentaries"
-  - Prior: "I prefer standalone movies" → Current: "You know what, I'd like a sequel instead"
+  Quote the earlier constraint verbatim from the preference profile below; do not infer
+  one. If no matching constraint exists in the profile, choose proceed. Examples:
+  - Profile constraint: "no horror" → Current: "Actually, show me a scary movie"
+  - Profile constraint: "no war films" → Current: "I'm interested in WWII documentaries"
+  - Profile constraint: "standalone movies only" → Current: "I'd like a sequel instead"
 
 # Output format
 
@@ -65,28 +65,43 @@ Oracle: "Perfect, I think I have enough options now. Thanks!"
 
 ## clarify_drift
 
-Prior constraint: "I don't like horror movies"
+Profile constraint: "no horror movies"
 Oracle: "Actually, I want to watch a horror film tonight."
 
-{"decision": "clarify_drift", "reason": "oracle now requests horror after explicitly ruling it out", "drift_topic": "horror films", "prior_statement": "I don't like horror movies", "current_statement": "I want to watch a horror film tonight", "farewell_reply": null, "clarify_reply": "Earlier you told me you don't like horror — has that changed, or would you prefer to stick with your original preference?"}
+{"decision": "clarify_drift", "reason": "oracle now requests horror after explicitly ruling it out", "drift_topic": "horror films", "prior_statement": "no horror movies", "current_statement": "I want to watch a horror film tonight", "farewell_reply": null, "clarify_reply": "Earlier you told me you don't like horror — has that changed, or would you prefer to stick with your original preference?"}
 
 # Session context
 
 Turn: {{ turn_number }} / {{ max_turns }}
 Recommendations shown so far: {{ recommendations_so_far }} / {{ max_recommendations }}
 
-# Oracle preference profile (derived from prior turns)
+# Oracle preference profile (from prior turn)
 
-Oracle constraints collected so far:
-{% if preference_profile.oracle_constraints %}
-{% for constraint in preference_profile.oracle_constraints %}
-  - {{ constraint }}
+{% if preference_profile.summary %}
+**Summary:** {{ preference_profile.summary }}
+
+Constraints:
+{% if preference_profile.constraints %}
+{% for c in preference_profile.constraints %}
+  - {{ c }}
 {% endfor %}
 {% else %}
-  (none yet — this is an early turn)
+  (none yet)
 {% endif %}
 
-# Recent conversation (last {{ recent_turns | length }} turns)
+Preferences:
+{% if preference_profile.preferences %}
+{% for p in preference_profile.preferences %}
+  - {{ p }}
+{% endfor %}
+{% else %}
+  (none yet)
+{% endif %}
+{% else %}
+(No profile yet — this is an early turn.)
+{% endif %}
+
+# Recent conversation (last {{ recent_turns | length }} turn(s))
 
 {% for turn in recent_turns %}
 [{{ turn.step_type | upper }}]

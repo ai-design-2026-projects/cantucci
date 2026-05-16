@@ -80,18 +80,21 @@ class ModelConfig(BaseModel):
 class SessionConfig(BaseModel):
     """Per-session runtime limits.
     Attributes:
-        max_turns:          Hard turn budget before the session is auto-closed.
-        convergence_turns:  Kept for replay compatibility; no longer wired in the
-                            convergence pipeline (LLM gate owns end-detection now).
-        cost_limit_usd:     Maximum USD spend allowed for one session.
-        max_recommendations: Maximum number of show-type turns allowed before the
-                            session is force-terminated. Checked by the hard-limit
-                            gate before any LLM call.
+        max_turns:            Hard turn budget before the session is auto-closed.
+        convergence_turns:    Kept for replay compatibility; no longer wired in the
+                              convergence pipeline (LLM gate owns end-detection now).
+        cost_limit_usd:       Maximum USD spend allowed for one session.
+        max_recommendations:  Maximum number of show-type turns allowed before the
+                              session is force-terminated. Checked by the hard-limit
+                              gate before any LLM call.
+        recommendation_top_k: Number of top-scoring films to show in a deterministic
+                              recommendation render (default 5).
     """
     max_turns: int
     convergence_turns: int
     cost_limit_usd: float
     max_recommendations: int
+    recommendation_top_k: int = 5
 
 
 class RetrievalConfig(BaseModel):

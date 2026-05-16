@@ -1,8 +1,6 @@
-"""Tests for the LLM convergence gate (check_llm_convergence).
+"""Tests for backend.convergence.tools.llm_gate (check_llm_convergence).
 
-Uses monkeypatching to control llm_harness.call output, so no network or DB
-is required. Tests cover the three decision branches: proceed, natural_end,
-clarify_drift.
+Mirrors tests/orchestrator/test_convergence_llm.py but imports from the new module.
 """
 
 from __future__ import annotations
@@ -19,7 +17,6 @@ from backend.llm.types import LLMResponse
 
 
 def _cfg(max_turns: int = 15, max_recommendations: int = 5) -> MagicMock:
-    """Return a minimal Settings-like object."""
     cfg = MagicMock()
     cfg.model.name = "gpt-4o-mini"
     cfg.model.provider = "openai"
@@ -32,7 +29,6 @@ def _cfg(max_turns: int = 15, max_recommendations: int = 5) -> MagicMock:
 
 
 def _llm_response(parsed: ConvergenceCheckResponse) -> LLMResponse:
-    """Wrap a ConvergenceCheckResponse in a minimal LLMResponse."""
     return LLMResponse(
         content=parsed.model_dump_json(),
         input_tokens=10,
@@ -43,7 +39,6 @@ def _llm_response(parsed: ConvergenceCheckResponse) -> LLMResponse:
 
 
 def _call(**overrides: Any):
-    """Invoke check_llm_convergence with sensible defaults."""
     kwargs: dict[str, Any] = dict(
         session_id=uuid.uuid4(),
         run_id=uuid.uuid4(),
@@ -60,8 +55,6 @@ def _call(**overrides: Any):
 
 
 class TestProceedDecision:
-    """Gate returns proceed when the model judges the conversation should continue."""
-
     def test_proceed_action(self, monkeypatch: pytest.MonkeyPatch) -> None:
         parsed = ConvergenceCheckResponse(decision="proceed", reason="oracle still exploring")
         monkeypatch.setattr(
@@ -83,8 +76,6 @@ class TestProceedDecision:
 
 
 class TestNaturalEndDecision:
-    """Gate returns natural_end when the model detects the oracle wrapping up."""
-
     def test_natural_end_action(self, monkeypatch: pytest.MonkeyPatch) -> None:
         parsed = ConvergenceCheckResponse(
             decision="natural_end",
@@ -128,8 +119,6 @@ class TestNaturalEndDecision:
 
 
 class TestClarifyDriftDecision:
-    """Gate returns clarify_drift when the model detects a preference contradiction."""
-
     def test_clarify_drift_action(self, monkeypatch: pytest.MonkeyPatch) -> None:
         parsed = ConvergenceCheckResponse(
             decision="clarify_drift",
@@ -181,6 +170,34 @@ class TestClarifyDriftDecision:
         result = _call()
         assert result.reply is not None
         assert len(result.reply) > 0
+
+
+class TestPreferenceProfilePassthrough:
+    """The structured profile is forwarded to the harness (visible in prompt vars)."""
+
+    def test_structured_profile_accepted(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        parsed = ConvergenceCheckResponse(decision="proceed", reason="ok")
+        monkeypatch.setattr(
+            "backend.convergence.tools.llm_gate.llm_harness.call",
+            lambda **_kw: _llm_response(parsed),
+        )
+        profile = {
+            "constraints": ["no horror"],
+            "preferences": ["slow burn"],
+            "attitudes": ["exploratory"],
+            "summary": "Likes slow dramas.",
+        }
+        result = _call(preference_profile=profile)
+        assert result.action is ConvergenceAction.proceed
+
+    def test_none_profile_accepted(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        parsed = ConvergenceCheckResponse(decision="proceed", reason="ok")
+        monkeypatch.setattr(
+            "backend.convergence.tools.llm_gate.llm_harness.call",
+            lambda **_kw: _llm_response(parsed),
+        )
+        result = _call(preference_profile=None)
+        assert result.action is ConvergenceAction.proceed
 
 
 class TestDryRunFixture:

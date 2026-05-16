@@ -30,6 +30,8 @@ session:
   # Maximum number of show-type turns allowed per session. The hard-limit gate
   # terminates the session when this cap is reached, before any LLM call.
   max_recommendations: 5
+  # Number of top-scoring films to include in a deterministic recommendation render.
+  recommendation_top_k: 5
 
 retrieval:
   # Maximum number of candidate films fetched from pgvector per turn.

@@ -1,35 +1,24 @@
-"""Unit tests for the convergence hard-limit gate (check_hard_limits).
+"""Tests for backend.convergence.tools.hard_limits — pure Python, no LLM/DB.
 
-These tests cover only the deterministic layer — no LLM, no DB, no Docker.
-SessionFull objects are built inline with the minimal fields needed.
+Mirrors tests/orchestrator/test_convergence.py but imports from the new module.
 """
 
 from __future__ import annotations
 
 import uuid
-from dataclasses import dataclass, field
-from datetime import datetime, timezone
 from unittest.mock import MagicMock
-
-import pytest
 
 from backend.convergence.tools.hard_limits import check_hard_limits
 from backend.convergence.types import ConvergenceAction
 
 
-def _utcnow() -> datetime:
-    return datetime.now(timezone.utc)
-
-
 def _turn(step_type: str | None = "show") -> MagicMock:
-    """Return a minimal TurnDetail-like object."""
     t = MagicMock()
     t.step_type = step_type
     return t
 
 
 def _full(turns: list, max_turns: int = 15) -> MagicMock:
-    """Return a minimal SessionFull-like object."""
     f = MagicMock()
     f.session_id = uuid.uuid4()
     f.turns = turns
@@ -38,7 +27,6 @@ def _full(turns: list, max_turns: int = 15) -> MagicMock:
 
 
 def _cfg(max_turns: int = 15, max_recommendations: int = 5) -> MagicMock:
-    """Return a minimal Settings-like object."""
     cfg = MagicMock()
     cfg.session.max_turns = max_turns
     cfg.session.max_recommendations = max_recommendations
@@ -46,8 +34,6 @@ def _cfg(max_turns: int = 15, max_recommendations: int = 5) -> MagicMock:
 
 
 class TestHardLimitsUnderBudget:
-    """When both limits are under threshold, the gate proceeds."""
-
     def test_first_turn_proceeds(self) -> None:
         full = _full(turns=[])
         result = check_hard_limits(turn_number=1, full=full, cfg=_cfg())
@@ -59,7 +45,7 @@ class TestHardLimitsUnderBudget:
         result = check_hard_limits(turn_number=4, full=full, cfg=_cfg(max_turns=15, max_recommendations=5))
         assert result.action is ConvergenceAction.proceed
 
-    def test_ask_turns_do_not_count_toward_recommendations(self) -> None:
+    def test_ask_turns_not_counted_toward_recommendations(self) -> None:
         turns = [_turn("ask")] * 4
         full = _full(turns=turns)
         result = check_hard_limits(turn_number=5, full=full, cfg=_cfg(max_recommendations=1))
@@ -67,8 +53,6 @@ class TestHardLimitsUnderBudget:
 
 
 class TestMaxTurnsLimit:
-    """turn_number > max_turns trips the terminate gate."""
-
     def test_exactly_at_limit_proceeds(self) -> None:
         full = _full(turns=[_turn("ask")] * 2)
         result = check_hard_limits(turn_number=15, full=full, cfg=_cfg(max_turns=15))
@@ -89,8 +73,6 @@ class TestMaxTurnsLimit:
 
 
 class TestMaxRecommendationsLimit:
-    """show_count >= max_recommendations trips the terminate gate."""
-
     def test_exactly_at_cap_terminates(self) -> None:
         turns = [_turn("show")] * 5
         full = _full(turns=turns)
@@ -119,8 +101,6 @@ class TestMaxRecommendationsLimit:
 
 
 class TestTerminateDecisionShape:
-    """Terminated decisions carry a non-empty reply and a reason string."""
-
     def test_terminate_has_reply(self) -> None:
         full = _full(turns=[_turn("show")] * 5)
         result = check_hard_limits(turn_number=6, full=full, cfg=_cfg(max_recommendations=5))

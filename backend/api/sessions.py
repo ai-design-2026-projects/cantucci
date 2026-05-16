@@ -288,3 +288,31 @@ def mark_converged(
             (json.dumps(preference_profile), session_id),
         )
     log.info("session %s marked converged", session_id)
+
+
+def update_preference_profile(
+    session_id: uuid.UUID,
+    preference_profile: dict[str, Any],
+) -> None:
+    """Overwrite sessions.preference_profile with the latest extracted profile.
+
+    Called at the end of every turn by the orchestrator, after the Profile
+    Agent has returned an updated profile. The prior value is discarded.
+
+    Args:
+        session_id:         Session to update.
+        preference_profile: Fresh structured profile dict from the Profile Agent.
+    """
+    import json
+
+    with transaction() as conn:
+        conn.execute(
+            """
+            UPDATE sessions
+            SET preference_profile = %s::jsonb,
+                updated_at = NOW()
+            WHERE id = %s
+            """,
+            (json.dumps(preference_profile), session_id),
+        )
+    log.debug("preference_profile updated for session %s", session_id)

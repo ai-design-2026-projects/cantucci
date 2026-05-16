@@ -1,12 +1,11 @@
-"""Orchestrator feedback helpers — oracle message classification and profile extraction.
+"""Orchestrator feedback helpers — oracle message classification.
 
-MVP heuristic classifiers; an LLM-based ``f_next_state`` classifier is a future
-iteration described in docs/specifications/problem_statement.md §4.
+MVP heuristic classifier for feedback type. Profile extraction has moved to
+backend.profile.profile_agent (LLM-based, run at the end of each turn).
 """
 
-from backend.api.types import ClusterSnapshot, StepType, TurnDetail
+from backend.api.types import StepType, TurnDetail
 from backend.decision.types import DecisionResult
-from typing import Any
 
 _NEGATIVE_LEXICON = frozenset({
     "no", "not", "wrong", "don't", "doesn't", "didn't", "never", "nothing",
@@ -44,40 +43,3 @@ def classify_feedback(
             return "cluster", "reject", target
         return "cluster", "accept", target
     return "global", "constraint", None
-
-
-def extract_preference_profile(
-    turns: list[TurnDetail],
-    user_message: str,
-    clusters: list[ClusterSnapshot] | None = None,
-    decision: DecisionResult | None = None,
-) -> dict[str, Any]:
-    """Build a minimal preference profile from the conversation history.
-
-    When called before the pipeline runs (clusters=None, decision=None), only
-    ``oracle_constraints`` is populated. When called at convergence with the
-    full agent outputs, ``final_cluster_name`` and ``final_cluster_description``
-    are also set.
-
-    Args:
-        turns:        All prior turns (not including the current one).
-        user_message: Oracle's message for the current turn.
-        clusters:     Current cluster snapshots, or None if not yet computed.
-        decision:     Decision Agent output for the current turn, or None.
-
-    Returns:
-        Dict with keys ``oracle_constraints``, ``final_cluster_name``,
-        ``final_cluster_description``.
-    """
-    constraints = [t.user_message for t in turns if t.step_type == StepType.ask.value]
-    constraints.append(user_message)
-    best: ClusterSnapshot | None = None
-    if decision is not None and decision.best_cluster_id and clusters:
-        best = next((c for c in clusters if c.id == decision.best_cluster_id), None)
-    if best is None and clusters:
-        best = clusters[0]
-    return {
-        "oracle_constraints": constraints,
-        "final_cluster_name": best.name if best else "unknown",
-        "final_cluster_description": best.description if best else None,
-    }

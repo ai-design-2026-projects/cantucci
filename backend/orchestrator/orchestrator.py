@@ -3,8 +3,9 @@
 No in-memory session state: all persistence flows through ``backend.api``.
 
 Turn flow (per architecture.md):
-  Oracle → Orchestrator → Cluster Agent (→ Retrieval internally) →
-  Decision Agent → (Ambiguity Resolver if continue) → Orchestrator → DB/UI.
+  Oracle → Orchestrator → Convergence Agent → Cluster Agent (→ Retrieval
+  internally) → Decision Agent → (Ambiguity Agent if continue) →
+  Profile Agent → Orchestrator writes turn / clusters / feedback / profile.
 
 The Orchestrator is the sole writer to the DB. All sub-agents are read-only.
 Private decision logic lives in ``backend/orchestrator/tools/``.
@@ -20,25 +21,30 @@ import backend.api.runs as api_runs
 import backend.api.sessions as api_sessions
 from backend.ambiguity import ambiguity_agent
 from backend.cluster import cluster_agent
+from backend.convergence import convergence_agent
 from backend.decision import decision_agent
-from backend.api.types import SessionStatus, StepType
+from backend.profile import profile_agent
+from backend.api.types import ClusterSnapshot, SessionStatus, StepType, TurnDetail
+from backend.convergence.types import ConvergenceAction, ConvergenceDecision
 from backend.decision.types import DecisionAction
 from backend.exceptions import SessionNotFound
 from backend.routers.dtos import SessionState, TurnResult
-from backend.orchestrator.tools.feedback import classify_feedback, extract_preference_profile
+from backend.orchestrator.tools.feedback import classify_feedback
 from backend.orchestrator.tools.policy import (
     cluster_snapshot_to_spec,
-    collect_prior_candidates,
     prior_questions,
     should_retrieve,
 )
-from backend.orchestrator.tools.convergence import check_hard_limits, check_llm_convergence
 from backend.orchestrator.tools.render import render_recommendation
 from backend.orchestrator.tools.turns import emit_drift_clarification, emit_early_clarification
-from backend.orchestrator.types import ConvergenceAction, ConvergenceDecision
 from backend.settings import get_config_hash, get_config_snapshot, get_settings
 
 log = logging.getLogger(__name__)
+
+
+def _prior_clusters_from_turn(turn: TurnDetail) -> list[ClusterSnapshot]:
+    """Return the ClusterSnapshots stored on a prior turn."""
+    return list(turn.clusters)
 
 
 class Orchestrator:
@@ -98,16 +104,13 @@ class Orchestrator:
 
         Full flow:
           1. Load session state from DB.
-          2. Build a refined retrieval query from the conversation history.
-          3. Cluster Agent retrieves candidates and clusters them (or reuses prior
-             candidates when no reject feedback has been given).
-          4. Persist the cluster snapshot (before downstream use).
-          5. Decision Agent routes to recommend or continue.
-          6. If continue: Ambiguity Resolver generates a clarifying question (deduped).
-             If recommend: render a presentation reply; evaluate convergence policy.
-          7. Persist the turn.
-          8. Classify and persist oracle feedback.
-          9. If converged: extract preference profile and mark session converged.
+          2. Convergence Agent: hard-limit + LLM gate (uses N-1 profile).
+          3. Retrieval/cluster decision.
+          4. Cluster Agent (Scenario A or B).
+          5. Decision Agent (with N-1 profile).
+          6. Ambiguity Agent (with N-1 profile) or deterministic render.
+          7. Profile Agent: extract updated profile → persist on session.
+          8. Persist the turn and oracle feedback.
 
         Args:
             session_id:   UUID of the target session.
@@ -121,13 +124,17 @@ class Orchestrator:
             CostLimitExceeded: If the session budget is exhausted.
             LLMParseError:     If any agent LLM call returns malformed JSON.
         """
-        # Load full session state for orchestration and logging context.
         full = api_retrieval.get_session_full(session_id)
 
-        # Pre-allocate a turn_id for log correlation across steps and agents.
         turn_id = uuid4()
         turn_number = len(full.turns) + 1
         cfg = get_settings()
+
+        # N-1 profile (may be None on the first turn)
+        prior_profile = full.preference_profile
+
+        # Short history: last 2 completed turns
+        recent_turns: list[TurnDetail] = full.turns[-2:]
 
         log.debug(
             "turn entry",
@@ -140,20 +147,8 @@ class Orchestrator:
             },
         )
 
-        # If any hard limits are breached, skip the turn and return a terminal reply.
-        hard = check_hard_limits(turn_number=turn_number, full=full, cfg=cfg)
-        if hard.action is ConvergenceAction.terminate:
-            return self._terminate_turn(
-                session_id=session_id,
-                turn_id=turn_id,
-                turn_number=turn_number,
-                user_message=user_message,
-                decision=hard,
-            )
-
-        # Check for convergence via the LLM gate. If converged, return a terminal reply.
-        prior_profile = extract_preference_profile(full.turns, user_message)
-        llm_gate = check_llm_convergence(
+        # Convergence gate (hard limits + LLM, uses N-1 profile).
+        conv = convergence_agent.check(
             session_id=session_id,
             run_id=full.run_id,
             turn_id=turn_id,
@@ -164,73 +159,84 @@ class Orchestrator:
             cfg=cfg,
         )
 
-        # If we have a natural end, we can skip retrieval
-        if llm_gate.action is ConvergenceAction.natural_end:
+        # Hard limit: terminate immediately with a canned message, no LLM call.
+        if conv.action is ConvergenceAction.terminate:
+            return self._terminate_turn(
+                session_id=session_id,
+                turn_id=turn_id,
+                turn_number=turn_number,
+                user_message=user_message,
+                decision=conv,
+            )
+
+        # Natural end: persist a converged turn with a canned message, no LLM call.
+        if conv.action is ConvergenceAction.natural_end:
             return self._natural_end_turn(
                 session_id=session_id,
                 turn_id=turn_id,
                 turn_number=turn_number,
                 user_message=user_message,
-                decision=llm_gate,
-                preference_profile=prior_profile,
+                decision=conv,
+                preference_profile=prior_profile or {},
             )
-        
-        # If we have drift, we can also skip retrieval and go straight to clarification.
-        if llm_gate.action is ConvergenceAction.clarify_drift:
+
+        # Drift clarification: persist a turn with the LLM-generated clarification question.
+        if conv.action is ConvergenceAction.clarify_drift:
             return emit_drift_clarification(
                 session_id=session_id,
                 turn_id=turn_id,
                 turn_number=turn_number,
                 user_message=user_message,
-                decision=llm_gate,
+                decision=conv,
             )
 
+        # Determine Scenario A (fresh) vs Scenario B (refinement after ask).
+        prior_turn = full.turns[-1] if full.turns else None
+        is_refinement = (
+            prior_turn is not None
+            and prior_turn.step_type == StepType.ask.value
+            and prior_turn.clusters
+        )
+
+        # Retrieval decision based on turn number and drift signal
         ret = should_retrieve(full, user_message)
-        if ret.retrieve:
-            prior = None
+
+        if is_refinement:
             log.info(
-                "Retrieving new candidates",
+                "refinement after ask",
                 extra={
                     "session_id": str(session_id),
                     "turn_number": turn_number,
-                    "reason": "first-turn" if not full.turns else "post-drift",
                 },
+            )
+            clusters = cluster_agent.cluster(
+                session_id=session_id,
+                run_id=full.run_id,
+                turn_id=turn_id,
+                turn_number=turn_number,
+                user_query=user_message,
+                prior_clusters=_prior_clusters_from_turn(prior_turn),
+                asked_question=prior_turn.assistant_message or "",
+                user_answer=user_message,
             )
         else:
-            # Reuse the prior candidates
-            prior = collect_prior_candidates(full.turns[-1])
+            query = ret.query or user_message
             log.info(
-                "reusing prior candidates",
+                "fresh retrieval",
                 extra={
                     "session_id": str(session_id),
                     "turn_number": turn_number,
-                    "n_candidates": len(prior),
-                    "reason": "no-reject-feedback",
+                    "retrieve_new": ret.retrieve,
                 },
             )
+            clusters = cluster_agent.cluster(
+                session_id=session_id,
+                run_id=full.run_id,
+                turn_id=turn_id,
+                turn_number=turn_number,
+                user_query=query,
+            )
 
-        log.debug(
-            "retrieval decision resolved",
-            extra={
-                "session_id": str(session_id),
-                "turn_id": str(turn_id),
-                "retrieve_new": prior is None,
-                "n_prior_candidates": 0 if prior is None else len(prior),
-            },
-        )
-
-        # Send to cluster agent; on post-drift retrieval, use the drift message as the
-        # query so retrieval targets the new preference rather than the clarification reply.
-        clusters = cluster_agent.cluster(
-            session_id=session_id,
-            run_id=full.run_id,
-            turn_id=turn_id,
-            turn_number=turn_number,
-            user_query=ret.query or user_message,
-            prior_candidates=prior,
-        )
-
-        # If no clusters are returned, skip decision and render and return a canned clarification turn.
         if not clusters:
             return emit_early_clarification(
                 session_id=session_id,
@@ -239,7 +245,6 @@ class Orchestrator:
                 user_message=user_message,
             )
 
-        # Persist the turn with the user message and cluster snapshot
         api_sessions.append_turn(
             session_id=session_id,
             turn_number=turn_number,
@@ -250,7 +255,6 @@ class Orchestrator:
             turn_id=turn_id,
         )
 
-        # Persist the cluster snapshot for this turn so that it's available for downstream analysis 
         api_sessions.snapshot_clusters(
             session_id, turn_id, [cluster_snapshot_to_spec(c) for c in clusters]
         )
@@ -261,11 +265,9 @@ class Orchestrator:
                 "session_id": str(session_id),
                 "turn_id": str(turn_id),
                 "n_clusters": len(clusters),
-                "top_cluster_size": max((len(c.assignments) for c in clusters), default=0),
             },
         )
 
-        # Decision Agent routes to recommend vs. continue (clarifying question).
         decision = decision_agent.decide(
             session_id=session_id,
             run_id=full.run_id,
@@ -273,6 +275,7 @@ class Orchestrator:
             turn_number=turn_number,
             user_query=user_message,
             clusters=clusters,
+            preference_profile=prior_profile,
         )
 
         log.debug(
@@ -288,7 +291,7 @@ class Orchestrator:
         reply: str
         step_type: StepType
         converged: bool
-        # If continue, send to ambiguity resolver to generate a clarifying question.
+
         if decision.action == DecisionAction.continue_:
             log.debug(
                 "entering ambiguity branch",
@@ -298,7 +301,6 @@ class Orchestrator:
                     "n_prior_questions": len(prior_questions(full.turns)),
                 },
             )
-            # Generate the question, ensuring it's not a duplicate of any prior questions in this session to avoid infinite loops. If it is a duplicate, log a warning and fallback to rendering a recommendation instead.
             question = ambiguity_agent.generate_question(
                 session_id=session_id,
                 run_id=full.run_id,
@@ -308,27 +310,21 @@ class Orchestrator:
                 clusters=clusters,
                 entropy_score=decision.entropy_score,
                 prior_questions=prior_questions(full.turns),
+                preference_profile=prior_profile,
             )
-            # Return the question
             reply = question.question_text
             step_type = StepType.ask
             converged = False
         else:
-        # Else if recommend, render the recommendation reply and evaluate convergence.
-            llm_out = render_recommendation(
-                session_id=session_id,
-                run_id=full.run_id,
-                turn_id=turn_id,
-                turn_number=turn_number,
-                user_message=user_message,
-                history=full.turns,
-                persona_id=full.persona_id,
-                decision=decision,
-                clusters=clusters,
+            best_cluster = next(
+                (c for c in clusters if c.id == decision.best_cluster_id),
+                clusters[0],
             )
-            reply = llm_out.reply
-            # Convergence is now decided by the LLM gate at the top of the next
-            # turn; the render step always writes show (not stop).
+            reply = render_recommendation(
+                best_cluster=best_cluster,
+                decision=decision,
+                top_k=cfg.session.recommendation_top_k,
+            )
             converged = False
             step_type = StepType.show
 
@@ -342,19 +338,13 @@ class Orchestrator:
             },
         )
 
-        # Persist the turn with the assistant message, step type, and convergence status
         api_sessions.update_turn(
             turn_id=turn_id,
             assistant_message=reply,
             step_type=step_type.value,
             converged=converged,
         )
-        log.debug(
-            "turn row updated",
-            extra={"session_id": str(session_id), "turn_id": str(turn_id)},
-        )
 
-        # Classify and persist feedback
         fb_level, fb_type, fb_target_id = classify_feedback(full.turns, user_message, decision)
         api_sessions.write_feedback(
             session_id=session_id,
@@ -364,14 +354,25 @@ class Orchestrator:
             content=user_message,
             target_id=fb_target_id,
         )
+
+        # Profile Agent: extract updated profile and persist for next turn.
+        new_profile = profile_agent.extract(
+            session_id=session_id,
+            run_id=full.run_id,
+            turn_id=turn_id,
+            turn_number=turn_number,
+            user_message=user_message,
+            prior_profile=prior_profile,
+            recent_turns=recent_turns,
+        )
+        api_sessions.update_preference_profile(session_id, new_profile.model_dump())
+
         log.debug(
-            "feedback written",
+            "profile updated",
             extra={
                 "session_id": str(session_id),
                 "turn_id": str(turn_id),
-                "feedback_level": fb_level,
-                "feedback_type": fb_type,
-                "target_id": str(fb_target_id) if fb_target_id else None,
+                "n_constraints": len(new_profile.constraints),
             },
         )
 
@@ -481,8 +482,8 @@ class Orchestrator:
             turn_id:           Pre-allocated turn UUID.
             turn_number:       1-based index for this turn.
             user_message:      Oracle's message that the gate classified as natural end.
-            decision:          ConvergenceDecision from check_llm_convergence.
-            preference_profile: Rolling profile extracted before the pipeline ran.
+            decision:          ConvergenceDecision from the convergence agent.
+            preference_profile: N-1 profile to persist with the converged session.
 
         Returns:
             A TurnResult with step_type=stop, converged=True.
