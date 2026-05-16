@@ -1,19 +1,13 @@
-"""Output types for the Retrieval System agent."""
-
 from dataclasses import dataclass, field
-
 from pydantic import BaseModel, Field
-
 from backend.api.types import MovieMetadata
 
 
 class ReformulatedQuery(BaseModel):
     """Structured output of the query reformulator (``query_reformulate_v2.j2``).
-
     The harness validates the model's JSON response against this schema before
     handing it back to the caller, so any retry-on-invalid-JSON happens inside
     ``llm_harness.call()``.
-
     Attributes:
         query:          HyDE-style enriched search string fed to vector search.
                         Must be non-empty; the reformulator treats an empty value
