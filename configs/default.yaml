@@ -54,12 +54,12 @@ representation:
 clustering:
   # HDBSCAN minimum cluster size. Smaller values create more fine-grained clusters
   # but increase noise sensitivity.
-  min_cluster_size: 5
+  min_cluster_size: 3
   # HDBSCAN min_samples — controls how conservative the algorithm is about noise.
-  min_samples: 2
+  min_samples: 1
   # Cluster selection method: "eom" (excess of mass) tends to produce fewer,
   # larger clusters; "leaf" produces smaller, tighter ones.
-  cluster_selection_method: eom
+  cluster_selection_method: leaf
   # Soft-assignment threshold: films below this score are excluded from a cluster's
   # assignment list. Used in cluster_agent.py to filter low-confidence assignments.
   assignment_threshold: 0.05
@@ -69,6 +69,16 @@ clustering:
   # Minimum number of candidates required before the all-noise fallback was
   # considered. Now unused (fallback removed); kept for config schema stability.
   min_singleton_floor: 3
+  # UMAP dim-reduction applied before HDBSCAN. Raw 1024-d embeddings make HDBSCAN
+  # collapse to all-noise on ~50-point pools (curse of dimensionality); reducing
+  # to a handful of dims first is the standard BERTopic-style remedy.
+  # Disable with `enabled: false` to fall back to raw embeddings.
+  umap:
+    enabled: true
+    n_components: 5
+    n_neighbors: 15
+    min_dist: 0.0
+    metric: cosine
 
 ambiguity:
   # Maximum number of top clusters to consider when generating a clarifying question.

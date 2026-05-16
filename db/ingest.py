@@ -98,10 +98,7 @@ def run_full(args: argparse.Namespace) -> None:
     representation = settings.representation
     split_config = settings.split
 
-    if not args.force_download:
-        download.fetch(RAW_DATA_DIR)
-    else:
-        download.fetch(RAW_DATA_DIR, force=True)
+    download.fetch(RAW_DATA_DIR, force=args.force_download)
 
     df = clean.prepare(RAW_DATA_DIR)
     main_df, mini_df, eval_df = split.three_way(

@@ -96,13 +96,5 @@ def reformulate(
     # the harness either returns a validated model or raises LLMParseError.
     assert isinstance(response.parsed, ReformulatedQuery)
     result: ReformulatedQuery = response.parsed
-
-    log.debug(
-        "Query reformulation complete",
-        extra={
-            "session_id": str(session_id),
-            "query_len": len(result.query),
-            "n_excluded": len(result.excluded_films),
-        },
-    )
+    
     return result

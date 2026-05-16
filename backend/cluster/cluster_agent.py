@@ -1,12 +1,21 @@
 """Cluster Agent — groups retrieved candidates into named, soft-assigned clusters.
 
-Pipeline per turn:
+Two scenarios, one LLM call each:
+
+Scenario A — fresh (``prior_clusters`` is ``None``):
   1. Reformulate the oracle's query via the Retrieval System's reformulator.
   2. Retrieve top-K candidates via the Retrieval System.
   3. Fetch candidate embeddings from the catalogue.
   4. Run HDBSCAN soft clustering (``soft_cluster_engine``).
   5. Name and describe each cluster via a single batched LLM call (``cluster_describer``).
   6. Return ``list[ClusterSnapshot]`` — no DB writes (architecture rule).
+
+Scenario B — refinement (``prior_clusters`` is not ``None``, with ``asked_question`` + ``user_answer``):
+  1. Fetch metadata for the films in the prior cluster pool.
+  2. Render the refine prompt with prior clusters + clarifying Q&A.
+  3. ``cluster_refiner`` makes one LLM call that drops, moves, renames,
+     redescribes, and rescores in a single pass — no HDBSCAN re-run.
+  4. Return ``list[ClusterSnapshot]`` with new UUIDs.
 
 Returns an empty list when retrieval yields no candidates or when HDBSCAN
 classifies all points as noise.  The Orchestrator handles the empty case by
@@ -21,13 +30,12 @@ import numpy as np
 import backend.retrieval.agent as retrieval_agent
 from backend.cluster.tools import (
     cluster_describer,
-    cluster_updater,
+    cluster_refiner,
     embedding_fetcher,
     soft_cluster_engine,
 )
 from backend.api.types import ClusterAssignment, ClusterSnapshot
 from backend.settings import get_settings
-from backend.retrieval.tools import metadata_fetcher
 
 log = logging.getLogger(__name__)
 
@@ -40,19 +48,24 @@ def cluster(
     turn_number: int,
     user_query: str,
     accumulated_cost_usd: float = 0.0,
+    prior_clusters: list[ClusterSnapshot] | None = None,
+    asked_question: str | None = None,
+    user_answer: str | None = None,
     prior_candidates: list[int] | None = None,
     accepted_cluster: dict | None = None,
     dry_run: bool = False,
 ) -> list[ClusterSnapshot]:
     """Retrieve candidates and produce soft-assigned, named clusters.
 
-    When *prior_candidates* is None (default), drives the Retrieval System
+    When *prior_clusters* is None (default), drives the Retrieval System
     internally: reformulates the query, fetches top-K candidates via vector
-    search, clusters their embeddings, and returns named snapshots.
+    search, clusters their embeddings with HDBSCAN, names each cluster via the
+    describer LLM call, and returns named snapshots.
 
-    When *prior_candidates* is provided, skips vector search and reuses the
-    supplied movie IDs as the candidate pool, re-running HDBSCAN and the
-    cluster describer on the fixed pool with the newly reformulated query.
+    When *prior_clusters* is provided, skips retrieval/HDBSCAN and instead asks
+    the refiner to semantically restructure the prior clusters in a single LLM
+    call, using the system's clarifying *asked_question* and the oracle's
+    *user_answer* to drive the refinement.
 
     Args:
         session_id:           UUID of the current session.
@@ -61,27 +74,46 @@ def cluster(
         turn_number:          1-based turn index within the session.
         user_query:           Oracle's raw (or pre-refined) utterance.
         accumulated_cost_usd: Running USD cost for the current turn (for cost guard).
-        prior_candidates:     Optional list of TMDB movie IDs from a prior turn's
-                              cluster pool; when provided, vector search is skipped.
-        accepted_cluster:     Optional dict ``{name, description, feedback_type}``
-                              describing the cluster the oracle accepted or rejected
-                              in the prior turn.  Passed to the cluster updater to
-                              re-score soft assignments via LLM.  Ignored when
-                              ``prior_candidates`` is ``None``.
-        dry_run:              If ``True``, skip all LLM calls; HDBSCAN still runs
-                              deterministically on real embeddings.
+        prior_clusters:       Optional list of the previous turn's
+                              ``ClusterSnapshot``s. When provided, dispatches to
+                              the refinement path; *asked_question* and
+                              *user_answer* are then required.
+        asked_question:       The clarifying question the system asked on the
+                              previous turn. Required when *prior_clusters* is
+                              not None.
+        user_answer:          The oracle's reply to *asked_question*. Required
+                              when *prior_clusters* is not None.
+        prior_candidates:     DEPRECATED — kept in the signature so the
+                              orchestrator's in-flight transition does not
+                              break. Ignored; a WARNING is logged if non-None.
+        accepted_cluster:     DEPRECATED — same as *prior_candidates*. Ignored.
+        dry_run:              If ``True``, skip all live LLM calls.
 
     Returns:
         List of ``ClusterSnapshot`` objects, or an empty list when retrieval
-        returns no candidates or HDBSCAN classifies all points as noise.
+        returns no candidates, when HDBSCAN classifies all points as noise, or
+        when refinement drops every cluster.
 
     Raises:
-        LLMParseError:     If the reformulator or describer returns malformed JSON.
-        CostLimitExceeded: If the session budget is exhausted before either LLM call.
-        ValueError:        If embedding fetching fails (no rows returned).
+        LLMParseError:     If any LLM call returns malformed JSON or fails
+                           schema validation on every retry.
+        CostLimitExceeded: If the session budget is exhausted before any LLM call.
+        ValueError:        If the fresh path fails to fetch embeddings, or if
+                           the refinement path is dispatched without
+                           *asked_question* / *user_answer*.
     """
     cfg = get_settings()
     k: int = cfg.retrieval.top_k
+
+    if prior_candidates is not None or accepted_cluster is not None:
+        log.warning(
+            "cluster agent received deprecated arg(s); ignoring",
+            extra={
+                "session_id": str(session_id),
+                "has_prior_candidates": prior_candidates is not None,
+                "has_accepted_cluster": accepted_cluster is not None,
+            },
+        )
 
     log.debug(
         "cluster agent entry",
@@ -90,23 +122,25 @@ def cluster(
             "turn_id": str(turn_id),
             "turn_number": turn_number,
             "user_query_len": len(user_query),
-            "prior_candidates": 0 if prior_candidates is None else len(prior_candidates),
+            "has_prior_clusters": prior_clusters is not None,
+            "n_prior_clusters": 0 if prior_clusters is None else len(prior_clusters),
             "top_k": k,
             "dry_run": dry_run,
         },
     )
 
-    # If prior candidates are provided, skip reformulation and retrieval
-    if prior_candidates is not None:
-        movie_ids = prior_candidates
-        metas = metadata_fetcher.fetch(movie_ids)
-        meta_by_id = {m.movie_id: m for m in metas}
-
-        kept_ids, result = cluster_updater.update(
-            movie_ids,
-            metas=metas,
-            accepted_cluster=accepted_cluster,
+    # Scenario B — refinement. The refiner owns its own LLM call and metadata
+    # fetch; the agent's job here is just to validate the contract and dispatch.
+    if prior_clusters is not None:
+        if asked_question is None or user_answer is None:
+            raise ValueError(
+                "refinement path requires asked_question and user_answer; got None"
+            )
+        return cluster_refiner.refine(
+            prior_clusters=prior_clusters,
             user_query=user_query,
+            asked_question=asked_question,
+            user_answer=user_answer,
             session_id=session_id,
             run_id=run_id,
             turn_id=turn_id,
@@ -114,67 +148,61 @@ def cluster(
             dry_run=dry_run,
         )
 
-        if result.n_clusters == 0:
-            log.warning(
-                "Cluster agent: HDBSCAN classified all prior candidates as noise — returning empty",
-                extra={"session_id": str(session_id), "n_candidates": len(kept_ids)},
-            )
-            return []
+    # Scenario A — fresh retrieval + HDBSCAN + describer.
+    retrieval_result = retrieval_agent.retrieve(
+        user_query=user_query,
+        k=k,
+        session_id=session_id,
+        run_id=run_id,
+        turn_id=turn_id,
+        accumulated_cost_usd=accumulated_cost_usd,
+        dry_run=dry_run,
+    )
+    metas = retrieval_result.candidates
 
-    # Otherwise, run the full retrieval pipeline to get candidates
-    else:
-        retrieval_result = retrieval_agent.retrieve(
-            user_query=user_query,
-            k=k,
-            session_id=session_id,
-            run_id=run_id,
-            turn_id=turn_id,
-            accumulated_cost_usd=accumulated_cost_usd,
-            dry_run=dry_run,
+    # If no candidates are retrieved, return an empty list
+    if not metas:
+        log.warning(
+            "Cluster agent: no candidates retrieved, returning empty",
+            extra={"session_id": str(session_id), "turn_number": turn_number},
         )
-        metas = retrieval_result.candidates
+        return []
 
-        # If no candidates are retrieved, return an empty list
-        if not metas:
-            log.warning(
-                "Cluster agent: no candidates retrieved, returning empty",
-                extra={"session_id": str(session_id), "turn_number": turn_number},
-            )
-            return []
-        
-        # Fetch embeddings for the candidate pool and cluster them with HDBSCAN
-        movie_ids = [c.movie_id for c in metas]
-        kept_ids, embeddings = embedding_fetcher.fetch(movie_ids)
+    # Fetch embeddings for the candidate pool and cluster them with HDBSCAN
+    movie_ids = [c.movie_id for c in metas]
+    kept_ids, embeddings = embedding_fetcher.fetch(movie_ids)
 
-        # Cluster with HDBSCAN; the describer and downstream decision agent will see only the
-        result = soft_cluster_engine.cluster(
-            embeddings,
-            min_cluster_size=cfg.clustering.min_cluster_size,
-            min_samples=cfg.clustering.min_samples,
-            cluster_selection_method=cfg.clustering.cluster_selection_method,
+    # Cluster with UMAP+HDBSCAN; the describer and downstream decision agent will see only the
+    result = soft_cluster_engine.cluster(
+        embeddings,
+        min_cluster_size=cfg.clustering.min_cluster_size,
+        min_samples=cfg.clustering.min_samples,
+        cluster_selection_method=cfg.clustering.cluster_selection_method,
+        umap_cfg=cfg.clustering.umap,
+        seed=cfg.model.seed,
+    )
+
+    log.debug(
+        "soft cluster engine output",
+        extra={
+            "session_id": str(session_id),
+            "turn_id": str(turn_id),
+            "n_kept": len(kept_ids),
+            "n_clusters": result.n_clusters,
+            "embedding_dim": int(embeddings.shape[1]) if embeddings.ndim == 2 else None,
+        },
+    )
+
+    meta_by_id = {c.movie_id: c for c in metas}
+
+    if result.n_clusters == 0:
+        log.warning(
+            "Cluster agent: HDBSCAN classified all points as noise — returning empty",
+            extra={"session_id": str(session_id), "n_candidates": len(kept_ids)},
         )
+        return []
 
-        log.debug(
-            "soft cluster engine output",
-            extra={
-                "session_id": str(session_id),
-                "turn_id": str(turn_id),
-                "n_kept": len(kept_ids),
-                "n_clusters": result.n_clusters,
-                "embedding_dim": int(embeddings.shape[1]) if embeddings.ndim == 2 else None,
-            },
-        )
-
-        meta_by_id = {c.movie_id: c for c in metas}
-
-        if result.n_clusters == 0:
-            log.warning(
-                "Cluster agent: HDBSCAN classified all points as noise — returning empty",
-                extra={"session_id": str(session_id), "n_candidates": len(kept_ids)},
-            )
-            return []
-
-    # At this point we have a cluster result (either from the full pipeline or just the update) 
+    # At this point we have a cluster result from the full pipeline
     membership: np.ndarray = result.membership  # type: ignore[assignment]
     top_n: int = cfg.clustering.top_titles_per_cluster
     threshold: float = cfg.clustering.assignment_threshold
@@ -214,7 +242,7 @@ def cluster(
     labels = cluster_describer.describe(
         clusters_payload=clusters_payload,
         user_query=user_query,
-        reformulated_query=user_query if prior_candidates is not None else retrieval_result.reformulated_query,
+        reformulated_query=retrieval_result.reformulated_query,
         session_id=session_id,
         run_id=run_id,
         turn_id=turn_id,

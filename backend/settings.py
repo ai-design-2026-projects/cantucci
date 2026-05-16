@@ -126,6 +126,24 @@ class RepresentationConfig(BaseModel):
     embedding_dim: int
 
 
+class UmapConfig(BaseModel):
+    """UMAP dimensionality-reduction parameters applied before HDBSCAN.
+
+    Attributes:
+        enabled:      Skip reduction entirely when False (raw embeddings → HDBSCAN).
+        n_components: Target dimensionality for HDBSCAN's density estimation.
+        n_neighbors: UMAP neighbourhood size; clamped to ``pool_size - 1`` at runtime.
+        min_dist:     Lower values preserve tighter local structure (use 0.0 for clustering).
+        metric:       Distance metric used by UMAP (``"cosine"`` for unit-norm text embeddings).
+    """
+
+    enabled: bool = True
+    n_components: int = 5
+    n_neighbors: int = 15
+    min_dist: float = 0.0
+    metric: str = "cosine"
+
+
 class ClusteringConfig(BaseModel):
     """HDBSCAN soft-clustering parameters.
     Attributes:
@@ -136,6 +154,7 @@ class ClusteringConfig(BaseModel):
         top_titles_per_cluster:  How many top-scoring films to pass to the describer.
         min_singleton_floor:     Minimum candidate count to consider a fallback cluster
                                   (unused — kept for config compatibility).
+        umap:                    UMAP pre-reduction parameters (see ``UmapConfig``).
     """
 
     min_cluster_size: int
@@ -144,6 +163,7 @@ class ClusteringConfig(BaseModel):
     assignment_threshold: float
     top_titles_per_cluster: int
     min_singleton_floor: int = 3
+    umap: UmapConfig = UmapConfig()
 
 
 class AmbiguityConfig(BaseModel):
