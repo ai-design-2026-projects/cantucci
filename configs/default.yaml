@@ -19,14 +19,17 @@ model:
   max_tokens: 1024
 
 session:
-  # Hard turn budget. The orchestrator stops accepting new turns after this limit.
+  # Hard turn budget. The convergence hard-limit gate abandons the session after
+  # this many turns, before any LLM call for that turn.
   max_turns: 15
-  # Number of consecutive show-type turns with no oracle rejection needed to
-  # trigger automatic convergence. See _convergence_policy in orchestrator.py.
+  # Kept for replay compatibility; the LLM gate owns end-detection now.
   convergence_turns: 2
   # Per-session USD spend ceiling. CostLimitExceeded is raised before any call
   # that would push accumulated cost past this threshold.
   cost_limit_usd: 5.0
+  # Maximum number of show-type turns allowed per session. The hard-limit gate
+  # terminates the session when this cap is reached, before any LLM call.
+  max_recommendations: 5
 
 retrieval:
   # Maximum number of candidate films fetched from pgvector per turn.

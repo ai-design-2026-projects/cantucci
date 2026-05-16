@@ -242,6 +242,28 @@ def write_feedback(
     return feedback_id
 
 
+def mark_abandoned(session_id: uuid.UUID, reason: str) -> None:
+    """Set session status to 'abandoned'.
+
+    Called by the orchestrator when a hard limit (max_turns or max_recommendations)
+    is reached. The ``reason`` is logged here for auditability but not persisted to
+    the DB — it also lives in the terminating turn's assistant_message and log record.
+
+    Args:
+        session_id: Session to abandon.
+        reason:     One-line description of the limit that was hit.
+    """
+    with transaction() as conn:
+        conn.execute(
+            "UPDATE sessions SET status = 'abandoned', updated_at = NOW() WHERE id = %s",
+            (session_id,),
+        )
+    log.info(
+        "session marked abandoned",
+        extra={"session_id": str(session_id), "reason": reason},
+    )
+
+
 def mark_converged(
     session_id: uuid.UUID,
     preference_profile: dict[str, Any],

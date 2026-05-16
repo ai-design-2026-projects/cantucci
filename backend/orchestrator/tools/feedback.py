@@ -6,6 +6,7 @@ iteration described in docs/specifications/problem_statement.md §4.
 
 from backend.api.types import ClusterSnapshot, StepType, TurnDetail
 from backend.decision.types import DecisionResult
+from typing import Any
 
 _NEGATIVE_LEXICON = frozenset({
     "no", "not", "wrong", "don't", "doesn't", "didn't", "never", "nothing",
@@ -48,20 +49,21 @@ def classify_feedback(
 def extract_preference_profile(
     turns: list[TurnDetail],
     user_message: str,
-    clusters: list[ClusterSnapshot],
-    decision: DecisionResult,
-) -> dict:
+    clusters: list[ClusterSnapshot] | None = None,
+    decision: DecisionResult | None = None,
+) -> dict[str, Any]:
     """Build a minimal preference profile from the conversation history.
 
-    Collects oracle utterances from ask-type turns as constraints, and captures
-    the final cluster name and description. A richer extraction pass (structured
-    by the LLM) is a future iteration.
+    When called before the pipeline runs (clusters=None, decision=None), only
+    ``oracle_constraints`` is populated. When called at convergence with the
+    full agent outputs, ``final_cluster_name`` and ``final_cluster_description``
+    are also set.
 
     Args:
         turns:        All prior turns (not including the current one).
-        user_message: Oracle's message for the current (converging) turn.
-        clusters:     Current cluster snapshots.
-        decision:     Decision Agent output for the current turn.
+        user_message: Oracle's message for the current turn.
+        clusters:     Current cluster snapshots, or None if not yet computed.
+        decision:     Decision Agent output for the current turn, or None.
 
     Returns:
         Dict with keys ``oracle_constraints``, ``final_cluster_name``,
@@ -70,7 +72,7 @@ def extract_preference_profile(
     constraints = [t.user_message for t in turns if t.step_type == StepType.ask.value]
     constraints.append(user_message)
     best: ClusterSnapshot | None = None
-    if decision.best_cluster_id:
+    if decision is not None and decision.best_cluster_id and clusters:
         best = next((c for c in clusters if c.id == decision.best_cluster_id), None)
     if best is None and clusters:
         best = clusters[0]

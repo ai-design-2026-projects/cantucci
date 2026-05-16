@@ -30,9 +30,12 @@ from backend.orchestrator.tools.policy import (
     cluster_snapshot_to_spec,
     collect_prior_candidates,
     prior_questions,
+    should_retrieve,
 )
-from backend.orchestrator.convergence import should_retrieve, convergence_policy
+from backend.orchestrator.tools.convergence import check_hard_limits, check_llm_convergence
 from backend.orchestrator.tools.render import render_recommendation
+from backend.orchestrator.tools.turns import emit_drift_clarification, emit_early_clarification
+from backend.orchestrator.types import ConvergenceAction, ConvergenceDecision
 from backend.settings import get_config_hash, get_config_snapshot, get_settings
 
 log = logging.getLogger(__name__)
@@ -136,20 +139,63 @@ class Orchestrator:
                 "prior_turns": len(full.turns),
             },
         )
- 
-        #TODO: Implement a more robust policy around when to retrieve 
-        if should_retrieve(full):
-            # Remove the prior candidates
+
+        # If any hard limits are breached, skip the turn and return a terminal reply.
+        hard = check_hard_limits(turn_number=turn_number, full=full, cfg=cfg)
+        if hard.action is ConvergenceAction.terminate:
+            return self._terminate_turn(
+                session_id=session_id,
+                turn_id=turn_id,
+                turn_number=turn_number,
+                user_message=user_message,
+                decision=hard,
+            )
+
+        # Check for convergence via the LLM gate. If converged, return a terminal reply.
+        prior_profile = extract_preference_profile(full.turns, user_message)
+        llm_gate = check_llm_convergence(
+            session_id=session_id,
+            run_id=full.run_id,
+            turn_id=turn_id,
+            turn_number=turn_number,
+            user_message=user_message,
+            full=full,
+            preference_profile=prior_profile,
+            cfg=cfg,
+        )
+
+        # If we have a natural end, we can skip retrieval
+        if llm_gate.action is ConvergenceAction.natural_end:
+            return self._natural_end_turn(
+                session_id=session_id,
+                turn_id=turn_id,
+                turn_number=turn_number,
+                user_message=user_message,
+                decision=llm_gate,
+                preference_profile=prior_profile,
+            )
+        
+        # If we have drift, we can also skip retrieval and go straight to clarification.
+        if llm_gate.action is ConvergenceAction.clarify_drift:
+            return emit_drift_clarification(
+                session_id=session_id,
+                turn_id=turn_id,
+                turn_number=turn_number,
+                user_message=user_message,
+                decision=llm_gate,
+            )
+
+        ret = should_retrieve(full, user_message)
+        if ret.retrieve:
             prior = None
             log.info(
                 "Retrieving new candidates",
                 extra={
                     "session_id": str(session_id),
                     "turn_number": turn_number,
-                    "reason": "first-turn" if not full.turns else "reject-feedback",
+                    "reason": "first-turn" if not full.turns else "post-drift",
                 },
             )
-            
         else:
             # Reuse the prior candidates
             prior = collect_prior_candidates(full.turns[-1])
@@ -173,19 +219,20 @@ class Orchestrator:
             },
         )
 
-        # Send to cluster agent
+        # Send to cluster agent; on post-drift retrieval, use the drift message as the
+        # query so retrieval targets the new preference rather than the clarification reply.
         clusters = cluster_agent.cluster(
             session_id=session_id,
             run_id=full.run_id,
             turn_id=turn_id,
             turn_number=turn_number,
-            user_query=user_message,
+            user_query=ret.query or user_message,
             prior_candidates=prior,
         )
 
         # If no clusters are returned, skip decision and render and return a canned clarification turn.
         if not clusters:
-            return self._early_clarification_turn(
+            return emit_early_clarification(
                 session_id=session_id,
                 turn_id=turn_id,
                 turn_number=turn_number,
@@ -202,6 +249,8 @@ class Orchestrator:
             converged=False,
             turn_id=turn_id,
         )
+
+        # Persist the cluster snapshot for this turn so that it's available for downstream analysis 
         api_sessions.snapshot_clusters(
             session_id, turn_id, [cluster_snapshot_to_spec(c) for c in clusters]
         )
@@ -278,9 +327,10 @@ class Orchestrator:
                 clusters=clusters,
             )
             reply = llm_out.reply
-            # If the policy deems this turn converged, mark it as such to prevent further turns and to trigger convergence-specific UI behavior. The convergence policy can look at the full conversation history and the current decision context to make this determination.
-            converged = convergence_policy(full.turns, cfg.session.convergence_turns)
-            step_type = StepType.stop if converged else StepType.show
+            # Convergence is now decided by the LLM gate at the top of the next
+            # turn; the render step always writes show (not stop).
+            converged = False
+            step_type = StepType.show
 
         log.debug(
             "convergence verdict",
@@ -325,14 +375,6 @@ class Orchestrator:
             },
         )
 
-        # Extract the preference profile (#TODO: to use this data for decision)
-        preference_profile = extract_preference_profile(
-                full.turns, user_message, clusters, decision
-        )
-        # If converged, extract the preference profile and mark the session converged
-        if converged:
-            api_sessions.mark_converged(session_id, preference_profile)
-
         now = datetime.now(timezone.utc)
         log.info(
             "turn handled",
@@ -354,31 +396,32 @@ class Orchestrator:
             created_at=now,
         )
 
-    def _early_clarification_turn(
+    def _terminate_turn(
         self,
         *,
         session_id: UUID,
         turn_id: UUID,
         turn_number: int,
         user_message: str,
+        decision: ConvergenceDecision,
     ) -> TurnResult:
-        """Persist and return a canned clarifying reply when retrieval yields no candidates.
+        """Persist and return a terminal turn when a hard limit is reached.
+
+        Writes step_type=stop, converged=False and marks the session abandoned.
+        No LLM call is made.
 
         Args:
             session_id:   UUID of the target session.
             turn_id:      Pre-allocated turn UUID.
             turn_number:  1-based index for this turn.
-            user_message: Oracle's message that produced empty retrieval.
+            user_message: Oracle's message that triggered the limit check.
+            decision:     ConvergenceDecision from check_hard_limits.
 
         Returns:
-            A TurnResult with step_type=ask and the canned reply.
+            A TurnResult with step_type=stop, converged=False.
         """
-        reply = (
-            "I couldn't find films matching that description. "
-            "Could you tell me more about the kind of films you're looking for? "
-            "For example, a mood, a director's style, a genre, or an era?"
-        )
-        step_type = StepType.ask
+        reply = decision.reply or "Session limit reached. Thank you for using CinePal!"
+        step_type = StepType.stop
         api_sessions.append_turn(
             session_id=session_id,
             turn_number=turn_number,
@@ -388,17 +431,90 @@ class Orchestrator:
             converged=False,
             turn_id=turn_id,
         )
+        api_sessions.mark_abandoned(session_id, decision.reason)
+        log.warning(
+            "turn terminated: hard limit",
+            extra={
+                "session_id": str(session_id),
+                "turn_number": turn_number,
+                "reason": decision.reason,
+            },
+        )
+        now = datetime.now(timezone.utc)
+        log.info(
+            "turn handled",
+            extra={
+                "session_id": str(session_id),
+                "turn_number": turn_number,
+                "step_type": step_type.value,
+                "converged": False,
+            },
+        )
+        return TurnResult(
+            turn_id=turn_id,
+            session_id=session_id,
+            turn_number=turn_number,
+            user_message=user_message,
+            assistant_message=reply,
+            step_type=step_type,
+            converged=False,
+            created_at=now,
+        )
+
+    def _natural_end_turn(
+        self,
+        *,
+        session_id: UUID,
+        turn_id: UUID,
+        turn_number: int,
+        user_message: str,
+        decision: ConvergenceDecision,
+        preference_profile: dict,
+    ) -> TurnResult:
+        """Persist and return a convergence turn detected by the LLM gate.
+
+        Writes step_type=stop, converged=True, marks the session converged,
+        and records an accept feedback row.
+
+        Args:
+            session_id:        UUID of the target session.
+            turn_id:           Pre-allocated turn UUID.
+            turn_number:       1-based index for this turn.
+            user_message:      Oracle's message that the gate classified as natural end.
+            decision:          ConvergenceDecision from check_llm_convergence.
+            preference_profile: Rolling profile extracted before the pipeline ran.
+
+        Returns:
+            A TurnResult with step_type=stop, converged=True.
+        """
+        reply = decision.reply or "Thank you — closing the session!"
+        step_type = StepType.stop
+        api_sessions.append_turn(
+            session_id=session_id,
+            turn_number=turn_number,
+            user_message=user_message,
+            assistant_message=reply,
+            step_type=step_type.value,
+            converged=True,
+            turn_id=turn_id,
+        )
         api_sessions.write_feedback(
             session_id=session_id,
             turn_id=turn_id,
             feedback_level="global",
-            feedback_type="constraint",
+            feedback_type="accept",
             content=user_message,
             target_id=None,
         )
-        log.warning(
-            "no clusters returned — canned clarification turn",
-            extra={"session_id": str(session_id), "turn_number": turn_number},
+        api_sessions.mark_converged(session_id, preference_profile)
+        log.info(
+            "turn handled",
+            extra={
+                "session_id": str(session_id),
+                "turn_number": turn_number,
+                "step_type": step_type.value,
+                "converged": True,
+            },
         )
         now = datetime.now(timezone.utc)
         return TurnResult(
@@ -408,7 +524,7 @@ class Orchestrator:
             user_message=user_message,
             assistant_message=reply,
             step_type=step_type,
-            converged=False,
+            converged=True,
             created_at=now,
         )
 
