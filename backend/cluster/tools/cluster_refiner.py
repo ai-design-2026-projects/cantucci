@@ -1,19 +1,3 @@
-"""cluster_refiner — semantically refine prior clusters in a single LLM call.
-
-Replaces ``cluster_updater`` and its two-call pipeline (HDBSCAN re-run + LLM
-rescore + LLM describe). Refinement operates *on* the prior cluster structure
-rather than re-running geometric clustering: a single LLM call sees the prior
-clusters, the clarifying question the system asked, and the oracle's reply,
-then emits a new clustering with films dropped, moved, rescored, and the
-clusters renamed or merged as the answer requires.
-
-JSON parsing and Pydantic validation (with retry) are delegated to
-``backend.llm.llm_harness``; this tool only renders the prompt, hands it to
-the harness with ``response_schema=ClusterRefineResponse``, runs the
-pool-membership check that the schema cannot do, and materialises the
-validated payload into ``list[ClusterSnapshot]``.
-"""
-
 import logging
 from pathlib import Path
 from uuid import UUID, uuid4
@@ -50,12 +34,8 @@ def refine(
     accumulated_cost_usd: float = 0.0,
     dry_run: bool = False,
 ) -> list[ClusterSnapshot]:
-    """Refine *prior_clusters* given the clarifying Q&A in a single LLM call.
-
-    On ``dry_run=True``, the canned fixture at
-    ``tests/fixtures/dry_run/cluster_refine.json`` is parsed and validated by
-    the harness against ``ClusterRefineResponse``.
-
+    """
+    Refine *prior_clusters* given the clarifying Q&A in a single LLM call.
     Args:
         prior_clusters:       The previous turn's ``ClusterSnapshot`` list.
                               The union of their assignments forms the pool of
@@ -101,6 +81,7 @@ def refine(
     metas = metadata_fetcher.fetch(pool_ids)
     meta_by_id = {m.movie_id: m for m in metas}
 
+    # Load the prior clusters into the prompt format
     prior_payload = [
         {
             "cluster_id": str(c.id),
@@ -123,6 +104,7 @@ def refine(
         for c in prior_clusters
     ]
 
+    # List of all films the LLM can mention in its response
     allowed_films = [
         {
             "movie_id": mid,
@@ -170,8 +152,7 @@ def refine(
     parsed: ClusterRefineResponse = response.parsed
 
     # The schema cannot enforce pool membership because it has no view of the
-    # allowed set. Do that check here; a single hallucinated movie_id is a
-    # hard failure (fail-loud per CLAUDE.md).
+    # allowed set.x.
     offending: list[int] = []
     for c in parsed.clusters:
         for a in c.assignments:

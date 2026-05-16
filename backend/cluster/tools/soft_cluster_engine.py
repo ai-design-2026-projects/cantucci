@@ -1,24 +1,10 @@
-"""soft_cluster_engine — UMAP + HDBSCAN soft clustering over candidate embeddings.
-
-Raw 1024-d sentence-transformer embeddings make HDBSCAN's density estimation
-collapse on ~50-point pools (curse of dimensionality), so we reduce with UMAP
-first when ``umap.enabled``. The reduced matrix is then fed to HDBSCAN with
-``prediction_data=True`` so callers receive per-film cluster probability
-distributions for overlapping memberships (e.g. a film may be 70% "Cyberpunk
-Noir" and 30% "Existential Drama").
-"""
-
 from dataclasses import dataclass
-
 import logging
 import warnings
 
 import hdbscan
 import numpy as np
 
-# umap-learn's package __init__ emits ImportWarning when Tensorflow is missing
-# (only ParametricUMAP needs it, which we don't use). Under pytest's
-# filterwarnings=error this becomes a hard failure, so silence it at import.
 with warnings.catch_warnings():
     warnings.filterwarnings("ignore", category=ImportWarning, module="umap")
     from umap.umap_ import UMAP
@@ -54,7 +40,8 @@ def cluster(
     seed: int = 42,
     **_kwargs: object,
 ) -> SoftClusterResult:
-    """Run UMAP (optional) + HDBSCAN soft clustering over *embeddings*.
+    """
+    Run UMAP (optional) + HDBSCAN soft clustering over *embeddings*.
 
     When ``umap_cfg`` is provided and ``umap_cfg.enabled`` is True, the
     embeddings are projected down to ``umap_cfg.n_components`` dimensions
@@ -91,6 +78,8 @@ def cluster(
 
     cluster_input: np.ndarray = embeddings
     n_neighbors_used: int | None = None
+    
+    # Run UMAP pre-reduction when enabled
     if umap_cfg is not None and umap_cfg.enabled:
         n_points = embeddings.shape[0]
         # UMAP requires n_neighbors <= n_points - 1 and at least n_components + 2
@@ -107,6 +96,7 @@ def cluster(
                 # and warns about it unless we acknowledge by setting n_jobs=1 here.
                 n_jobs=1,
             )
+            # UMAP's fit_transform returns float64 by default; downcast to float32 for HDBSCAN.
             cluster_input = reducer.fit_transform(embeddings).astype(np.float32)
             log.debug(
                 "soft_cluster_engine umap reduction",
@@ -126,6 +116,7 @@ def cluster(
                 },
             )
 
+    # Run HDBSCAN on the reduced or raw embeddings
     clusterer = hdbscan.HDBSCAN(
         metric="euclidean",
         min_cluster_size=min_cluster_size,

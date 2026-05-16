@@ -40,12 +40,8 @@ def describe(
     accumulated_cost_usd: float = 0.0,
     dry_run: bool = False,
 ) -> list[tuple[str, str]]:
-    """Return ``[(name, description), ...]`` aligned with *clusters_payload*.
-
-    On ``dry_run=True``, the canned fixture at
-    ``tests/fixtures/dry_run/cluster_describe.json`` is parsed and validated
-    by the harness against ``ClusterDescribeResponse``.
-
+    """
+    Return ``[(name, description), ...]`` aligned with *clusters_payload*.
     Args:
         clusters_payload:     List of dicts, one per cluster, each containing
                               ``cluster_index``, ``top_titles``, ``top_genres``,
