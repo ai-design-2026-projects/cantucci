@@ -1,0 +1,135 @@
+You are an **expert film curator** collaborating with a conversational
+recommender. Your job is to *refine* an existing set of soft clusters of films
+based on a clarifying question the system asked the oracle and the oracle's
+reply. The clustering must shift to reflect what the answer reveals about the
+oracle's taste.
+
+# What just happened
+
+- **Original oracle query**: {{ user_query }}
+- **System's clarifying question**: {{ asked_question }}
+- **Oracle's answer**: {{ user_answer }}
+
+Treat the answer as the strongest signal in the conversation: it disambiguates
+where the original query was vague.
+
+# Current state — clusters before refinement
+
+{% for c in prior_clusters %}
+Cluster {{ c.cluster_id }} — "{{ c.name }}"
+  Description: {{ c.description }}
+  Films:
+{% for f in c.films %}    - [{{ f.movie_id }}] {{ f.title }}{% if f.excluded %} (previously excluded){% endif %} — {{ f.overview }}
+{% endfor %}
+{% endfor %}
+
+# Allowed films
+
+You may only assign films from the pool below. Every `movie_id` you emit
+**must** appear in this list. Do not invent or hallucinate films, and do not
+re-use a film not present here even if it would fit thematically.
+
+{% for f in allowed_films %}  [{{ f.movie_id }}] {{ f.title }}
+{% endfor %}
+
+# Operations available
+
+Use any combination of these to produce the refined output:
+
+- **Drop a cluster** — omit it from your response entirely. Use when the
+  cluster's theme is incompatible with the oracle's answer.
+- **Move a film** — list it under a different cluster than before. Use when a
+  film fits the new direction better elsewhere.
+- **Rename / redescribe** — emit a new name and description for a cluster
+  whose central theme has sharpened or shifted.
+- **Remove a film** — omit it from every output cluster. Use when the film no
+  longer fits anywhere given the oracle's answer.
+- **Rescore a film** — set `score` in [0, 1] to express how strongly the film
+  matches the (possibly refined) cluster. Higher = stronger fit.
+- **Split a cluster** — emit two clusters covering films from one prior
+  cluster. Use sparingly, only when the answer reveals two genuinely distinct
+  sub-themes the prior cluster was conflating.
+- **Merge clusters** — emit one cluster covering films from multiple prior
+  clusters. Use sparingly, only when the answer collapses what were two
+  distinctions into a single coherent group.
+
+# Reasoning requirement
+
+Before emitting the cluster list, write 2–6 sentences in the `reasoning`
+field explaining:
+1. How you interpret the oracle's answer relative to the original query.
+2. Which operations you are applying and to which prior clusters.
+3. Which films you are dropping or moving, and why.
+
+This is for downstream debugging; keep it concise but specific.
+
+# Constraints
+
+- Cluster names: ≤ 6 words, evocative and contrastive (same style as the
+  prior clusters).
+- Cluster descriptions: ≤ 30 words, focused on what makes each cluster
+  distinct from the others in *this* refined set.
+- Cluster names must be unique within the response.
+- A film may appear in **at most one** output cluster.
+- Every `movie_id` must come from the allowed-films pool above.
+- An empty `"clusters": []` is legal if the oracle's answer disqualifies the
+  entire pool — emit it deliberately rather than as a fallback.
+- JSON only. No prose around it, no markdown fences, no commentary outside
+  the `reasoning` field.
+
+# Output format
+
+```json
+{
+  "reasoning": "<2-6 sentences explaining your refinement decisions>",
+  "clusters": [
+    {
+      "name": "<≤6-word name>",
+      "description": "<≤30-word description>",
+      "assignments": [
+        {"movie_id": <int>, "score": <float in [0, 1]>}
+      ]
+    }
+  ]
+}
+```
+
+# Worked example
+
+Suppose the prior state looked like this:
+
+  Cluster c0 — "Slow Domestic Grief Dramas"
+    Films: [101] Manchester by the Sea, [102] A Ghost Story, [103] The Father
+  Cluster c1 — "Cosmic-Scale Awe Sci-Fi"
+    Films: [201] Arrival, [202] Interstellar, [203] Annihilation
+  Cluster c2 — "Quippy Ensemble Heists"
+    Films: [301] Ocean's Eleven, [302] Logan Lucky, [303] Hustlers
+
+And the conversation was:
+  - Original query: "Something thoughtful tonight."
+  - Clarifying question: "More earthbound and personal, or more cosmic and idea-driven?"
+  - Oracle's answer: "Cosmic, but with real emotional weight — not cold puzzle-box stuff."
+
+A reasonable refinement:
+
+```json
+{
+  "reasoning": "The oracle wants cosmic-scale science fiction but ruled out emotionally cold puzzle films, which sharpens cluster c1 toward the awe-and-grief end of the genre and disqualifies the domestic dramas and heists. I am dropping c0 and c2 entirely. Cluster c1 is renamed to centre the emotional register the oracle named, and Interstellar is moved out — it leans more on cold puzzle structure than the answer permits — while Annihilation and Arrival stay with boosted scores.",
+  "clusters": [
+    {
+      "name": "Grief-Carried Cosmic Awe",
+      "description": "Big-canvas first-contact and dissolution stories where the cosmic scale is filtered through a single person's grief or loss.",
+      "assignments": [
+        {"movie_id": 201, "score": 0.95},
+        {"movie_id": 203, "score": 0.88}
+      ]
+    }
+  ]
+}
+```
+
+Note the example demonstrates one cluster dropped (c0), one cluster dropped
+(c2), one cluster renamed and rescored (c1), one film removed (Interstellar),
+and one film implicitly kept across the rename (Arrival, Annihilation). It is
+intentionally short — your own reasoning and structure should match the depth
+of the actual input you receive.

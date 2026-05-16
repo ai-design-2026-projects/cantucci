@@ -1,18 +1,11 @@
 """Retrieval System agent — converts an oracle query into enriched film candidates.
 
-Pipeline (all owned by this agent, called from the cluster agent with the raw
-oracle utterance):
-
+Pipeline:
     user_query → query_reformulator (LLM, JSON-validated by harness)
               → resolve excluded titles → movie_ids
               → vector_search (embeds reformulated query) → top-k hits
               → metadata_fetcher → RetrievalResult
-
-The reformulator's LLM call is logged by the harness via ``log_llm_call(...)``;
-this module logs deterministic steps (exclusion resolution, vector-search
-completion) at INFO and never duplicates the harness record.
 """
-
 import logging
 from uuid import UUID
 
@@ -35,13 +28,12 @@ def retrieve(
 ) -> RetrievalResult:
     """Reformulate *user_query*, embed it, and return top-k enriched candidates.
 
-    The agent drives the full retrieval pipeline internally so callers (the
-    cluster agent) hand over the oracle's raw utterance and receive a
-    fully-resolved result. The reformulator is invoked through the LLM harness
-    with ``response_schema=ReformulatedQuery``, which guarantees JSON validation
-    and emits a ``log_llm_call`` record per attempt. Excluded titles surfaced by
-    the reformulator are fuzzy-matched against ``movies.title`` and pushed into
-    the SQL vector search as a negative filter at the source.
+    The agent drives the full retrieval pipeline internally so callers hand over 
+    the oracle's raw utterance and receive a fully-resolved result. 
+    
+    Excluded titles surfaced by the reformulator are fuzzy-matched against 
+    ``movies.title`` and pushed into the SQL vector search as a negative 
+    filter at the source.
 
     Args:
         user_query:           Oracle's raw utterance for this turn.
@@ -97,11 +89,11 @@ def retrieve(
             "n_excluded_titles": len(reformulated.excluded_films),
         },
     )
+    # Resolve excluded titles to movie_ids for vector search filtering
     excluded_titles = list(reformulated.excluded_films)
     exclude_ids: list[int] = (
         api_movies.resolve_titles_to_ids(excluded_titles) if excluded_titles else []
     )
-
     if excluded_titles:
         log.info(
             "retrieval exclusion resolved",
@@ -111,6 +103,7 @@ def retrieve(
             },
         )
 
+    # Perform vector search with the reformulated query and negative filter
     log.debug(
         "vector_search inputs",
         extra={
@@ -121,9 +114,7 @@ def retrieve(
             "query_len": len(reformulated.query),
         },
     )
-
     hits = vector_search.search(reformulated.query, k, exclude_ids=exclude_ids or None)
-
     log.debug(
         "vector_search result",
         extra={
@@ -134,8 +125,8 @@ def retrieve(
         },
     )
 
+    # Fetch metadata for the hits to return enriched candidates
     metas = metadata_fetcher.fetch([h.movie_id for h in hits])
-
     log.debug(
         "metadata fetched",
         extra={
@@ -149,6 +140,7 @@ def retrieve(
 
     score_map = {h.movie_id: h.score for h in hits}
     hit_order = {h.movie_id: i for i, h in enumerate(hits)}
+    # Sort metas in the same order as hits (descending similarity)
     metas.sort(key=lambda m: hit_order.get(m.movie_id, len(hits)))
 
     n_returned = len(metas)

@@ -1,11 +1,4 @@
-"""embedding_fetcher — fetch and stack movie embeddings for clustering.
-
-Calls ``backend.api.movies.fetch_embeddings`` and returns an ordered
-(kept_ids, matrix) pair aligned by position.
-"""
-
 import logging
-
 import numpy as np
 
 import backend.api.movies as api_movies
