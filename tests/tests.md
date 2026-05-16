@@ -39,8 +39,8 @@ nothing more. Quality, fairness, and clustering evaluation belong elsewhere.
 4. **full turn runs end-to-end** — `POST /sessions/{id}/turns` returns a
    well-formed `TurnResult` whose `step_type` is one of `ask | show | stop`.
    This exercises retrieval, embedding, soft clustering, the cluster describer,
-   the decision agent (fixture), and either the ambiguity agent (fixture) or
-   the render step (fixture) depending on the decision branch taken.
+   and the decision agent (fixture). On a `continue` decision, the agent emits
+   the clarifying question in the same call; on `recommend`, the render step runs.
 5. **config-hash invariant** — the `runs.config_hash` row for the session
    equals `backend.settings.get_config_hash()`. Replay invariant from
    CLAUDE.md.

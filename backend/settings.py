@@ -169,16 +169,6 @@ class ClusteringConfig(BaseModel):
     umap: UmapConfig = UmapConfig()
 
 
-class AmbiguityConfig(BaseModel):
-    """Ambiguity agent parameters.
-    Attributes:
-        max_cluster_context: Maximum number of top clusters to consider when
-                            generating a clarifying question.
-    """
-
-    max_cluster_context: int
-
-
 class Settings(BaseModel):
     """Full typed configuration loaded from a YAML config file.
 
@@ -189,7 +179,6 @@ class Settings(BaseModel):
         split:          Dataset-generation split parameters.
         representation: Embedding model configuration.
         clustering:     HDBSCAN parameters.
-        ambiguity:      Ambiguity agent parameters.
     """
 
     model: ModelConfig
@@ -198,7 +187,6 @@ class Settings(BaseModel):
     split: SplitConfig
     representation: RepresentationConfig
     clustering: ClusteringConfig
-    ambiguity: AmbiguityConfig
 
 class EnvSettings(BaseSettings):
     """Typed environment settings loaded from the environment and ``.env`` file.

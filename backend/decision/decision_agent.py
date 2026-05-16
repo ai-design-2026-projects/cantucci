@@ -1,14 +1,14 @@
-"""Decision Agent — routes each turn to recommend or continue.
+"""Decision Agent — routes each turn to recommend or continue, and generates the
+clarifying question when it chooses to continue.
 
-Computes cluster entropy and relevance scores, then asks the LLM (via
-llm_harness) to decide whether to surface a recommendation or ask a
-clarifying question.  Returns a ``DecisionResult`` consumed by the
-Orchestrator.
+Computes cluster entropy and relevance scores internally, then asks the LLM (via
+llm_harness) to decide whether to surface a recommendation or ask a clarifying
+question.  When the action is ``continue``, the question is included in the same
+LLM response.  Returns a ``DecisionResult`` consumed by the Orchestrator.
 
 No DB writes; all inputs are read-only.
 """
 
-import json
 import logging
 from pathlib import Path
 from uuid import UUID
@@ -20,12 +20,13 @@ from backend.llm import llm_harness
 from backend.llm.prompts import make_prompt_loader
 from backend.settings import get_config_hash, get_settings
 from backend.api.types import ClusterSnapshot
-from backend.decision.types import DecisionAction, DecisionResult
-from backend.llm.types import LLMParseError
+from backend.decision.types import DecisionAction, DecisionQuestion, DecisionResponse, DecisionResult
 
 log = logging.getLogger(__name__)
 
 load_prompt = make_prompt_loader(Path(__file__).parent / "prompts")
+
+_MOVIES_PER_CLUSTER = 5
 
 
 def decide(
@@ -38,12 +39,13 @@ def decide(
     clusters: list[ClusterSnapshot],
     preference_profile: dict[str, Any] | None = None,
     accumulated_cost_usd: float = 0.0,
-    precomputed_entropy: float | None = None,
+    prior_questions: list[str] | None = None,
 ) -> DecisionResult:
-    """Return a routing decision for the current turn.
+    """Return a routing decision for the current turn, including a clarifying question
+    when the action is ``continue_``.
 
-    When no clusters are available (Cluster Agent placeholder), short-circuits
-    to ``continue_`` with entropy 1.0 without making an LLM call.
+    When no clusters are available, short-circuits to ``continue_`` with entropy 1.0
+    and no LLM call. No clarifying question is generated in that case.
 
     Args:
         session_id:           UUID of the current session.
@@ -55,23 +57,18 @@ def decide(
         preference_profile:   Structured oracle profile from the previous turn,
                               or None when no profile has been extracted yet.
         accumulated_cost_usd: Running USD cost for the current turn (for cost guard).
-        precomputed_entropy:  Entropy already computed by the caller (e.g. the
-                              orchestrator when running Decision and Ambiguity in
-                              parallel). When supplied, skips the internal
-                              ``entropy_calculator.compute`` call and overrides the
-                              LLM-echoed value in the returned ``DecisionResult``,
-                              guaranteeing both agents see the same number.
+        prior_questions:      Questions already asked in this session. Passed into
+                              the prompt so the model avoids repeating them.
 
     Returns:
-        A ``DecisionResult`` with routing action, best cluster id, rationale,
-        and entropy score.
+        A ``DecisionResult`` with routing action, best cluster id, rationale, entropy
+        score, and — when action is ``continue_`` — the clarifying question fields.
 
     Raises:
-        LLMParseError:       If the model returns non-JSON or a mismatched shape.
+        LLMParseError:       If the model returns non-JSON or a schema-invalid response.
         CostLimitExceeded:   If the session budget is exhausted.
         openai.APIError:     On a non-transient API error.
     """
-    # Short-circuit when no clusters are available to avoid an LLM call and return a safe default
     if not clusters:
         log.warning(
             "Decision agent: no clusters available, routing to continue",
@@ -85,7 +82,7 @@ def decide(
         )
 
     soft_scores = [[a.score for a in c.assignments] for c in clusters]
-    entropy = precomputed_entropy if precomputed_entropy is not None else entropy_calculator.compute(soft_scores)
+    entropy = entropy_calculator.compute(soft_scores)
     relevance = relevance_scorer.score(user_query, clusters)
 
     log.debug(
@@ -105,18 +102,21 @@ def decide(
     config_hash = get_config_hash()
     model_and_version = cfg.model.name
 
-    # For LLM logging and prompt construction, convert the clusters into dicts with the relevant fields and the relevance scores
     cluster_vars = [
         {
             "id": str(c.id),
             "name": c.name,
             "description": c.description or "",
             "relevance": relevance.get(c.id, 0.0),
+            "movies": [
+                a.title
+                for a in sorted(c.assignments, key=lambda a: a.score, reverse=True)[:_MOVIES_PER_CLUSTER]
+                if a.title
+            ],
         }
         for c in clusters
     ]
 
-    # Construct the prompt and call the LLM harness to get the decision
     system_text, prompt_hash = load_prompt(
         "decision_v2",
         {
@@ -127,6 +127,7 @@ def decide(
             "clusters": cluster_vars,
             "entropy_score": entropy,
             "preference_profile": preference_profile,
+            "prior_questions": prior_questions or [],
         },
     )
 
@@ -141,13 +142,11 @@ def decide(
         },
     )
 
-    # For reproducibility, use the session RNG seed for the decision agent's LLM call (same as the describer and reformulator)
     messages: list[dict[str, str]] = [
         {"role": "system", "content": system_text},
         {"role": "user", "content": user_query},
     ]
 
-    # The decision agent is on the critical path for every turn, so we want to be especially careful with logging, cost guard, and error handling in the LLM call it makes.
     response = llm_harness.call(
         run_id=run_id,
         session_id=session_id,
@@ -162,7 +161,10 @@ def decide(
         prompt_hash=prompt_hash,
         cost_limit_usd=cfg.session.cost_limit_usd,
         accumulated_cost_usd=accumulated_cost_usd,
+        response_schema=DecisionResponse,
     )
+
+    parsed: DecisionResponse = response.parsed  # type: ignore[assignment]
 
     log.debug(
         "decision raw LLM response",
@@ -173,52 +175,51 @@ def decide(
         },
     )
 
-    # Parse the response and validate the shape
-    try:
-        parsed = json.loads(response.content)
-    except json.JSONDecodeError:
-        raise LLMParseError(step_type="decision_route", raw=response.content)
-    # The expected fields are "action" (either "recommend" or "continue"), "rationale" (string), and "entropy_score" (number).  
-    if (
-        parsed.get("action") not in {"recommend", "continue"}
-        or "rationale" not in parsed
-        or "entropy_score" not in parsed
-    ):
-        raise LLMParseError(step_type="decision_route", raw=response.content)
-
-    # The LLM can optionally return a "best_cluster_id" field with the UUID of the cluster it thinks is best to recommend; if it's missing or invalid, we log a warning and proceed with None
-    raw_cluster_id = parsed.get("best_cluster_id")
-    best_cluster_id: UUID | None = None
-    if raw_cluster_id:
-        try:
-            best_cluster_id = UUID(raw_cluster_id)
-        except ValueError:
-            log.warning(
-                "Decision agent: invalid best_cluster_id UUID, ignoring",
-                extra={"raw": raw_cluster_id, "session_id": str(session_id)},
-            )
-
-    # Convert the action field to a DecisionAction enum
     action = (
         DecisionAction.recommend
-        if parsed["action"] == "recommend"
+        if parsed.action == "recommend"
         else DecisionAction.continue_
     )
 
-    # Log the decision result with the entropy score for monitoring and analysis
+    best_cluster_id: UUID | None = None
+    if parsed.best_cluster_id:
+        try:
+            best_cluster_id = UUID(parsed.best_cluster_id)
+        except ValueError:
+            log.warning(
+                "Decision agent: invalid best_cluster_id UUID, ignoring",
+                extra={"raw": parsed.best_cluster_id, "session_id": str(session_id)},
+            )
+
     log.debug(
         "Decision agent result",
         extra={
             "session_id": str(session_id),
             "turn_number": turn_number,
             "action": action.value,
-            "entropy_score": parsed["entropy_score"],
+            "question": parsed.question.text if parsed.question else None,
+            "best_cluster_id": str(best_cluster_id) if best_cluster_id else None,
+            "entropy_score": entropy,
         },
     )
-    returned_entropy = entropy if precomputed_entropy is not None else float(parsed["entropy_score"])
+
+    question: DecisionQuestion | None = parsed.question
+    cluster_refs: list[UUID] = []
+    if question is not None:
+        for ref in question.cluster_refs:
+            try:
+                cluster_refs.append(UUID(ref))
+            except ValueError:
+                log.warning(
+                    "Decision agent: invalid cluster_ref UUID in question, skipping",
+                    extra={"raw": ref, "session_id": str(session_id)},
+                )
+
     return DecisionResult(
         action=action,
         best_cluster_id=best_cluster_id,
-        rationale=parsed["rationale"],
-        entropy_score=returned_entropy,
+        rationale=parsed.rationale,
+        entropy_score=entropy,
+        question_text=question.text if question else None,
+        cluster_refs=cluster_refs,
     )

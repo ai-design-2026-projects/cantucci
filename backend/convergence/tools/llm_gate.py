@@ -152,7 +152,16 @@ def check_llm_convergence(
     parsed: ConvergenceCheckResponse = resp.parsed  # type: ignore[assignment]
 
     log.info(
-        "llm-gate convergence verdict",
+        "convergence verdict",
+        extra={
+            "session_id": str(session_id),
+            "turn_id": str(turn_id),
+            "decision": parsed.decision,
+        },
+    )
+
+    log.debug(
+        "convergence verdict",
         extra={
             "session_id": str(session_id),
             "turn_id": str(turn_id),

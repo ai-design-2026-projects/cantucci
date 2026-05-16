@@ -4,7 +4,7 @@ No in-memory session state: all persistence flows through ``backend.api``.
 
 Turn flow (per architecture.md):
   Oracle → Orchestrator → Convergence Agent → Cluster Agent (→ Retrieval
-  internally) → Decision Agent → (Ambiguity Agent if continue) →
+  internally) → Decision Agent (decides + generates question when continuing) →
   Profile Agent → Orchestrator writes turn / clusters / feedback / profile.
 
 The Orchestrator is the sole writer to the DB. All sub-agents are read-only.
@@ -20,11 +20,9 @@ from uuid import UUID, uuid4
 import backend.api.retrieval as api_retrieval
 import backend.api.runs as api_runs
 import backend.api.sessions as api_sessions
-from backend.ambiguity import ambiguity_agent
 from backend.cluster import cluster_agent
 from backend.convergence import convergence_agent
 from backend.decision import decision_agent
-from backend.decision.tools import entropy_calculator
 from backend.profile import profile_agent
 from backend.api.types import ClusterSnapshot, SessionStatus, StepType, TurnDetail
 from backend.convergence.types import ConvergenceAction, ConvergenceDecision
@@ -109,10 +107,9 @@ class Orchestrator:
           2. Convergence Agent: hard-limit + LLM gate (uses N-1 profile).
           3. Retrieval/cluster decision.
           4. Cluster Agent (Scenario A or B).
-          5. Decision Agent (with N-1 profile).
-          6. Ambiguity Agent (with N-1 profile) or deterministic render.
-          7. Profile Agent: extract updated profile → persist on session.
-          8. Persist the turn and oracle feedback.
+          5. Decision Agent: decides action and, when continuing, generates the question.
+          6. Profile Agent: extract updated profile → persist on session.
+          7. Persist the turn and oracle feedback.
 
         Args:
             session_id:   UUID of the target session.
@@ -297,38 +294,16 @@ class Orchestrator:
             },
         )
 
-        # Compute entropy once; pass the same deterministic value to both
-        # Decision and Ambiguity so they provably agree on the score.
-        soft_scores = [[a.score for a in c.assignments] for c in clusters]
-        entropy_score = entropy_calculator.compute(soft_scores)
-
-        # Wave 2: Decision + Ambiguity in parallel.
-        with ThreadPoolExecutor(max_workers=2) as pool:
-            f_decision = pool.submit(
-                decision_agent.decide,
-                session_id=session_id,
-                run_id=full.run_id,
-                turn_id=turn_id,
-                turn_number=turn_number,
-                user_query=user_message,
-                clusters=clusters,
-                preference_profile=prior_profile,
-                precomputed_entropy=entropy_score,
-            )
-            f_ambiguity = pool.submit(
-                ambiguity_agent.generate_question,
-                session_id=session_id,
-                run_id=full.run_id,
-                turn_id=turn_id,
-                turn_number=turn_number,
-                user_query=user_message,
-                clusters=clusters,
-                entropy_score=entropy_score,
-                prior_questions=prior_questions(full.turns),
-                preference_profile=prior_profile,
-            )
-            decision = f_decision.result()
-            ambiguity_question = f_ambiguity.result()
+        decision = decision_agent.decide(
+            session_id=session_id,
+            run_id=full.run_id,
+            turn_id=turn_id,
+            turn_number=turn_number,
+            user_query=user_message,
+            clusters=clusters,
+            preference_profile=prior_profile,
+            prior_questions=prior_questions(full.turns),
+        )
 
         log.debug(
             "decision action chosen",
@@ -345,7 +320,7 @@ class Orchestrator:
         converged: bool
 
         if decision.action == DecisionAction.continue_:
-            reply = ambiguity_question.question_text
+            reply = decision.question_text or ""
             step_type = StepType.ask
             converged = False
         else:
