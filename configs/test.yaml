@@ -44,5 +44,3 @@ clustering:
   top_titles_per_cluster: 8
   min_singleton_floor: 3
 
-ambiguity:
-  max_cluster_context: 3

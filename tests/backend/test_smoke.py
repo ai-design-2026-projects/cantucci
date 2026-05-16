@@ -1,9 +1,10 @@
 """Backend wiring smoke tests.
 
-Drive the full orchestrator pipeline (retrieval → cluster → decision → ambiguity
-or render) through the HTTP layer with ``dry_run=true`` so no live LLM calls
-happen. The point is to surface a broken contract between any two components,
-not to evaluate the recommendation quality.
+Drive the full orchestrator pipeline (retrieval → cluster → decision → render)
+through the HTTP layer with ``dry_run=true`` so no live LLM calls happen.
+The decision agent now handles both routing and question generation in one call.
+The point is to surface a broken contract between any two components, not to
+evaluate recommendation quality.
 """
 
 from __future__ import annotations

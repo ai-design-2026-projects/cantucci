@@ -82,6 +82,3 @@ clustering:
     min_dist: 0.0
     metric: cosine
 
-ambiguity:
-  # Maximum number of top clusters to consider when generating a clarifying question.
-  max_cluster_context: 3

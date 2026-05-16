@@ -7,6 +7,7 @@ no Docker. Tests verify:
   - Render is deterministic (no LLM, no orchestrator_render step_type)
   - First-turn prior_profile=None flows correctly
   - Convergence short-circuit paths (terminate, natural_end, clarify_drift)
+  - Decision agent receives prior_questions and emits the question on continue
 """
 
 from __future__ import annotations
@@ -91,12 +92,14 @@ def _proceed() -> ConvergenceDecision:
     return ConvergenceDecision(action=ConvergenceAction.proceed, reason="ok")
 
 
-def _decision_continue() -> DecisionResult:
+def _decision_continue(question_text: str = "What mood are you in?") -> DecisionResult:
     return DecisionResult(
         action=DecisionAction.continue_,
         best_cluster_id=None,
         rationale="still uncertain",
         entropy_score=0.8,
+        question_text=question_text,
+        cluster_refs=[],
     )
 
 
@@ -132,7 +135,6 @@ class _Patches:
         conv_decision: ConvergenceDecision | None = None,
         clusters: list[ClusterSnapshot] | None = None,
         decision: DecisionResult | None = None,
-        ambiguity_question: str = "What mood are you in?",
         profile: UserProfile | None = None,
         cfg: MagicMock | None = None,
     ):
@@ -140,7 +142,6 @@ class _Patches:
         self._conv = conv_decision or _proceed()
         self._clusters = cluster_list
         self._decision = decision or _decision_continue()
-        self._question = ambiguity_question
         self._profile = profile or _profile()
         self._full = full
         self._cfg = cfg or _cfg()
@@ -182,10 +183,6 @@ class _Patches:
         self.decision_decide = _patch(
             "backend.orchestrator.orchestrator.decision_agent.decide",
             return_value=self._decision,
-        )
-        self.ambiguity_gen = _patch(
-            "backend.orchestrator.orchestrator.ambiguity_agent.generate_question",
-            return_value=MagicMock(question_text=self._question),
         )
         self.profile_extract = _patch(
             "backend.orchestrator.orchestrator.profile_agent.extract",
@@ -421,3 +418,42 @@ class TestDecisionAgentReceivesProfile:
             orch.handle_turn(full.session_id, "drama")
         call_kwargs = p.decision_decide.call_args.kwargs
         assert call_kwargs["preference_profile"] is None
+
+    def test_decision_receives_prior_questions(self) -> None:
+        ask_turn = _turn("ask", "What genre do you prefer?")
+        full = _full(turns=[ask_turn])
+        with _Patches(full=full) as p:
+            orch = Orchestrator()
+            orch.handle_turn(full.session_id, "drama")
+        call_kwargs = p.decision_decide.call_args.kwargs
+        assert "prior_questions" in call_kwargs
+        assert isinstance(call_kwargs["prior_questions"], list)
+
+    def test_decision_not_passed_precomputed_entropy(self) -> None:
+        full = _full(turns=[])
+        with _Patches(full=full) as p:
+            orch = Orchestrator()
+            orch.handle_turn(full.session_id, "drama")
+        call_kwargs = p.decision_decide.call_args.kwargs
+        assert "precomputed_entropy" not in call_kwargs
+
+
+class TestDecisionEmitsQuestion:
+    """On continue, the reply is the question from the Decision agent itself."""
+
+    def test_continue_reply_is_decision_question_text(self) -> None:
+        question = "Quiet and introspective, or loud and kinetic?"
+        full = _full(turns=[])
+        decision = _decision_continue(question_text=question)
+        with _Patches(full=full, decision=decision):
+            orch = Orchestrator()
+            result = orch.handle_turn(full.session_id, "something good")
+        assert result.assistant_message == question
+
+    def test_continue_step_type_is_ask(self) -> None:
+        full = _full(turns=[])
+        decision = _decision_continue()
+        with _Patches(full=full, decision=decision):
+            orch = Orchestrator()
+            result = orch.handle_turn(full.session_id, "something good")
+        assert result.step_type == StepType.ask
