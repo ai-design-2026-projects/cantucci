@@ -4,6 +4,7 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { queryClient } from "@/clients/queryClient";
 import { App } from "./App";
 import "./styles/globals.css";
+import "./styles/tailwind.css";
 import "./styles/animations.css";
 
 const container = document.getElementById("root");
