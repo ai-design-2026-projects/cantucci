@@ -27,7 +27,6 @@ from backend.api.types import (
 )
 from backend.convergence.types import ConvergenceAction, ConvergenceDecision
 from backend.decision.types import DecisionAction, DecisionResult
-from backend.ambiguity.types import AmbiguityResult
 from backend.profile.types import UserProfile
 from backend.orchestrator.orchestrator import Orchestrator
 
@@ -45,6 +44,8 @@ def _cluster(name: str = "Drama", n_assignments: int = 3) -> ClusterSnapshot:
     c.id = uuid.uuid4()
     c.name = name
     c.description = "Great dramas"
+    c.level = 0
+    c.parent_cluster_id = None
     c.assignments = [
         MagicMock(spec=ClusterAssignment, title=f"Film {i}", movie_id=uuid.uuid4(), score=1.0, excluded=False)
         for i in range(n_assignments)
@@ -364,10 +365,10 @@ class TestConvergenceShortCircuits:
             finally:
                 mark_abandoned.stop()
         assert result.step_type == StepType.stop
-        # Profile agent must NOT be called on termination
-        assert not p.profile_extract.called
+        # Profile result must NOT be persisted on termination (speculative run is discarded)
+        assert not p.update_profile.called
 
-    def test_natural_end_does_not_call_profile_agent(self) -> None:
+    def test_natural_end_does_not_persist_profile(self) -> None:
         full = _full(turns=[])
         conv = ConvergenceDecision(
             action=ConvergenceAction.natural_end,
@@ -379,9 +380,10 @@ class TestConvergenceShortCircuits:
                  patch("backend.orchestrator.orchestrator.api_sessions.append_turn"):
                 orch = Orchestrator()
                 result = orch.handle_turn(full.session_id, "bye")
-        assert not p.profile_extract.called
+        # Profile result must NOT be persisted on natural_end (speculative run is discarded)
+        assert not p.update_profile.called
 
-    def test_clarify_drift_does_not_call_cluster_agent(self) -> None:
+    def test_clarify_drift_does_not_snapshot_clusters(self) -> None:
         full = _full(turns=[])
         conv = ConvergenceDecision(
             action=ConvergenceAction.clarify_drift,
@@ -396,7 +398,8 @@ class TestConvergenceShortCircuits:
                 mock_emit.return_value = MagicMock(step_type=StepType.ask)
                 orch = Orchestrator()
                 orch.handle_turn(full.session_id, "horror please")
-        assert not p.cluster_cluster.called
+        # Cluster result must NOT be persisted on clarify_drift (speculative run is discarded)
+        assert not p.snapshot_clusters.called
 
 
 class TestDecisionAgentReceivesProfile:
