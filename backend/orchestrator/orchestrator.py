@@ -29,6 +29,13 @@ from backend.convergence.types import ConvergenceAction, ConvergenceDecision
 from backend.decision.types import DecisionAction
 from backend.exceptions import SessionNotFound
 from backend.routers.dtos import SessionState, TurnResult
+from backend.orchestrator.progress import (
+    NullProgressCallback,
+    ProgressCallback,
+    ProgressPhase,
+    ProgressStep,
+    make_progress_event,
+)
 from backend.orchestrator.tools.feedback import classify_feedback
 from backend.orchestrator.tools.policy import (
     cluster_snapshot_to_spec,
@@ -99,7 +106,13 @@ class Orchestrator:
             turns=[],
         )
 
-    def handle_turn(self, session_id: UUID, user_message: str) -> TurnResult:
+    def handle_turn(
+        self,
+        session_id: UUID,
+        user_message: str,
+        *,
+        progress_cb: ProgressCallback = NullProgressCallback(),
+    ) -> TurnResult:
         """Orchestrate one conversational turn and persist all resulting state.
 
         Full flow:
@@ -114,6 +127,11 @@ class Orchestrator:
         Args:
             session_id:   UUID of the target session.
             user_message: The oracle's message for this turn.
+            progress_cb:  Invoked at the start and end of each wave so the
+                          router can stream ``ProgressEvent`` lines to the
+                          live-state frontend. Defaults to ``NullProgressCallback``
+                          so non-streaming callers (tests, eval scripts) are
+                          unaffected. Must be thread-safe and must not raise.
 
         Returns:
             A ``TurnResult`` describing the outcome of this turn.
@@ -123,6 +141,9 @@ class Orchestrator:
             CostLimitExceeded: If the session budget is exhausted.
             LLMParseError:     If any agent LLM call returns malformed JSON.
         """
+        def _emit(step: ProgressStep, phase: ProgressPhase) -> None:
+            progress_cb(make_progress_event(step, phase))
+
         full = api_retrieval.get_session_full(session_id)
 
         turn_id = uuid4()
@@ -188,6 +209,7 @@ class Orchestrator:
             )
 
         # Wave 1: Convergence + Cluster (speculative) + Profile in parallel.
+        _emit(ProgressStep.understand, "start")
         with ThreadPoolExecutor(max_workers=3) as pool:
             f_conv = pool.submit(
                 convergence_agent.check,
@@ -214,35 +236,48 @@ class Orchestrator:
             conv = f_conv.result()
             clusters = f_cluster.result()
             new_profile = f_profile.result()
+        _emit(ProgressStep.understand, "end")
 
         # Early-exit branches: cluster + profile results are discarded.
         if conv.action is ConvergenceAction.terminate:
-            return self._terminate_turn(
-                session_id=session_id,
-                turn_id=turn_id,
-                turn_number=turn_number,
-                user_message=user_message,
-                decision=conv,
-            )
+            _emit(ProgressStep.wrap_up, "start")
+            try:
+                return self._terminate_turn(
+                    session_id=session_id,
+                    turn_id=turn_id,
+                    turn_number=turn_number,
+                    user_message=user_message,
+                    decision=conv,
+                )
+            finally:
+                _emit(ProgressStep.wrap_up, "end")
 
         if conv.action is ConvergenceAction.natural_end:
-            return self._natural_end_turn(
-                session_id=session_id,
-                turn_id=turn_id,
-                turn_number=turn_number,
-                user_message=user_message,
-                decision=conv,
-                preference_profile=prior_profile or {},
-            )
+            _emit(ProgressStep.wrap_up, "start")
+            try:
+                return self._natural_end_turn(
+                    session_id=session_id,
+                    turn_id=turn_id,
+                    turn_number=turn_number,
+                    user_message=user_message,
+                    decision=conv,
+                    preference_profile=prior_profile or {},
+                )
+            finally:
+                _emit(ProgressStep.wrap_up, "end")
 
         if conv.action is ConvergenceAction.clarify_drift:
-            return emit_drift_clarification(
-                session_id=session_id,
-                turn_id=turn_id,
-                turn_number=turn_number,
-                user_message=user_message,
-                decision=conv,
-            )
+            _emit(ProgressStep.wrap_up, "start")
+            try:
+                return emit_drift_clarification(
+                    session_id=session_id,
+                    turn_id=turn_id,
+                    turn_number=turn_number,
+                    user_message=user_message,
+                    decision=conv,
+                )
+            finally:
+                _emit(ProgressStep.wrap_up, "end")
 
         # Convergence ↔ Cluster reconciliation: if convergence supplies a
         # retrieval override, the speculative cluster result is stale — rerun.
@@ -264,12 +299,16 @@ class Orchestrator:
             )
 
         if not clusters:
-            return emit_early_clarification(
-                session_id=session_id,
-                turn_id=turn_id,
-                turn_number=turn_number,
-                user_message=user_message,
-            )
+            _emit(ProgressStep.wrap_up, "start")
+            try:
+                return emit_early_clarification(
+                    session_id=session_id,
+                    turn_id=turn_id,
+                    turn_number=turn_number,
+                    user_message=user_message,
+                )
+            finally:
+                _emit(ProgressStep.wrap_up, "end")
 
         api_sessions.append_turn(
             session_id=session_id,
@@ -294,6 +333,7 @@ class Orchestrator:
             },
         )
 
+        _emit(ProgressStep.choose, "start")
         decision = decision_agent.decide(
             session_id=session_id,
             run_id=full.run_id,
@@ -345,7 +385,9 @@ class Orchestrator:
                 "step_type": step_type.value,
             },
         )
+        _emit(ProgressStep.choose, "end")
 
+        _emit(ProgressStep.finalize, "start")
         api_sessions.update_turn(
             turn_id=turn_id,
             assistant_message=reply,
@@ -364,6 +406,7 @@ class Orchestrator:
         )
 
         api_sessions.update_preference_profile(session_id, new_profile.model_dump())
+        _emit(ProgressStep.finalize, "end")
 
         log.debug(
             "profile updated",

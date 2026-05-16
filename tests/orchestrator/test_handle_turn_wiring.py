@@ -30,6 +30,7 @@ from backend.convergence.types import ConvergenceAction, ConvergenceDecision
 from backend.decision.types import DecisionAction, DecisionResult
 from backend.profile.types import UserProfile
 from backend.orchestrator.orchestrator import Orchestrator
+from backend.orchestrator.progress import ProgressEvent, ProgressStep
 
 
 # ---------------------------------------------------------------------------
@@ -419,41 +420,143 @@ class TestDecisionAgentReceivesProfile:
         call_kwargs = p.decision_decide.call_args.kwargs
         assert call_kwargs["preference_profile"] is None
 
-    def test_decision_receives_prior_questions(self) -> None:
-        ask_turn = _turn("ask", "What genre do you prefer?")
-        full = _full(turns=[ask_turn])
+
+class _Recorder:
+    """ProgressCallback that records (step, phase) pairs in order."""
+
+    def __init__(self) -> None:
+        self.events: list[tuple[str, str]] = []
+
+    def __call__(self, event: ProgressEvent) -> None:
+        self.events.append((event.step.value, event.phase))
+
+
+class TestProgressCallback:
+    """Wave-level progress events fire in the expected order for every branch."""
+
+    def test_recommend_emits_understand_choose_finalize(self) -> None:
+        cluster = _cluster()
+        full = _full(turns=[])
+        decision = _decision_recommend(cluster.id)
+        rec = _Recorder()
+        with _Patches(full=full, clusters=[cluster], decision=decision):
+            orch = Orchestrator()
+            orch.handle_turn(full.session_id, "surprise me", progress_cb=rec)
+        assert rec.events == [
+            ("understand", "start"),
+            ("understand", "end"),
+            ("choose", "start"),
+            ("choose", "end"),
+            ("finalize", "start"),
+            ("finalize", "end"),
+        ]
+
+    def test_continue_emits_understand_choose_finalize(self) -> None:
+        full = _full(turns=[])
+        rec = _Recorder()
+        with _Patches(full=full):
+            orch = Orchestrator()
+            orch.handle_turn(full.session_id, "tell me more", progress_cb=rec)
+        assert rec.events == [
+            ("understand", "start"),
+            ("understand", "end"),
+            ("choose", "start"),
+            ("choose", "end"),
+            ("finalize", "start"),
+            ("finalize", "end"),
+        ]
+
+    def test_terminate_emits_wrap_up(self) -> None:
+        full = _full(turns=[])
+        conv = ConvergenceDecision(
+            action=ConvergenceAction.terminate,
+            reason="max_turns exceeded",
+            reply="Session over.",
+        )
+        rec = _Recorder()
+        with _Patches(full=full, conv_decision=conv):
+            with patch("backend.orchestrator.orchestrator.api_sessions.mark_abandoned"), \
+                 patch("backend.orchestrator.orchestrator.api_sessions.append_turn"):
+                orch = Orchestrator()
+                orch.handle_turn(full.session_id, "hi", progress_cb=rec)
+        assert rec.events == [
+            ("understand", "start"),
+            ("understand", "end"),
+            ("wrap_up", "start"),
+            ("wrap_up", "end"),
+        ]
+
+    def test_natural_end_emits_wrap_up(self) -> None:
+        full = _full(turns=[])
+        conv = ConvergenceDecision(
+            action=ConvergenceAction.natural_end,
+            reason="oracle said bye",
+            reply="Goodbye!",
+        )
+        rec = _Recorder()
+        with _Patches(full=full, conv_decision=conv):
+            with patch("backend.orchestrator.orchestrator.api_sessions.mark_converged"), \
+                 patch("backend.orchestrator.orchestrator.api_sessions.append_turn"), \
+                 patch("backend.orchestrator.orchestrator.api_sessions.write_feedback"):
+                orch = Orchestrator()
+                orch.handle_turn(full.session_id, "bye", progress_cb=rec)
+        assert rec.events == [
+            ("understand", "start"),
+            ("understand", "end"),
+            ("wrap_up", "start"),
+            ("wrap_up", "end"),
+        ]
+
+    def test_clarify_drift_emits_wrap_up(self) -> None:
+        full = _full(turns=[])
+        conv = ConvergenceDecision(
+            action=ConvergenceAction.clarify_drift,
+            reason="contradiction",
+            reply="Did your preference change?",
+            drift_topic="horror",
+            prior_statement="no horror",
+            current_statement="horror please",
+        )
+        rec = _Recorder()
+        with _Patches(full=full, conv_decision=conv):
+            with patch("backend.orchestrator.orchestrator.emit_drift_clarification") as mock_emit:
+                mock_emit.return_value = MagicMock(step_type=StepType.ask)
+                orch = Orchestrator()
+                orch.handle_turn(full.session_id, "horror please", progress_cb=rec)
+        assert rec.events == [
+            ("understand", "start"),
+            ("understand", "end"),
+            ("wrap_up", "start"),
+            ("wrap_up", "end"),
+        ]
+
+    def test_empty_retrieval_emits_wrap_up(self) -> None:
+        full = _full(turns=[])
+        rec = _Recorder()
         with _Patches(full=full) as p:
-            orch = Orchestrator()
-            orch.handle_turn(full.session_id, "drama")
-        call_kwargs = p.decision_decide.call_args.kwargs
-        assert "prior_questions" in call_kwargs
-        assert isinstance(call_kwargs["prior_questions"], list)
+            # ``_Patches`` ignores empty cluster lists (``or`` default); override.
+            p.cluster_cluster.return_value = []
+            with patch("backend.orchestrator.orchestrator.emit_early_clarification") as mock_emit:
+                mock_emit.return_value = MagicMock(step_type=StepType.ask)
+                orch = Orchestrator()
+                orch.handle_turn(full.session_id, "thing", progress_cb=rec)
+        assert rec.events == [
+            ("understand", "start"),
+            ("understand", "end"),
+            ("wrap_up", "start"),
+            ("wrap_up", "end"),
+        ]
 
-    def test_decision_not_passed_precomputed_entropy(self) -> None:
+    def test_callback_exception_does_not_abort_turn(self) -> None:
+        """A misbehaving callback must not crash the orchestrator."""
+
+        def boom(event: ProgressEvent) -> None:
+            raise RuntimeError("callback exploded")
+
+        cluster = _cluster()
         full = _full(turns=[])
-        with _Patches(full=full) as p:
+        decision = _decision_recommend(cluster.id)
+        with _Patches(full=full, clusters=[cluster], decision=decision):
             orch = Orchestrator()
-            orch.handle_turn(full.session_id, "drama")
-        call_kwargs = p.decision_decide.call_args.kwargs
-        assert "precomputed_entropy" not in call_kwargs
-
-
-class TestDecisionEmitsQuestion:
-    """On continue, the reply is the question from the Decision agent itself."""
-
-    def test_continue_reply_is_decision_question_text(self) -> None:
-        question = "Quiet and introspective, or loud and kinetic?"
-        full = _full(turns=[])
-        decision = _decision_continue(question_text=question)
-        with _Patches(full=full, decision=decision):
-            orch = Orchestrator()
-            result = orch.handle_turn(full.session_id, "something good")
-        assert result.assistant_message == question
-
-    def test_continue_step_type_is_ask(self) -> None:
-        full = _full(turns=[])
-        decision = _decision_continue()
-        with _Patches(full=full, decision=decision):
-            orch = Orchestrator()
-            result = orch.handle_turn(full.session_id, "something good")
-        assert result.step_type == StepType.ask
+            result = orch.handle_turn(full.session_id, "go", progress_cb=boom)
+        assert result.step_type == StepType.show

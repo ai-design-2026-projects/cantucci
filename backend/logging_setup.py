@@ -1,4 +1,5 @@
-"""Logging setup for the CinePal backend.
+"""
+Logging setup for the CinePal backend.
 
 Call configure_logging() once at application startup (in app.py lifespan).
 Every other module then does:
@@ -68,7 +69,8 @@ _COMPONENTS: tuple[tuple[str, str], ...] = (
     ("cluster", "backend.cluster"),
     ("decision", "backend.decision"),
     ("retrieval", "backend.retrieval"),
-    ("llm", "backend.llm"),
+    ("prompts", "backend.llm.prompts"),
+    ("llm", "backend.llm.llm_harness"),
 )
 
 _FILE_MAX_BYTES = 10 * 1024 * 1024  # 10 MB per file before rotation

@@ -13,7 +13,7 @@ from uuid import UUID
 
 import backend.api.sessions as api_sessions
 from backend.api.types import StepType
-from backend.orchestrator.types import ConvergenceDecision
+from backend.convergence.types import ConvergenceDecision
 from backend.routers.dtos import TurnResult
 
 log = logging.getLogger(__name__)
