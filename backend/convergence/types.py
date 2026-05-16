@@ -36,13 +36,16 @@ class ConvergenceDecision:
     needs to emit a system message without running the normal pipeline.
 
     Attributes:
-        action:            What the orchestrator should do this turn.
-        reason:            One-line rationale (structured log field).
-        reply:             Canned or LLM-generated assistant message, populated
-                           for terminate / natural_end / clarify_drift actions.
-        drift_topic:       Subject of the contradiction (clarify_drift only).
-        prior_statement:   Earlier oracle utterance about the drift topic.
-        current_statement: Contradicting utterance in the current turn.
+        action:             What the orchestrator should do this turn.
+        reason:             One-line rationale (structured log field).
+        reply:              Canned or LLM-generated assistant message, populated
+                            for terminate / natural_end / clarify_drift actions.
+        drift_topic:        Subject of the contradiction (clarify_drift only).
+        prior_statement:    Earlier oracle utterance about the drift topic.
+        current_statement:  Contradicting utterance in the current turn.
+        retrieval_override: When set on a ``proceed`` decision, instructs the
+                            orchestrator to discard the speculative cluster result
+                            and rerun cluster_agent with this query instead.
     """
 
     action: ConvergenceAction
@@ -51,6 +54,7 @@ class ConvergenceDecision:
     drift_topic: str | None = None
     prior_statement: str | None = None
     current_statement: str | None = None
+    retrieval_override: str | None = None
 
 
 class ConvergenceCheckResponse(BaseModel):

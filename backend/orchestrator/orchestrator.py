@@ -12,6 +12,7 @@ Private decision logic lives in ``backend/orchestrator/tools/``.
 """
 
 import logging
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from decimal import Decimal
 from uuid import UUID, uuid4
@@ -23,6 +24,7 @@ from backend.ambiguity import ambiguity_agent
 from backend.cluster import cluster_agent
 from backend.convergence import convergence_agent
 from backend.decision import decision_agent
+from backend.decision.tools import entropy_calculator
 from backend.profile import profile_agent
 from backend.api.types import ClusterSnapshot, SessionStatus, StepType, TurnDetail
 from backend.convergence.types import ConvergenceAction, ConvergenceDecision
@@ -147,69 +149,21 @@ class Orchestrator:
             },
         )
 
-        # Convergence gate (hard limits + LLM, uses N-1 profile).
-        conv = convergence_agent.check(
-            session_id=session_id,
-            run_id=full.run_id,
-            turn_id=turn_id,
-            turn_number=turn_number,
-            user_message=user_message,
-            full=full,
-            preference_profile=prior_profile,
-            cfg=cfg,
-        )
-
-        # Hard limit: terminate immediately with a canned message, no LLM call.
-        if conv.action is ConvergenceAction.terminate:
-            return self._terminate_turn(
-                session_id=session_id,
-                turn_id=turn_id,
-                turn_number=turn_number,
-                user_message=user_message,
-                decision=conv,
-            )
-
-        # Natural end: persist a converged turn with a canned message, no LLM call.
-        if conv.action is ConvergenceAction.natural_end:
-            return self._natural_end_turn(
-                session_id=session_id,
-                turn_id=turn_id,
-                turn_number=turn_number,
-                user_message=user_message,
-                decision=conv,
-                preference_profile=prior_profile or {},
-            )
-
-        # Drift clarification: persist a turn with the LLM-generated clarification question.
-        if conv.action is ConvergenceAction.clarify_drift:
-            return emit_drift_clarification(
-                session_id=session_id,
-                turn_id=turn_id,
-                turn_number=turn_number,
-                user_message=user_message,
-                decision=conv,
-            )
-
-        # Determine Scenario A (fresh) vs Scenario B (refinement after ask).
+        # Precompute pure cluster inputs so Wave 1 can dispatch immediately.
         prior_turn = full.turns[-1] if full.turns else None
         is_refinement = (
             prior_turn is not None
             and prior_turn.step_type == StepType.ask.value
             and prior_turn.clusters
         )
-
-        # Retrieval decision based on turn number and drift signal
         ret = should_retrieve(full, user_message)
 
         if is_refinement:
             log.info(
                 "refinement after ask",
-                extra={
-                    "session_id": str(session_id),
-                    "turn_number": turn_number,
-                },
+                extra={"session_id": str(session_id), "turn_number": turn_number},
             )
-            clusters = cluster_agent.cluster(
+            cluster_kwargs: dict = dict(
                 session_id=session_id,
                 run_id=full.run_id,
                 turn_id=turn_id,
@@ -220,7 +174,6 @@ class Orchestrator:
                 user_answer=user_message,
             )
         else:
-            query = ret.query or user_message
             log.info(
                 "fresh retrieval",
                 extra={
@@ -229,12 +182,88 @@ class Orchestrator:
                     "retrieve_new": ret.retrieve,
                 },
             )
+            cluster_kwargs = dict(
+                session_id=session_id,
+                run_id=full.run_id,
+                turn_id=turn_id,
+                turn_number=turn_number,
+                user_query=ret.query or user_message,
+            )
+
+        # Wave 1: Convergence + Cluster (speculative) + Profile in parallel.
+        with ThreadPoolExecutor(max_workers=3) as pool:
+            f_conv = pool.submit(
+                convergence_agent.check,
+                session_id=session_id,
+                run_id=full.run_id,
+                turn_id=turn_id,
+                turn_number=turn_number,
+                user_message=user_message,
+                full=full,
+                preference_profile=prior_profile,
+                cfg=cfg,
+            )
+            f_cluster = pool.submit(cluster_agent.cluster, **cluster_kwargs)
+            f_profile = pool.submit(
+                profile_agent.extract,
+                session_id=session_id,
+                run_id=full.run_id,
+                turn_id=turn_id,
+                turn_number=turn_number,
+                user_message=user_message,
+                prior_profile=prior_profile,
+                recent_turns=recent_turns,
+            )
+            conv = f_conv.result()
+            clusters = f_cluster.result()
+            new_profile = f_profile.result()
+
+        # Early-exit branches: cluster + profile results are discarded.
+        if conv.action is ConvergenceAction.terminate:
+            return self._terminate_turn(
+                session_id=session_id,
+                turn_id=turn_id,
+                turn_number=turn_number,
+                user_message=user_message,
+                decision=conv,
+            )
+
+        if conv.action is ConvergenceAction.natural_end:
+            return self._natural_end_turn(
+                session_id=session_id,
+                turn_id=turn_id,
+                turn_number=turn_number,
+                user_message=user_message,
+                decision=conv,
+                preference_profile=prior_profile or {},
+            )
+
+        if conv.action is ConvergenceAction.clarify_drift:
+            return emit_drift_clarification(
+                session_id=session_id,
+                turn_id=turn_id,
+                turn_number=turn_number,
+                user_message=user_message,
+                decision=conv,
+            )
+
+        # Convergence ↔ Cluster reconciliation: if convergence supplies a
+        # retrieval override, the speculative cluster result is stale — rerun.
+        if conv.retrieval_override:
+            log.warning(
+                "cluster rerun: convergence supplied retrieval override",
+                extra={
+                    "session_id": str(session_id),
+                    "turn_id": str(turn_id),
+                    "override_query": conv.retrieval_override,
+                },
+            )
             clusters = cluster_agent.cluster(
                 session_id=session_id,
                 run_id=full.run_id,
                 turn_id=turn_id,
                 turn_number=turn_number,
-                user_query=query,
+                user_query=conv.retrieval_override,
             )
 
         if not clusters:
@@ -268,15 +297,38 @@ class Orchestrator:
             },
         )
 
-        decision = decision_agent.decide(
-            session_id=session_id,
-            run_id=full.run_id,
-            turn_id=turn_id,
-            turn_number=turn_number,
-            user_query=user_message,
-            clusters=clusters,
-            preference_profile=prior_profile,
-        )
+        # Compute entropy once; pass the same deterministic value to both
+        # Decision and Ambiguity so they provably agree on the score.
+        soft_scores = [[a.score for a in c.assignments] for c in clusters]
+        entropy_score = entropy_calculator.compute(soft_scores)
+
+        # Wave 2: Decision + Ambiguity in parallel.
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            f_decision = pool.submit(
+                decision_agent.decide,
+                session_id=session_id,
+                run_id=full.run_id,
+                turn_id=turn_id,
+                turn_number=turn_number,
+                user_query=user_message,
+                clusters=clusters,
+                preference_profile=prior_profile,
+                precomputed_entropy=entropy_score,
+            )
+            f_ambiguity = pool.submit(
+                ambiguity_agent.generate_question,
+                session_id=session_id,
+                run_id=full.run_id,
+                turn_id=turn_id,
+                turn_number=turn_number,
+                user_query=user_message,
+                clusters=clusters,
+                entropy_score=entropy_score,
+                prior_questions=prior_questions(full.turns),
+                preference_profile=prior_profile,
+            )
+            decision = f_decision.result()
+            ambiguity_question = f_ambiguity.result()
 
         log.debug(
             "decision action chosen",
@@ -293,26 +345,7 @@ class Orchestrator:
         converged: bool
 
         if decision.action == DecisionAction.continue_:
-            log.debug(
-                "entering ambiguity branch",
-                extra={
-                    "session_id": str(session_id),
-                    "turn_id": str(turn_id),
-                    "n_prior_questions": len(prior_questions(full.turns)),
-                },
-            )
-            question = ambiguity_agent.generate_question(
-                session_id=session_id,
-                run_id=full.run_id,
-                turn_id=turn_id,
-                turn_number=turn_number,
-                user_query=user_message,
-                clusters=clusters,
-                entropy_score=decision.entropy_score,
-                prior_questions=prior_questions(full.turns),
-                preference_profile=prior_profile,
-            )
-            reply = question.question_text
+            reply = ambiguity_question.question_text
             step_type = StepType.ask
             converged = False
         else:
@@ -355,16 +388,6 @@ class Orchestrator:
             target_id=fb_target_id,
         )
 
-        # Profile Agent: extract updated profile and persist for next turn.
-        new_profile = profile_agent.extract(
-            session_id=session_id,
-            run_id=full.run_id,
-            turn_id=turn_id,
-            turn_number=turn_number,
-            user_message=user_message,
-            prior_profile=prior_profile,
-            recent_turns=recent_turns,
-        )
         api_sessions.update_preference_profile(session_id, new_profile.model_dump())
 
         log.debug(

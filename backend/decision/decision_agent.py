@@ -38,6 +38,7 @@ def decide(
     clusters: list[ClusterSnapshot],
     preference_profile: dict[str, Any] | None = None,
     accumulated_cost_usd: float = 0.0,
+    precomputed_entropy: float | None = None,
 ) -> DecisionResult:
     """Return a routing decision for the current turn.
 
@@ -54,6 +55,12 @@ def decide(
         preference_profile:   Structured oracle profile from the previous turn,
                               or None when no profile has been extracted yet.
         accumulated_cost_usd: Running USD cost for the current turn (for cost guard).
+        precomputed_entropy:  Entropy already computed by the caller (e.g. the
+                              orchestrator when running Decision and Ambiguity in
+                              parallel). When supplied, skips the internal
+                              ``entropy_calculator.compute`` call and overrides the
+                              LLM-echoed value in the returned ``DecisionResult``,
+                              guaranteeing both agents see the same number.
 
     Returns:
         A ``DecisionResult`` with routing action, best cluster id, rationale,
@@ -77,9 +84,8 @@ def decide(
             entropy_score=1.0,
         )
 
-    # Compute the entropy and relevance scores, then call the LLM to get the routing decision
     soft_scores = [[a.score for a in c.assignments] for c in clusters]
-    entropy = entropy_calculator.compute(soft_scores)
+    entropy = precomputed_entropy if precomputed_entropy is not None else entropy_calculator.compute(soft_scores)
     relevance = relevance_scorer.score(user_query, clusters)
 
     log.debug(
@@ -209,10 +215,10 @@ def decide(
             "entropy_score": parsed["entropy_score"],
         },
     )
-    # Return the decision result to the orchestrator for routing
+    returned_entropy = entropy if precomputed_entropy is not None else float(parsed["entropy_score"])
     return DecisionResult(
         action=action,
         best_cluster_id=best_cluster_id,
         rationale=parsed["rationale"],
-        entropy_score=float(parsed["entropy_score"]),
+        entropy_score=returned_entropy,
     )
