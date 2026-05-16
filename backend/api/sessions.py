@@ -242,6 +242,28 @@ def write_feedback(
     return feedback_id
 
 
+def mark_abandoned(session_id: uuid.UUID, reason: str) -> None:
+    """Set session status to 'abandoned'.
+
+    Called by the orchestrator when a hard limit (max_turns or max_recommendations)
+    is reached. The ``reason`` is logged here for auditability but not persisted to
+    the DB — it also lives in the terminating turn's assistant_message and log record.
+
+    Args:
+        session_id: Session to abandon.
+        reason:     One-line description of the limit that was hit.
+    """
+    with transaction() as conn:
+        conn.execute(
+            "UPDATE sessions SET status = 'abandoned', updated_at = NOW() WHERE id = %s",
+            (session_id,),
+        )
+    log.info(
+        "session marked abandoned",
+        extra={"session_id": str(session_id), "reason": reason},
+    )
+
+
 def mark_converged(
     session_id: uuid.UUID,
     preference_profile: dict[str, Any],
@@ -266,3 +288,31 @@ def mark_converged(
             (json.dumps(preference_profile), session_id),
         )
     log.info("session %s marked converged", session_id)
+
+
+def update_preference_profile(
+    session_id: uuid.UUID,
+    preference_profile: dict[str, Any],
+) -> None:
+    """Overwrite sessions.preference_profile with the latest extracted profile.
+
+    Called at the end of every turn by the orchestrator, after the Profile
+    Agent has returned an updated profile. The prior value is discarded.
+
+    Args:
+        session_id:         Session to update.
+        preference_profile: Fresh structured profile dict from the Profile Agent.
+    """
+    import json
+
+    with transaction() as conn:
+        conn.execute(
+            """
+            UPDATE sessions
+            SET preference_profile = %s::jsonb,
+                updated_at = NOW()
+            WHERE id = %s
+            """,
+            (json.dumps(preference_profile), session_id),
+        )
+    log.debug("preference_profile updated for session %s", session_id)

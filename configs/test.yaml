@@ -20,6 +20,7 @@ session:
   # Any spend > 0 means the dry_run guard failed. Keep this at 0.0 so the very
   # first byte of real LLM cost trips CostLimitExceeded.
   cost_limit_usd: 0.0
+  max_recommendations: 5
 
 retrieval:
   top_k: 50

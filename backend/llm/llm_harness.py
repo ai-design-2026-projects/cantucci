@@ -199,6 +199,11 @@ def call(
         except openai.APIError:
             raise
 
+        if not response.choices:
+            last_exc = RuntimeError(
+                f"API returned empty choices for step {step_type!r}"
+            )
+            continue
         input_tokens = response.usage.prompt_tokens if response.usage else 0
         output_tokens = response.usage.completion_tokens if response.usage else 0
         content = response.choices[0].message.content or ""

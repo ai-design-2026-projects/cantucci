@@ -1,10 +1,10 @@
-"""Orchestrator feedback helpers — oracle message classification and profile extraction.
+"""Orchestrator feedback helpers — oracle message classification.
 
-MVP heuristic classifiers; an LLM-based ``f_next_state`` classifier is a future
-iteration described in docs/specifications/problem_statement.md §4.
+MVP heuristic classifier for feedback type. Profile extraction has moved to
+backend.profile.profile_agent (LLM-based, run at the end of each turn).
 """
 
-from backend.api.types import ClusterSnapshot, StepType, TurnDetail
+from backend.api.types import StepType, TurnDetail
 from backend.decision.types import DecisionResult
 
 _NEGATIVE_LEXICON = frozenset({
@@ -43,39 +43,3 @@ def classify_feedback(
             return "cluster", "reject", target
         return "cluster", "accept", target
     return "global", "constraint", None
-
-
-def extract_preference_profile(
-    turns: list[TurnDetail],
-    user_message: str,
-    clusters: list[ClusterSnapshot],
-    decision: DecisionResult,
-) -> dict:
-    """Build a minimal preference profile from the conversation history.
-
-    Collects oracle utterances from ask-type turns as constraints, and captures
-    the final cluster name and description. A richer extraction pass (structured
-    by the LLM) is a future iteration.
-
-    Args:
-        turns:        All prior turns (not including the current one).
-        user_message: Oracle's message for the current (converging) turn.
-        clusters:     Current cluster snapshots.
-        decision:     Decision Agent output for the current turn.
-
-    Returns:
-        Dict with keys ``oracle_constraints``, ``final_cluster_name``,
-        ``final_cluster_description``.
-    """
-    constraints = [t.user_message for t in turns if t.step_type == StepType.ask.value]
-    constraints.append(user_message)
-    best: ClusterSnapshot | None = None
-    if decision.best_cluster_id:
-        best = next((c for c in clusters if c.id == decision.best_cluster_id), None)
-    if best is None and clusters:
-        best = clusters[0]
-    return {
-        "oracle_constraints": constraints,
-        "final_cluster_name": best.name if best else "unknown",
-        "final_cluster_description": best.description if best else None,
-    }

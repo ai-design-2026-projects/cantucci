@@ -13,6 +13,8 @@ import logging
 from pathlib import Path
 from uuid import UUID
 
+from typing import Any
+
 from backend.decision.tools import entropy_calculator, relevance_scorer
 from backend.llm import llm_harness
 from backend.llm.prompts import make_prompt_loader
@@ -34,7 +36,9 @@ def decide(
     turn_number: int,
     user_query: str,
     clusters: list[ClusterSnapshot],
+    preference_profile: dict[str, Any] | None = None,
     accumulated_cost_usd: float = 0.0,
+    precomputed_entropy: float | None = None,
 ) -> DecisionResult:
     """Return a routing decision for the current turn.
 
@@ -48,7 +52,15 @@ def decide(
         turn_number:          1-based turn index within the session.
         user_query:           Oracle's message for this turn.
         clusters:             Current cluster snapshots.
+        preference_profile:   Structured oracle profile from the previous turn,
+                              or None when no profile has been extracted yet.
         accumulated_cost_usd: Running USD cost for the current turn (for cost guard).
+        precomputed_entropy:  Entropy already computed by the caller (e.g. the
+                              orchestrator when running Decision and Ambiguity in
+                              parallel). When supplied, skips the internal
+                              ``entropy_calculator.compute`` call and overrides the
+                              LLM-echoed value in the returned ``DecisionResult``,
+                              guaranteeing both agents see the same number.
 
     Returns:
         A ``DecisionResult`` with routing action, best cluster id, rationale,
@@ -72,9 +84,8 @@ def decide(
             entropy_score=1.0,
         )
 
-    # Compute the entropy and relevance scores, then call the LLM to get the routing decision
     soft_scores = [[a.score for a in c.assignments] for c in clusters]
-    entropy = entropy_calculator.compute(soft_scores)
+    entropy = precomputed_entropy if precomputed_entropy is not None else entropy_calculator.compute(soft_scores)
     relevance = relevance_scorer.score(user_query, clusters)
 
     log.debug(
@@ -107,7 +118,7 @@ def decide(
 
     # Construct the prompt and call the LLM harness to get the decision
     system_text, prompt_hash = load_prompt(
-        "decision_v1",
+        "decision_v2",
         {
             "turn_number": turn_number,
             "max_turns": cfg.session.max_turns,
@@ -115,6 +126,7 @@ def decide(
             "user_query": user_query,
             "clusters": cluster_vars,
             "entropy_score": entropy,
+            "preference_profile": preference_profile,
         },
     )
 
@@ -203,10 +215,10 @@ def decide(
             "entropy_score": parsed["entropy_score"],
         },
     )
-    # Return the decision result to the orchestrator for routing
+    returned_entropy = entropy if precomputed_entropy is not None else float(parsed["entropy_score"])
     return DecisionResult(
         action=action,
         best_cluster_id=best_cluster_id,
         rationale=parsed["rationale"],
-        entropy_score=float(parsed["entropy_score"]),
+        entropy_score=returned_entropy,
     )
