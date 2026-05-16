@@ -88,6 +88,15 @@ def retrieve(
         accumulated_cost_usd=accumulated_cost_usd,
         dry_run=dry_run,
     )
+    log.debug(
+        "query reformulated",
+        extra={
+            "session_id": str(session_id),
+            "turn_id": str(turn_id),
+            "reformulated_query": reformulated.query,
+            "n_excluded_titles": len(reformulated.excluded_films),
+        },
+    )
     excluded_titles = list(reformulated.excluded_films)
     exclude_ids: list[int] = (
         api_movies.resolve_titles_to_ids(excluded_titles) if excluded_titles else []
@@ -102,8 +111,41 @@ def retrieve(
             },
         )
 
+    log.debug(
+        "vector_search inputs",
+        extra={
+            "session_id": str(session_id),
+            "turn_id": str(turn_id),
+            "k": k,
+            "n_exclude_ids": len(exclude_ids),
+            "query_len": len(reformulated.query),
+        },
+    )
+
     hits = vector_search.search(reformulated.query, k, exclude_ids=exclude_ids or None)
+
+    log.debug(
+        "vector_search result",
+        extra={
+            "session_id": str(session_id),
+            "turn_id": str(turn_id),
+            "n_hits": len(hits),
+            "top_score": hits[0].score if hits else None
+        },
+    )
+
     metas = metadata_fetcher.fetch([h.movie_id for h in hits])
+
+    log.debug(
+        "metadata fetched",
+        extra={
+            "session_id": str(session_id),
+            "turn_id": str(turn_id),
+            "n_requested": len(hits),
+            "n_returned": len(metas),
+            "retrieved_movies": [f"{m.movie_id}: {m.title}" for m in metas],
+        },
+    )
 
     score_map = {h.movie_id: h.score for h in hits}
     hit_order = {h.movie_id: i for i, h in enumerate(hits)}

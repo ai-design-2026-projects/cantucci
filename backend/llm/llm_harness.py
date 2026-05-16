@@ -147,6 +147,22 @@ def call(
             parsed=parsed,
         )
 
+    log.debug(
+        "llm_call pre-call",
+        extra={
+            "session_id": str(session_id),
+            "turn_id": str(turn_id),
+            "step_type": step_type,
+            "prompt_hash": prompt_hash,
+            "model": model_and_version,
+            "provider": provider,
+            "accumulated_cost_usd": accumulated_cost_usd,
+            "cost_limit_usd": cost_limit_usd,
+            "cost_remaining_usd": cost_limit_usd - accumulated_cost_usd,
+            "has_schema": response_schema is not None,
+        },
+    )
+
     if accumulated_cost_usd >= cost_limit_usd:
         raise CostLimitExceeded(accumulated_cost_usd, cost_limit_usd)
 

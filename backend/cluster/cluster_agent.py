@@ -83,6 +83,19 @@ def cluster(
     cfg = get_settings()
     k: int = cfg.retrieval.top_k
 
+    log.debug(
+        "cluster agent entry",
+        extra={
+            "session_id": str(session_id),
+            "turn_id": str(turn_id),
+            "turn_number": turn_number,
+            "user_query_len": len(user_query),
+            "prior_candidates": 0 if prior_candidates is None else len(prior_candidates),
+            "top_k": k,
+            "dry_run": dry_run,
+        },
+    )
+
     # If prior candidates are provided, skip reformulation and retrieval
     if prior_candidates is not None:
         movie_ids = prior_candidates
@@ -141,6 +154,17 @@ def cluster(
             cluster_selection_method=cfg.clustering.cluster_selection_method,
         )
 
+        log.debug(
+            "soft cluster engine output",
+            extra={
+                "session_id": str(session_id),
+                "turn_id": str(turn_id),
+                "n_kept": len(kept_ids),
+                "n_clusters": result.n_clusters,
+                "embedding_dim": int(embeddings.shape[1]) if embeddings.ndim == 2 else None,
+            },
+        )
+
         meta_by_id = {c.movie_id: c for c in metas}
 
         if result.n_clusters == 0:
@@ -175,6 +199,16 @@ def cluster(
                 "sample_overviews": overviews[:2],
             }
         )
+
+    log.debug(
+        "cluster describer pre-call",
+        extra={
+            "session_id": str(session_id),
+            "turn_id": str(turn_id),
+            "n_clusters_to_describe": len(clusters_payload),
+            "top_titles_per_cluster": top_n,
+        },
+    )
 
     # The describer returns a list of (name, description) pairs in the same order as the input clusters
     labels = cluster_describer.describe(
@@ -220,6 +254,15 @@ def cluster(
             "turn_number": turn_number,
             "n_clusters": len(snapshots),
             "n_candidates": len(kept_ids),
+        },
+    )
+    log.debug(
+        "final ClusterSnapshot list",
+        extra={
+            "session_id": str(session_id),
+            "turn_id": str(turn_id),
+            "cluster_names": [s.name for s in snapshots],
+            "cluster_sizes": [len(s.assignments) for s in snapshots],
         },
     )
     return snapshots
