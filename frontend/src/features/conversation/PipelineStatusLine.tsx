@@ -1,134 +1,73 @@
-import { useEffect, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
+import { useUiStore } from "@/store/uiStore";
 import { cn } from "@/lib/utils";
+import type { ProgressStep } from "@/features/conversation/services/turnService";
 
 /**
  * A pipeline stage shown to the oracle during a turn wait.
  *
- * ``startSeconds`` is the elapsed-second threshold at which this stage
- * becomes active. Variants rotate within an active stage on a fixed cadence
- * so the copy feels alive without claiming false precision.
+ * Keyed by the backend ``ProgressStep`` so the UI advances when real progress
+ * events arrive on the NDJSON stream instead of on a hardcoded timer.
  */
 export interface PipelineStage {
-  /** Stable identifier — also used as the React key for the active stage. */
-  id: string;
-  /** Elapsed seconds at which this stage takes over (inclusive). */
-  startSeconds: number;
-  /** Lines rotated through while this stage is active. */
-  variants: readonly string[];
+  /** Stable identifier; matches a backend ``ProgressStep`` value. */
+  id: ProgressStep;
+  /** Product-soft copy shown while this step is active. */
+  label: string;
 }
 
 /**
- * Product-soft pipeline stages, time-mapped to the typical turn latency
- * (Retrieval → Clustering → Decision → Ambiguity). Exposed for tests.
+ * Product-soft copy for each pipeline step the backend reports. The values
+ * mirror ``backend/orchestrator/progress.py::ProgressStep``; whenever a new
+ * step is added there, add a matching row here.
  */
-export const STAGES: readonly PipelineStage[] = [
-  {
-    id: "retrieval",
-    startSeconds: 0,
-    variants: [
-      "Finding films you might love…",
-      "Pulling candidates from the catalogue…",
-      "Reading between the lines…",
-    ],
-  },
-  {
-    id: "clustering",
-    startSeconds: 7,
-    variants: [
-      "Grouping by mood…",
-      "Looking for patterns…",
-      "Sorting the shortlist…",
-    ],
-  },
-  {
-    id: "decision",
-    startSeconds: 18,
-    variants: [
-      "Picking the best slate…",
-      "Weighing the options…",
-      "Choosing what to ask next…",
-    ],
-  },
-  {
-    id: "ambiguity",
-    startSeconds: 28,
-    variants: [
-      "Checking the close calls…",
-      "Probing edge cases…",
-      "Almost there…",
-    ],
-  },
-] as const;
-
-/** How often (ms) the variant rotates within an active stage. */
-const VARIANT_TICK_MS = 3000;
+export const STAGES: Readonly<Record<ProgressStep, PipelineStage>> = {
+  retrieval: { id: "retrieval", label: "Finding films you might love…" },
+  cluster:   { id: "cluster",   label: "Grouping by mood…" },
+  decision:  { id: "decision",  label: "Picking the best slate…" },
+  ambiguity: { id: "ambiguity", label: "Checking the close calls…" },
+  render:    { id: "render",    label: "Writing the recommendation…" },
+  persist:   { id: "persist",   label: "Saving your turn…" },
+} as const;
 
 /**
- * Select the active stage for a given elapsed-seconds value.
- *
- * Picks the last stage whose ``startSeconds`` is <= elapsed.
- *
- * @param elapsedSeconds - Seconds since the wait started.
- * @param stages - Stage table, ordered by ``startSeconds`` ascending.
- * @returns The currently-active stage.
+ * Fallback shown before the first progress event arrives (or when the backend
+ * is running on the legacy code path without progress callbacks).
  */
-export function selectStage(
-  elapsedSeconds: number,
-  stages: readonly PipelineStage[] = STAGES,
-): PipelineStage {
-  let active = stages[0];
-  for (const s of stages) {
-    if (elapsedSeconds >= s.startSeconds) active = s;
-  }
-  return active;
-}
+const INITIAL_LABEL = STAGES.retrieval.label;
 
 interface PipelineStatusLineProps {
-  /** Override the stages (used in tests). */
-  stages?: readonly PipelineStage[];
-  /** Override the variant rotation cadence in ms (used in tests). */
-  tickMs?: number;
+  /**
+   * Override the active step for tests or storybook. When provided, the
+   * component ignores ``useUiStore.currentStep``.
+   */
+  step?: ProgressStep | null;
   /** Optional Tailwind classes for the wrapper. */
   className?: string;
 }
 
 /**
- * A single line of product-soft status copy that advances through pipeline
- * stages over time and rotates through variant phrasings within a stage.
+ * Single status line driven by the backend's streamed pipeline step.
  *
- * Self-clocking: starts its internal timer on mount and stops when unmounted.
- * No props are required in production — the assistant bubble simply mounts
- * this component while ``assistant_message`` is empty and unmounts it once
- * the real reply arrives.
+ * Reads ``currentStep`` from ``useUiStore`` (set by ``useTurnHandler`` on
+ * every NDJSON ``progress`` event) and maps it to product-soft copy via the
+ * ``STAGES`` table. Before the first event arrives, falls back to the
+ * retrieval-stage label so the placeholder never appears empty.
  *
- * Uses framer-motion ``AnimatePresence`` for a soft crossfade between lines.
+ * Uses framer-motion ``AnimatePresence`` for a soft crossfade when the step
+ * changes — the right primitive for event-driven transitions because the key
+ * change is what triggers the animation, not elapsed time.
  *
- * @param stages - Override stages for tests.
- * @param tickMs - Override variant cadence for tests.
+ * @param step - Override the active step (used in tests).
  * @param className - Optional wrapper classes.
  * @returns A status line element.
  */
-export function PipelineStatusLine({
-  stages = STAGES,
-  tickMs = VARIANT_TICK_MS,
-  className,
-}: PipelineStatusLineProps) {
-  const [elapsed, setElapsed] = useState(0);
-  const [tick, setTick] = useState(0);
-
-  useEffect(() => {
-    const start = Date.now();
-    const id = window.setInterval(() => {
-      setElapsed((Date.now() - start) / 1000);
-      setTick((t) => t + 1);
-    }, tickMs);
-    return () => window.clearInterval(id);
-  }, [tickMs]);
-
-  const stage = selectStage(elapsed, stages);
-  const variant = stage.variants[tick % stage.variants.length];
-  const lineKey = `${stage.id}:${tick % stage.variants.length}`;
+export function PipelineStatusLine({ step, className }: PipelineStatusLineProps = {}) {
+  const storeStep = useUiStore((s) => s.currentStep);
+  const active = step !== undefined ? step : storeStep;
+  const stage = active ? STAGES[active] : null;
+  const label = stage?.label ?? INITIAL_LABEL;
+  const lineKey = stage?.id ?? "initial";
 
   return (
     <span
@@ -146,7 +85,7 @@ export function PipelineStatusLine({
           transition={{ duration: 0.35, ease: "easeOut" }}
           className="inline-block"
         >
-          {variant}
+          {label}
         </motion.span>
       </AnimatePresence>
     </span>

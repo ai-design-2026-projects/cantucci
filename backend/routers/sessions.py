@@ -8,18 +8,44 @@ Invariants enforced here:
 - TODO: add an auth dependency (e.g. X-Oracle-Id header) when auth is designed.
 """
 
+import asyncio
+import inspect
 import logging
+from functools import lru_cache
+from typing import AsyncIterator
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import StreamingResponse
 
 from backend.exceptions import SessionNotFound
 from backend.orchestrator.orchestrator import Orchestrator
-from backend.routers.dtos import SessionState, TurnRequest, TurnResult
+from backend.orchestrator.progress import (
+    ErrorEvent,
+    ProgressEvent,
+    ResultEvent,
+    StreamEvent,
+)
+from backend.routers.dtos import SessionState, TurnRequest
 
 log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
+
+
+@lru_cache(maxsize=8)
+def _accepts_progress_cb_class(cls: type) -> bool:
+    """Whether instances of *cls* have ``progress_cb`` in their ``handle_turn`` signature.
+
+    Cached per-class because ``instance.handle_turn`` is a fresh bound-method
+    object on every attribute access — caching the bound method directly would
+    miss. During the phased rollout, the real ``Orchestrator.handle_turn``
+    does not yet accept ``progress_cb``; the stream then contains only the
+    terminal ``result`` event, which is the acceptable fallback.
+    """
+    return "progress_cb" in inspect.signature(cls.handle_turn).parameters
+
+
 def _orchestrator(request: Request) -> Orchestrator:
     """Return the app-scoped orchestrator instance bound in app.state.
 
@@ -60,16 +86,122 @@ def create_session(orchestrator: Orchestrator = Depends(_orchestrator)) -> Sessi
     return state
 
 
-@router.post("/{session_id}/turns", response_model=TurnResult)
-def add_turn(
+def _serialize(event: StreamEvent) -> str:
+    """Render one stream event as a single NDJSON line (trailing newline)."""
+    return event.model_dump_json() + "\n"
+
+
+async def _turn_event_stream(
+    orchestrator: Orchestrator,
+    session_id: UUID,
+    user_message: str,
+) -> AsyncIterator[str]:
+    """Run a turn in a worker thread and yield NDJSON lines as events arrive.
+
+    Wiring:
+      - An ``asyncio.Queue`` carries events from the worker thread to the
+        async generator running on the event loop.
+      - ``progress_cb`` is a thread-safe shim: the orchestrator (sync, on a
+        thread) calls it; we marshal each event onto the event loop via
+        ``loop.call_soon_threadsafe`` so the queue is only touched from the
+        loop thread.
+      - A sentinel object signals "worker is done" so the generator can exit.
+
+    Failures inside the worker become a single trailing ``ErrorEvent``; the
+    HTTP status is already 200 by the time we get here (headers flushed when
+    the StreamingResponse started), so an in-band error event is the only
+    way to surface the failure to the client.
+
+    Args:
+        orchestrator: The app-scoped orchestrator.
+        session_id:   UUID of the live session.
+        user_message: The oracle's message for this turn.
+
+    Yields:
+        One NDJSON line per ``StreamEvent`` (progress events, then exactly
+        one terminal ``result`` or ``error`` event).
+    """
+    queue: asyncio.Queue[StreamEvent | object] = asyncio.Queue()
+    done = object()
+    loop = asyncio.get_running_loop()
+
+    def progress_cb(event: ProgressEvent) -> None:
+        """Thread-safe hop from the worker thread onto the event loop."""
+        try:
+            loop.call_soon_threadsafe(queue.put_nowait, event)
+        except RuntimeError:
+            # Loop is closed; client disconnected. Drop the event silently.
+            log.debug("progress event dropped after loop closure")
+
+    accepts_cb = _accepts_progress_cb_class(type(orchestrator))
+
+    async def _run_worker() -> None:
+        try:
+            if accepts_cb:
+                result = await asyncio.to_thread(
+                    orchestrator.handle_turn,
+                    session_id,
+                    user_message,
+                    progress_cb=progress_cb,
+                )
+            else:
+                result = await asyncio.to_thread(
+                    orchestrator.handle_turn,
+                    session_id,
+                    user_message,
+                )
+            await queue.put(ResultEvent(data=result))
+        except SessionNotFound as exc:
+            # Pre-check below normally catches this; race conditions land here.
+            log.warning("session vanished mid-turn", extra={"session_id": str(session_id)})
+            await queue.put(ErrorEvent(code="SessionNotFound", message=str(exc)))
+        except Exception as exc:  # noqa: BLE001 — converted to in-band error event.
+            log.error(
+                "turn failed mid-stream",
+                exc_info=True,
+                extra={"session_id": str(session_id)},
+            )
+            await queue.put(ErrorEvent(code=type(exc).__name__, message=str(exc)))
+        finally:
+            await queue.put(done)
+
+    worker = asyncio.create_task(_run_worker())
+
+    try:
+        while True:
+            event = await queue.get()
+            if event is done:
+                break
+            assert isinstance(event, (ProgressEvent, ResultEvent, ErrorEvent))
+            yield _serialize(event)
+    finally:
+        # Worker always completes (it puts ``done`` in its finally clause); the
+        # await guarantees the task is not garbage-collected mid-flight and
+        # surfaces any unexpected raise that escaped the broad handler.
+        await worker
+
+
+@router.post("/{session_id}/turns")
+async def add_turn(
     session_id: UUID,
     body: TurnRequest,
     orchestrator: Orchestrator = Depends(_orchestrator),
-) -> TurnResult:
-    """Submit the user's message for the next turn and get the system's response.
+) -> StreamingResponse:
+    """Submit the oracle's message and stream progress + result as NDJSON.
 
-    The response echoes the message back during the placeholder phase. The
-    real orchestrator will run a full recommendation pipeline here.
+    Response framing: ``application/x-ndjson`` — one JSON object per line.
+    Lines are typed via a ``type`` discriminator:
+
+    - ``{"type": "progress", "step": ..., "phase": "start"|"end", "ts": ...}``
+      emitted at each orchestrator step boundary.
+    - ``{"type": "result", "data": <TurnResult>}`` emitted once when the turn
+      completes successfully. Always the terminal line on success.
+    - ``{"type": "error", "code": ..., "message": ...}`` emitted once if the
+      turn raises after streaming has started. Always the terminal line on
+      mid-stream failure. HTTP status remains 200 in this case.
+
+    Pre-stream validation (empty message, missing session) still produces a
+    plain JSON error with 422/404 so retry semantics on the client stay simple.
 
     Args:
         session_id:   UUID of an existing session (path parameter).
@@ -77,39 +209,32 @@ def add_turn(
         orchestrator: Injected via ``_orchestrator`` dependency.
 
     Returns:
-        A ``TurnResult`` with the assistant's response and metadata (HTTP 200).
+        A ``StreamingResponse`` of NDJSON-framed events.
 
     Raises:
         HTTPException(404): If *session_id* does not identify a live session.
         HTTPException(422): If ``user_message`` is empty or whitespace-only.
     """
     log.debug(
-        "POST /sessions/{id}/turns request received",
+        "POST /sessions/{id}/turns (stream) request received",
         extra={
             "session_id": str(session_id),
             "user_message_len": len(body.user_message),
         },
     )
+
+    # Pre-stream existence check so 404 stays a real 404 instead of a 200 with
+    # a trailing error line. Cheap relative to a turn; one extra session read.
     try:
-        result = orchestrator.handle_turn(session_id, body.user_message)
+        orchestrator.get_session(session_id)
     except SessionNotFound as exc:
         log.warning("session not found", extra={"session_id": str(session_id)})
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    log.info(
-        "turn completed",
-        extra={"session_id": str(session_id), "turn_number": result.turn_number},
+
+    return StreamingResponse(
+        _turn_event_stream(orchestrator, session_id, body.user_message),
+        media_type="application/x-ndjson",
     )
-    log.debug(
-        "POST /sessions/{id}/turns response",
-        extra={
-            "session_id": str(session_id),
-            "turn_id": str(result.turn_id),
-            "step_type": result.step_type.value,
-            "converged": result.converged,
-            "assistant_message_len": len(result.assistant_message),
-        },
-    )
-    return result
 
 
 @router.get("/{session_id}", response_model=SessionState)

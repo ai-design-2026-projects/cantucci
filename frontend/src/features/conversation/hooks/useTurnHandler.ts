@@ -1,5 +1,5 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { postTurn } from "@/features/conversation/services/turnService";
+import { streamTurn } from "@/features/conversation/services/turnService";
 import { useSessionStore } from "@/store/sessionStore";
 import { useUiStore } from "@/store/uiStore";
 import type { SessionState, TurnResult } from "@/utils/types";
@@ -15,7 +15,10 @@ interface PostTurnParams {
  * Handler for submitting a new oracle turn.
  *
  * Optimistically appends a placeholder user bubble before the request
- * completes, then invalidates the session query on success.  On convergence,
+ * completes, then invalidates the session query on success. As the backend
+ * NDJSON stream emits ``progress`` events, the active pipeline step is
+ * mirrored onto ``useUiStore.currentStep`` so the wait-state UI can advance
+ * in lockstep with real work instead of a hardcoded timer. On convergence,
  * triggers the reveal animation.
  *
  * @returns Object with ``submitTurn`` mutate function and loading/error state.
@@ -23,16 +26,27 @@ interface PostTurnParams {
 export function useTurnHandler() {
   const queryClient = useQueryClient();
   const { incrementTurn } = useSessionStore();
-  const { startReveal } = useUiStore();
+  const { startReveal, setCurrentStep } = useUiStore();
 
   const { mutate: submitTurn, isPending, error } = useMutation<
     TurnResult,
     Error,
     PostTurnParams
   >({
-    mutationFn: ({ sessionId, userMessage }) => postTurn(sessionId, userMessage),
+    mutationFn: ({ sessionId, userMessage }) =>
+      streamTurn(sessionId, userMessage, {
+        onProgress: (event) => {
+          // The end of a step is just a marker; we keep showing the step's
+          // label until the next ``start`` arrives, so the UI never flashes
+          // an empty state between steps.
+          if (event.phase === "start") {
+            setCurrentStep(event.step);
+          }
+        },
+      }),
     onMutate: async ({ sessionId, userMessage }) => {
       await queryClient.cancelQueries({ queryKey: ["session", sessionId] });
+      setCurrentStep(null);
 
       const previous = queryClient.getQueryData<SessionState>(["session", sessionId]);
       if (previous) {
@@ -59,9 +73,11 @@ export function useTurnHandler() {
       if (ctx?.previous) {
         queryClient.setQueryData(["session", sessionId], ctx.previous);
       }
+      setCurrentStep(null);
     },
     onSuccess: (result, { sessionId }) => {
       incrementTurn();
+      setCurrentStep(null);
       queryClient.invalidateQueries({ queryKey: ["session", sessionId] });
       if (result.converged) {
         startReveal();

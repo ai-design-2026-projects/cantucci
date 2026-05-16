@@ -4,15 +4,40 @@ Drive the full orchestrator pipeline (retrieval → cluster → decision → amb
 or render) through the HTTP layer with ``dry_run=true`` so no live LLM calls
 happen. The point is to surface a broken contract between any two components,
 not to evaluate the recommendation quality.
+
+The /turns endpoint streams NDJSON; helpers below collect the stream into a
+list of typed events and isolate the terminal ``result`` payload for the
+existing shape assertions.
 """
 
 from __future__ import annotations
 
+import json
+from typing import Any
 from uuid import UUID
 
 from fastapi.testclient import TestClient
 
 from backend.settings import get_config_hash, get_settings
+
+
+def _collect_stream(client: TestClient, url: str, payload: dict[str, Any]) -> list[dict[str, Any]]:
+    """POST to a streaming endpoint and return the parsed NDJSON events."""
+    response = client.post(url, json=payload)
+    assert response.status_code == 200, response.text
+    assert response.headers["content-type"].startswith("application/x-ndjson"), (
+        response.headers.get("content-type")
+    )
+    events = [json.loads(line) for line in response.text.splitlines() if line.strip()]
+    assert events, "stream must emit at least the terminal event"
+    return events
+
+
+def _terminal_result(events: list[dict[str, Any]]) -> dict[str, Any]:
+    """Extract the trailing ``result`` event payload, asserting it is terminal."""
+    last = events[-1]
+    assert last["type"] == "result", f"expected terminal result, got {last}"
+    return last["data"]
 
 
 def test_route_table_matches_spec(client: TestClient) -> None:
@@ -43,16 +68,16 @@ def test_create_session_persists_row(client: TestClient) -> None:
 
 
 def test_full_turn_runs_end_to_end(client: TestClient) -> None:
-    """POST /turns runs every agent in dry_run mode and returns a well-formed TurnResult."""
+    """POST /turns streams NDJSON ending in a well-formed TurnResult event."""
     session = client.post("/sessions").json()
     session_id = session["session_id"]
 
-    response = client.post(
+    events = _collect_stream(
+        client,
         f"/sessions/{session_id}/turns",
-        json={"user_message": "a contemplative slow-burn drama about memory and grief"},
+        {"user_message": "a contemplative slow-burn drama about memory and grief"},
     )
-    assert response.status_code == 200, response.text
-    result = response.json()
+    result = _terminal_result(events)
 
     assert result["session_id"] == session_id
     assert result["turn_number"] == 1
@@ -65,19 +90,22 @@ def test_full_turn_runs_end_to_end(client: TestClient) -> None:
 
 def test_turn_result_persists_with_matching_config_hash(client: TestClient) -> None:
     """The turn write-through reaches the DB and the run's config_hash is stable."""
+    import os
+
     import psycopg
 
     session_id = client.post("/sessions").json()["session_id"]
-    client.post(
+    events = _collect_stream(
+        client,
         f"/sessions/{session_id}/turns",
-        json={"user_message": "weird sci-fi like Annihilation or Stalker"},
-    ).raise_for_status()
+        {"user_message": "weird sci-fi like Annihilation or Stalker"},
+    )
+    _terminal_result(events)
 
     fetched = client.get(f"/sessions/{session_id}").json()
     assert len(fetched["turns"]) == 1
 
     expected_hash = get_config_hash()
-    import os
     with psycopg.connect(os.environ["DATABASE_URL"]) as conn:
         row = conn.execute(
             """
