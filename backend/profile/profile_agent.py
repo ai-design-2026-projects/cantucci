@@ -114,7 +114,18 @@ def extract(
             "n_constraints": len(profile.constraints),
             "n_preferences": len(profile.preferences),
             "n_attitudes": len(profile.attitudes),
-            "summary:": profile.summary,
+        },
+    )
+
+    log.debug(
+        "profile extract details",
+        extra={
+            "session_id": str(session_id),
+            "turn_id": str(turn_id),
+            "constraints": profile.constraints,
+            "preferences": profile.preferences,
+            "attitudes": profile.attitudes,
+            "summary": profile.summary,
         },
     )
 

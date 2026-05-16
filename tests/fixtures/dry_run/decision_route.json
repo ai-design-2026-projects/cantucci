@@ -1,5 +1,10 @@
 {
   "action": "continue",
-  "rationale": "smoke-test fixture — route to ambiguity_question so a full turn exercises the continue branch",
-  "entropy_score": 0.42
+  "best_cluster_id": null,
+  "rationale": "smoke-test fixture — entropy high, question emitted in same call",
+  "entropy_score": 0.42,
+  "question": {
+    "text": "Would you prefer something quiet and contemplative, or fast-paced and exciting?",
+    "cluster_refs": []
+  }
 }

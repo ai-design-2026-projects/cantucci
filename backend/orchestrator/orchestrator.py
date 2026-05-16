@@ -4,7 +4,7 @@ No in-memory session state: all persistence flows through ``backend.api``.
 
 Turn flow (per architecture.md):
   Oracle → Orchestrator → Convergence Agent → Cluster Agent (→ Retrieval
-  internally) → Decision Agent → (Ambiguity Agent if continue) →
+  internally) → Decision Agent (decides + generates question when continuing) →
   Profile Agent → Orchestrator writes turn / clusters / feedback / profile.
 
 The Orchestrator is the sole writer to the DB. All sub-agents are read-only.
@@ -20,11 +20,9 @@ from uuid import UUID, uuid4
 import backend.api.retrieval as api_retrieval
 import backend.api.runs as api_runs
 import backend.api.sessions as api_sessions
-from backend.ambiguity import ambiguity_agent
 from backend.cluster import cluster_agent
 from backend.convergence import convergence_agent
 from backend.decision import decision_agent
-from backend.decision.tools import entropy_calculator
 from backend.profile import profile_agent
 from backend.api.types import ClusterSnapshot, SessionStatus, StepType, TurnDetail
 from backend.convergence.types import ConvergenceAction, ConvergenceDecision
@@ -401,7 +399,7 @@ class Orchestrator:
         converged: bool
 
         if decision.action == DecisionAction.continue_:
-            reply = ambiguity_question.question_text
+            reply = decision.question_text or ""
             step_type = StepType.ask
             converged = False
         else:

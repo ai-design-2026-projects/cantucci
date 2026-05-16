@@ -7,6 +7,7 @@ no Docker. Tests verify:
   - Render is deterministic (no LLM, no orchestrator_render step_type)
   - First-turn prior_profile=None flows correctly
   - Convergence short-circuit paths (terminate, natural_end, clarify_drift)
+  - Decision agent receives prior_questions and emits the question on continue
 """
 
 from __future__ import annotations
@@ -92,12 +93,14 @@ def _proceed() -> ConvergenceDecision:
     return ConvergenceDecision(action=ConvergenceAction.proceed, reason="ok")
 
 
-def _decision_continue() -> DecisionResult:
+def _decision_continue(question_text: str = "What mood are you in?") -> DecisionResult:
     return DecisionResult(
         action=DecisionAction.continue_,
         best_cluster_id=None,
         rationale="still uncertain",
         entropy_score=0.8,
+        question_text=question_text,
+        cluster_refs=[],
     )
 
 
@@ -133,7 +136,6 @@ class _Patches:
         conv_decision: ConvergenceDecision | None = None,
         clusters: list[ClusterSnapshot] | None = None,
         decision: DecisionResult | None = None,
-        ambiguity_question: str = "What mood are you in?",
         profile: UserProfile | None = None,
         cfg: MagicMock | None = None,
     ):
@@ -141,7 +143,6 @@ class _Patches:
         self._conv = conv_decision or _proceed()
         self._clusters = cluster_list
         self._decision = decision or _decision_continue()
-        self._question = ambiguity_question
         self._profile = profile or _profile()
         self._full = full
         self._cfg = cfg or _cfg()
@@ -183,10 +184,6 @@ class _Patches:
         self.decision_decide = _patch(
             "backend.orchestrator.orchestrator.decision_agent.decide",
             return_value=self._decision,
-        )
-        self.ambiguity_gen = _patch(
-            "backend.orchestrator.orchestrator.ambiguity_agent.generate_question",
-            return_value=MagicMock(question_text=self._question),
         )
         self.profile_extract = _patch(
             "backend.orchestrator.orchestrator.profile_agent.extract",
