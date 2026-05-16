@@ -10,6 +10,7 @@ No DB writes; all inputs are read-only.
 import json
 import logging
 from pathlib import Path
+from typing import Any
 from uuid import UUID
 
 from backend.llm import llm_harness
@@ -33,6 +34,7 @@ def generate_question(
     clusters: list[ClusterSnapshot],
     entropy_score: float,
     prior_questions: list[str],
+    preference_profile: dict[str, Any] | None = None,
     accumulated_cost_usd: float = 0.0,
 ) -> AmbiguityQuestion:
     """Generate a clarifying question targeting the sharpest cluster divergence.
@@ -47,6 +49,8 @@ def generate_question(
         entropy_score:        Pre-computed entropy from the Decision Agent.
         prior_questions:      Assistant messages from previous ask-type turns,
                               used to avoid repeating questions.
+        preference_profile:   Structured oracle profile from the previous turn,
+                              or None when no profile has been extracted yet.
         accumulated_cost_usd: Running USD cost for the current turn (for cost guard).
 
     Returns:
@@ -84,7 +88,7 @@ def generate_question(
 
     # Load the prompt template and fill in the variables, including the user query,
     system_text, prompt_hash = load_prompt(
-        "ambiguity_v1",
+        "ambiguity_v2",
         {
             "turn_number": turn_number,
             "max_turns": cfg.session.max_turns,
@@ -92,6 +96,7 @@ def generate_question(
             "clusters": cluster_vars,
             "entropy_score": entropy_score,
             "prior_questions": prior_questions,
+            "preference_profile": preference_profile,
         },
     )
 

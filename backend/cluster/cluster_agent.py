@@ -51,8 +51,6 @@ def cluster(
     prior_clusters: list[ClusterSnapshot] | None = None,
     asked_question: str | None = None,
     user_answer: str | None = None,
-    prior_candidates: list[int] | None = None,
-    accepted_cluster: dict | None = None,
     dry_run: bool = False,
 ) -> list[ClusterSnapshot]:
     """Retrieve candidates and produce soft-assigned, named clusters.
@@ -83,10 +81,6 @@ def cluster(
                               not None.
         user_answer:          The oracle's reply to *asked_question*. Required
                               when *prior_clusters* is not None.
-        prior_candidates:     DEPRECATED — kept in the signature so the
-                              orchestrator's in-flight transition does not
-                              break. Ignored; a WARNING is logged if non-None.
-        accepted_cluster:     DEPRECATED — same as *prior_candidates*. Ignored.
         dry_run:              If ``True``, skip all live LLM calls.
 
     Returns:
@@ -104,16 +98,6 @@ def cluster(
     """
     cfg = get_settings()
     k: int = cfg.retrieval.top_k
-
-    if prior_candidates is not None or accepted_cluster is not None:
-        log.warning(
-            "cluster agent received deprecated arg(s); ignoring",
-            extra={
-                "session_id": str(session_id),
-                "has_prior_candidates": prior_candidates is not None,
-                "has_accepted_cluster": accepted_cluster is not None,
-            },
-        )
 
     log.debug(
         "cluster agent entry",
