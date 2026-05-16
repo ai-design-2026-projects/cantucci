@@ -54,6 +54,9 @@ DEFAULT_CONFIG_PATH: Path = CONFIGS_DIR / "default.yaml"
 MIGRATIONS_DIR: Path = PROJECT_ROOT / "db" / "migrations"
 """Directory containing numbered ``.sql`` migration files."""
 
+LOGS_DIR: Path = PROJECT_ROOT / "logs"
+"""Directory where per-run, per-component log files are written."""
+
 
 class ModelConfig(BaseModel):
     """LLM model parameters.

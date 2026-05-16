@@ -125,6 +125,17 @@ class Orchestrator:
         turn_id = uuid4()
         turn_number = len(full.turns) + 1
         cfg = get_settings()
+
+        log.debug(
+            "turn entry",
+            extra={
+                "session_id": str(session_id),
+                "turn_id": str(turn_id),
+                "turn_number": turn_number,
+                "user_message_len": len(user_message),
+                "prior_turns": len(full.turns),
+            },
+        )
  
         #TODO: Implement a more robust policy around when to retrieve 
         if should_retrieve(full):
@@ -151,6 +162,16 @@ class Orchestrator:
                     "reason": "no-reject-feedback",
                 },
             )
+
+        log.debug(
+            "retrieval decision resolved",
+            extra={
+                "session_id": str(session_id),
+                "turn_id": str(turn_id),
+                "retrieve_new": prior is None,
+                "n_prior_candidates": 0 if prior is None else len(prior),
+            },
+        )
 
         # Send to cluster agent
         clusters = cluster_agent.cluster(
@@ -185,6 +206,16 @@ class Orchestrator:
             session_id, turn_id, [cluster_snapshot_to_spec(c) for c in clusters]
         )
 
+        log.debug(
+            "cluster snapshot persisted",
+            extra={
+                "session_id": str(session_id),
+                "turn_id": str(turn_id),
+                "n_clusters": len(clusters),
+                "top_cluster_size": max((len(c.assignments) for c in clusters), default=0),
+            },
+        )
+
         # Decision Agent routes to recommend vs. continue (clarifying question).
         decision = decision_agent.decide(
             session_id=session_id,
@@ -195,11 +226,29 @@ class Orchestrator:
             clusters=clusters,
         )
 
+        log.debug(
+            "decision action chosen",
+            extra={
+                "session_id": str(session_id),
+                "turn_id": str(turn_id),
+                "action": decision.action.value,
+                "entropy_score": decision.entropy_score,
+            },
+        )
+
         reply: str
         step_type: StepType
         converged: bool
         # If continue, send to ambiguity resolver to generate a clarifying question.
         if decision.action == DecisionAction.continue_:
+            log.debug(
+                "entering ambiguity branch",
+                extra={
+                    "session_id": str(session_id),
+                    "turn_id": str(turn_id),
+                    "n_prior_questions": len(prior_questions(full.turns)),
+                },
+            )
             # Generate the question, ensuring it's not a duplicate of any prior questions in this session to avoid infinite loops. If it is a duplicate, log a warning and fallback to rendering a recommendation instead.
             question = ambiguity_agent.generate_question(
                 session_id=session_id,
@@ -233,12 +282,26 @@ class Orchestrator:
             converged = convergence_policy(full.turns, cfg.session.convergence_turns)
             step_type = StepType.stop if converged else StepType.show
 
+        log.debug(
+            "convergence verdict",
+            extra={
+                "session_id": str(session_id),
+                "turn_id": str(turn_id),
+                "converged": converged,
+                "step_type": step_type.value,
+            },
+        )
+
         # Persist the turn with the assistant message, step type, and convergence status
         api_sessions.update_turn(
             turn_id=turn_id,
             assistant_message=reply,
             step_type=step_type.value,
             converged=converged,
+        )
+        log.debug(
+            "turn row updated",
+            extra={"session_id": str(session_id), "turn_id": str(turn_id)},
         )
 
         # Classify and persist feedback
@@ -250,6 +313,16 @@ class Orchestrator:
             feedback_type=fb_type,
             content=user_message,
             target_id=fb_target_id,
+        )
+        log.debug(
+            "feedback written",
+            extra={
+                "session_id": str(session_id),
+                "turn_id": str(turn_id),
+                "feedback_level": fb_level,
+                "feedback_type": fb_type,
+                "target_id": str(fb_target_id) if fb_target_id else None,
+            },
         )
 
         # Extract the preference profile (#TODO: to use this data for decision)

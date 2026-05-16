@@ -77,6 +77,19 @@ def decide(
     entropy = entropy_calculator.compute(soft_scores)
     relevance = relevance_scorer.score(user_query, clusters)
 
+    log.debug(
+        "decision scores computed",
+        extra={
+            "session_id": str(session_id),
+            "turn_id": str(turn_id),
+            "entropy": entropy,
+            "per_cluster": [
+                {"id": str(c.id), "name": c.name, "relevance": relevance.get(c.id, 0.0), "size": len(c.assignments)}
+                for c in clusters
+            ],
+        },
+    )
+
     cfg = get_settings()
     config_hash = get_config_hash()
     model_and_version = cfg.model.name
@@ -105,6 +118,17 @@ def decide(
         },
     )
 
+    log.debug(
+        "decision prompt built",
+        extra={
+            "session_id": str(session_id),
+            "turn_id": str(turn_id),
+            "prompt_hash": prompt_hash,
+            "system_len": len(system_text),
+            "n_clusters_in_prompt": len(cluster_vars),
+        },
+    )
+
     # For reproducibility, use the session RNG seed for the decision agent's LLM call (same as the describer and reformulator)
     messages: list[dict[str, str]] = [
         {"role": "system", "content": system_text},
@@ -126,6 +150,15 @@ def decide(
         prompt_hash=prompt_hash,
         cost_limit_usd=cfg.session.cost_limit_usd,
         accumulated_cost_usd=accumulated_cost_usd,
+    )
+
+    log.debug(
+        "decision raw LLM response",
+        extra={
+            "session_id": str(session_id),
+            "turn_id": str(turn_id),
+            "raw": response.content,
+        },
     )
 
     # Parse the response and validate the shape

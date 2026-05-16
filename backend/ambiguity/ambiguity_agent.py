@@ -63,6 +63,19 @@ def generate_question(
     model_and_version = cfg.model.name
     top_clusters = clusters[:cfg.ambiguity.max_cluster_context]
 
+    log.debug(
+        "ambiguity top clusters selected",
+        extra={
+            "session_id": str(session_id),
+            "turn_id": str(turn_id),
+            "n_total_clusters": len(clusters),
+            "n_top_clusters": len(top_clusters),
+            "cluster_names": [c.name for c in top_clusters],
+            "entropy_score": entropy_score,
+            "n_prior_questions": len(prior_questions),
+        },
+    )
+
     # Prepare cluster context for the prompt, including ID, name, and description.
     cluster_vars = [
         {"id": str(c.id), "name": c.name, "description": c.description or ""}
@@ -104,6 +117,15 @@ def generate_question(
         cost_limit_usd=cfg.session.cost_limit_usd,
         accumulated_cost_usd=accumulated_cost_usd,
     )
+    log.debug(
+        "ambiguity raw LLM response",
+        extra={
+            "session_id": str(session_id),
+            "turn_id": str(turn_id),
+            "raw": response.content,
+        },
+    )
+
     # Parse the LLM response, expecting a JSON object with 'question_text', 'ui_format', and 'cluster_refs' fields. Validate the types and handle any parsing errors.
     try:
         parsed = json.loads(response.content)
@@ -136,6 +158,8 @@ def generate_question(
             "session_id": str(session_id),
             "turn_number": turn_number,
             "ui_format": parsed["ui_format"],
+            "question_text": parsed["question_text"],
+            "n_cluster_refs": len(cluster_refs),
         },
     )
     return AmbiguityQuestion(

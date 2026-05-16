@@ -50,8 +50,13 @@ def create_session(orchestrator: Orchestrator = Depends(_orchestrator)) -> Sessi
     Returns:
         The newly created ``SessionState`` (HTTP 201).
     """
+    log.debug("POST /sessions request received")
     state = orchestrator.create_session()
     log.info("session created", extra={"session_id": str(state.session_id)})
+    log.debug(
+        "POST /sessions response",
+        extra={"session_id": str(state.session_id), "max_turns": state.max_turns},
+    )
     return state
 
 
@@ -78,6 +83,13 @@ def add_turn(
         HTTPException(404): If *session_id* does not identify a live session.
         HTTPException(422): If ``user_message`` is empty or whitespace-only.
     """
+    log.debug(
+        "POST /sessions/{id}/turns request received",
+        extra={
+            "session_id": str(session_id),
+            "user_message_len": len(body.user_message),
+        },
+    )
     try:
         result = orchestrator.handle_turn(session_id, body.user_message)
     except SessionNotFound as exc:
@@ -86,6 +98,16 @@ def add_turn(
     log.info(
         "turn completed",
         extra={"session_id": str(session_id), "turn_number": result.turn_number},
+    )
+    log.debug(
+        "POST /sessions/{id}/turns response",
+        extra={
+            "session_id": str(session_id),
+            "turn_id": str(result.turn_id),
+            "step_type": result.step_type.value,
+            "converged": result.converged,
+            "assistant_message_len": len(result.assistant_message),
+        },
     )
     return result
 
@@ -107,9 +129,17 @@ def get_session(
     Raises:
         HTTPException(404): If *session_id* does not identify a live session.
     """
+    log.debug(
+        "GET /sessions/{id} request received",
+        extra={"session_id": str(session_id)},
+    )
     try:
         state = orchestrator.get_session(session_id)
     except SessionNotFound as exc:
         log.warning("session not found", extra={"session_id": str(session_id)})
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    log.debug(
+        "GET /sessions/{id} response",
+        extra={"session_id": str(session_id), "n_turns": len(state.turns)},
+    )
     return state
