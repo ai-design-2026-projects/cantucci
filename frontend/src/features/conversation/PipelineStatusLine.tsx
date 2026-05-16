@@ -17,24 +17,22 @@ export interface PipelineStage {
 }
 
 /**
- * Product-soft copy for each pipeline step the backend reports. The values
- * mirror ``backend/orchestrator/progress.py::ProgressStep``; whenever a new
- * step is added there, add a matching row here.
+ * Product-soft copy for each wave-level checkpoint the backend reports. The
+ * values mirror ``backend/orchestrator/progress.py::ProgressStep``; whenever a
+ * new checkpoint is added there, add a matching row here.
  */
 export const STAGES: Readonly<Record<ProgressStep, PipelineStage>> = {
-  retrieval: { id: "retrieval", label: "Finding films you might love…" },
-  cluster:   { id: "cluster",   label: "Grouping by mood…" },
-  decision:  { id: "decision",  label: "Picking the best slate…" },
-  ambiguity: { id: "ambiguity", label: "Checking the close calls…" },
-  render:    { id: "render",    label: "Writing the recommendation…" },
-  persist:   { id: "persist",   label: "Saving your turn…" },
+  understand: { id: "understand", label: "Reading your taste and sketching options…" },
+  choose:     { id: "choose",     label: "Weighing the best picks…" },
+  finalize:   { id: "finalize",   label: "Writing your reply…" },
+  wrap_up:    { id: "wrap_up",    label: "Wrapping things up…" },
 } as const;
 
 /**
  * Fallback shown before the first progress event arrives (or when the backend
  * is running on the legacy code path without progress callbacks).
  */
-const INITIAL_LABEL = STAGES.retrieval.label;
+const INITIAL_LABEL = STAGES.understand.label;
 
 interface PipelineStatusLineProps {
   /**

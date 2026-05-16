@@ -149,16 +149,12 @@ def test_success_stream_emits_progress_then_result(known_session_id: UUID) -> No
     fake = FakeOrchestrator(
         known_session_ids={known_session_id},
         scripted_events=[
-            (ProgressStep.retrieval, "start"),
-            (ProgressStep.retrieval, "end"),
-            (ProgressStep.cluster, "start"),
-            (ProgressStep.cluster, "end"),
-            (ProgressStep.decision, "start"),
-            (ProgressStep.decision, "end"),
-            (ProgressStep.render, "start"),
-            (ProgressStep.render, "end"),
-            (ProgressStep.persist, "start"),
-            (ProgressStep.persist, "end"),
+            (ProgressStep.understand, "start"),
+            (ProgressStep.understand, "end"),
+            (ProgressStep.choose, "start"),
+            (ProgressStep.choose, "end"),
+            (ProgressStep.finalize, "start"),
+            (ProgressStep.finalize, "end"),
         ],
         returns=_make_turn_result(known_session_id),
         progress_delay_s=0.001,
@@ -171,7 +167,7 @@ def test_success_stream_emits_progress_then_result(known_session_id: UUID) -> No
     progress = [e for e in events if e["type"] == "progress"]
     terminal = events[-1]
 
-    assert len(progress) == 10
+    assert len(progress) == 6
     assert terminal["type"] == "result"
     assert terminal["data"]["session_id"] == str(known_session_id)
 
@@ -189,11 +185,36 @@ def test_success_stream_emits_progress_then_result(known_session_id: UUID) -> No
     assert all(v == "end" for v in seen_phase.values())
 
 
+def test_early_exit_emits_wrap_up_after_understand(known_session_id: UUID) -> None:
+    """Early-exit paths close ``understand`` then emit a ``wrap_up`` pair."""
+    fake = FakeOrchestrator(
+        known_session_ids={known_session_id},
+        scripted_events=[
+            (ProgressStep.understand, "start"),
+            (ProgressStep.understand, "end"),
+            (ProgressStep.wrap_up, "start"),
+            (ProgressStep.wrap_up, "end"),
+        ],
+        returns=_make_turn_result(known_session_id, message="wrapped"),
+    )
+    status, _, events = _stream_post(TestClient(_app_with(fake)), known_session_id)
+
+    assert status == 200
+    progress = [(e["step"], e["phase"]) for e in events if e["type"] == "progress"]
+    assert progress == [
+        ("understand", "start"),
+        ("understand", "end"),
+        ("wrap_up", "start"),
+        ("wrap_up", "end"),
+    ]
+    assert events[-1]["type"] == "result"
+
+
 def test_every_line_is_valid_json(known_session_id: UUID) -> None:
     """No partial frames, no trailing garbage — strict NDJSON."""
     fake = FakeOrchestrator(
         known_session_ids={known_session_id},
-        scripted_events=[(ProgressStep.retrieval, "start"), (ProgressStep.retrieval, "end")],
+        scripted_events=[(ProgressStep.understand, "start"), (ProgressStep.understand, "end")],
         returns=_make_turn_result(known_session_id),
     )
     response = TestClient(_app_with(fake)).post(
@@ -224,15 +245,15 @@ def test_error_event_replaces_result_when_worker_raises(known_session_id: UUID) 
     """A mid-turn raise becomes a terminal error event, HTTP stays 200."""
     fake = FakeOrchestrator(
         known_session_ids={known_session_id},
-        scripted_events=[(ProgressStep.retrieval, "start")],
-        raises=RuntimeError("retrieval crashed"),
+        scripted_events=[(ProgressStep.understand, "start")],
+        raises=RuntimeError("understand crashed"),
     )
     status, _, events = _stream_post(TestClient(_app_with(fake)), known_session_id)
 
     assert status == 200
     assert events[-1]["type"] == "error"
     assert events[-1]["code"] == "RuntimeError"
-    assert "retrieval crashed" in events[-1]["message"]
+    assert "understand crashed" in events[-1]["message"]
 
 
 def test_missing_session_returns_404_before_stream_opens(known_session_id: UUID) -> None:

@@ -31,6 +31,13 @@ from backend.convergence.types import ConvergenceAction, ConvergenceDecision
 from backend.decision.types import DecisionAction
 from backend.exceptions import SessionNotFound
 from backend.routers.dtos import SessionState, TurnResult
+from backend.orchestrator.progress import (
+    NullProgressCallback,
+    ProgressCallback,
+    ProgressPhase,
+    ProgressStep,
+    make_progress_event,
+)
 from backend.orchestrator.tools.feedback import classify_feedback
 from backend.orchestrator.tools.policy import (
     cluster_snapshot_to_spec,
@@ -42,6 +49,23 @@ from backend.orchestrator.tools.turns import emit_drift_clarification, emit_earl
 from backend.settings import get_config_hash, get_config_snapshot, get_settings
 
 log = logging.getLogger(__name__)
+
+
+def _emit(cb: ProgressCallback, step: ProgressStep, phase: ProgressPhase) -> None:
+    """Invoke a progress callback defensively.
+
+    Progress events are non-critical telemetry: a misbehaving callback must
+    not abort the turn. Per CLAUDE.md's "fail loudly" rule we still log at
+    WARNING — silent swallowing is not allowed — but we do not re-raise.
+    """
+    try:
+        cb(make_progress_event(step, phase))
+    except Exception:  # noqa: BLE001 — telemetry must not crash the turn.
+        log.warning(
+            "progress callback raised; continuing turn",
+            extra={"step": step.value, "phase": phase},
+            exc_info=True,
+        )
 
 
 def _prior_clusters_from_turn(turn: TurnDetail) -> list[ClusterSnapshot]:
@@ -101,22 +125,31 @@ class Orchestrator:
             turns=[],
         )
 
-    def handle_turn(self, session_id: UUID, user_message: str) -> TurnResult:
+    def handle_turn(
+        self,
+        session_id: UUID,
+        user_message: str,
+        progress_cb: ProgressCallback = NullProgressCallback(),
+    ) -> TurnResult:
         """Orchestrate one conversational turn and persist all resulting state.
 
         Full flow:
           1. Load session state from DB.
-          2. Convergence Agent: hard-limit + LLM gate (uses N-1 profile).
-          3. Retrieval/cluster decision.
-          4. Cluster Agent (Scenario A or B).
-          5. Decision Agent (with N-1 profile).
-          6. Ambiguity Agent (with N-1 profile) or deterministic render.
-          7. Profile Agent: extract updated profile → persist on session.
-          8. Persist the turn and oracle feedback.
+          2. Wave 1 in parallel: Convergence + Cluster (retrieval inside) + Profile.
+          3. Early-exit branches (terminate / natural_end / drift / no clusters).
+          4. Wave 2 in parallel: Decision + Ambiguity.
+          5. Render or pick ambiguity question; persist turn, feedback, profile.
+
+        The optional ``progress_cb`` is invoked at each wave boundary so
+        streaming clients can render checkpoints; see
+        ``backend.orchestrator.progress`` for the event shape.
 
         Args:
             session_id:   UUID of the target session.
             user_message: The oracle's message for this turn.
+            progress_cb:  Optional callback for wave-level progress events. The
+                router supplies a thread-safe shim; tests and offline callers
+                may omit it and get the no-op default.
 
         Returns:
             A ``TurnResult`` describing the outcome of this turn.
@@ -190,6 +223,8 @@ class Orchestrator:
                 user_query=ret.query or user_message,
             )
 
+        _emit(progress_cb, ProgressStep.understand, "start")
+
         # Wave 1: Convergence + Cluster (speculative) + Profile in parallel.
         with ThreadPoolExecutor(max_workers=3) as pool:
             f_conv = pool.submit(
@@ -218,38 +253,11 @@ class Orchestrator:
             clusters = f_cluster.result()
             new_profile = f_profile.result()
 
-        # Early-exit branches: cluster + profile results are discarded.
-        if conv.action is ConvergenceAction.terminate:
-            return self._terminate_turn(
-                session_id=session_id,
-                turn_id=turn_id,
-                turn_number=turn_number,
-                user_message=user_message,
-                decision=conv,
-            )
-
-        if conv.action is ConvergenceAction.natural_end:
-            return self._natural_end_turn(
-                session_id=session_id,
-                turn_id=turn_id,
-                turn_number=turn_number,
-                user_message=user_message,
-                decision=conv,
-                preference_profile=prior_profile or {},
-            )
-
-        if conv.action is ConvergenceAction.clarify_drift:
-            return emit_drift_clarification(
-                session_id=session_id,
-                turn_id=turn_id,
-                turn_number=turn_number,
-                user_message=user_message,
-                decision=conv,
-            )
-
         # Convergence ↔ Cluster reconciliation: if convergence supplies a
         # retrieval override, the speculative cluster result is stale — rerun.
-        if conv.retrieval_override:
+        # Done before closing the ``understand`` checkpoint so the rerun stays
+        # inside the same user-facing wave.
+        if conv.retrieval_override and conv.action is ConvergenceAction.proceed:
             log.warning(
                 "cluster rerun: convergence supplied retrieval override",
                 extra={
@@ -266,13 +274,56 @@ class Orchestrator:
                 user_query=conv.retrieval_override,
             )
 
+        _emit(progress_cb, ProgressStep.understand, "end")
+
+        # Early-exit branches: cluster + profile results are discarded.
+        if conv.action is ConvergenceAction.terminate:
+            _emit(progress_cb, ProgressStep.wrap_up, "start")
+            result = self._terminate_turn(
+                session_id=session_id,
+                turn_id=turn_id,
+                turn_number=turn_number,
+                user_message=user_message,
+                decision=conv,
+            )
+            _emit(progress_cb, ProgressStep.wrap_up, "end")
+            return result
+
+        if conv.action is ConvergenceAction.natural_end:
+            _emit(progress_cb, ProgressStep.wrap_up, "start")
+            result = self._natural_end_turn(
+                session_id=session_id,
+                turn_id=turn_id,
+                turn_number=turn_number,
+                user_message=user_message,
+                decision=conv,
+                preference_profile=prior_profile or {},
+            )
+            _emit(progress_cb, ProgressStep.wrap_up, "end")
+            return result
+
+        if conv.action is ConvergenceAction.clarify_drift:
+            _emit(progress_cb, ProgressStep.wrap_up, "start")
+            result = emit_drift_clarification(
+                session_id=session_id,
+                turn_id=turn_id,
+                turn_number=turn_number,
+                user_message=user_message,
+                decision=conv,
+            )
+            _emit(progress_cb, ProgressStep.wrap_up, "end")
+            return result
+
         if not clusters:
-            return emit_early_clarification(
+            _emit(progress_cb, ProgressStep.wrap_up, "start")
+            result = emit_early_clarification(
                 session_id=session_id,
                 turn_id=turn_id,
                 turn_number=turn_number,
                 user_message=user_message,
             )
+            _emit(progress_cb, ProgressStep.wrap_up, "end")
+            return result
 
         api_sessions.append_turn(
             session_id=session_id,
@@ -302,6 +353,8 @@ class Orchestrator:
         soft_scores = [[a.score for a in c.assignments] for c in clusters]
         entropy_score = entropy_calculator.compute(soft_scores)
 
+        _emit(progress_cb, ProgressStep.choose, "start")
+
         # Wave 2: Decision + Ambiguity in parallel.
         with ThreadPoolExecutor(max_workers=2) as pool:
             f_decision = pool.submit(
@@ -329,6 +382,9 @@ class Orchestrator:
             )
             decision = f_decision.result()
             ambiguity_question = f_ambiguity.result()
+
+        _emit(progress_cb, ProgressStep.choose, "end")
+        _emit(progress_cb, ProgressStep.finalize, "start")
 
         log.debug(
             "decision action chosen",
@@ -398,6 +454,8 @@ class Orchestrator:
                 "n_constraints": len(new_profile.constraints),
             },
         )
+
+        _emit(progress_cb, ProgressStep.finalize, "end")
 
         now = datetime.now(timezone.utc)
         log.info(

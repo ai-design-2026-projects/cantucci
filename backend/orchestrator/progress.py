@@ -21,19 +21,24 @@ from backend.routers.dtos import TurnResult
 
 
 class ProgressStep(str, Enum):
-    """The agent steps a streaming client may observe.
+    """The wave-level checkpoints a streaming client may observe.
 
-    Values mirror the natural blocks inside ``Orchestrator.handle_turn``:
-    retrieval, clustering, decision, then either ambiguity (continue) or
-    render (stop), then persist.
+    Orchestrator v2 runs agents in two parallel waves rather than a sequential
+    pipeline, so per-agent boundaries would either fire concurrently or lie
+    about ordering. Each value here wraps one logical block the user perceives
+    as a single activity:
+
+    * ``understand`` — Wave 1: convergence + cluster (retrieval inside) + profile.
+    * ``choose``     — Wave 2: decision + ambiguity in parallel.
+    * ``finalize``   — Reply rendering and final persistence.
+    * ``wrap_up``    — Early-exit paths (hard limit, natural end, drift, empty
+      retrieval) that skip the rest of the pipeline.
     """
 
-    retrieval = "retrieval"
-    cluster = "cluster"
-    decision = "decision"
-    ambiguity = "ambiguity"
-    render = "render"
-    persist = "persist"
+    understand = "understand"
+    choose = "choose"
+    finalize = "finalize"
+    wrap_up = "wrap_up"
 
 
 ProgressPhase = Literal["start", "end"]

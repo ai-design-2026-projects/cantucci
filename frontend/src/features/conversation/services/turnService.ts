@@ -1,17 +1,16 @@
 import type { TurnResult } from "@/utils/types";
 
 /**
- * One pipeline step the backend can report progress on.
+ * One wave-level checkpoint the backend can report progress on.
  *
- * Mirrors ``backend/orchestrator/progress.py::ProgressStep``.
+ * Mirrors ``backend/orchestrator/progress.py::ProgressStep``. Orchestrator v2
+ * runs in parallel waves, so checkpoints are wave-level rather than per-agent.
  */
 export type ProgressStep =
-  | "retrieval"
-  | "cluster"
-  | "decision"
-  | "ambiguity"
-  | "render"
-  | "persist";
+  | "understand"
+  | "choose"
+  | "finalize"
+  | "wrap_up";
 
 /** Step boundary phase: ``start`` when entered, ``end`` when returned. */
 export type ProgressPhase = "start" | "end";

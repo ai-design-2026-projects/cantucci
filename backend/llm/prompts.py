@@ -15,10 +15,12 @@ one file per named prompt, named ``{function}_{version}.j2``.
 
 import hashlib
 from collections.abc import Callable, Mapping
+import logging
 from pathlib import Path
 from typing import Any
-
 import jinja2
+
+log = logging.getLogger(__name__)
 
 
 def make_prompt_loader(
@@ -75,6 +77,7 @@ def make_prompt_loader(
 
         rendered = template.render(**(vars or {}))
         digest = hashlib.sha256(rendered.encode()).hexdigest()[:8]
+        log.debug("Loaded prompt template", extra={"prompt_name": name, "hash": digest, "content": rendered})
         return rendered, digest
 
     return load_prompt
