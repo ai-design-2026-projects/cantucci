@@ -1,6 +1,7 @@
 import { motion } from "framer-motion";
 import { StreamingText } from "@/components/StreamingText";
 import { AmbiguityChoice } from "./AmbiguityChoice";
+import { WaitingBubbleContent } from "./WaitingBubbleContent";
 import { formatTimestamp } from "./utils/messageFormatters";
 import type { TurnResult } from "@/utils/types";
 import styles from "./styles/Conversation.module.css";
@@ -27,6 +28,8 @@ interface MessageBubbleProps {
  */
 export function MessageBubble({ turn, isLast, onChoose }: MessageBubbleProps) {
   const showChoices = isLast && turn.step_type === "ask" && turn.ambiguity_meta !== null;
+  const isWaiting = isLast && !turn.assistant_message;
+  const showAssistantBubble = Boolean(turn.assistant_message) || isWaiting;
 
   return (
     <div className={styles.turnGroup}>
@@ -41,16 +44,23 @@ export function MessageBubble({ turn, isLast, onChoose }: MessageBubbleProps) {
         <span className={styles.bubbleTime}>{formatTimestamp(turn.created_at)}</span>
       </motion.div>
 
-      {/* Assistant bubble — only when there's a reply */}
-      {turn.assistant_message && (
+      {/* Assistant bubble — shows the LLM-wait mask while assistant_message is empty
+          on the latest turn, then swaps to the real reply once it arrives. */}
+      {showAssistantBubble && (
         <motion.div
           className={`${styles.bubble} ${styles.assistant}`}
           initial={{ opacity: 0, x: 16 }}
           animate={{ opacity: 1, x: 0 }}
           transition={{ duration: 0.25, delay: 0.05 }}
         >
-          <StreamingText text={turn.assistant_message} className={styles.bubbleText} />
-          <span className={styles.bubbleTime}>{formatTimestamp(turn.created_at)}</span>
+          {isWaiting ? (
+            <WaitingBubbleContent />
+          ) : (
+            <>
+              <StreamingText text={turn.assistant_message} className={styles.bubbleText} />
+              <span className={styles.bubbleTime}>{formatTimestamp(turn.created_at)}</span>
+            </>
+          )}
         </motion.div>
       )}
 
