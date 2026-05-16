@@ -172,12 +172,14 @@ def cluster(
     movie_ids = [c.movie_id for c in metas]
     kept_ids, embeddings = embedding_fetcher.fetch(movie_ids)
 
-    # Cluster with HDBSCAN; the describer and downstream decision agent will see only the
+    # Cluster with UMAP+HDBSCAN; the describer and downstream decision agent will see only the
     result = soft_cluster_engine.cluster(
         embeddings,
         min_cluster_size=cfg.clustering.min_cluster_size,
         min_samples=cfg.clustering.min_samples,
         cluster_selection_method=cfg.clustering.cluster_selection_method,
+        umap_cfg=cfg.clustering.umap,
+        seed=cfg.model.seed,
     )
 
     log.debug(

@@ -28,7 +28,7 @@ from backend.settings import get_config_hash, get_settings
 
 log = logging.getLogger(__name__)
 
-load_prompt = make_prompt_loader(Path(__file__).parent.parent / "prompts")
+load_prompt = make_prompt_loader(Path(__file__).parent.parent / "prompts" / "refiner")
 
 _STEP_TYPE = "cluster_refine"
 
