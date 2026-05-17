@@ -3,8 +3,8 @@
 HTTP API for the CinePal conversational clustering system. The backend exposes
 a session / turn interface consumed by the frontend: the user opens a session,
 sends messages, and the system responds with recommendations and follow-up
-questions. Session logic is owned by the orchestrator, which will eventually
-call LLM-backed agents and a PostgreSQL database — both are stubbed for now.
+questions. Session logic is owned by the orchestrator, which coordinates
+LLM-backed agents and the PostgreSQL-backed data-access layer.
 
 ---
 
@@ -15,24 +15,26 @@ backend/
 ├── app.py               FastAPI application, lifespan wiring, router mount.
 ├── settings.py          Typed config loader (Pydantic) + env-var helpers.
 ├── logging_setup.py     Logging setup: ANSI-coloured key=value lines + log_llm_call().
+├── exceptions.py        Domain exceptions raised by orchestration/API boundaries.
 ├── api/                 Data-access layer — the ONLY place SQL is allowed.
 │   ├── db.py            Connection pool and transaction() context manager.
+│   ├── movies.py        Catalogue vector search, title resolution, metadata, embeddings.
 │   ├── sessions.py      CRUD: sessions, turns, clusters, oracle_feedback.
 │   ├── runs.py          CRUD: runs table, config hashing.
 │   ├── eval.py          Write: session_metrics, judge_scores.
-│   └── retrieval.py     Read: get_run_results(), get_session_full().
-├── models/
-│   ├── schemas.py       Pydantic HTTP models + enums (SessionState, TurnResult, TurnRequest).
-│   ├── orchestrator.py  Orchestrator Protocol (interface the router calls).
-│   ├── exceptions.py    Domain exceptions (SessionNotFound).
-│   ├── runs.py          Run — in-memory representation of the runs table row.
-│   ├── clusters.py      ClusterSpec, ClusterAssignment, ClusterSnapshot.
-│   ├── eval.py          SessionMetrics, JudgeScore.
-│   └── retrieval.py     Query result types: SessionFull, RunResults, TurnDetail, etc.
+│   ├── retrieval.py     Read: get_run_results(), get_session_full().
+│   └── types.py         DB-facing dataclasses/enums shared across backend layers.
+├── llm/                 LLM harness, prompt loading, and LLM response types.
+├── state/               Hard-limit and LLM state gate agent.
+├── profile/             Preference-profile extraction agent and helpers.
+├── retrieval/           Query reformulation, vector-search, metadata tools.
+├── cluster/             Soft clustering, cluster description/refinement tools.
+├── decision/            Decision agent and entropy/relevance helpers.
 ├── orchestrator/
 │   ├── orchestrator.py  Orchestrator: sole DB writer, coordinates the turn pipeline.
 │   └── tools/           feedback.py, policy.py, render.py, turns.py
 └── routers/
+    ├── dtos.py          Pydantic HTTP request/response models.
     └── sessions.py      HTTP endpoints: POST /sessions, POST /sessions/{id}/turns,
                          GET /sessions/{id}.
 ```

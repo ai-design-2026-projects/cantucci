@@ -13,9 +13,6 @@ import numpy as np
 
 from backend.api.db import transaction
 from backend.api.types import MovieHit, MovieMetadata
-from backend.routers.dtos import MoviePublic
-
-_TMDB_POSTER_BASE = "https://image.tmdb.org/t/p/w500"
 
 log = logging.getLogger(__name__)
 

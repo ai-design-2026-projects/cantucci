@@ -33,6 +33,18 @@ def _sample_title(db_url: str) -> tuple[int, str]:
     return int(row[0]), str(row[1])
 
 
+def _sample_movie_ids(db_url: str, limit: int = 2) -> list[int]:
+    """Return a few catalogue IDs in deterministic order."""
+    with psycopg.connect(db_url) as conn:
+        rows = conn.execute(
+            "SELECT id FROM movies ORDER BY id LIMIT %s",
+            (limit,),
+        ).fetchall()
+    ids = [int(row[0]) for row in rows]
+    assert len(ids) == limit, "mini catalogue has fewer rows than expected"
+    return ids
+
+
 def _shared_word_title_pair(db_url: str) -> tuple[str, list[int]]:
     """Find a word that appears in >=2 catalogue titles; return (word, matching_ids).
 
@@ -119,6 +131,52 @@ def test_vector_search_excludes_ids(db_url: str, mini_catalogue: int) -> None:
     filtered = api_movies.vector_search(probe, k=5, exclude_ids=[target_id])
     returned_ids = {h.movie_id for h in filtered}
     assert target_id not in returned_ids
+
+
+def test_vector_search_rejects_non_positive_k() -> None:
+    """Invalid k values fail before any catalogue query runs."""
+    for k in (0, -1):
+        try:
+            api_movies.vector_search([0.0], k=k)
+        except ValueError as exc:
+            assert f"k must be positive, got {k}" in str(exc)
+        else:
+            raise AssertionError("expected ValueError")
+
+
+def test_fetch_metadata_empty_input_returns_empty() -> None:
+    """Empty metadata requests short-circuit without DB work."""
+    assert api_movies.fetch_metadata([]) == []
+
+
+def test_fetch_metadata_preserves_order_and_omits_missing(
+    db_url: str,
+    mini_catalogue: int,
+) -> None:
+    """Metadata rows follow requested ID order and silently skip unknown IDs."""
+    first, second = _sample_movie_ids(db_url, limit=2)
+
+    result = api_movies.fetch_metadata([second, -1, first])
+
+    assert [movie.movie_id for movie in result] == [second, first]
+
+
+def test_fetch_embeddings_empty_input_returns_empty() -> None:
+    """Empty embedding requests short-circuit without DB work."""
+    assert api_movies.fetch_embeddings([]) == {}
+
+
+def test_fetch_embeddings_returns_only_present_requested_ids(
+    db_url: str,
+    mini_catalogue: int,
+) -> None:
+    """Embedding lookup omits missing IDs and keeps present IDs keyed by movie ID."""
+    first, second = _sample_movie_ids(db_url, limit=2)
+
+    result = api_movies.fetch_embeddings([first, -1, second])
+
+    assert set(result) == {first, second}
+    assert all(result[movie_id] for movie_id in (first, second))
 
 
 def test_retrieval_agent_excludes_titles_end_to_end(

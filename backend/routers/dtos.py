@@ -7,7 +7,6 @@ types (ClusterSnapshot, MovieMetadata, etc.) are separate — see backend/api/ty
 """
 
 from datetime import datetime
-from enum import Enum
 from typing import Any
 from uuid import UUID
 

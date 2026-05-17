@@ -158,7 +158,7 @@ def from_profile(
     )
 
     system_text, prompt_hash = load_prompt(
-        "query_reformulate_profile_v1",
+        "query_reformulate_profile_v2",
         {
             "summary": summary,
         },

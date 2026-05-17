@@ -8,7 +8,6 @@ there is no extra token cost or latency on recommendation turns.
 import logging
 
 from backend.api.types import ClusterSnapshot
-from backend.decision.types import DecisionResult
 
 log = logging.getLogger(__name__)
 
@@ -18,12 +17,10 @@ def render_recommendation(
     best_cluster: ClusterSnapshot,
     top_k: int,
 ) -> str:
-    """Format a recommendation reply from the best cluster and decision rationale.
+    """Format a recommendation reply from the best cluster.
 
     Args:
         best_cluster: The cluster the Decision Agent chose to recommend.
-        decision:     The Decision Agent's result for this turn, including the
-                      rationale string.
         top_k:        Maximum number of top-scoring films to list.
 
     Returns:

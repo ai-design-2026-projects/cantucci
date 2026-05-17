@@ -10,7 +10,7 @@ import logging
 from typing import Any
 from uuid import UUID
 
-from backend.api.types import SessionFull, StepType, TurnDetail
+from backend.api.types import TurnDetail
 from backend.state.types import (
     StateAction,
     StateCheckResponse,
