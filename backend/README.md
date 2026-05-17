@@ -77,10 +77,14 @@ Tests spin up a throwaway pgvector container automatically via `testcontainers` 
 
 ## Environment variables
 
-| Variable       | Default       | Description                                             |
-|----------------|---------------|---------------------------------------------------------|
-| `DATABASE_URL` | (required)    | Postgres connection string.                             |
-| `LOG_LEVEL`    | `INFO`        | Root logging level (`DEBUG`, `INFO`, `WARNING`, …).    |
+| Variable          | Default    | Description                                                                                      |
+|-------------------|------------|--------------------------------------------------------------------------------------------------|
+| `DATABASE_URL`    | (required) | Postgres connection string.                                                                      |
+| `LOG_LEVEL`       | `INFO`     | Root logging level (`DEBUG`, `INFO`, `WARNING`, …).                                              |
+| `OPENAI_API_KEY`  | empty      | OpenAI API key (required when `models.*.provider == openai`).                                    |
+| `OPENROUTER_API_KEY` | empty   | OpenRouter API key (required when `models.*.provider == openrouter`).                            |
+| `HF_TOKEN`        | empty      | HuggingFace token; only needed when the artifacts repo pinned in YAML is private.                |
+| `TMDB_API_KEY`    | empty      | TMDB v3 API key; **only** used by the Colab snapshot script, never by the running backend.       |
 
 ---
 

@@ -8,8 +8,9 @@ re-ingesting per test would dominate runtime, so the schema is reset once at
 session start. Per-test isolation comes from each test using unique session/run
 IDs rather than schema teardown.
 
-The fixture relies on a public Hugging Face artifacts repo (``CINEPAL_ARTIFACTS_REPO``)
-to pull the mini parquet — the same path production uses, no test-specific shortcut.
+The fixture relies on the HF artifacts pinned in ``configs/test.yaml`` (under the
+``ingestion`` block) to pull the mini parquet — the same path production uses,
+no test-specific shortcut.
 """
 
 from __future__ import annotations
@@ -40,7 +41,6 @@ from backend.api.db import close_pool
 from backend.settings import get_settings
 from db.apply import apply
 from db.ingest import run_from_artifact
-from db.ingestion.fetch import fetch_artifacts
 
 
 _PGVECTOR_IMAGE = "pgvector/pgvector:pg16"
@@ -84,7 +84,6 @@ def mini_catalogue(db_url: str) -> int:
     without re-running the pipeline.
     """
     apply(database_url=db_url)
-    fetch_artifacts()
     run_from_artifact("mini")
 
     import psycopg

@@ -1,6 +1,5 @@
 annotated-types==0.7.0
 huggingface_hub>=0.23,<0.27
-kaggle>=1.6
 numpy>=1.26
 pandas>=2.2
 pgvector>=0.3.6

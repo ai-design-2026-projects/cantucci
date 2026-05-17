@@ -52,3 +52,13 @@ clustering:
   top_titles_per_cluster: 8
   min_singleton_floor: 3
 
+ingestion:
+  # Smoke tests reuse the pre-existing public artifacts (no timestamp suffix)
+  # so they don't need a TMDB snapshot to run. mini_size above (200) must
+  # match the row count of the parquet pinned here.
+  hf_repo: "446f6e6e79/CinePal-embeddings"
+  artifacts:
+    main: main.parquet
+    mini: mini.parquet
+    eval_holdout: eval_holdout.parquet
+
