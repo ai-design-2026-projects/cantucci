@@ -13,6 +13,7 @@ import json
 import logging
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -29,6 +30,24 @@ _NESTED_COLS = (
 )
 
 
+class _NumpyJSONEncoder(json.JSONEncoder):
+    """JSON encoder that understands the numpy types parquet round-trips into.
+
+    Reading a snapshot parquet (e.g. in the Colab notebook) deserialises
+    list-typed columns as ``np.ndarray`` and integer/float scalars inside
+    them as ``np.generic``. Stock ``json.dumps`` raises ``TypeError`` on
+    both. Convert to native Python here rather than mutating ``out`` row by
+    row.
+    """
+
+    def default(self, o: Any) -> Any:
+        if isinstance(o, np.ndarray):
+            return o.tolist()
+        if isinstance(o, np.generic):
+            return o.item()
+        return super().default(o)
+
+
 def _save_parquet(df: pd.DataFrame, embeddings: np.ndarray, path: Path) -> None:
     """Persist *df* + per-row embeddings to a parquet file.
 
@@ -41,7 +60,7 @@ def _save_parquet(df: pd.DataFrame, embeddings: np.ndarray, path: Path) -> None:
     out["embedding"] = [arr.tolist() for arr in embeddings]
     for col in _NESTED_COLS:
         if col in out.columns:
-            out[col] = out[col].apply(json.dumps)
+            out[col] = out[col].apply(lambda v: json.dumps(v, cls=_NumpyJSONEncoder))
     out.to_parquet(path, index=False)
     log.info("artifact saved", extra={"path": str(path), "rows": len(out)})
 

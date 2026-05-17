@@ -36,7 +36,7 @@ def fetch_artifact(
 
     log.info(
         "downloading artifact",
-        extra={"repo": repo_id, "filename": filename, "dest": str(dest)},
+        extra={"repo": repo_id, "file_name": filename, "dest": str(dest)},
     )
     local_path = hf_hub_download(
         repo_id=repo_id,

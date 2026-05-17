@@ -60,8 +60,8 @@ ingestion:
   artifacts:
     # snapshot is never fetched by tests (only the embedded artifacts are);
     # value is a placeholder kept here only to satisfy the Settings schema.
-    snapshot: snapshots/snapshot.parquet
-    main: main.parquet
-    mini: mini.parquet
-    eval_holdout: eval_holdout.parquet
+    snapshot: snapshots/snapshot_20260517.parquet
+    main: embeddings/main_20260517.parquet
+    mini: embeddings/mini_20260517.parquet
+    eval_holdout: embeddings/eval_holdout_20260517.parquet
 
