@@ -19,6 +19,7 @@ from fastapi.responses import StreamingResponse
 from backend.exceptions import SessionNotFound
 from backend.orchestrator.orchestrator import Orchestrator
 from backend.orchestrator.progress import (
+    ClusterSnapshotEvent,
     ErrorEvent,
     ProgressEvent,
     ResultEvent,
@@ -110,7 +111,7 @@ async def _turn_event_stream(
     done = object()
     loop = asyncio.get_running_loop()
 
-    def progress_cb(event: ProgressEvent) -> None:
+    def progress_cb(event: ProgressEvent | ClusterSnapshotEvent) -> None:
         """Thread-safe hop from the worker thread onto the event loop."""
         try:
             loop.call_soon_threadsafe(queue.put_nowait, event)
@@ -148,7 +149,7 @@ async def _turn_event_stream(
             event = await queue.get()
             if event is done:
                 break
-            assert isinstance(event, (ProgressEvent, ResultEvent, ErrorEvent))
+            assert isinstance(event, (ProgressEvent, ClusterSnapshotEvent, ResultEvent, ErrorEvent))
             yield _serialize(event)
     finally:
         # Worker always completes (it puts ``done`` in its finally clause); the

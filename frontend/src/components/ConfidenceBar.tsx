@@ -1,5 +1,4 @@
 import { motion } from "framer-motion";
-import styles from "../styles/ConfidenceBar.module.css";
 
 interface ConfidenceBarProps {
   /** Score in [0, 1]. */
@@ -20,7 +19,7 @@ export function ConfidenceBar({ score, label }: ConfidenceBarProps) {
 
   return (
     <div
-      className={styles.track}
+      className="relative h-1.5 w-full overflow-hidden rounded-full bg-muted"
       role="progressbar"
       aria-valuenow={pct}
       aria-valuemin={0}
@@ -28,7 +27,7 @@ export function ConfidenceBar({ score, label }: ConfidenceBarProps) {
       aria-label={label ?? `${pct}% confidence`}
     >
       <motion.div
-        className={styles.fill}
+        className="absolute inset-y-0 left-0 rounded-full bg-primary"
         initial={{ width: 0 }}
         animate={{ width: `${pct}%` }}
         transition={{ type: "spring", stiffness: 120, damping: 20 }}

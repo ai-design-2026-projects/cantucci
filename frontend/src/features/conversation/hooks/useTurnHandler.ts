@@ -2,6 +2,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { streamTurn } from "@/features/conversation/services/turnService";
 import { useSessionStore } from "@/store/sessionStore";
 import { useUiStore } from "@/store/uiStore";
+import { useClusterSnapshotStore } from "@/store/clusterSnapshotStore";
 import type { SessionState, TurnResult } from "@/utils/types";
 
 interface PostTurnParams {
@@ -26,7 +27,8 @@ interface PostTurnParams {
 export function useTurnHandler() {
   const queryClient = useQueryClient();
   const { incrementTurn } = useSessionStore();
-  const { startReveal, setCurrentStep } = useUiStore();
+  const { setCurrentStep } = useUiStore();
+  const { setSnapshot, setRefining } = useClusterSnapshotStore();
 
   const { mutate: submitTurn, isPending, error } = useMutation<
     TurnResult,
@@ -42,6 +44,9 @@ export function useTurnHandler() {
           if (event.phase === "start") {
             setCurrentStep(event.step);
           }
+        },
+        onClusters: (event) => {
+          setSnapshot(event.clusters);
         },
       }),
     onMutate: async ({ sessionId, userMessage }) => {
@@ -60,6 +65,7 @@ export function useTurnHandler() {
           converged: false,
           created_at: new Date().toISOString(),
           ambiguity_meta: null,
+          recommendation: null,
         };
         queryClient.setQueryData<SessionState>(["session", sessionId], {
           ...previous,
@@ -75,13 +81,11 @@ export function useTurnHandler() {
       }
       setCurrentStep(null);
     },
-    onSuccess: (result, { sessionId }) => {
+    onSuccess: (_result, { sessionId }) => {
       incrementTurn();
       setCurrentStep(null);
+      setRefining(false);
       queryClient.invalidateQueries({ queryKey: ["session", sessionId] });
-      if (result.converged) {
-        startReveal();
-      }
     },
   });
 

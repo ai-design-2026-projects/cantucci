@@ -12,5 +12,10 @@ import type { TurnResult } from "@/utils/types";
  */
 export function useFetchTurns(sessionId: string | null): TurnResult[] {
   const { data } = useFetchSession(sessionId);
-  return data?.turns ?? [];
+  return (
+    data?.turns.map((turn) => ({
+      ...turn,
+      recommendation: turn.recommendation ?? null,
+    })) ?? []
+  );
 }

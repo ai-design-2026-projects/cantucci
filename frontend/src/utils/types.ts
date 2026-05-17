@@ -6,6 +6,27 @@
 export type StepType = "show" | "ask" | "stop";
 export type SessionStatus = "active" | "converged" | "abandoned";
 
+export interface ClusterFilmStub {
+  id: number;
+  title: string;
+  poster_url: string | null;
+  release_year: number | null;
+  vote_average: number | null;
+}
+
+export interface ClusterSnapshotPayload {
+  id: string;
+  name: string;
+  description: string | null;
+  level: number;
+  top_films: ClusterFilmStub[];
+}
+
+export interface RecommendationPayload {
+  cluster: ClusterPublic;
+  films: MoviePublic[];
+}
+
 export interface AmbiguityMeta {
   ui_format: "binary" | "forced_choice";
   cluster_refs: string[];
@@ -21,6 +42,7 @@ export interface TurnResult {
   converged: boolean;
   created_at: string;
   ambiguity_meta: AmbiguityMeta | null;
+  recommendation: RecommendationPayload | null;
 }
 
 export interface SessionState {
@@ -64,8 +86,3 @@ export interface MoviePublic {
   original_language: string | null;
 }
 
-export interface ConvergedClusterPublic {
-  cluster: ClusterPublic;
-  movies: MoviePublic[];
-  preference_profile: Record<string, unknown> | null;
-}

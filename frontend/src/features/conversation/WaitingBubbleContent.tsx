@@ -1,4 +1,4 @@
-import { TypingDots } from "./TypingDots";
+import { Mascot } from "@/components/mascot/Mascot";
 import { PipelineStatusLine } from "./PipelineStatusLine";
 
 /**
@@ -20,10 +20,10 @@ import { PipelineStatusLine } from "./PipelineStatusLine";
 export function WaitingBubbleContent() {
   return (
     <div
-      className="flex flex-col gap-2"
+      className="flex flex-col items-start gap-2"
       data-testid="waiting-bubble-content"
     >
-      <TypingDots />
+      <Mascot pose="bob" size={40} />
       <PipelineStatusLine />
     </div>
   );

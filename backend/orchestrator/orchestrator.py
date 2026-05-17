@@ -18,6 +18,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from uuid import UUID, uuid4
 
+import backend.api.movies as api_movies
 import backend.api.retrieval as api_retrieval
 import backend.api.runs as api_runs
 import backend.api.sessions as api_sessions
@@ -32,6 +33,9 @@ from backend.decision.types import DecisionAction
 from backend.exceptions import SessionNotFound
 from backend.routers.dtos import SessionState, TurnResult
 from backend.orchestrator.progress import (
+    ClusterFilmStub,
+    ClusterSnapshotEvent,
+    ClusterSnapshotPayload,
     NullProgressCallback,
     ProgressCallback,
     ProgressPhase,
@@ -53,6 +57,69 @@ log = logging.getLogger(__name__)
 def _prior_clusters_from_turn(turn: TurnDetail) -> list[ClusterSnapshot]:
     """Return the ClusterSnapshots stored on a prior turn."""
     return list(turn.clusters)
+
+
+_TOP_K_FILMS = 6
+
+
+def _emit_cluster_snapshot(
+    clusters: list[ClusterSnapshot],
+    progress_cb: ProgressCallback,
+) -> None:
+    """Enrich clusters with poster/rating stubs and emit a ClusterSnapshotEvent.
+
+    Gathers the top-K non-excluded movie ids from each cluster, fetches
+    lightweight stubs from the DB in one batch, then fires the event via
+    *progress_cb* so the router can stream it to the frontend.
+
+    Args:
+        clusters:    List of ClusterSnapshot objects produced by clustering.
+        progress_cb: The turn's streaming callback.
+    """
+    all_ids: list[int] = []
+    cluster_tops: list[list[int]] = []
+    for c in clusters:
+        top = sorted(
+            [a for a in c.assignments if not a.excluded],
+            key=lambda a: a.score,
+            reverse=True,
+        )[:_TOP_K_FILMS]
+        ids = [a.movie_id for a in top]
+        cluster_tops.append(ids)
+        all_ids.extend(ids)
+
+    unique_ids = list(dict.fromkeys(all_ids))
+    stubs_by_id: dict[int, dict] = {
+        s["id"]: s for s in api_movies.fetch_stubs(unique_ids)
+    }
+
+    payloads: list[ClusterSnapshotPayload] = []
+    for c, ids in zip(clusters, cluster_tops):
+        top_films = [
+            ClusterFilmStub(
+                id=mid,
+                title=stubs_by_id[mid]["title"],
+                poster_url=stubs_by_id[mid]["poster_url"],
+                release_year=stubs_by_id[mid]["release_year"],
+                vote_average=stubs_by_id[mid]["vote_average"],
+            )
+            for mid in ids
+            if mid in stubs_by_id
+        ]
+        payloads.append(
+            ClusterSnapshotPayload(
+                id=str(c.id),
+                name=c.name,
+                description=c.description,
+                level=c.level,
+                top_films=top_films,
+            )
+        )
+
+    try:
+        progress_cb(ClusterSnapshotEvent(clusters=payloads))
+    except Exception:
+        log.warning("cluster snapshot event dropped", exc_info=True)
 
 
 class Orchestrator:
@@ -432,6 +499,9 @@ class Orchestrator:
                 turn_id=turn_id,
                 turn_number=turn_number,
             )
+
+        if clusters:
+            _emit_cluster_snapshot(clusters, progress_cb)
 
         if not clusters:
             _emit(ProgressStep.wrap_up, "start")

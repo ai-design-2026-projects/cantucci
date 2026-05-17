@@ -3,6 +3,7 @@ import { createSession } from "@/features/session/services/sessionService";
 import { useSessionStore } from "@/store/sessionStore";
 import { useClusterStore } from "@/store/clusterStore";
 import { useUiStore } from "@/store/uiStore";
+import { useClusterSnapshotStore } from "@/store/clusterSnapshotStore";
 import type { SessionState } from "@/utils/types";
 
 /**
@@ -15,6 +16,7 @@ export function useSessionHandler() {
   const { setSessionId, reset: resetSession } = useSessionStore();
   const { reset: resetCluster } = useClusterStore();
   const { reset: resetUi } = useUiStore();
+  const { reset: resetClusterSnapshot } = useClusterSnapshotStore();
 
   const { mutate: initSession, isPending: isCreating, error: createError } = useMutation<
     SessionState,
@@ -36,6 +38,7 @@ export function useSessionHandler() {
     resetSession();
     resetCluster();
     resetUi();
+    resetClusterSnapshot();
     queryClient.clear();
     initSession();
   }

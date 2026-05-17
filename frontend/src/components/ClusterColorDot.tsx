@@ -1,5 +1,3 @@
-import styles from "../styles/ClusterColorDot.module.css";
-
 /** Hue seeds per cluster index, cycling if more than 6 clusters. */
 const CLUSTER_HUES = [220, 160, 40, 280, 15, 190];
 
@@ -21,7 +19,7 @@ export function ClusterColorDot({ index, size = 10 }: ClusterColorDotProps) {
   const hue = CLUSTER_HUES[index % CLUSTER_HUES.length];
   return (
     <span
-      className={styles.dot}
+      className="inline-block rounded-full shrink-0"
       style={{
         width: size,
         height: size,

@@ -46,3 +46,21 @@ export function formatMovieSubtitle(year: number | null, genres: string[]): stri
   if (genres.length > 0) parts.push(genres.slice(0, 2).join(", "));
   return parts.join(" · ") || "—";
 }
+
+/**
+ * Derive a deterministic HSL color from a cluster UUID.
+ *
+ * Hue varies across 0–359; saturation and lightness are fixed so all cluster
+ * colours feel tonally consistent regardless of how many clusters exist.
+ *
+ * @param id - Cluster UUID string.
+ * @returns CSS HSL color string, e.g. ``"hsl(127 55% 50%)"``.
+ */
+export function clusterColor(id: string): string {
+  let hash = 0;
+  for (let i = 0; i < id.length; i++) {
+    hash = (hash * 31 + id.charCodeAt(i)) >>> 0;
+  }
+  const hue = hash % 360;
+  return `hsl(${hue} 55% 50%)`;
+}

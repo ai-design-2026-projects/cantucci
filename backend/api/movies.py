@@ -207,6 +207,49 @@ def fetch_metadata(movie_ids: list[int]) -> list[MovieMetadata]:
     return result
 
 
+def fetch_stubs(movie_ids: list[int]) -> list[dict]:
+    """Return lightweight movie stubs for cluster snapshot payloads.
+
+    Fetches only the fields needed for ``ClusterFilmStub``: id, title,
+    poster_url (built from poster_path), release_year, and vote_average.
+    Missing IDs are silently omitted.
+
+    Args:
+        movie_ids: TMDB integer IDs to look up.
+
+    Returns:
+        List of dicts with keys ``id``, ``title``, ``poster_url``,
+        ``release_year``, ``vote_average``.  Order matches *movie_ids*.
+    """
+    if not movie_ids:
+        return []
+
+    with transaction() as conn:
+        rows = conn.execute(
+            """
+            SELECT id, title, poster_path, release_year, vote_average
+            FROM movies
+            WHERE id = ANY(%s)
+            """,
+            (movie_ids,),
+        ).fetchall()
+
+    tmdb_base = "https://image.tmdb.org/t/p/w500"
+    by_id = {
+        r[0]: {
+            "id": r[0],
+            "title": r[1],
+            "poster_url": f"{tmdb_base}{r[2]}" if r[2] else None,
+            "release_year": r[3],
+            "vote_average": r[4],
+        }
+        for r in rows
+    }
+    result = [by_id[mid] for mid in movie_ids if mid in by_id]
+    log.debug("fetch_stubs", extra={"requested": len(movie_ids), "returned": len(result)})
+    return result
+
+
 def fetch_embeddings(movie_ids: list[int]) -> dict[int, list[float]]:
     """Return raw embeddings keyed by movie_id for the given IDs.
 
