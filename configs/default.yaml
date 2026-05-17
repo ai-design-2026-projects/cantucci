@@ -6,7 +6,7 @@
 models:
   # Two-tier LLM configuration.
   # `strong` is the default model used by every judgment-heavy agent (decision
-  # routing, profile extraction, cluster refinement, convergence check) and is
+  # routing, profile extraction, cluster refinement, state check) and is
   # recorded as the canonical model on the runs / sessions rows.
   # `fast` is a smaller/cheaper model used by mechanical prompts: retrieval
   # query reformulation and cluster naming.
@@ -14,7 +14,7 @@ models:
     # LLM model identifier. For openai: must match a key prefix in
     # llm_harness._COST_PER_M for cost estimation. For openrouter: cost
     # estimation logs a warning and charges 0.
-    name: "openai/gpt-oss-120b:free"
+    name: "deepseek/deepseek-v3.2"
     # API provider: "openai" or "openrouter".
     # "openai" sends to https://api.openai.com/v1 and requires OPENAI_API_KEY.
     # "openrouter" sends to https://openrouter.ai/api/v1 and requires OPENROUTER_API_KEY.
@@ -25,17 +25,17 @@ models:
     # Maximum completion tokens per LLM call.
     max_tokens: 1024
   fast:
-    name: "openai/gpt-oss-120b:free"
+    name: "deepseek/deepseek-v3.2"
     provider: openrouter
     seed: 42
     max_tokens: 1024
 
 session:
-  # Hard turn budget. The convergence hard-limit gate abandons the session after
+  # Hard turn budget. The state hard-limit gate abandons the session after
   # this many turns, before any LLM call for that turn.
   max_turns: 15
   # Kept for replay compatibility; the LLM gate owns end-detection now.
-  convergence_turns: 2
+  state_turns: 2
   # Per-session USD spend ceiling. CostLimitExceeded is raised before any call
   # that would push accumulated cost past this threshold.
   cost_limit_usd: 5.0

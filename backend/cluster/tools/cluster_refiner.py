@@ -84,7 +84,6 @@ def refine(
     # Load the prior clusters into the prompt format
     prior_payload = [
         {
-            "cluster_id": str(c.id),
             "name": c.name,
             "description": c.description or "",
             "films": [

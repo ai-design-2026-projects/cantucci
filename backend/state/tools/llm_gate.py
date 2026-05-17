@@ -1,6 +1,6 @@
-"""LLM convergence gate — detects natural session end and preference drift.
+"""LLM state gate — detects natural session end, preference drift, and re-retrieve triggers.
 
-Makes one LLM call per turn using ``convergence_check_v2.j2``. The gate
+Makes one LLM call per turn using ``state_check_v2.j2``. The gate
 operates on the N-1 preference profile (already persisted on the session row);
 the Profile Agent runs AFTER this gate and updates the profile for the next turn.
 """
@@ -10,11 +10,11 @@ import logging
 from typing import Any
 from uuid import UUID
 
-from backend.api.types import SessionFull, StepType, TurnDetail
-from backend.convergence.types import (
-    ConvergenceAction,
-    ConvergenceCheckResponse,
-    ConvergenceDecision,
+from backend.api.types import TurnDetail
+from backend.state.types import (
+    StateAction,
+    StateCheckResponse,
+    StateDecision,
 )
 from backend.llm import llm_harness
 from backend.llm.prompts import make_prompt_loader
@@ -26,7 +26,7 @@ log = logging.getLogger(__name__)
 load_prompt = make_prompt_loader(Path(__file__).parent.parent / "prompts")
 
 
-def _prompt_schema(model: type[ConvergenceCheckResponse]) -> dict:
+def _prompt_schema(model: type[StateCheckResponse]) -> dict:
     """Return an LLM-readable schema dict derived from *model*'s field definitions.
 
     Pydantic's model_json_schema() uses anyOf for nullable fields, which LLMs
@@ -49,7 +49,7 @@ def _prompt_schema(model: type[ConvergenceCheckResponse]) -> dict:
     return {"type": "object", "properties": properties}
 
 
-def check_llm_convergence(
+def check_llm_state(
     *,
     session_id: UUID,
     run_id: UUID,
@@ -61,31 +61,47 @@ def check_llm_convergence(
     show_count: int,
     cfg: Settings,
     accumulated_cost_usd: float = 0.0,
-) -> ConvergenceDecision:
-    """LLM gate: detects natural conversation end and preference drift in one call.
+    in_drift_clarification_state: bool = False,
+    recommended_last_turn: list[str] | None = None,
+    seen_films: list[str] | None = None,
+) -> StateDecision:
+    """LLM gate: detects natural conversation end, preference drift, and re-retrieve triggers.
 
     Consumes the N-1 preference profile (from sessions.preference_profile) and the
     last 2 completed turns. The Profile Agent runs after this gate and updates the
     profile for the next turn.
 
+    When ``in_drift_clarification_state`` is True, the gate is on the turn
+    immediately after a ``clarify_drift`` turn. It must emit ``drift_confirmed``
+    or ``drift_dismissed`` to confirm or dismiss the previously flagged contradiction.
+
     Args:
-        session_id:         Target session UUID (for log correlation).
-        run_id:             Experiment run UUID (for log correlation).
-        turn_id:            Pre-allocated turn UUID (for log correlation).
-        turn_number:        1-based index of the turn about to run.
-        user_message:       Oracle's message for this turn.
-        preference_profile: Structured profile dict from the previous turn, or
-                            None if this is the first turn.
-        recent_turns:       Up to 2 most recent completed turns (short history).
-        show_count:         Number of show-type turns already completed.
-        cfg:                Active typed settings (model, session limits).
-        accumulated_cost_usd: Running USD cost for the current turn (cost guard).
+        session_id:               Target session UUID (for log correlation).
+        run_id:                   Experiment run UUID (for log correlation).
+        turn_id:                  Pre-allocated turn UUID (for log correlation).
+        turn_number:              1-based index of the turn about to run.
+        user_message:             Oracle's message for this turn.
+        preference_profile:       Structured profile dict from the previous turn, or
+                                  None if this is the first turn.
+        recent_turns:             Up to 2 most recent completed turns (short history).
+        show_count:               Number of show-type turns already completed.
+        cfg:                      Active typed settings (model, session limits).
+        accumulated_cost_usd:     Running USD cost for the current turn (cost guard).
+        in_drift_clarification_state: True when the previous turn was a
+                                  ``clarify_drift`` turn awaiting oracle resolution.
+        recommended_last_turn:    Titles shown in the most recent recommendation turn,
+                                  used as context for the re_retrieve decision.
+        seen_films:               Accumulated seen-film titles across the session,
+                                  shown in context to help identify re_retrieve.
 
     Returns:
-        ``ConvergenceDecision`` with action one of:
-          * ``proceed``       — normal pipeline should run.
-          * ``natural_end``   — oracle wrapped up; mark converged.
-          * ``clarify_drift`` — contradiction detected; emit clarification.
+        ``StateDecision`` with action one of:
+          * ``proceed``          — normal pipeline should run.
+          * ``natural_end``      — oracle wrapped up; mark converged.
+          * ``clarify_drift``    — contradiction detected; emit clarification.
+          * ``drift_confirmed``  — oracle confirmed the preference change.
+          * ``drift_dismissed``  — oracle explained away the contradiction.
+          * ``re_retrieve``      — oracle signals all recommended films already seen.
 
     Raises:
         LLMParseError:     If all retry attempts return malformed JSON.
@@ -99,7 +115,7 @@ def check_llm_convergence(
     }
 
     text, prompt_hash = load_prompt(
-        "convergence_check_v2",
+        "state_check_v2",
         {
             "turn_number": turn_number,
             "max_turns": cfg.session.max_turns,
@@ -115,8 +131,11 @@ def check_llm_convergence(
                 for t in recent_turns
             ],
             "user_message": user_message,
+            "in_drift_clarification_state": in_drift_clarification_state,
+            "recommended_last_turn": recommended_last_turn or [],
+            "seen_films": seen_films or [],
             "response_schema_json": json.dumps(
-                _prompt_schema(ConvergenceCheckResponse),
+                _prompt_schema(StateCheckResponse),
                 indent=2,
             ),
         },
@@ -142,17 +161,17 @@ def check_llm_convergence(
         provider=cfg.models.strong.provider,
         seed=cfg.models.strong.seed,
         max_tokens=cfg.models.strong.max_tokens,
-        step_type="convergence_check",
+        step_type="state_check",
         messages=[{"role": "system", "content": text}],
         prompt_hash=prompt_hash,
         cost_limit_usd=cfg.session.cost_limit_usd,
         accumulated_cost_usd=accumulated_cost_usd,
-        response_schema=ConvergenceCheckResponse,
+        response_schema=StateCheckResponse,
     )
-    parsed: ConvergenceCheckResponse = resp.parsed  # type: ignore[assignment]
+    parsed: StateCheckResponse = resp.parsed  # type: ignore[assignment]
 
     log.info(
-        "convergence verdict",
+        "state verdict",
         extra={
             "session_id": str(session_id),
             "turn_id": str(turn_id),
@@ -161,7 +180,7 @@ def check_llm_convergence(
     )
 
     log.debug(
-        "convergence verdict",
+        "state verdict",
         extra={
             "session_id": str(session_id),
             "turn_id": str(turn_id),
@@ -172,15 +191,15 @@ def check_llm_convergence(
     )
 
     if parsed.decision == "natural_end":
-        return ConvergenceDecision(
-            action=ConvergenceAction.natural_end,
+        return StateDecision(
+            action=StateAction.natural_end,
             reason=parsed.reason,
             reply=parsed.farewell_reply or "Thank you — closing the session!",
         )
 
     if parsed.decision == "clarify_drift":
-        return ConvergenceDecision(
-            action=ConvergenceAction.clarify_drift,
+        return StateDecision(
+            action=StateAction.clarify_drift,
             reason=parsed.reason,
             reply=(
                 parsed.clarify_reply
@@ -191,7 +210,25 @@ def check_llm_convergence(
             current_statement=parsed.current_statement,
         )
 
-    return ConvergenceDecision(
-        action=ConvergenceAction.proceed,
+    if parsed.decision == "drift_confirmed":
+        return StateDecision(
+            action=StateAction.drift_confirmed,
+            reason=parsed.reason,
+        )
+
+    if parsed.decision == "drift_dismissed":
+        return StateDecision(
+            action=StateAction.drift_dismissed,
+            reason=parsed.reason,
+        )
+
+    if parsed.decision == "re_retrieve":
+        return StateDecision(
+            action=StateAction.re_retrieve,
+            reason=parsed.reason,
+        )
+
+    return StateDecision(
+        action=StateAction.proceed,
         reason=parsed.reason,
     )

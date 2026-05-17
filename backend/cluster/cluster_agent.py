@@ -1,33 +1,24 @@
 """Cluster Agent — groups retrieved candidates into named, soft-assigned clusters.
 
-Two scenarios, one LLM call each:
+Two paths, both driven explicitly by the Orchestrator:
 
-Scenario A — fresh (``prior_clusters`` is ``None``):
-  1. Reformulate the oracle's query via the Retrieval System's reformulator.
-  2. Retrieve top-K candidates via the Retrieval System.
-  3. Fetch candidate embeddings from the catalogue.
-  4. Run HDBSCAN soft clustering (``soft_cluster_engine``).
-  5. Name and describe each cluster via a single batched LLM call (``cluster_describer``).
-  6. Return ``list[ClusterSnapshot]`` — no DB writes (architecture rule).
+Fresh path (Scenario A):
+  1. ``soft_cluster``:      fetch embeddings + HDBSCAN → ``SoftClusterResult`` (no LLM).
+  2. ``describe_clusters``: LLM-name each cluster → ``list[ClusterSnapshot]``.
 
-Scenario B — refinement (``prior_clusters`` is not ``None``, with ``asked_question`` + ``user_answer``):
-  1. Fetch metadata for the films in the prior cluster pool.
-  2. Render the refine prompt with prior clusters + clarifying Q&A.
-  3. ``cluster_refiner`` makes one LLM call that drops, moves, renames,
-     redescribes, and rescores in a single pass — no HDBSCAN re-run.
-  4. Return ``list[ClusterSnapshot]`` with new UUIDs.
+Refinement path (Scenario B):
+  ``refine``: thin wrapper over ``cluster_refiner.refine``.
 
-Returns an empty list when retrieval yields no candidates or when HDBSCAN
-classifies all points as noise.  The Orchestrator handles the empty case by
-issuing a canned clarifying question.
+The Orchestrator calls retrieval itself and passes the result to ``soft_cluster``.
+Retrieval and clustering are fully decoupled.
 """
 
 import logging
+from dataclasses import dataclass
 from uuid import UUID, uuid4
 
 import numpy as np
 
-import backend.retrieval.agent as retrieval_agent
 from backend.cluster.tools import (
     cluster_describer,
     cluster_refiner,
@@ -35,128 +26,66 @@ from backend.cluster.tools import (
     soft_cluster_engine,
 )
 from backend.api.types import ClusterAssignment, ClusterSnapshot
+from backend.retrieval.types import RetrievalResult
 from backend.settings import get_settings
 
 log = logging.getLogger(__name__)
 
 
-def cluster(
+@dataclass
+class SoftClusterResult:
+    """Intermediate result from HDBSCAN clustering, before LLM naming.
+
+    Attributes:
+        kept_ids:        Movie IDs that survived the embedding fetch (subset
+                         of retrieval candidates — some may be missing from DB).
+        membership:      HDBSCAN soft-membership matrix, shape (n_kept, n_clusters).
+        meta_by_id:      Metadata keyed by movie_id, for title look-up in snapshots.
+        clusters_payload: Pre-built per-cluster dicts (top_titles, genres, overviews)
+                         passed verbatim to the describer LLM call.
+    """
+
+    kept_ids: list[int]
+    membership: np.ndarray
+    meta_by_id: dict
+    clusters_payload: list[dict]
+
+
+def soft_cluster(
     *,
+    retrieval_result: RetrievalResult,
     session_id: UUID,
-    run_id: UUID,
     turn_id: UUID,
     turn_number: int,
-    user_query: str,
-    accumulated_cost_usd: float = 0.0,
-    prior_clusters: list[ClusterSnapshot] | None = None,
-    asked_question: str | None = None,
-    user_answer: str | None = None,
-    dry_run: bool = False,
-) -> list[ClusterSnapshot]:
-    """Retrieve candidates and produce soft-assigned, named clusters.
+) -> SoftClusterResult | None:
+    """Fetch embeddings and run HDBSCAN soft clustering on a retrieval result.
 
-    When *prior_clusters* is None (default), drives the Retrieval System
-    internally: reformulates the query, fetches top-K candidates via vector
-    search, clusters their embeddings with HDBSCAN, names each cluster via the
-    describer LLM call, and returns named snapshots.
-
-    When *prior_clusters* is provided, skips retrieval/HDBSCAN and instead asks
-    the refiner to semantically restructure the prior clusters in a single LLM
-    call, using the system's clarifying *asked_question* and the oracle's
-    *user_answer* to drive the refinement.
+    No LLM calls. Returns None when retrieval is empty or HDBSCAN classifies
+    all points as noise. The caller (Orchestrator) treats None as an empty
+    cluster list and issues a canned clarifying question.
 
     Args:
-        session_id:           UUID of the current session.
-        run_id:               UUID of the parent run.
-        turn_id:              UUID of the current turn.
-        turn_number:          1-based turn index within the session.
-        user_query:           Oracle's raw (or pre-refined) utterance.
-        accumulated_cost_usd: Running USD cost for the current turn (for cost guard).
-        prior_clusters:       Optional list of the previous turn's
-                              ``ClusterSnapshot``s. When provided, dispatches to
-                              the refinement path; *asked_question* and
-                              *user_answer* are then required.
-        asked_question:       The clarifying question the system asked on the
-                              previous turn. Required when *prior_clusters* is
-                              not None.
-        user_answer:          The oracle's reply to *asked_question*. Required
-                              when *prior_clusters* is not None.
-        dry_run:              If ``True``, skip all live LLM calls.
+        retrieval_result: Output of ``retrieval_agent.retrieve``.
+        session_id:       UUID of the current session.
+        turn_id:          UUID of the current turn.
+        turn_number:      1-based turn index within the session.
 
     Returns:
-        List of ``ClusterSnapshot`` objects, or an empty list when retrieval
-        returns no candidates, when HDBSCAN classifies all points as noise, or
-        when refinement drops every cluster.
-
-    Raises:
-        LLMParseError:     If any LLM call returns malformed JSON or fails
-                           schema validation on every retry.
-        CostLimitExceeded: If the session budget is exhausted before any LLM call.
-        ValueError:        If the fresh path fails to fetch embeddings, or if
-                           the refinement path is dispatched without
-                           *asked_question* / *user_answer*.
+        ``SoftClusterResult`` ready for ``describe_clusters``, or ``None``.
     """
     cfg = get_settings()
-    k: int = cfg.retrieval.top_k
-
-    log.debug(
-        "cluster agent entry",
-        extra={
-            "session_id": str(session_id),
-            "turn_id": str(turn_id),
-            "turn_number": turn_number,
-            "user_query_len": len(user_query),
-            "has_prior_clusters": prior_clusters is not None,
-            "n_prior_clusters": 0 if prior_clusters is None else len(prior_clusters),
-            "top_k": k,
-            "dry_run": dry_run,
-        },
-    )
-
-    # Scenario B — refinement. The refiner owns its own LLM call and metadata
-    # fetch; the agent's job here is just to validate the contract and dispatch.
-    if prior_clusters is not None:
-        if asked_question is None or user_answer is None:
-            raise ValueError(
-                "refinement path requires asked_question and user_answer; got None"
-            )
-        return cluster_refiner.refine(
-            prior_clusters=prior_clusters,
-            user_query=user_query,
-            asked_question=asked_question,
-            user_answer=user_answer,
-            session_id=session_id,
-            run_id=run_id,
-            turn_id=turn_id,
-            accumulated_cost_usd=accumulated_cost_usd,
-            dry_run=dry_run,
-        )
-
-    # Scenario A — fresh retrieval + HDBSCAN + describer.
-    retrieval_result = retrieval_agent.retrieve(
-        user_query=user_query,
-        k=k,
-        session_id=session_id,
-        run_id=run_id,
-        turn_id=turn_id,
-        accumulated_cost_usd=accumulated_cost_usd,
-        dry_run=dry_run,
-    )
     metas = retrieval_result.candidates
 
-    # If no candidates are retrieved, return an empty list
     if not metas:
         log.warning(
-            "Cluster agent: no candidates retrieved, returning empty",
+            "soft_cluster: no candidates, returning None",
             extra={"session_id": str(session_id), "turn_number": turn_number},
         )
-        return []
+        return None
 
-    # Fetch embeddings for the candidate pool and cluster them with HDBSCAN
     movie_ids = [c.movie_id for c in metas]
     kept_ids, embeddings = embedding_fetcher.fetch(movie_ids)
 
-    # Cluster with UMAP+HDBSCAN; the describer and downstream decision agent will see only the
     result = soft_cluster_engine.cluster(
         embeddings,
         min_cluster_size=cfg.clustering.min_cluster_size,
@@ -177,21 +106,17 @@ def cluster(
         },
     )
 
-    meta_by_id = {c.movie_id: c for c in metas}
-
     if result.n_clusters == 0:
         log.warning(
-            "Cluster agent: HDBSCAN classified all points as noise — returning empty",
+            "soft_cluster: HDBSCAN all-noise, returning None",
             extra={"session_id": str(session_id), "n_candidates": len(kept_ids)},
         )
-        return []
+        return None
 
-    # At this point we have a cluster result from the full pipeline
-    membership: np.ndarray = result.membership  # type: ignore[assignment]
+    meta_by_id = {c.movie_id: c for c in metas}
+    membership: np.ndarray = result.membership
     top_n: int = cfg.clustering.top_titles_per_cluster
-    threshold: float = cfg.clustering.assignment_threshold
 
-    # Describe each cluster with the describer, then construct snapshots with soft assignments
     clusters_payload: list[dict] = []
     for ci in range(result.n_clusters):
         scores = membership[:, ci]
@@ -212,21 +137,60 @@ def cluster(
             }
         )
 
+    return SoftClusterResult(
+        kept_ids=kept_ids,
+        membership=membership,
+        meta_by_id=meta_by_id,
+        clusters_payload=clusters_payload,
+    )
+
+
+def describe_clusters(
+    *,
+    soft_result: SoftClusterResult,
+    user_query: str,
+    reformulated_query: str,
+    session_id: UUID,
+    run_id: UUID,
+    turn_id: UUID,
+    accumulated_cost_usd: float = 0.0,
+    dry_run: bool = False,
+) -> list[ClusterSnapshot]:
+    """LLM-name each cluster and build ClusterSnapshots with soft assignments.
+
+    Args:
+        soft_result:          Output of ``soft_cluster``.
+        user_query:           Oracle's raw query (for the describer prompt).
+        reformulated_query:   Reformulated query from retrieval (for the describer prompt).
+        session_id:           UUID of the current session.
+        run_id:               UUID of the parent run.
+        turn_id:              UUID of the current turn.
+        accumulated_cost_usd: Running cost for the current turn.
+        dry_run:              If ``True``, skip live LLM calls.
+
+    Returns:
+        List of named ``ClusterSnapshot`` objects with soft assignments.
+
+    Raises:
+        LLMParseError:     If the describer LLM call returns malformed JSON.
+        CostLimitExceeded: If the session budget is exhausted.
+    """
+    cfg = get_settings()
+    threshold: float = cfg.clustering.assignment_threshold
+
     log.debug(
         "cluster describer pre-call",
         extra={
             "session_id": str(session_id),
             "turn_id": str(turn_id),
-            "n_clusters_to_describe": len(clusters_payload),
-            "top_titles_per_cluster": top_n,
+            "n_clusters_to_describe": len(soft_result.clusters_payload),
         },
     )
 
-    # The describer returns a list of (name, description) pairs in the same order as the input clusters
     labels = cluster_describer.describe(
-        clusters_payload=clusters_payload,
+        clusters_payload=soft_result.clusters_payload,
         user_query=user_query,
-        reformulated_query=retrieval_result.reformulated_query,
+        reformulated_query=reformulated_query,
         session_id=session_id,
         run_id=run_id,
         turn_id=turn_id,
@@ -234,18 +198,18 @@ def cluster(
         dry_run=dry_run,
     )
 
-    # Finally, construct the list of ClusterSnapshots with soft assignments based on the describer's output
     snapshots: list[ClusterSnapshot] = []
     for ci, (name, description) in enumerate(labels):
-        scores = membership[:, ci]
+        scores = soft_result.membership[:, ci]
         assignments = [
             ClusterAssignment(
-                movie_id=kept_ids[i],
+                movie_id=soft_result.kept_ids[i],
                 score=float(scores[i]),
                 excluded=False,
-                title=meta_by_id[kept_ids[i]].title if kept_ids[i] in meta_by_id else None,
+                title=soft_result.meta_by_id[soft_result.kept_ids[i]].title
+                if soft_result.kept_ids[i] in soft_result.meta_by_id else None,
             )
-            for i in range(len(kept_ids))
+            for i in range(len(soft_result.kept_ids))
             if scores[i] >= threshold
         ]
         snapshots.append(
@@ -260,12 +224,11 @@ def cluster(
         )
 
     log.info(
-        "Cluster agent complete",
+        "describe_clusters complete",
         extra={
             "session_id": str(session_id),
-            "turn_number": turn_number,
+            "turn_id": str(turn_id),
             "n_clusters": len(snapshots),
-            "n_candidates": len(kept_ids),
         },
     )
     log.debug(
@@ -278,3 +241,48 @@ def cluster(
         },
     )
     return snapshots
+
+
+def refine(
+    *,
+    prior_clusters: list[ClusterSnapshot],
+    user_query: str,
+    asked_question: str,
+    user_answer: str,
+    session_id: UUID,
+    run_id: UUID,
+    turn_id: UUID,
+    accumulated_cost_usd: float = 0.0,
+    dry_run: bool = False,
+) -> list[ClusterSnapshot]:
+    """Refine prior clusters given a clarifying Q&A. Wrapper over cluster_refiner.
+
+    Args:
+        prior_clusters:       The previous turn's ``ClusterSnapshot`` list.
+        user_query:           The oracle's original session-level query.
+        asked_question:       The clarifying question asked on the previous turn.
+        user_answer:          The oracle's reply to asked_question.
+        session_id:           UUID of the current session.
+        run_id:               UUID of the parent run.
+        turn_id:              UUID of the current turn.
+        accumulated_cost_usd: Running cost for the current turn.
+        dry_run:              If ``True``, skip live LLM calls.
+
+    Returns:
+        Refined ``list[ClusterSnapshot]`` with new UUIDs.
+
+    Raises:
+        LLMParseError:     If the harness exhausts its retry budget.
+        CostLimitExceeded: If the session budget is exhausted.
+    """
+    return cluster_refiner.refine(
+        prior_clusters=prior_clusters,
+        user_query=user_query,
+        asked_question=asked_question,
+        user_answer=user_answer,
+        session_id=session_id,
+        run_id=run_id,
+        turn_id=turn_id,
+        accumulated_cost_usd=accumulated_cost_usd,
+        dry_run=dry_run,
+    )

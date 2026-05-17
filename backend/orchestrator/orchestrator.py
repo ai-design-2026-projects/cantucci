@@ -2,10 +2,11 @@
 
 No in-memory session state: all persistence flows through ``backend.api``.
 
-Turn flow (per architecture.md):
-  Oracle → Orchestrator → Convergence Agent → Cluster Agent (→ Retrieval
-  internally) → Decision Agent (decides + generates question when continuing) →
-  Profile Agent → Orchestrator writes turn / clusters / feedback / profile.
+Turn flow:
+  Oracle → Orchestrator → Wave 1 (parallel: State + Profile + Refine if
+  applicable) → if non-terminal: Retrieval + Cluster (fresh path, serial) or
+  Refine result (refinement path) → Decision Agent → Orchestrator writes turn /
+  clusters / feedback / profile.
 
 The Orchestrator is the sole writer to the DB. All sub-agents are read-only.
 Private decision logic lives in ``backend/orchestrator/tools/``.
@@ -20,12 +21,13 @@ from uuid import UUID, uuid4
 import backend.api.retrieval as api_retrieval
 import backend.api.runs as api_runs
 import backend.api.sessions as api_sessions
+import backend.retrieval.agent as retrieval_agent
 from backend.cluster import cluster_agent
-from backend.convergence import convergence_agent
+from backend.state import state_agent
 from backend.decision import decision_agent
 from backend.profile import profile_agent
 from backend.api.types import ClusterSnapshot, SessionStatus, StepType, TurnDetail
-from backend.convergence.types import ConvergenceAction, ConvergenceDecision
+from backend.state.types import StateAction, StateDecision
 from backend.decision.types import DecisionAction
 from backend.exceptions import SessionNotFound
 from backend.routers.dtos import SessionState, TurnResult
@@ -40,7 +42,6 @@ from backend.orchestrator.tools.feedback import classify_feedback
 from backend.orchestrator.tools.policy import (
     cluster_snapshot_to_spec,
     prior_questions,
-    should_retrieve,
 )
 from backend.orchestrator.tools.render import render_recommendation
 from backend.orchestrator.tools.turns import emit_drift_clarification, emit_early_clarification
@@ -117,12 +118,14 @@ class Orchestrator:
 
         Full flow:
           1. Load session state from DB.
-          2. Convergence Agent: hard-limit + LLM gate (uses N-1 profile).
-          3. Retrieval/cluster decision.
-          4. Cluster Agent (Scenario A or B).
-          5. Decision Agent: decides action and, when continuing, generates the question.
-          6. Profile Agent: extract updated profile → persist on session.
-          7. Persist the turn and oracle feedback.
+          2. Wave 1 (parallel): State Agent + Profile Agent + Refine (if
+             refinement turn). Retrieval runs serially AFTER state check on
+             fresh turns, so wasted retrieval calls are avoided on terminal paths.
+          3. If state is terminal, discard speculative results and return early.
+          4. Fresh path (after state check): retrieve → soft_cluster → describe_clusters.
+             Refinement path: resolve the parallel refine future.
+          5. Decision Agent: decides action and generates question when continuing.
+          6. Persist turn, clusters, feedback, and updated profile.
 
         Args:
             session_id:   UUID of the target session.
@@ -179,52 +182,38 @@ class Orchestrator:
             },
         )
 
-        # Precompute pure cluster inputs so Wave 1 can dispatch immediately.
         prior_turn = full.turns[-1] if full.turns else None
         is_refinement = (
             prior_turn is not None
             and prior_turn.step_type == StepType.ask.value
             and prior_turn.clusters
         )
-        ret = should_retrieve(full, user_message)
 
         if is_refinement:
             log.info(
                 "refinement after ask",
                 extra={"session_id": str(session_id), "turn_number": turn_number},
             )
-            cluster_kwargs: dict = dict(
-                session_id=session_id,
-                run_id=full.run_id,
-                turn_id=turn_id,
-                turn_number=turn_number,
-                user_query=user_message,
-                prior_clusters=_prior_clusters_from_turn(prior_turn),
-                asked_question=prior_turn.assistant_message or "",
-                user_answer=user_message,
-            )
-        else:
-            log.info(
-                "fresh retrieval",
-                extra={
-                    "session_id": str(session_id),
-                    "turn_number": turn_number,
-                    "retrieve_new": ret.retrieve,
-                },
-            )
-            cluster_kwargs = dict(
-                session_id=session_id,
-                run_id=full.run_id,
-                turn_id=turn_id,
-                turn_number=turn_number,
-                user_query=ret.query or user_message,
-            )
 
-        # Wave 1: Convergence + Cluster (speculative) + Profile in parallel.
+        # Wave 1: state + profile (always) + refine (refinement turns only).
+        # Retrieval is intentionally absent from this pool — it runs serially after
+        # state check clears, so terminal actions (terminate, natural_end,
+        # clarify_drift) and retrieval_override reruns never pay for a wasted
+        # retrieval call.
+        prior_seen: list[str] = list(prior_profile.get("seen_films", [])) if prior_profile else []
+        recommended_last_turn: list[str] = []
+        if full.turns:
+            last = full.turns[-1]
+            if last.step_type == StepType.show.value:
+                for c in last.clusters:
+                    for a in c.assignments:
+                        if not a.excluded and a.title:
+                            recommended_last_turn.append(a.title)
+
         _emit(ProgressStep.understand, "start")
         with ThreadPoolExecutor(max_workers=3) as pool:
             f_conv = pool.submit(
-                convergence_agent.check,
+                state_agent.check,
                 session_id=session_id,
                 run_id=full.run_id,
                 turn_id=turn_id,
@@ -233,8 +222,9 @@ class Orchestrator:
                 full=full,
                 preference_profile=prior_profile,
                 cfg=cfg,
+                recommended_last_turn=recommended_last_turn,
+                seen_films=prior_seen,
             )
-            f_cluster = pool.submit(cluster_agent.cluster, **cluster_kwargs)
             f_profile = pool.submit(
                 profile_agent.extract,
                 session_id=session_id,
@@ -245,13 +235,72 @@ class Orchestrator:
                 prior_profile=prior_profile,
                 recent_turns=recent_turns,
             )
+            f_refine = (
+                pool.submit(
+                    cluster_agent.refine,
+                    prior_clusters=_prior_clusters_from_turn(prior_turn),
+                    user_query=user_message,
+                    asked_question=prior_turn.assistant_message or "",
+                    user_answer=user_message,
+                    session_id=session_id,
+                    run_id=full.run_id,
+                    turn_id=turn_id,
+                )
+                if is_refinement
+                else None
+            )
             conv = f_conv.result()
-            clusters = f_cluster.result()
-            new_profile = f_profile.result()
+
+            _terminal = conv.action in (
+                StateAction.terminate,
+                StateAction.natural_end,
+                StateAction.clarify_drift,
+            )
+            if _terminal:
+                for _f, _name in ((f_refine, "refine"), (f_profile, "profile")):
+                    if _f is None:
+                        continue
+                    try:
+                        _f.result()
+                    except Exception as _exc:
+                        log.warning(
+                            "speculative agent failed (discarded — state terminal)",
+                            extra={
+                                "agent": _name,
+                                "session_id": str(session_id),
+                                "error": str(_exc),
+                            },
+                        )
+                clusters = []
+                new_profile = prior_profile
+            else:
+                new_profile = f_profile.result()
+                if is_refinement:
+                    clusters = f_refine.result()
+                elif conv.action in (StateAction.drift_confirmed, StateAction.re_retrieve) or conv.retrieval_override:
+                    # drift_confirmed and retrieval_override each replace clusters via
+                    # their own retrieval call below — skip the initial retrieval.
+                    clusters = []
+                else:
+                    rr = retrieval_agent.retrieve_from_message(
+                        user_query=user_message,
+                        k=cfg.retrieval.top_k,
+                        session_id=session_id,
+                        run_id=full.run_id,
+                        turn_id=turn_id,
+                    )
+                    clusters = self._cluster_from_retrieval(
+                        rr,
+                        user_query=user_message,
+                        cfg=cfg,
+                        session_id=session_id,
+                        full=full,
+                        turn_id=turn_id,
+                        turn_number=turn_number,
+                    )
         _emit(ProgressStep.understand, "end")
 
-        # Early-exit branches: cluster + profile results are discarded.
-        if conv.action is ConvergenceAction.terminate:
+        if conv.action is StateAction.terminate:
             _emit(ProgressStep.wrap_up, "start")
             try:
                 return self._terminate_turn(
@@ -264,7 +313,7 @@ class Orchestrator:
             finally:
                 _emit(ProgressStep.wrap_up, "end")
 
-        if conv.action is ConvergenceAction.natural_end:
+        if conv.action is StateAction.natural_end:
             _emit(ProgressStep.wrap_up, "start")
             try:
                 return self._natural_end_turn(
@@ -278,7 +327,7 @@ class Orchestrator:
             finally:
                 _emit(ProgressStep.wrap_up, "end")
 
-        if conv.action is ConvergenceAction.clarify_drift:
+        if conv.action is StateAction.clarify_drift:
             _emit(ProgressStep.wrap_up, "start")
             try:
                 return emit_drift_clarification(
@@ -291,23 +340,97 @@ class Orchestrator:
             finally:
                 _emit(ProgressStep.wrap_up, "end")
 
-        # Convergence ↔ Cluster reconciliation: if convergence supplies a
+        if conv.action is StateAction.drift_confirmed:
+            drift_summary = new_profile.summary or user_message
+            drift_excluded = list(dict.fromkeys(prior_seen + new_profile.anchor_films))
+            log.info(
+                "drift confirmed — re-retrieving from profile summary",
+                extra={
+                    "session_id": str(session_id),
+                    "turn_id": str(turn_id),
+                    "using_profile_summary": bool(new_profile.summary),
+                    "n_excluded_films": len(drift_excluded),
+                },
+            )
+            rr = retrieval_agent.retrieve_from_profile(
+                summary=drift_summary,
+                excluded_films=drift_excluded,
+                k=cfg.retrieval.top_k,
+                session_id=session_id,
+                run_id=full.run_id,
+                turn_id=turn_id,
+            )
+            clusters = self._cluster_from_retrieval(
+                rr,
+                user_query=drift_summary,
+                cfg=cfg,
+                session_id=session_id,
+                full=full,
+                turn_id=turn_id,
+                turn_number=turn_number,
+            )
+
+        if conv.action is StateAction.re_retrieve:
+            re_summary = new_profile.summary or user_message
+            re_excluded = list(dict.fromkeys(prior_seen + new_profile.anchor_films))
+            log.info(
+                "re_retrieve — fresh chain from profile with seen-films excluded",
+                extra={
+                    "session_id": str(session_id),
+                    "turn_id": str(turn_id),
+                    "n_excluded_films": len(re_excluded),
+                },
+            )
+            rr = retrieval_agent.retrieve_from_profile(
+                summary=re_summary,
+                excluded_films=re_excluded,
+                k=cfg.retrieval.top_k,
+                session_id=session_id,
+                run_id=full.run_id,
+                turn_id=turn_id,
+            )
+            clusters = self._cluster_from_retrieval(
+                rr,
+                user_query=re_summary,
+                cfg=cfg,
+                session_id=session_id,
+                full=full,
+                turn_id=turn_id,
+                turn_number=turn_number,
+            )
+
+        if conv.action is StateAction.drift_dismissed:
+            log.info(
+                "drift dismissed — using current-turn retrieval",
+                extra={"session_id": str(session_id), "turn_id": str(turn_id)},
+            )
+
+        # State ↔ Cluster reconciliation: if state supplies a
         # retrieval override, the speculative cluster result is stale — rerun.
         if conv.retrieval_override:
             log.warning(
-                "cluster rerun: convergence supplied retrieval override",
+                "cluster rerun: state supplied retrieval override",
                 extra={
                     "session_id": str(session_id),
                     "turn_id": str(turn_id),
                     "override_query": conv.retrieval_override,
                 },
             )
-            clusters = cluster_agent.cluster(
+            rr = retrieval_agent.retrieve_from_message(
+                user_query=conv.retrieval_override,
+                k=cfg.retrieval.top_k,
                 session_id=session_id,
                 run_id=full.run_id,
                 turn_id=turn_id,
-                turn_number=turn_number,
+            )
+            clusters = self._cluster_from_retrieval(
+                rr,
                 user_query=conv.retrieval_override,
+                cfg=cfg,
+                session_id=session_id,
+                full=full,
+                turn_id=turn_id,
+                turn_number=turn_number,
             )
 
         if not clusters:
@@ -382,14 +505,25 @@ class Orchestrator:
             )
             reply = render_recommendation(
                 best_cluster=best_cluster,
-                decision=decision,
                 top_k=cfg.session.recommendation_top_k,
+            )
+            rendered_titles = [
+                a.title
+                for a in sorted(
+                    [a for a in best_cluster.assignments if not a.excluded],
+                    key=lambda a: a.score,
+                    reverse=True,
+                )[: cfg.session.recommendation_top_k]
+                if a.title
+            ]
+            new_profile.seen_films = list(
+                dict.fromkeys(new_profile.seen_films + rendered_titles)
             )
             converged = False
             step_type = StepType.show
 
         log.debug(
-            "convergence verdict",
+            "state verdict",
             extra={
                 "session_id": str(session_id),
                 "turn_id": str(turn_id),
@@ -417,6 +551,9 @@ class Orchestrator:
             target_id=fb_target_id,
         )
 
+        new_profile.seen_films = list(
+            dict.fromkeys(prior_seen + new_profile.anchor_films + new_profile.seen_films)
+        )
         api_sessions.update_preference_profile(session_id, new_profile.model_dump())
         _emit(ProgressStep.finalize, "end")
 
@@ -450,6 +587,50 @@ class Orchestrator:
             created_at=now,
         )
 
+    def _cluster_from_retrieval(
+        self,
+        rr,
+        *,
+        user_query: str,
+        cfg,
+        session_id: UUID,
+        full,
+        turn_id: UUID,
+        turn_number: int,
+    ) -> list[ClusterSnapshot]:
+        """Run HDBSCAN → LLM describe over an already-fetched ``RetrievalResult``.
+
+        Args:
+            rr:           ``RetrievalResult`` produced by one of the retrieve_from_* functions.
+            user_query:   The original query string (raw message or profile summary), passed
+                          to ``describe_clusters`` for context.
+            cfg:          Loaded settings for the current turn.
+            session_id:   UUID of the current session.
+            full:         Full session state loaded from DB.
+            turn_id:      UUID of the current turn.
+            turn_number:  1-based turn index within the session.
+
+        Returns:
+            List of named ``ClusterSnapshot`` objects, or an empty list when
+            retrieval yields no candidates or HDBSCAN classifies all as noise.
+        """
+        sr = cluster_agent.soft_cluster(
+            retrieval_result=rr,
+            session_id=session_id,
+            turn_id=turn_id,
+            turn_number=turn_number,
+        )
+        if sr is None:
+            return []
+        return cluster_agent.describe_clusters(
+            soft_result=sr,
+            user_query=user_query,
+            reformulated_query=rr.reformulated_query,
+            session_id=session_id,
+            run_id=full.run_id,
+            turn_id=turn_id,
+        )
+
     def _terminate_turn(
         self,
         *,
@@ -457,7 +638,7 @@ class Orchestrator:
         turn_id: UUID,
         turn_number: int,
         user_message: str,
-        decision: ConvergenceDecision,
+        decision: StateDecision,
     ) -> TurnResult:
         """Persist and return a terminal turn when a hard limit is reached.
 
@@ -469,7 +650,7 @@ class Orchestrator:
             turn_id:      Pre-allocated turn UUID.
             turn_number:  1-based index for this turn.
             user_message: Oracle's message that triggered the limit check.
-            decision:     ConvergenceDecision from check_hard_limits.
+            decision:     StateDecision from check_hard_limits.
 
         Returns:
             A TurnResult with step_type=stop, converged=False.
@@ -522,10 +703,10 @@ class Orchestrator:
         turn_id: UUID,
         turn_number: int,
         user_message: str,
-        decision: ConvergenceDecision,
+        decision: StateDecision,
         preference_profile: dict,
     ) -> TurnResult:
-        """Persist and return a convergence turn detected by the LLM gate.
+        """Persist and return a natural-end turn detected by the LLM gate.
 
         Writes step_type=stop, converged=True, marks the session converged,
         and records an accept feedback row.
@@ -535,7 +716,7 @@ class Orchestrator:
             turn_id:           Pre-allocated turn UUID.
             turn_number:       1-based index for this turn.
             user_message:      Oracle's message that the gate classified as natural end.
-            decision:          ConvergenceDecision from the convergence agent.
+            decision:          StateDecision from the state agent.
             preference_profile: N-1 profile to persist with the converged session.
 
         Returns:

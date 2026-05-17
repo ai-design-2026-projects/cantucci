@@ -36,6 +36,12 @@ and add new signals from this turn.
   profile. Write it as if briefing a human recommender. It must reflect all
   constraints, key preferences, and the dominant attitude.
 
+- **`anchor_films`**: Film titles the oracle names as positive reference points
+  *in this turn only* — phrases like "something like X", "reminds me of Y",
+  "in the style of Z". Emit each title verbatim as the oracle wrote it.
+  Do NOT carry forward anchors from prior turns. Emit an empty list when the
+  oracle names no anchor titles in the current message.
+
 # Rules and anti-patterns
 
 **DO:**
@@ -53,7 +59,19 @@ and add new signals from this turn.
 - Repeat prior profile entries verbatim if they have been superseded.
 - Include film titles in `constraints` or `preferences` — film-specific exclusions
   are handled by the retrieval reformulator, not the profile.
+- Carry `anchor_films` across turns — only emit titles from *this* oracle message.
 - Use vague filler like "enjoys good films" or "has diverse tastes".
+
+**Eager-to-see signals — carry the prior profile unchanged:**
+If the oracle's current message is purely an eager-to-see signal — phrases like "show
+me what you got", "just pick one", "surprise me", "go ahead", "whatever you think",
+"just recommend something", "I trust you" — it carries no preference or constraint
+information. In this case:
+- Carry all prior constraints and preferences forward without modification.
+- Add an attitude entry such as "eager to see results without further filtering" if
+  it is not already present.
+- Keep `anchor_films` empty (no film titles were named).
+- Do NOT add any preferences or constraints inferred from the phrasing.
 
 # Output format
 
@@ -61,10 +79,11 @@ Your response must be a single raw JSON object — no markdown fences, no prose 
 or after, no comments inside the JSON:
 
 {
-  "constraints": ["<explicit hard requirement>", "..."],
-  "preferences": ["<soft stylistic preference>", "..."],
-  "attitudes":   ["<engagement style signal>", "..."],
-  "summary":     "<1–2 sentence synthesis>"
+  "constraints":  ["<explicit hard requirement>", "..."],
+  "preferences":  ["<soft stylistic preference>", "..."],
+  "attitudes":    ["<engagement style signal>", "..."],
+  "summary":      "<1–2 sentence synthesis>",
+  "anchor_films": ["<title verbatim from this turn>", "..."]
 }
 
 # Examples
@@ -73,7 +92,7 @@ or after, no comments inside the JSON:
 
 Oracle: "I want a slow, contemplative film. Absolutely no horror."
 
-{"constraints": ["no horror"], "preferences": ["slow, contemplative pacing"], "attitudes": ["early turn — engagement style not yet clear"], "summary": "The oracle wants slow, meditative cinema and has a firm rule against horror."}
+{"constraints": ["no horror"], "preferences": ["slow, contemplative pacing"], "attitudes": ["early turn — engagement style not yet clear"], "summary": "The oracle wants slow, meditative cinema and has a firm rule against horror.", "anchor_films": []}
 
 ## Accumulation (building on prior preferences)
 
@@ -84,7 +103,7 @@ Prior profile:
 
 Oracle: "I loved the recommendation but I'd like something with a stronger female lead next time."
 
-{"constraints": ["no horror"], "preferences": ["slow, contemplative pacing", "strong female protagonist"], "attitudes": ["responsive to recommendations — accepted the first cluster"], "summary": "The oracle prefers meditative films with strong female leads and firmly rules out horror. They accepted the first recommendation, suggesting a convergent taste."}
+{"constraints": ["no horror"], "preferences": ["slow, contemplative pacing", "strong female protagonist"], "attitudes": ["responsive to recommendations — accepted the first cluster"], "summary": "The oracle prefers meditative films with strong female leads and firmly rules out horror. They accepted the first recommendation, suggesting a convergent taste.", "anchor_films": []}
 
 ## Contradiction-by-revision (prior constraint overridden)
 
@@ -95,7 +114,7 @@ Prior profile:
 
 Oracle: "Actually, a psychological thriller would be fine — I just don't like slasher stuff."
 
-{"constraints": ["no slasher films"], "preferences": ["slow, contemplative pacing", "psychological tension"], "attitudes": ["willing to revise early constraints when prompted"], "summary": "The oracle prefers slow, psychologically tense films and has refined their horror aversion to slasher films specifically."}
+{"constraints": ["no slasher films"], "preferences": ["slow, contemplative pacing", "psychological tension"], "attitudes": ["willing to revise early constraints when prompted"], "summary": "The oracle prefers slow, psychologically tense films and has refined their horror aversion to slasher films specifically.", "anchor_films": []}
 
 ## Attitudinal shift (engagement style signal)
 
@@ -107,7 +126,25 @@ Prior profile:
 
 Oracle: "None of these work for me. Can we try something completely different? Maybe something more fun and energetic?"
 
-{"constraints": ["no slasher films"], "preferences": ["energetic, fun tone"], "attitudes": ["willing to revise early constraints when prompted", "exploratory — pivots direction when unsatisfied"], "summary": "The oracle is actively exploring different vibes; they started with contemplative preferences but have shifted to wanting energetic, fun films. Slasher films remain off-limits."}
+{"constraints": ["no slasher films"], "preferences": ["energetic, fun tone"], "attitudes": ["willing to revise early constraints when prompted", "exploratory — pivots direction when unsatisfied"], "summary": "The oracle is actively exploring different vibes; they started with contemplative preferences but have shifted to wanting energetic, fun films. Slasher films remain off-limits.", "anchor_films": []}
+
+## Anchor extraction example
+
+Oracle: "I want something in the vein of Blade Runner, but maybe a bit lighter in tone."
+
+{"constraints": [], "preferences": ["science-fiction aesthetics", "lighter tone"], "attitudes": ["early turn — engagement style not yet clear"], "summary": "The oracle is drawn to science-fiction aesthetics similar to Blade Runner but prefers a lighter emotional register.", "anchor_films": ["Blade Runner"]}
+
+## Eager-to-see signal (no new preference information)
+
+Prior profile:
+  constraints: ["no horror"]
+  preferences: ["slow, contemplative pacing"]
+  attitudes: ["exploratory"]
+  summary: "The oracle wants slow, meditative cinema and has a firm rule against horror."
+
+Oracle: "Show me what you got."
+
+{"constraints": ["no horror"], "preferences": ["slow, contemplative pacing"], "attitudes": ["exploratory", "eager to see results without further filtering"], "summary": "The oracle wants slow, meditative cinema and has a firm rule against horror. They are ready to see results without additional questions.", "anchor_films": []}
 
 # Session context
 

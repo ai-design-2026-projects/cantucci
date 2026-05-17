@@ -33,6 +33,18 @@ def _sample_title(db_url: str) -> tuple[int, str]:
     return int(row[0]), str(row[1])
 
 
+def _sample_movie_ids(db_url: str, limit: int = 2) -> list[int]:
+    """Return a few catalogue IDs in deterministic order."""
+    with psycopg.connect(db_url) as conn:
+        rows = conn.execute(
+            "SELECT id FROM movies ORDER BY id LIMIT %s",
+            (limit,),
+        ).fetchall()
+    ids = [int(row[0]) for row in rows]
+    assert len(ids) == limit, "mini catalogue has fewer rows than expected"
+    return ids
+
+
 def _shared_word_title_pair(db_url: str) -> tuple[str, list[int]]:
     """Find a word that appears in >=2 catalogue titles; return (word, matching_ids).
 
@@ -121,25 +133,71 @@ def test_vector_search_excludes_ids(db_url: str, mini_catalogue: int) -> None:
     assert target_id not in returned_ids
 
 
+def test_vector_search_rejects_non_positive_k() -> None:
+    """Invalid k values fail before any catalogue query runs."""
+    for k in (0, -1):
+        try:
+            api_movies.vector_search([0.0], k=k)
+        except ValueError as exc:
+            assert f"k must be positive, got {k}" in str(exc)
+        else:
+            raise AssertionError("expected ValueError")
+
+
+def test_fetch_metadata_empty_input_returns_empty() -> None:
+    """Empty metadata requests short-circuit without DB work."""
+    assert api_movies.fetch_metadata([]) == []
+
+
+def test_fetch_metadata_preserves_order_and_omits_missing(
+    db_url: str,
+    mini_catalogue: int,
+) -> None:
+    """Metadata rows follow requested ID order and silently skip unknown IDs."""
+    first, second = _sample_movie_ids(db_url, limit=2)
+
+    result = api_movies.fetch_metadata([second, -1, first])
+
+    assert [movie.movie_id for movie in result] == [second, first]
+
+
+def test_fetch_embeddings_empty_input_returns_empty() -> None:
+    """Empty embedding requests short-circuit without DB work."""
+    assert api_movies.fetch_embeddings([]) == {}
+
+
+def test_fetch_embeddings_returns_only_present_requested_ids(
+    db_url: str,
+    mini_catalogue: int,
+) -> None:
+    """Embedding lookup omits missing IDs and keeps present IDs keyed by movie ID."""
+    first, second = _sample_movie_ids(db_url, limit=2)
+
+    result = api_movies.fetch_embeddings([first, -1, second])
+
+    assert set(result) == {first, second}
+    assert all(result[movie_id] for movie_id in (first, second))
+
+
 def test_retrieval_agent_excludes_titles_end_to_end(
     db_url: str, mini_catalogue: int, monkeypatch
 ) -> None:
-    """retrieval_agent.retrieve drops reformulator-emitted exclusions from candidates."""
+    """retrieve_from_message drops reformulator-emitted exclusions from candidates."""
     _, sample_title = _sample_title(db_url)
 
     # Stub the reformulator so we can pin the exclusion list deterministically.
-    def _fake_reformulate(**_: object) -> ReformulatedQuery:
+    def _fake_from_message(**_: object) -> ReformulatedQuery:
         return ReformulatedQuery(
             query="a contemplative film about identity and memory",
             excluded_films=[sample_title],
         )
 
     monkeypatch.setattr(
-        "backend.retrieval.agent.query_reformulator.reformulate",
-        _fake_reformulate,
+        "backend.retrieval.agent.query_reformulator.from_message",
+        _fake_from_message,
     )
 
-    result = retrieval_agent.retrieve(
+    result = retrieval_agent.retrieve_from_message(
         user_query="something contemplative about identity and memory",
         k=10,
         session_id=uuid4(),
@@ -184,7 +242,7 @@ def test_reformulator_prompt_extracts_positive_mentions() -> None:
 def test_retrieval_agent_dry_run_returns_fixture_reformulation(
     db_url: str, mini_catalogue: int
 ) -> None:
-    """In dry_run, reformulated_query matches the canned fixture's `query` field."""
+    """In dry_run, retrieve_from_message reformulated_query matches the canned fixture's `query` field."""
     fixture_path = (
         Path(__file__).resolve().parents[2]
         / "tests"
@@ -194,7 +252,7 @@ def test_retrieval_agent_dry_run_returns_fixture_reformulation(
     )
     expected = json.loads(fixture_path.read_text())["query"]
 
-    result = retrieval_agent.retrieve(
+    result = retrieval_agent.retrieve_from_message(
         user_query="anything",
         k=5,
         session_id=uuid4(),

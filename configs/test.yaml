@@ -24,7 +24,7 @@ models:
 
 session:
   max_turns: 15
-  convergence_turns: 2
+  state_turns: 2
   # Any spend > 0 means the dry_run guard failed. Keep this at 0.0 so the very
   # first byte of real LLM cost trips CostLimitExceeded.
   cost_limit_usd: 0.0

@@ -1,4 +1,4 @@
-"""Tests for backend.profile.profile_agent (check_llm_convergence wrapper).
+"""Tests for backend.profile.profile_agent.
 
 Uses monkeypatching to control llm_harness.call output — no network or DB.
 Tests cover: happy path, dry-run fixture, schema validation, None prior profile.

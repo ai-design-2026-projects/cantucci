@@ -19,7 +19,7 @@ backend/
   api/                 ONLY layer that runs SQL (db, sessions, runs, eval, retrieval, movies)
   models/              Pydantic schemas + domain types (sessions, clusters, runs, eval, llm, …)
   llm/llm_harness.py   Single gateway for all LLM calls; cost guard; retries; dry_run mode
-  orchestrator/        Orchestrator + convergence policy; tools/{feedback,policy,render,state}
+  orchestrator/        Orchestrator turn pipeline; tools/{feedback,policy,render,turns}
   cluster/             Cluster agent; tools/{cluster_describer,soft_cluster_engine,…}
   decision/            Decision agent; tools/{entropy_calculator,relevance_scorer}
   ambiguity/           Ambiguity agent

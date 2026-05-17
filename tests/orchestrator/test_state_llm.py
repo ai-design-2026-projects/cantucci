@@ -1,4 +1,4 @@
-"""Tests for the LLM convergence gate (check_llm_convergence).
+"""Tests for the LLM state gate (check_llm_state).
 
 Uses monkeypatching to control llm_harness.call output, so no network or DB
 is required. Tests cover the three decision branches: proceed, natural_end,
@@ -13,8 +13,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from backend.convergence.tools.llm_gate import check_llm_convergence
-from backend.convergence.types import ConvergenceAction, ConvergenceCheckResponse
+from backend.state.tools.llm_gate import check_llm_state
+from backend.state.types import StateAction, StateCheckResponse
 from backend.llm.types import LLMResponse
 
 
@@ -31,8 +31,8 @@ def _cfg(max_turns: int = 15, max_recommendations: int = 5) -> MagicMock:
     return cfg
 
 
-def _llm_response(parsed: ConvergenceCheckResponse) -> LLMResponse:
-    """Wrap a ConvergenceCheckResponse in a minimal LLMResponse."""
+def _llm_response(parsed: StateCheckResponse) -> LLMResponse:
+    """Wrap a StateCheckResponse in a minimal LLMResponse."""
     return LLMResponse(
         content=parsed.model_dump_json(),
         input_tokens=10,
@@ -43,7 +43,7 @@ def _llm_response(parsed: ConvergenceCheckResponse) -> LLMResponse:
 
 
 def _call(**overrides: Any):
-    """Invoke check_llm_convergence with sensible defaults."""
+    """Invoke check_llm_state with sensible defaults."""
     kwargs: dict[str, Any] = dict(
         session_id=uuid.uuid4(),
         run_id=uuid.uuid4(),
@@ -56,26 +56,26 @@ def _call(**overrides: Any):
         cfg=_cfg(),
     )
     kwargs.update(overrides)
-    return check_llm_convergence(**kwargs)
+    return check_llm_state(**kwargs)
 
 
 class TestProceedDecision:
     """Gate returns proceed when the model judges the conversation should continue."""
 
     def test_proceed_action(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        parsed = ConvergenceCheckResponse(decision="proceed", reason="oracle still exploring")
+        parsed = StateCheckResponse(decision="proceed", reason="oracle still exploring")
         monkeypatch.setattr(
-            "backend.convergence.tools.llm_gate.llm_harness.call",
+            "backend.state.tools.llm_gate.llm_harness.call",
             lambda **_kw: _llm_response(parsed),
         )
         result = _call()
-        assert result.action is ConvergenceAction.proceed
+        assert result.action is StateAction.proceed
         assert result.reply is None
 
     def test_proceed_carries_reason(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        parsed = ConvergenceCheckResponse(decision="proceed", reason="no closing signal")
+        parsed = StateCheckResponse(decision="proceed", reason="no closing signal")
         monkeypatch.setattr(
-            "backend.convergence.tools.llm_gate.llm_harness.call",
+            "backend.state.tools.llm_gate.llm_harness.call",
             lambda **_kw: _llm_response(parsed),
         )
         result = _call()
@@ -86,40 +86,40 @@ class TestNaturalEndDecision:
     """Gate returns natural_end when the model detects the oracle wrapping up."""
 
     def test_natural_end_action(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        parsed = ConvergenceCheckResponse(
+        parsed = StateCheckResponse(
             decision="natural_end",
             reason="oracle said thanks and bye",
             farewell_reply="Thanks for exploring with us! Enjoy the film.",
         )
         monkeypatch.setattr(
-            "backend.convergence.tools.llm_gate.llm_harness.call",
+            "backend.state.tools.llm_gate.llm_harness.call",
             lambda **_kw: _llm_response(parsed),
         )
         result = _call(user_message="Thanks, that's all I needed. Bye!")
-        assert result.action is ConvergenceAction.natural_end
+        assert result.action is StateAction.natural_end
 
     def test_natural_end_uses_farewell_reply(self, monkeypatch: pytest.MonkeyPatch) -> None:
         farewell = "Thanks for exploring with CinePal! Enjoy your film."
-        parsed = ConvergenceCheckResponse(
+        parsed = StateCheckResponse(
             decision="natural_end",
             reason="explicit close",
             farewell_reply=farewell,
         )
         monkeypatch.setattr(
-            "backend.convergence.tools.llm_gate.llm_harness.call",
+            "backend.state.tools.llm_gate.llm_harness.call",
             lambda **_kw: _llm_response(parsed),
         )
         result = _call()
         assert result.reply == farewell
 
     def test_natural_end_fallback_reply_when_none(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        parsed = ConvergenceCheckResponse(
+        parsed = StateCheckResponse(
             decision="natural_end",
             reason="explicit close",
             farewell_reply=None,
         )
         monkeypatch.setattr(
-            "backend.convergence.tools.llm_gate.llm_harness.call",
+            "backend.state.tools.llm_gate.llm_harness.call",
             lambda **_kw: _llm_response(parsed),
         )
         result = _call()
@@ -131,7 +131,7 @@ class TestClarifyDriftDecision:
     """Gate returns clarify_drift when the model detects a preference contradiction."""
 
     def test_clarify_drift_action(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        parsed = ConvergenceCheckResponse(
+        parsed = StateCheckResponse(
             decision="clarify_drift",
             reason="oracle said no horror then asked for horror",
             drift_topic="horror",
@@ -140,14 +140,14 @@ class TestClarifyDriftDecision:
             clarify_reply="Earlier you said you don't like horror — did your preference change?",
         )
         monkeypatch.setattr(
-            "backend.convergence.tools.llm_gate.llm_harness.call",
+            "backend.state.tools.llm_gate.llm_harness.call",
             lambda **_kw: _llm_response(parsed),
         )
         result = _call(user_message="I want to watch a horror film tonight")
-        assert result.action is ConvergenceAction.clarify_drift
+        assert result.action is StateAction.clarify_drift
 
     def test_clarify_drift_populates_fields(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        parsed = ConvergenceCheckResponse(
+        parsed = StateCheckResponse(
             decision="clarify_drift",
             reason="contradiction on genre",
             drift_topic="horror",
@@ -156,7 +156,7 @@ class TestClarifyDriftDecision:
             clarify_reply="Which do you prefer?",
         )
         monkeypatch.setattr(
-            "backend.convergence.tools.llm_gate.llm_harness.call",
+            "backend.state.tools.llm_gate.llm_harness.call",
             lambda **_kw: _llm_response(parsed),
         )
         result = _call()
@@ -166,7 +166,7 @@ class TestClarifyDriftDecision:
         assert result.reply == "Which do you prefer?"
 
     def test_clarify_drift_fallback_reply_when_none(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        parsed = ConvergenceCheckResponse(
+        parsed = StateCheckResponse(
             decision="clarify_drift",
             reason="contradiction",
             drift_topic="genre",
@@ -175,7 +175,7 @@ class TestClarifyDriftDecision:
             clarify_reply=None,
         )
         monkeypatch.setattr(
-            "backend.convergence.tools.llm_gate.llm_harness.call",
+            "backend.state.tools.llm_gate.llm_harness.call",
             lambda **_kw: _llm_response(parsed),
         )
         result = _call()
@@ -183,8 +183,114 @@ class TestClarifyDriftDecision:
         assert len(result.reply) > 0
 
 
+class TestDriftConfirmedDecision:
+    """Gate returns drift_confirmed when oracle reaffirms the preference change."""
+
+    def test_drift_confirmed_action(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        parsed = StateCheckResponse(
+            decision="drift_confirmed",
+            reason="oracle said yes I changed my mind",
+        )
+        monkeypatch.setattr(
+            "backend.state.tools.llm_gate.llm_harness.call",
+            lambda **_kw: _llm_response(parsed),
+        )
+        result = _call(
+            user_message="Yes, I changed my mind, show me horror",
+            in_drift_clarification_state=True,
+        )
+        assert result.action is StateAction.drift_confirmed
+        assert result.reply is None
+
+    def test_drift_confirmed_carries_reason(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        parsed = StateCheckResponse(
+            decision="drift_confirmed",
+            reason="oracle explicitly confirmed genre change",
+        )
+        monkeypatch.setattr(
+            "backend.state.tools.llm_gate.llm_harness.call",
+            lambda **_kw: _llm_response(parsed),
+        )
+        result = _call(in_drift_clarification_state=True)
+        assert "oracle explicitly confirmed genre change" in result.reason
+
+
+class TestDriftDismissedDecision:
+    """Gate returns drift_dismissed when oracle explains away the contradiction."""
+
+    def test_drift_dismissed_action(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        parsed = StateCheckResponse(
+            decision="drift_dismissed",
+            reason="oracle clarified they meant supernatural drama, not horror",
+        )
+        monkeypatch.setattr(
+            "backend.state.tools.llm_gate.llm_harness.call",
+            lambda **_kw: _llm_response(parsed),
+        )
+        result = _call(
+            user_message="No I meant supernatural drama, not horror",
+            in_drift_clarification_state=True,
+        )
+        assert result.action is StateAction.drift_dismissed
+        assert result.reply is None
+
+    def test_drift_dismissed_carries_reason(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        parsed = StateCheckResponse(
+            decision="drift_dismissed",
+            reason="oracle corrected misunderstanding",
+        )
+        monkeypatch.setattr(
+            "backend.state.tools.llm_gate.llm_harness.call",
+            lambda **_kw: _llm_response(parsed),
+        )
+        result = _call(in_drift_clarification_state=True)
+        assert "oracle corrected misunderstanding" in result.reason
+
+
+class TestDriftClarificationStateFlag:
+    """in_drift_clarification_state is forwarded into the prompt template."""
+
+    def test_flag_passed_without_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        parsed = StateCheckResponse(decision="proceed", reason="ambiguous")
+        captured: dict = {}
+
+        def mock_load_prompt(name: str, ctx: dict):
+            captured.update(ctx)
+            return ("system text", "deadbeef")
+
+        monkeypatch.setattr(
+            "backend.state.tools.llm_gate.load_prompt",
+            mock_load_prompt,
+        )
+        monkeypatch.setattr(
+            "backend.state.tools.llm_gate.llm_harness.call",
+            lambda **_kw: _llm_response(parsed),
+        )
+        _call(in_drift_clarification_state=True)
+        assert captured.get("in_drift_clarification_state") is True
+
+    def test_flag_false_by_default(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        parsed = StateCheckResponse(decision="proceed", reason="normal turn")
+        captured: dict = {}
+
+        def mock_load_prompt(name: str, ctx: dict):
+            captured.update(ctx)
+            return ("system text", "deadbeef")
+
+        monkeypatch.setattr(
+            "backend.state.tools.llm_gate.load_prompt",
+            mock_load_prompt,
+        )
+        monkeypatch.setattr(
+            "backend.state.tools.llm_gate.llm_harness.call",
+            lambda **_kw: _llm_response(parsed),
+        )
+        _call()
+        assert captured.get("in_drift_clarification_state") is False
+
+
 class TestDryRunFixture:
-    """The dry-run fixture for convergence_check validates against the schema."""
+    """The dry-run fixture for state_check validates against the schema."""
 
     def test_fixture_validates(self) -> None:
         from backend.llm import llm_harness
@@ -197,13 +303,13 @@ class TestDryRunFixture:
             model_and_version="gpt-4o-mini",
             seed=0,
             max_tokens=256,
-            step_type="convergence_check",
+            step_type="state_check",
             messages=[{"role": "system", "content": "test"}],
             prompt_hash="cafef00d",
             cost_limit_usd=1.0,
             accumulated_cost_usd=0.0,
             dry_run=True,
-            response_schema=ConvergenceCheckResponse,
+            response_schema=StateCheckResponse,
         )
-        assert isinstance(result.parsed, ConvergenceCheckResponse)
+        assert isinstance(result.parsed, StateCheckResponse)
         assert result.parsed.decision == "proceed"

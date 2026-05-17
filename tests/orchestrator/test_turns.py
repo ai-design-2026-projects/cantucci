@@ -12,12 +12,12 @@ import pytest
 
 from backend.api.types import StepType
 from backend.orchestrator.tools.turns import emit_drift_clarification, emit_early_clarification
-from backend.convergence.types import ConvergenceAction, ConvergenceDecision
+from backend.state.types import StateAction, StateDecision
 
 
-def _decision(reply: str | None = None, drift_topic: str | None = None) -> ConvergenceDecision:
-    return ConvergenceDecision(
-        action=ConvergenceAction.clarify_drift,
+def _decision(reply: str | None = None, drift_topic: str | None = None) -> StateDecision:
+    return StateDecision(
+        action=StateAction.clarify_drift,
         reason="test drift",
         reply=reply,
         drift_topic=drift_topic,

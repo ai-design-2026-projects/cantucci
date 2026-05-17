@@ -1,4 +1,4 @@
-"""Deterministic hard-limit convergence gate — no LLM, no DB.
+"""Deterministic hard-limit state gate — no LLM, no DB.
 
 Trips when the turn budget or recommendation cap has been exhausted.
 """
@@ -6,7 +6,7 @@ Trips when the turn budget or recommendation cap has been exhausted.
 import logging
 
 from backend.api.types import SessionFull, StepType
-from backend.convergence.types import ConvergenceAction, ConvergenceDecision
+from backend.state.types import StateAction, StateDecision
 from backend.settings import Settings
 
 log = logging.getLogger(__name__)
@@ -17,7 +17,7 @@ def check_hard_limits(
     turn_number: int,
     full: SessionFull,
     cfg: Settings,
-) -> ConvergenceDecision:
+) -> StateDecision:
     """Deterministic hard-limit gate. Runs BEFORE any LLM call.
 
     Trips when either:
@@ -31,8 +31,8 @@ def check_hard_limits(
         cfg:         Active typed settings (max_turns, max_recommendations).
 
     Returns:
-        ``ConvergenceDecision(action=proceed)`` when neither limit is hit;
-        ``ConvergenceDecision(action=terminate, reply=<canned msg>)`` otherwise.
+        ``StateDecision(action=proceed)`` when neither limit is hit;
+        ``StateDecision(action=terminate, reply=<canned msg>)`` otherwise.
     """
     max_turns = cfg.session.max_turns
     max_recs = cfg.session.max_recommendations
@@ -58,8 +58,8 @@ def check_hard_limits(
                 "max_turns": max_turns,
             },
         )
-        return ConvergenceDecision(
-            action=ConvergenceAction.terminate,
+        return StateDecision(
+            action=StateAction.terminate,
             reason=f"turn_number {turn_number} > max_turns {max_turns}",
             reply=(
                 f"We've reached the maximum of {max_turns} turns for this session. "
@@ -76,8 +76,8 @@ def check_hard_limits(
                 "max_recommendations": max_recs,
             },
         )
-        return ConvergenceDecision(
-            action=ConvergenceAction.terminate,
+        return StateDecision(
+            action=StateAction.terminate,
             reason=f"show_count {show_count} >= max_recommendations {max_recs}",
             reply=(
                 f"We've presented {show_count} recommendation sets — "
@@ -85,7 +85,7 @@ def check_hard_limits(
             ),
         )
 
-    return ConvergenceDecision(
-        action=ConvergenceAction.proceed,
+    return StateDecision(
+        action=StateAction.proceed,
         reason="under all hard limits",
     )

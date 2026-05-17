@@ -11,12 +11,17 @@ never reaches into orchestrator internals to invent event types.
 
 Parallel components
 -------------------
-The ``understand`` step wraps Wave 1, in which three agents run
+The ``understand`` step wraps Wave 1, in which up to three agents run
 concurrently on a ``ThreadPoolExecutor(max_workers=3)``:
 
-* ``convergence_agent.check``  — hard-limit and LLM drift/end gate.
-* ``cluster_agent.cluster``    — retrieval (internal) + soft clustering.
-* ``profile_agent.extract``    — preference-profile extraction.
+* ``state_agent.check``       — hard-limit and LLM drift/end/re-retrieve gate.
+* ``profile_agent.extract``   — preference-profile extraction.
+* ``cluster_agent.refine``    — refinement turns only (speculative).
+
+Retrieval is intentionally absent from Wave 1. On fresh turns it runs
+serially after state_agent returns a non-terminal action, so terminal
+paths (terminate, natural_end, clarify_drift) and retrieval_override
+reruns never pay for a wasted retrieval call.
 
 The ``choose`` step wraps Wave 2, which is a single serial call to
 ``decision_agent.decide`` (ambiguity was merged into the decision agent
@@ -42,9 +47,9 @@ class ProgressStep(str, Enum):
     concurrently or lie about ordering. Each value here wraps one logical
     block the user perceives as a single activity:
 
-    * ``understand`` — Wave 1, parallel: convergence + cluster (retrieval
-      inside) + profile.
-                       ─────────────────────────────────────────────────
+    * ``understand`` — Wave 1, parallel: state + profile + refine (if
+                       applicable). Retrieval runs serially after state check
+                       on fresh turns.
     * ``choose``     — Wave 2, serial: decision (now generates the
       clarifying question itself; ambiguity merged in per PR #61).
     * ``finalize``   — Reply rendering and final persistence.
