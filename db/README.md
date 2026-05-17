@@ -60,30 +60,41 @@ data.
 
 ### Producing a new snapshot
 
-Snapshots come from the TMDB API and are produced in Colab. Local Python has no
-download or embedding entry point — all that work happens once per snapshot on
-a GPU.
+Two stages, run on different machines because TMDB throttles per IP and Colab's
+shared egress makes sustained scraping unreliable:
 
-1. Open `notebooks/embed_in_colab.ipynb` (Runtime → T4 GPU).
-2. Add Colab secrets: `TMDB_API_KEY`, `HF_TOKEN`, optional `GITHUB_TOKEN` for
-   private repo clone.
-3. Run all cells. The notebook calls `db/ingestion/tmdb_snapshot.snapshot()` —
-   pulls the TMDB daily ID export, filters (`vote_count ≥ 5`), fetches
-   `/movie/{id}?append_to_response=credits,keywords`, splits, embeds, and
-   uploads three timestamped parquets via `db/ingestion/upload.upload_artifacts`.
-4. Paste the printed filenames into `configs/default.yaml` under
+**Stage 1 — local scrape** (your machine, `TMDB_API_KEY` set in env):
+
+```bash
+python -m db.scrape --limit 500 --concurrency 5    # smoke first
+python -m db.scrape --upload                       # full run + push to HF
+```
+
+Writes raw JSONL to `data/local_scrape/tmdb_raw.jsonl` (resumes on restart) and
+a cleaned `snapshot_YYYYMMDD.parquet` to the same directory. With `--upload` the
+parquet is pushed to the HF dataset repo under `snapshots/`. Paste the printed
+path into `configs/default.yaml` under `ingestion.artifacts.snapshot`.
+
+**Stage 2 — Colab embedding** (Runtime → T4 GPU):
+
+1. Open `notebooks/embed_in_colab.ipynb`.
+2. Add Colab secrets: `HF_TOKEN`, optional `GITHUB_TOKEN` for private repo clone.
+3. Run all cells. The notebook downloads the snapshot pinned above, splits,
+   embeds on GPU, and uploads three timestamped parquets via
+   `db/ingestion/upload.upload_artifacts` under `embeddings/`.
+4. Paste the four printed paths into `configs/default.yaml` under
    `ingestion.artifacts`. The new dataset is now part of `config_hash`, so
    existing sessions remain replayable against the snapshot they were created on.
 
 ### Artifact files
 
-The pipeline writes three parquet files per snapshot under `data/artifacts/`
-(`data/` is gitignored):
+The HF dataset repo is organised into two directories:
 
-| Pattern | Description |
+| Path-in-repo | Description |
 |---|---|
-| `main_YYYYMMDD.parquet`         | Full set with embeddings — pinned via `ingestion.artifacts.main` |
-| `mini_YYYYMMDD.parquet`         | Strict subset of main; fast to load in dev/CI |
-| `eval_holdout_YYYYMMDD.parquet` | Disjoint slice for system evaluation (never written to the DB) |
+| `snapshots/snapshot_YYYYMMDD.parquet`         | Stage-1 cleaned catalogue (no embeddings) — pinned via `ingestion.artifacts.snapshot` |
+| `embeddings/main_YYYYMMDD.parquet`            | Stage-2 full set with embeddings — pinned via `ingestion.artifacts.main` |
+| `embeddings/mini_YYYYMMDD.parquet`            | Stage-2 strict subset of main; fast to load in dev/CI |
+| `embeddings/eval_holdout_YYYYMMDD.parquet`    | Stage-2 disjoint slice for system evaluation (never written to the DB) |
 
 Re-running ingestion is safe — all inserts are idempotent (upsert).

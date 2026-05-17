@@ -39,7 +39,10 @@ python -m db.apply
 
 # 5. Ingest catalogue (mini set — fast, ingestion artifact pinned in configs/default.yaml)
 python -m db.ingest
-# See db/README.md for the full set and the Colab snapshot workflow.
+# Producing a fresh snapshot is two stages — scrape locally, embed in Colab:
+#   python -m db.scrape --upload     # stage 1: TMDB → HF (snapshots/)
+#   open notebooks/embed_in_colab.ipynb  # stage 2: HF snapshot → embed → HF (embeddings/)
+# See db/README.md for the full workflow.
 
 # 6. Run backend
 uvicorn backend.app:app --reload

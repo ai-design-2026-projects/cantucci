@@ -29,11 +29,12 @@ configs/default.yaml   Active experimental condition (model, session, retrieval,
 db/
   migrations/00X_*.sql Numbered SQL; apply.py runs them; never edit applied files
   apply.py             Migration runner (idempotent)
-  ingest.py            Single ingestion entry point
-  ingestion/           download → clean → split → embed → load; fetch.py pulls HF artifacts
+  scrape.py            Stage-1 entry point (local): TMDB → cleaned parquet → HF snapshots/
+  ingest.py            Stage-3 entry point (local): HF embedded parquet → Postgres
+  ingestion/           tmdb_fetch + clean + split + embed + load + fetch/upload (HF)
 frontend/              React + Vite + TypeScript; zustand + react-query; vitest
 tests/                 agents/, api/, cluster/, db/, retrieval/ — Postgres via testcontainers
-notebooks/embed_in_colab.ipynb  GPU embedding path; uploads parquet artifacts to HF
+notebooks/embed_in_colab.ipynb  Stage-2 GPU embedding; reads snapshot from HF, uploads embeddings/ back
 ```
 
 ---
@@ -48,8 +49,9 @@ pip install -r requirements.txt
 python -m db.apply              # apply migrations (idempotent)
 python -m db.ingest             # fetch pre-built HF artifacts → ingest mini (dev default)
 python -m db.ingest --set main  # ingest full ~40k set
-python -m db.ingest --source kaggle       # regenerate artifacts locally (slow)
-python -m db.ingest --source kaggle --no-db  # build artifacts only, no DB writes
+
+python -m db.scrape --limit 500 --concurrency 5  # stage-1 smoke (local TMDB scrape)
+python -m db.scrape --upload                     # stage-1 full run + push to HF snapshots/
 
 uvicorn backend.app:app --reload   # API server; Swagger at /docs
 

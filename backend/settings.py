@@ -185,19 +185,29 @@ class ClusteringConfig(BaseModel):
 
 
 class IngestionArtifacts(BaseModel):
-    """Timestamped parquet filenames in the HF dataset repo.
+    """Timestamped parquet paths in the HF dataset repo.
 
-    Pinning specific filenames in YAML (rather than relying on a constant name
-    like ``main.parquet``) is what makes the catalogue version part of the
+    Each value is a full ``path_in_repo`` (e.g. ``"embeddings/main_20260517.parquet"``)
+    so the HF repo can be organised into directories — ``snapshots/`` holds the
+    stage-1 cleaned catalogue produced by ``db/scrape.py``, ``embeddings/`` holds
+    the three stage-2 parquets produced by the Colab notebook.
+
+    Pinning specific filenames in YAML (rather than a constant name like
+    ``main.parquet``) is what makes the catalogue version part of the
     ``config_hash`` — switching snapshots changes the hash, preserving the
     replayability contract when artifacts get refreshed.
 
     Attributes:
-        main:         Filename of the full production parquet, e.g. ``main_20260517.parquet``.
-        mini:         Filename of the dev/CI subset parquet.
-        eval_holdout: Filename of the disjoint evaluation parquet (downloaded but never ingested).
+        snapshot:     Stage-1 cleaned catalogue parquet (no embeddings), e.g.
+                      ``"snapshots/snapshot_20260517.parquet"``. Consumed by the
+                      Colab embedding notebook; never ingested into the DB directly.
+        main:         Stage-2 full production parquet with embeddings, e.g.
+                      ``"embeddings/main_20260517.parquet"``.
+        mini:         Stage-2 dev/CI subset parquet with embeddings.
+        eval_holdout: Stage-2 disjoint evaluation parquet (downloaded but never ingested).
     """
 
+    snapshot: str
     main: str
     mini: str
     eval_holdout: str
@@ -250,8 +260,8 @@ class EnvSettings(BaseSettings):
                          ``backend/api/db.py`` raises if it's empty when used.
         openai_api_key:  OpenAI API key for LLM calls.
         hf_token:        Hugging Face API token (for private repos).
-        tmdb_api_key:    TMDB API key — only used by the Colab snapshot script
-                         (``db/ingestion/tmdb_snapshot.py``).
+        tmdb_api_key:    TMDB API key — only used by the local scrape entrypoint
+                         (``db/scrape.py``).
         log_level:       Root logging level (default ``INFO``).
     """
 

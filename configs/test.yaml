@@ -58,6 +58,9 @@ ingestion:
   # match the row count of the parquet pinned here.
   hf_repo: "446f6e6e79/CinePal-embeddings"
   artifacts:
+    # snapshot is never fetched by tests (only the embedded artifacts are);
+    # value is a placeholder kept here only to satisfy the Settings schema.
+    snapshot: snapshots/snapshot.parquet
     main: main.parquet
     mini: mini.parquet
     eval_holdout: eval_holdout.parquet

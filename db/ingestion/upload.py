@@ -1,8 +1,13 @@
 """Upload timestamped parquet artifacts to the HuggingFace dataset repo.
 
-Only invoked from ``notebooks/embed_in_colab.ipynb`` after the catalogue has
-been snapshotted, split, and embedded. This is the **only** code path in the
-repo that writes to HuggingFace.
+The repo is organised into two directories:
+
+- ``snapshots/snapshot_YYYYMMDD.parquet`` — written by ``db/scrape.py``
+  (stage 1, local). One file per snapshot, no embeddings.
+- ``embeddings/{main,mini,eval_holdout}_YYYYMMDD.parquet`` — written by
+  ``notebooks/embed_in_colab.ipynb`` (stage 2, GPU). Three files per snapshot.
+
+These are the **only** code paths in the repo that write to HuggingFace.
 """
 import json
 import logging
@@ -75,29 +80,83 @@ def upload_artifacts(
     stamp = timestamp or datetime.now(timezone.utc).strftime("%Y%m%d")
     resolved_token = token or os.environ.get("HF_TOKEN") or None
 
-    files: dict[str, str] = {
+    # Local on-disk names stay flat (we write next to other artifacts);
+    # only the HF path-in-repo carries the embeddings/ prefix.
+    local_names: dict[str, str] = {
         "main": f"main_{stamp}.parquet",
         "mini": f"mini_{stamp}.parquet",
         "eval_holdout": f"eval_holdout_{stamp}.parquet",
     }
+    repo_paths: dict[str, str] = {
+        split: f"embeddings/{name}" for split, name in local_names.items()
+    }
 
-    _save_parquet(main_df, main_emb, artifacts_dir / files["main"])
-    _save_parquet(mini_df, mini_emb, artifacts_dir / files["mini"])
-    _save_parquet(eval_df, eval_emb, artifacts_dir / files["eval_holdout"])
+    _save_parquet(main_df, main_emb, artifacts_dir / local_names["main"])
+    _save_parquet(mini_df, mini_emb, artifacts_dir / local_names["mini"])
+    _save_parquet(eval_df, eval_emb, artifacts_dir / local_names["eval_holdout"])
 
     api = HfApi()
     api.create_repo(repo_id=repo_id, repo_type="dataset", exist_ok=True, token=resolved_token)
     msg = commit_message or f"snapshot {stamp}"
-    for split, filename in files.items():
-        log.info("uploading artifact", extra={"split": split, "filename": filename, "repo": repo_id})
+    for split, path_in_repo in repo_paths.items():
+        log.info(
+            "uploading artifact",
+            extra={"split": split, "path_in_repo": path_in_repo, "repo": repo_id},
+        )
         api.upload_file(
-            path_or_fileobj=str(artifacts_dir / filename),
-            path_in_repo=filename,
+            path_or_fileobj=str(artifacts_dir / local_names[split]),
+            path_in_repo=path_in_repo,
             repo_id=repo_id,
             repo_type="dataset",
             token=resolved_token,
             commit_message=msg,
         )
 
-    log.info("upload complete", extra={"repo": repo_id, "files": files})
-    return files
+    log.info("upload complete", extra={"repo": repo_id, "files": repo_paths})
+    return repo_paths
+
+
+def upload_snapshot(
+    parquet_path: Path,
+    *,
+    repo_id: str,
+    token: str | None = None,
+    timestamp: str | None = None,
+    commit_message: str | None = None,
+) -> str:
+    """Upload a stage-1 cleaned snapshot parquet to ``<repo_id>/snapshots/``.
+
+    Args:
+        parquet_path:   Local path to the cleaned snapshot parquet produced by
+                        ``db/scrape.py``.
+        repo_id:        Target HF dataset repo, e.g. ``"446f6e6e79/CinePal-embeddings"``.
+        token:          HF token. Falls back to the ``HF_TOKEN`` env var.
+        timestamp:      Filename suffix (``YYYYMMDD``). Defaults to today's UTC date.
+        commit_message: Commit message for the HF upload. Defaults to a description
+                        that includes the timestamp.
+
+    Returns:
+        The ``path_in_repo`` of the uploaded file, e.g.
+        ``"snapshots/snapshot_20260517.parquet"``. Print this so it can be pinned
+        in ``configs/default.yaml`` under ``ingestion.artifacts.snapshot``.
+    """
+    stamp = timestamp or datetime.now(timezone.utc).strftime("%Y%m%d")
+    resolved_token = token or os.environ.get("HF_TOKEN") or None
+    path_in_repo = f"snapshots/snapshot_{stamp}.parquet"
+
+    api = HfApi()
+    api.create_repo(repo_id=repo_id, repo_type="dataset", exist_ok=True, token=resolved_token)
+    log.info(
+        "uploading snapshot",
+        extra={"path_in_repo": path_in_repo, "repo": repo_id, "src": str(parquet_path)},
+    )
+    api.upload_file(
+        path_or_fileobj=str(parquet_path),
+        path_in_repo=path_in_repo,
+        repo_id=repo_id,
+        repo_type="dataset",
+        token=resolved_token,
+        commit_message=commit_message or f"snapshot {stamp}",
+    )
+    log.info("snapshot upload complete", extra={"repo": repo_id, "path_in_repo": path_in_repo})
+    return path_in_repo

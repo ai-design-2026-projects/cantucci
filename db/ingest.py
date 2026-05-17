@@ -7,9 +7,10 @@ Usage:
     python -m db.ingest --set all      # ingest main + mini
 
 The repo and per-split filenames are pinned in ``configs/default.yaml`` under
-the ``ingestion:`` block. Producing a new snapshot is a Colab-only workflow —
-see ``notebooks/embed_in_colab.ipynb`` and ``db/ingestion/tmdb_snapshot.py``.
-The ``eval_holdout`` slice is intentionally never written to the DB.
+the ``ingestion:`` block. Producing a new snapshot is a two-stage workflow:
+``python -m db.scrape --upload`` (local TMDB scrape) followed by
+``notebooks/embed_in_colab.ipynb`` (GPU embed + upload). The ``eval_holdout``
+slice is intentionally never written to the DB.
 """
 import argparse
 import json

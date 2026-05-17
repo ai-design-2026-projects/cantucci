@@ -1,0 +1,145 @@
+"""Row mapping and DataFrame assembly for TMDB JSON snapshots.
+
+Pure data transformation — no I/O, no API calls. Consumed by
+``db/scrape.py`` after raw responses have been pulled by
+``db/ingestion/tmdb_fetch``. The DataFrame produced here is the
+exact schema consumed by ``db/ingestion/split.three_way`` and
+``db/ingestion/load.ingest``.
+"""
+import logging
+from typing import Any
+
+import pandas as pd
+
+log = logging.getLogger(__name__)
+
+_BAYESIAN_PRIOR_VOTES = 50
+
+
+def _top3_cast(cast_list: list[dict[str, Any]]) -> list[str]:
+    """Top 3 cast names by billing order."""
+    sorted_cast = sorted(cast_list, key=lambda c: c.get("order", 999))
+    return [c["name"] for c in sorted_cast[:3] if "name" in c]
+
+
+def _director(crew_list: list[dict[str, Any]]) -> str:
+    """First crew member with job == Director, else ''."""
+    for c in crew_list:
+        if c.get("job") == "Director" and "name" in c:
+            return c["name"]
+    return ""
+
+
+def _composite_text(row: dict[str, Any]) -> str:
+    """Concatenate the high-signal text fields used for embedding.
+
+    Title, original_title (if different), release year, genres, tagline,
+    overview, top-3 cast, director, and keyword names.
+    """
+    def _s(v: Any) -> str:
+        # NaN / None / numbers → ""; only real strings get stripped.
+        # Pandas widens missing-string columns to float NaN, and `NaN or ""`
+        # evaluates to NaN (NaN is truthy), so a naive `(row.get(k) or "").strip()`
+        # crashes on the first missing tagline / overview.
+        return v.strip() if isinstance(v, str) else ""
+
+    parts: list[str] = []
+    title = _s(row.get("title"))
+    original_title = _s(row.get("original_title"))
+    parts.append(title)
+    if original_title and original_title.lower() != title.lower():
+        parts.append(original_title)
+
+    year = row.get("release_year")
+    if year:
+        parts.append(str(int(year)))
+
+    parts.append(" ".join(g.get("name", "") for g in (row.get("genres") or [])))
+    parts.append(_s(row.get("tagline")))
+    parts.append(_s(row.get("overview")))
+    parts.append(" ".join(row.get("top3_cast") or []))
+    parts.append(_s(row.get("director")))
+    parts.append(" ".join(k.get("name", "") for k in (row.get("keywords") or [])))
+
+    return " ".join(p for p in (str(p).strip() for p in parts) if p)
+
+
+def map_record(rec: dict[str, Any]) -> dict[str, Any]:
+    """Map a raw TMDB JSON response into the cleaned-shape row dict.
+
+    Output keys match what ``db/ingestion/load.py`` and ``split.three_way``
+    consume.
+    """
+    cast = list((rec.get("credits") or {}).get("cast") or [])
+    crew = list((rec.get("credits") or {}).get("crew") or [])
+    keywords = list((rec.get("keywords") or {}).get("keywords") or [])
+
+    release_date = rec.get("release_date") or None
+    if release_date == "":
+        release_date = None
+    release_year: int | None = None
+    if release_date:
+        try:
+            release_year = int(release_date[:4])
+        except ValueError:
+            release_year = None
+
+    budget = rec.get("budget")
+    revenue = rec.get("revenue")
+    row: dict[str, Any] = {
+        "id": int(rec["id"]),
+        "imdb_id": rec.get("imdb_id") or None,
+        "title": rec.get("title") or rec.get("original_title") or "",
+        "original_title": rec.get("original_title") or "",
+        "original_language": rec.get("original_language") or None,
+        "overview": rec.get("overview") or None,
+        "tagline": rec.get("tagline") or None,
+        "release_date": release_date,
+        "release_year": release_year,
+        "runtime": rec.get("runtime"),
+        # Zero budget/revenue are the TMDB convention for "missing" — drop to NaN
+        # so the bayesian_rating + downstream stats don't get poisoned.
+        "budget": (budget if budget else None),
+        "revenue": (revenue if revenue else None),
+        "popularity": rec.get("popularity"),
+        "vote_average": rec.get("vote_average"),
+        "vote_count": rec.get("vote_count"),
+        "status": rec.get("status") or None,
+        "adult": bool(rec.get("adult", False)),
+        "video": bool(rec.get("video", False)),
+        "poster_path": rec.get("poster_path") or None,
+        "homepage": rec.get("homepage") or None,
+        "belongs_to_collection": rec.get("belongs_to_collection") or None,
+        "genres": rec.get("genres") or [],
+        "production_companies": rec.get("production_companies") or [],
+        "production_countries": rec.get("production_countries") or [],
+        "spoken_languages": rec.get("spoken_languages") or [],
+        "cast": cast,
+        "crew": crew,
+        "keywords": keywords,
+    }
+    row["top3_cast"] = _top3_cast(cast)
+    row["director"] = _director(crew)
+    return row
+
+
+def build_dataframe(records: list[dict[str, Any]]) -> pd.DataFrame:
+    """Map raw TMDB JSONs → cleaned DataFrame with composite_text + bayesian_rating."""
+    rows = [map_record(r) for r in records]
+    df = pd.DataFrame(rows)
+
+    df["vote_count"] = pd.to_numeric(df["vote_count"], errors="coerce")
+    df["vote_average"] = pd.to_numeric(df["vote_average"], errors="coerce")
+    vc = df["vote_count"].fillna(0)
+    va = df["vote_average"].fillna(0)
+    # Vote-count-weighted mean as the Bayesian prior, matching the legacy formula.
+    prior_mean = float((va * vc).sum() / vc.sum()) if vc.sum() > 0 else 0.0
+    m = _BAYESIAN_PRIOR_VOTES
+    df["bayesian_rating"] = (vc * va + m * prior_mean) / (vc + m)
+
+    df["composite_text"] = df.apply(_composite_text, axis=1)
+
+    assert df["id"].isna().sum() == 0, "NaN ids in snapshot"
+    assert df["id"].is_unique, "Duplicate ids in snapshot"
+    assert (df["composite_text"].str.strip() == "").sum() == 0, "Empty composite_text in snapshot"
+    return df.reset_index(drop=True)
