@@ -85,7 +85,7 @@ class TestNoPriorDrift:
 class TestPostDriftRetrieval:
     """After a resolve_drift feedback, should_retrieve does NOT auto-trigger.
 
-    Drift confirmation is now handled by the convergence gate, which emits
+    Drift confirmation is now handled by the state gate, which emits
     drift_confirmed / drift_dismissed. should_retrieve only fires on the first turn.
     """
 

@@ -28,7 +28,7 @@ def should_retrieve(full: SessionFull, user_message: str) -> RetrievalDecision:
     Policy:
     - Always retrieve on the first turn using the current oracle message.
     - Reuse prior candidates on all other turns. Drift confirmation is handled
-      by the convergence gate, which sets retrieval_override on drift_confirmed.
+      by the state gate, which sets retrieval_override on drift_confirmed.
 
     Args:
         full:         Full session state for the turn about to run.

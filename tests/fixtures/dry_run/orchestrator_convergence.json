@@ -1,9 +1,0 @@
-{
-  "decision": "proceed",
-  "reason": "dry-run fixture — gate proceeds so the normal pipeline exercises its full path",
-  "drift_topic": null,
-  "prior_statement": null,
-  "current_statement": null,
-  "farewell_reply": null,
-  "clarify_reply": null
-}

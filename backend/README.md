@@ -31,8 +31,7 @@ backend/
 │   └── retrieval.py     Query result types: SessionFull, RunResults, TurnDetail, etc.
 ├── orchestrator/
 │   ├── orchestrator.py  Orchestrator: sole DB writer, coordinates the turn pipeline.
-│   ├── convergence.py   Convergence policy and should_retrieve guard.
-│   └── tools/           feedback.py, policy.py, render.py, state.py
+│   └── tools/           feedback.py, policy.py, render.py, turns.py
 └── routers/
     └── sessions.py      HTTP endpoints: POST /sessions, POST /sessions/{id}/turns,
                          GET /sessions/{id}.

@@ -1,4 +1,4 @@
-"""Unit tests for the convergence hard-limit gate (check_hard_limits).
+"""Unit tests for the state hard-limit gate (check_hard_limits).
 
 These tests cover only the deterministic layer — no LLM, no DB, no Docker.
 SessionFull objects are built inline with the minimal fields needed.
