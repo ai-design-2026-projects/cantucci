@@ -52,7 +52,11 @@ python -m db.ingest --set main  # ingest full production set
 python -m db.ingest --set all   # ingest main + mini
 ```
 
-**Prerequisites:** `HF_TOKEN` in `.env` only when the repo is private.
+**Prerequisites:**
+
+- `TMDB_API_KEY` in `.env` — only when producing a fresh snapshot (stage 1
+  below). Ingesting an existing HF snapshot does not need it.
+- `HF_TOKEN` in `.env` — only when the HF dataset repo is private.
 
 **For dev/CI use the default `mini` set.** Mini is a strict subset of main, so
 ingesting main later with `--set main` is safe (upsert) and won't duplicate
@@ -64,6 +68,13 @@ Two stages, run on different machines because TMDB throttles per IP and Colab's
 shared egress makes sustained scraping unreliable:
 
 **Stage 1 — local scrape** (your machine, `TMDB_API_KEY` set in env):
+
+Pulls the TMDB daily id export
+(`http://files.tmdb.org/p/exports/movie_ids_*.json.gz`), drops adult titles
+and everything below `--min-popularity` (default `0.4`), then fetches
+`/movie/{id}?append_to_response=credits,keywords` for each surviving id.
+After cleaning, rows with `vote_count < --min-vote-count` (default `5`) are
+dropped before the parquet is written.
 
 ```bash
 python -m db.scrape --limit 500 --concurrency 5    # smoke first
@@ -82,9 +93,11 @@ path into `configs/default.yaml` under `ingestion.artifacts.snapshot`.
 3. Run all cells. The notebook downloads the snapshot pinned above, splits,
    embeds on GPU, and uploads three timestamped parquets via
    `db/ingestion/upload.upload_artifacts` under `embeddings/`.
-4. Paste the four printed paths into `configs/default.yaml` under
-   `ingestion.artifacts`. The new dataset is now part of `config_hash`, so
-   existing sessions remain replayable against the snapshot they were created on.
+4. Paste the three printed paths into `configs/default.yaml` under
+   `ingestion.artifacts.{main,mini,eval_holdout}`; the `snapshot` path was
+   already pinned in stage 1. The new dataset is now part of `config_hash`,
+   so existing sessions remain replayable against the snapshot they were
+   created on.
 
 ### Artifact files
 
