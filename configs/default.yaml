@@ -52,7 +52,7 @@ retrieval:
 
 split:
   # Number of rows retained in the mini subset (strict subset of main).
-  mini_size: 200
+  mini_size: 3000
   # Fraction of the dataset held out before main/mini generation.
   eval_frac: 0.10
   # Random seed for the dataset split.
@@ -93,4 +93,18 @@ clustering:
     n_neighbors: 15
     min_dist: 0.0
     metric: cosine
+
+ingestion:
+  # Source of the catalogue artifacts. Snapshots are produced in two stages:
+  #   1. `python -m db.scrape --upload` (local) writes snapshots/snapshot_*.parquet
+  #   2. `notebooks/embed_in_colab.ipynb` (GPU) consumes the snapshot above,
+  #      splits + embeds + writes embeddings/{main,mini,eval_holdout}_*.parquet
+  # To switch snapshots, bump the four paths here — the new dataset is then
+  # part of `config_hash`, so existing runs remain replayable.
+  hf_repo: "446f6e6e79/CinePal-embeddings"
+  artifacts:
+    snapshot: snapshots/snapshot_20260517.parquet
+    main: embeddings/main_20260517.parquet
+    mini: embeddings/mini_20260517.parquet
+    eval_holdout: embeddings/eval_holdout_20260517.parquet
 

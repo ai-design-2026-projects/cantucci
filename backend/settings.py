@@ -15,6 +15,8 @@ Usage::
     model_name = cfg.models.strong.name
     seed = cfg.models.strong.seed
     prompt_path = prompts_dir("orchestrator") / "system_v1.j2"
+    hf_repo = cfg.ingestion.hf_repo
+    main_parquet = cfg.ingestion.artifacts.main
 
     db_url = get_env().database_url
     api_key = get_env().openai_api_key
@@ -39,11 +41,8 @@ BACKEND_DIR: Path = PROJECT_ROOT / "backend"
 DATA_DIR: Path = PROJECT_ROOT / "data"
 """Directory that holds the raw CSVs and generated artifacts."""
 
-RAW_DATA_DIR: Path = DATA_DIR / "raw"
-"""Directory containing the Kaggle source CSVs."""
-
 ARTIFACTS_DIR: Path = DATA_DIR / "artifacts"
-"""Directory containing generated parquet artifacts."""
+"""Directory containing parquet artifacts downloaded from the HF dataset repo."""
 
 CONFIGS_DIR: Path = PROJECT_ROOT / "configs"
 """Directory that holds YAML condition configs (``default.yaml``, etc.)."""
@@ -185,6 +184,47 @@ class ClusteringConfig(BaseModel):
     umap: UmapConfig = UmapConfig()
 
 
+class IngestionArtifacts(BaseModel):
+    """Timestamped parquet paths in the HF dataset repo.
+
+    Each value is a full ``path_in_repo`` (e.g. ``"embeddings/main_20260517.parquet"``)
+    so the HF repo can be organised into directories — ``snapshots/`` holds the
+    stage-1 cleaned catalogue produced by ``db/scrape.py``, ``embeddings/`` holds
+    the three stage-2 parquets produced by the Colab notebook.
+
+    Pinning specific filenames in YAML (rather than a constant name like
+    ``main.parquet``) is what makes the catalogue version part of the
+    ``config_hash`` — switching snapshots changes the hash, preserving the
+    replayability contract when artifacts get refreshed.
+
+    Attributes:
+        snapshot:     Stage-1 cleaned catalogue parquet (no embeddings), e.g.
+                      ``"snapshots/snapshot_20260517.parquet"``. Consumed by the
+                      Colab embedding notebook; never ingested into the DB directly.
+        main:         Stage-2 full production parquet with embeddings, e.g.
+                      ``"embeddings/main_20260517.parquet"``.
+        mini:         Stage-2 dev/CI subset parquet with embeddings.
+        eval_holdout: Stage-2 disjoint evaluation parquet (downloaded but never ingested).
+    """
+
+    snapshot: str
+    main: str
+    mini: str
+    eval_holdout: str
+
+
+class IngestionConfig(BaseModel):
+    """Hugging Face artifact source for catalogue ingestion.
+
+    Attributes:
+        hf_repo:   HF dataset repo id, e.g. ``"446f6e6e79/CinePal-embeddings"``.
+        artifacts: Per-split filenames inside the repo.
+    """
+
+    hf_repo: str
+    artifacts: IngestionArtifacts
+
+
 class Settings(BaseModel):
     """Full typed configuration loaded from a YAML config file.
 
@@ -195,6 +235,7 @@ class Settings(BaseModel):
         split:          Dataset-generation split parameters.
         representation: Embedding model configuration.
         clustering:     HDBSCAN parameters.
+        ingestion:      HF artifact source (repo + per-split filenames).
     """
 
     models: ModelTiers
@@ -203,6 +244,7 @@ class Settings(BaseModel):
     split: SplitConfig
     representation: RepresentationConfig
     clustering: ClusteringConfig
+    ingestion: IngestionConfig
 
 class EnvSettings(BaseSettings):
     """Typed environment settings loaded from the environment and ``.env`` file.
@@ -212,13 +254,15 @@ class EnvSettings(BaseSettings):
     raise ``pydantic.ValidationError`` at instantiation time.
 
     Attributes:
-        database_url:           Postgres connection string.
-        openai_api_key:         OpenAI API key for LLM calls.
-        kaggle_username:        Kaggle API username (used by the ingestion pipeline).
-        kaggle_key:             Kaggle API key (used by the ingestion pipeline).
-        cinepal_artifacts_repo: Hugging Face dataset repo id for pre-built parquet artifacts.
-        hf_token:               Hugging Face API token (for private repos).
-        log_level:              Root logging level (default ``INFO``).
+        database_url:    Postgres connection string. Optional so artifact-only
+                         paths (e.g. the Colab TMDB snapshot) can instantiate
+                         ``EnvSettings`` without a DB; the connection pool in
+                         ``backend/api/db.py`` raises if it's empty when used.
+        openai_api_key:  OpenAI API key for LLM calls.
+        hf_token:        Hugging Face API token (for private repos).
+        tmdb_api_key:    TMDB API key — only used by the local scrape entrypoint
+                         (``db/scrape.py``).
+        log_level:       Root logging level (default ``INFO``).
     """
 
     model_config = SettingsConfigDict(
@@ -226,13 +270,11 @@ class EnvSettings(BaseSettings):
         extra="ignore",
     )
 
-    database_url: str
+    database_url: str = ""
     openai_api_key: str = ""
     openrouter_api_key: str = ""
-    kaggle_username: str = ""
-    kaggle_key: str = ""
-    cinepal_artifacts_repo: str = ""
     hf_token: str = ""
+    tmdb_api_key: str = ""
     log_level: str = "INFO"
 
 

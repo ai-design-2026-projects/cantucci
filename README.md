@@ -19,7 +19,7 @@ An AI system that clusters a movie catalogue by *conversing* with a human oracle
 
 ```bash
 # 1. Environment
-cp .env.example .env   # fill DATABASE_URL, OPENAI_API_KEY, CINEPAL_ARTIFACTS_REPO
+cp .env.example .env   # fill DATABASE_URL, OPENAI_API_KEY (HF_TOKEN if repo is private)
 
 # 2. Python dependencies
 pip install -r requirements.txt
@@ -37,12 +37,15 @@ docker run -d \
 # 4. Apply migrations
 python -m db.apply
 
-# 5. Ingest catalogue (mini set — 200 popular movies, fast)
+# 5. Ingest catalogue (mini set — fast, ingestion artifact pinned in configs/default.yaml)
 python -m db.ingest
-# See db/README.md for full set, Kaggle source, and GPU embedding options.
+# Producing a fresh snapshot is two stages — scrape locally, embed in Colab:
+#   python -m db.scrape --upload     # stage 1: TMDB → HF (snapshots/)
+#   open notebooks/embed_in_colab.ipynb  # stage 2: HF snapshot → embed → HF (embeddings/)
+# See db/README.md for the full workflow.
 
 # 6. Run backend
-uvicorn backend.app:app --reload
+uvicorn backend.app:app
 # API at http://127.0.0.1:8000 — Swagger at /docs
 
 # 7. Run frontend

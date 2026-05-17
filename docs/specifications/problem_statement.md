@@ -21,119 +21,58 @@ At the end, the system presents a finalised recommendation list from the user-ac
 
 ### 2.1 Source
 
-**The Movies Dataset** — Rounak Banik, Kaggle (sourced from The Movie Database, TMDB).
+The catalogue is built directly from **The Movie Database (TMDB)** — no third-party redistribution, no CSV dump. Two TMDB channels are combined to produce a clean, timestamped snapshot of the catalogue:
 
-URL: `https://www.kaggle.com/datasets/rounakbanik/the-movies-dataset`
+- **Daily id export** — `http://files.tmdb.org/p/exports/movie_ids_MM_DD_YYYY.json.gz`. One gzipped JSON-Lines file per day, listing every public movie id along with `original_title`, `popularity`, `adult`, and `video`. We use it as the authoritative list of candidate ids.
+- **TMDB v3 REST API** — `https://api.themoviedb.org/3/movie/{id}?append_to_response=credits,keywords`. One request per surviving id, returning the full movie record with credits and keywords appended in the same response.
 
-Coverage: ~45,000 movies released **on or before July 2017**.
-Seven CSV files ship together; their primary join key is the TMDB integer `id` (movies <-> credits <-> keywords) and a separate `movieId` (ratings <-> links), which is used to bridge to the MovieLens, TMDB, and IMDB identifiers.
+There is no fixed coverage and no temporal cutoff: the catalogue is whatever survives the filters on the day the snapshot is produced. The snapshot timestamp pinned in `configs/default.yaml` under `ingestion.artifacts.*` is what ties an experimental run to a specific catalogue state, and that pin is folded into `config_hash` so existing sessions remain replayable against the snapshot they were created on.
+
+Producing a snapshot requires `TMDB_API_KEY` (v3, free tier). Once snapshot + embedding parquets are on HuggingFace, downstream ingestion needs only `HF_TOKEN`, and only for private repos.
 
 ---
 
-### 2.2 File inventory
+### 2.2 Pipeline overview
 
-| File | Rows (approx.) | Primary key | Description |
+The catalogue passes through three stages, run on different machines because TMDB throttles by IP and Colab's shared egress makes sustained scraping unreliable:
+
+| Stage | Where | Entrypoint | Output |
 |---|---|---|---|
-| `movies_metadata.csv` | 45,466 | `id` (TMDB) | Core catalogue: title, overview, genres, release date, runtime, budget/revenue, ratings, poster path |
-| `credits.csv` | 45,476 | `id` (TMDB) | Full cast and crew as JSON arrays |
-| `keywords.csv` | 46,419 | `id` (TMDB) | Plot keywords as JSON array |
-| `links.csv` | 45,843 | `movieId` (MovieLens) | Three-way mapping: MovieLens ↔ IMDB ↔ TMDB |
-| `links_small.csv` | 9,125 | `movieId` | Same schema; subset covering only movies that have full ratings |
-| `ratings.csv` | 26,024,289 | `(userId, movieId)` | All ratings from 270,896 users (0.5–5.0 in 0.5 steps) |
-| `ratings_small.csv` | 100,004 | `(userId, movieId)` | Subset: ~700 users, ~9,000 movies |
+| 1. Scrape | Local (developer IP) | `python -m db.scrape [--upload]` | `data/local_scrape/tmdb_raw.jsonl` (resumable) → `snapshot_YYYYMMDD.parquet` → optionally pushed to `<hf_repo>/snapshots/` |
+| 2. Embed | Colab T4 GPU | `notebooks/embed_in_colab.ipynb` | `<hf_repo>/embeddings/{main,mini,eval_holdout}_YYYYMMDD.parquet` |
+| 3. Load | Local / CI | `python -m db.ingest [--set main\|mini\|all]` | Postgres rows (idempotent upsert) |
+
+**Stage 1 filters.** Adult titles are dropped unconditionally. `popularity < ingestion.min_popularity` (default `0.4`) is applied to the id export before fetching, which keeps the candidate set in the low tens of thousands rather than the full ~1M ids in the export. After fetching, `vote_count < ingestion.min_vote_count` (default `5`) is applied to the cleaned DataFrame, dropping the long tail of titles with too little signal for the Bayesian rating to be meaningful. Both thresholds are CLI flags on `db/scrape.py` and become part of the snapshot's identity through `config_hash`.
+
+**Stage 2 split** (`db/ingestion/split.three_way`). The eval holdout is sliced first as a random `eval_frac` (default `0.10`) of the full set; what remains becomes `main`; `mini` is then carved as the top `mini_size` rows of `main` (default `3000`) ranked by `(vote_count desc, popularity desc)`. By construction `mini ⊂ main` and `eval_holdout` is disjoint from both. `eval_holdout` is intentionally never written to the database — it is reserved for offline evaluation.
 
 ---
 
-### 2.3 Column-level schema
-#### `movies_metadata.csv`
+### 2.3 What each stage produces
 
-This is the core catalogue that the system clusters over.
+Rather than duplicate the relational schema here, this section describes the **shape** of the artifact each stage emits. For column-level field types and the JSON-to-relational mapping consumed by stage 3, see [`architecture/data_schema.md`](architecture/data_schema.md).
 
-| Column | Type (raw CSV) | Notes |
-|---|---|---|
-| `id` | string (int) | TMDB movie ID; primary join key |
-| `imdb_id` | string | `tt`-prefixed IMDB identifier; 10 chars |
-| `title` | string | English release title |
-| `original_title` | string | Title in production language |
-| `original_language` | string | ISO 639-1 code (e.g. `en`, `fr`, `it`) |
-| `overview` | string | Plot synopsis (often 1–3 sentences) |
-| `tagline` | string | Marketing one-liner; frequently empty |
-| `release_date` | string (`YYYY-MM-DD`) | ~90 NaN; range 1874–2020 |
-| `runtime` | float | Minutes; 263 NaN; median 95 min |
-| `budget` | string (int) | Production budget USD; majority are 0 (unknown) |
-| `revenue` | float | Box-office USD; majority are 0 (unknown) |
-| `popularity` | float | TMDB proprietary score; mean ~2.9, max 547 |
-| `vote_average` | float | Mean user rating 0–10; mean 5.6 |
-| `vote_count` | float | Number of TMDB votes; median 10, max 14,075 |
-| `genres` | JSON string | Array of `{id, name}` objects |
-| `belongs_to_collection` | JSON string | `{id, name, poster_path, backdrop_path}` or null |
-| `production_companies` | JSON string | Array of `{id, name}` |
-| `production_countries` | JSON string | Array of `{iso_3166_1, name}` |
-| `spoken_languages` | JSON string | Array of `{iso_639_1, name}` |
-| `poster_path` | string | Relative path; full URL: `https://image.tmdb.org/t/p/w500{poster_path}` |
-| `homepage` | string | Official website; frequently empty |
-| `status` | string | `Released`, `In Production`, `Rumored`, etc. |
-| `adult` | string (`True`/`False`) | Adult-content flag; 9 positives out of 45,466 |
-| `video` | string (`True`/`False`) | Direct-to-video flag |
-
-#### `credits.csv`
-
-The cast and crew for each movie are stored as JSON strings containing arrays of objects. This is a core source for clustering, since recommendations should also reflect directors and actors.
-
-| Column | Type | Notes |
-|---|---|---|
-| `id` | int | TMDB movie ID; join to `movies_metadata` |
-| `cast` | JSON string | Array of `{cast_id, character, credit_id, gender, id, name, order, profile_path}` |
-| `crew` | JSON string | Array of `{credit_id, department, gender, id, job, name, profile_path}` |
-
-Cast and crew are not capped, so some movies have hundreds of entries. For clustering, we only use the top-billed cast and the director.
-
-#### `keywords.csv`
-
-These are free-form tags that users have applied to movies. They can be noisy but also capture niche attributes that may not be in the structured metadata (e.g., "mind-bending", "cult film", "twist ending")
-
-| Column | Type | Notes |
-|---|---|---|
-| `id` | int | TMDB movie ID |
-| `keywords` | JSON string | Array of `{id, name}`; free-form folksonomy tags |
-
-#### `links.csv` / `links_small.csv`
-
-Useful for more detailed real user ratings, but not required for the core clustering system.
-The `small` version is a subset that only includes 9000 movies that have full ratings in `ratings_small.csv`, making it ideal for lightweight evaluation runs and the smoke test.
-
-| Column | Notes |
-|---|---|
-| `movieId` | MovieLens integer ID |
-| `imdbId` | IMDB ID without `tt` prefix (numeric string) |
-| `tmdbId` | TMDB integer ID; join to `movies_metadata.id` |
-
-#### `ratings.csv` / `ratings_small.csv`
-
-Same as above.
-
-| Column | Notes |
-|---|---|
-| `userId` | Anonymous integer |
-| `movieId` | MovieLens ID; join via `links` |
-| `rating` | Float in {0.5, 1.0, …, 5.0} |
-| `timestamp` | Unix epoch |
+- **Stage 1 — cleaned snapshot parquet.** One row per surviving TMDB id, produced by `db/ingestion/clean.build_dataframe`. The row carries the TMDB API fields (`title`, `original_title`, `overview`, `tagline`, `release_date`, `runtime`, `budget`, `revenue`, `popularity`, `vote_average`, `vote_count`, `status`, `adult`, `video`, `poster_path`, `homepage`, `belongs_to_collection`, `genres`, `production_companies`, `production_countries`, `spoken_languages`, `cast`, `crew`, `keywords`) plus three derived columns:
+  - `release_year` — derived from `release_date[:4]`.
+  - `bayesian_rating` — `(v * R + m * C) / (v + m)` where `v = vote_count`, `R = vote_average`, `m = 50`, and `C` is the vote-count-weighted mean across the snapshot. This, not raw `vote_average`, is the supported quality signal.
+  - `composite_text` — `title [original_title] [year] genres tagline overview top3_cast director keywords`, concatenated in that order. This is the string fed to the embedding model in stage 2.
+- **Stage 2 — embedded parquets.** Same row schema as stage 1, plus a single `embedding` column (`list[float]`, `representation.embedding_dim` long, L2-normalised) produced by `representation.model` on `composite_text`. Three files per snapshot timestamp: `main_*.parquet`, `mini_*.parquet`, `eval_holdout_*.parquet`.
+- **Stage 3 — Postgres rows.** `db/ingest.py` pops the `embedding` column into the pgvector column on `movies`, normalises the remaining JSON columns (`genres`, `production_companies`, …) into their relational targets, and upserts on `id`. Re-ingesting the same snapshot is a no-op; ingesting `main` after `mini` does not duplicate rows because `mini ⊂ main`.
 
 ---
 
 ### 2.4 Data quality notes
 
-- **Budget / revenue sparsity**: Most rows have `budget = 0` and `revenue = 0`, which means those values are usually missing rather than meaningful. Do not use them for filtering or ranking.
-- **Duplicate IDs**: A small number of rows in `movies_metadata.csv` share the same `id`. Deduplicate them at ingest time and keep the latest row.
-- **JSON columns**: Columns such as `genres`, `credits`, `keywords`, and `production_companies` are stored as Python-style strings with single quotes, not valid JSON. Parse them with `ast.literal_eval` before normalisation.
-- **Temporal cutoff**: The dataset stops at July 2017. Queries about newer films, such as 2018–2025, will return no results and should be handled explicitly.
-- **Popularity score non-stationarity**: TMDB's `popularity` changes over time and was captured at one point in time. Treat it as a snapshot, not a stable ranking signal.
-- **Vote count skew**: The median vote count is 10, and only about 8% of titles have 100 or more votes. Use a Bayesian average instead of raw `vote_average` when ranking by quality.
-- **3 rows with NaN id**: Three rows in `movies_metadata.csv` have a missing `id` value and must be removed during ingest.
+- **Budget and revenue sparsity** — TMDB uses `0` for "unknown" on both fields. `clean.map_record` collapses `0` to `None` so it cannot contaminate ranking or filters.
+- **Popularity is a daily snapshot** — TMDB's `popularity` is recomputed daily; the value in the parquet is whatever the API returned at scrape time. Treat it as a captured signal, not a stable ranking input.
+- **Vote-count skew** — the long tail of low-vote titles is removed by the `min_vote_count` filter; the surviving rows are still skewed, and `bayesian_rating` is the correct ranking signal.
+- **Live source, not frozen** — the catalogue reflects TMDB at the snapshot timestamp. Bumping `ingestion.artifacts.*` swaps in a fresh catalogue and flows into `config_hash`, so old sessions remain replayable against their original snapshot.
+- **TMDB throttling** — `tmdb_fetch.fetch_movie` retries `429`s 3 times with a 10 s sleep before raising. Sustained throttling is addressed by lowering `--concurrency` on `db/scrape.py`, not by smarter retry logic.
+- **Deleted or hidden ids** — `404` responses on the per-id fetch are dropped silently. The daily id export drifts ahead of the API view, so a non-trivial fraction of ids will not resolve.
 
-### 2.6 Poster and synopsis availability
+### 2.5 Poster and synopsis availability
 
-`movies_metadata.csv` already includes `overview` and `poster_path`, so we do not need any extra API enrichment for these fields. Poster URLs are built at serve time as `https://image.tmdb.org/t/p/w500{poster_path}`. If a title has no poster, the UI shows a placeholder.
+Every TMDB API response carries `overview` and `poster_path`, so no extra enrichment step is needed for either. Poster URLs are built at serve time as `https://image.tmdb.org/t/p/w500{poster_path}`. If a title has no poster, the UI shows a placeholder.
 
 ---
 
@@ -193,7 +132,7 @@ The LLM is prompted to behave like a real user with specific tastes and, a limit
 
 ### What does the system cluster over?
 
-The pipeline runs in two stages to handle a catalogue of ~45,000 titles.
+The pipeline runs in two stages to handle a catalogue on the order of tens of thousands of titles (exact size depends on the snapshot — see section 2).
 
 **Stage 1 — Retrieval.** At ingest time, each movie is embedded by a sentence-transformer (`all-MiniLM-L6-v2`) applied to its composite text: title, synopsis, genres, top-3 cast, and director. These vectors are stored in PostgreSQL via `pgvector`. 
 
@@ -368,7 +307,7 @@ When convergence is declared, the session status is set to `converged`, the pref
 |---|---|---|
 | Oracle contradicts earlier feedback | The Orchestrator detects the conflict by comparing the new message against the full `oracle_feedback` log. It surfaces the contradiction explicitly (*"Earlier you said no horror — is this an exception or should I drop that rule?"*) and waits for resolution before updating state. The resolution is stored as `feedback_type = 'resolve_drift'`. | Orchestrator |
 | Very broad first query (*"a good movie"*) | The candidate pool would be effectively the entire catalogue. The Decision Agent flags low specificity and the Ambiguity Resolver returns a targeted clarifying question instead of a cluster display (*"What kind of mood are you in — something intense, something light, or something in between?"*). | Decision Agent + Ambiguity Resolver |
-| Title not in catalogue | The catalogue is frozen at July 2017. If the oracle names a title the system cannot find, the system acknowledges the gap and returns the 3 most similar titles by cosine distance as alternatives, noting the cutoff date. | Orchestrator |
+| Title not in catalogue | The catalogue reflects TMDB at the pinned snapshot timestamp; titles released afterwards, or titles that were filtered out by `min_vote_count` / `min_popularity`, will not be present. The system acknowledges the gap, names the snapshot date, and returns the 3 most similar titles by cosine distance as alternatives. | Orchestrator |
 | TMDB poster unavailable | `poster_path` is null or the CDN returns a 404. The UI falls back to a genre-specific placeholder image. The card layout is never broken or left blank. | `TitleCard` |
 | Oracle requests a title type excluded by active filter (e.g. short film, documentary) | The system notifies the oracle that the current filter excludes that type and offers to relax it with a single confirm. The relaxed filter is stored as an instructional feedback row. | Orchestrator |
 | Session idle > 24 h | The session status is set to `abandoned`. All state remains queryable and replayable, but no cluster is kept in active memory. If the oracle returns, they are shown the last clustering state and offered to resume or start a new session. | background job |

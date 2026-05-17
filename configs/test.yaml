@@ -52,3 +52,17 @@ clustering:
   top_titles_per_cluster: 8
   min_singleton_floor: 3
 
+ingestion:
+  # Smoke tests reuse the pre-existing public artifacts so they don't need a
+  # fresh TMDB snapshot to run. The mini parquet's actual row count is a
+  # property of the snapshot pinned below — split.mini_size above only drives
+  # stage-2 split creation (Colab notebook), not test reads.
+  hf_repo: "446f6e6e79/CinePal-embeddings"
+  artifacts:
+    # snapshot is never fetched by tests (only the embedded artifacts are);
+    # value is a placeholder kept here only to satisfy the Settings schema.
+    snapshot: snapshots/snapshot_20260517.parquet
+    main: embeddings/main_20260517.parquet
+    mini: embeddings/mini_20260517.parquet
+    eval_holdout: embeddings/eval_holdout_20260517.parquet
+

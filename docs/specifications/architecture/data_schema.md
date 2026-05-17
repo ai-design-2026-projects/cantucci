@@ -11,7 +11,7 @@ The `pgvector` extension is required for the `VECTOR` columns.
 
 ## Catalogue tables
 
-These are populated once at ingest time by `ingestion/catalogue_loader.py` pipeline, which processes the raw Kaggle dataset and TMDB API data into a clean, relational format optimized for retrieval and clustering. They are read-only during the conversational loop.
+These are populated once at ingest time by `db/ingest.py`, which loads the HuggingFace-hosted embedded parquet (produced upstream from the TMDB daily id export and v3 API by `db/scrape.py` and `notebooks/embed_in_colab.ipynb`) into the relational schema below. They are read-only during the conversational loop.
 
 ### `movies`
 
@@ -63,7 +63,7 @@ The composite text should include the most salient attributes for clustering. We
 
 ### `collections`
 
-Extracted from `belongs_to_collection` JSON in `movies_metadata.csv`.
+Extracted from the `belongs_to_collection` field on each TMDB API response.
 This is used to represent franchises (e.g. "The Lord of the Rings") which group multiple movies together. Not all movies belong to a collection.
 
 ```sql
