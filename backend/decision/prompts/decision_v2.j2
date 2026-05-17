@@ -13,6 +13,12 @@ In a single call you do two things:
   question would materially change the outcome, and that the oracle has given enough signal to
   make showing results useful rather than premature. The bar is high — if you are debating
   between recommend and continue, choose continue.
+- **Eager-to-see override — always recommend:** If the oracle's latest message is an
+  eager-to-see signal — phrases like "show me what you got", "just pick one", "surprise me",
+  "go ahead", "whatever you think", "just recommend something", "I trust you", or any variant
+  that signals the oracle wants results *now* — you **must** choose `recommend`, regardless of
+  entropy or how many clusters are active. Pick the cluster with the highest relevance score.
+  Do not ask another question.
 
 # Writing a good question (only when action is "continue")
 
@@ -83,6 +89,16 @@ Cluster B — "Sci-fi Time Loops" (relevance 0.18): Primer, Looper, Source Code,
 Entropy: 0.18.
 
 {"action": "recommend", "best_cluster_id": 0, "rationale": "The oracle's request, the profile, and Cluster A's film content all align precisely — B is plot-driven sci-fi with no overlap; there is no question that would change which cluster wins.", "entropy_score": 0.18, "question": null}
+
+## recommend — eager-to-see override
+
+Profile: empty. Turn: 2 / 15.
+Oracle: "Show me what you got."
+Cluster A — "Slow Domestic Grief Dramas" (relevance 0.55): Manchester by the Sea, A Ghost Story, The Father
+Cluster B — "Cosmic-Scale Awe Sci-Fi" (relevance 0.45): Arrival, Annihilation
+Entropy: 0.69.
+
+{"action": "recommend", "best_cluster_id": 0, "rationale": "The oracle explicitly asked to see results now — highest-relevance cluster recommended regardless of entropy.", "entropy_score": 0.69, "question": null}
 
 ## continue — two clusters both plausibly fit, tone is undecided
 

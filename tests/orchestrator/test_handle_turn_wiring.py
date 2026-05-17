@@ -27,7 +27,7 @@ from backend.api.types import (
     TurnDetail,
 )
 from backend.retrieval.types import RetrievalResult
-from backend.convergence.types import ConvergenceAction, ConvergenceDecision
+from backend.state.types import StateAction, StateDecision
 from backend.decision.types import DecisionAction, DecisionResult
 from backend.profile.types import UserProfile
 from backend.orchestrator.orchestrator import Orchestrator
@@ -90,8 +90,8 @@ def _cfg() -> MagicMock:
     return cfg
 
 
-def _proceed() -> ConvergenceDecision:
-    return ConvergenceDecision(action=ConvergenceAction.proceed, reason="ok")
+def _proceed() -> StateDecision:
+    return StateDecision(action=StateAction.proceed, reason="ok")
 
 
 def _decision_continue(question_text: str = "What mood are you in?") -> DecisionResult:
@@ -134,7 +134,7 @@ class _Patches:
         self,
         *,
         full: MagicMock,
-        conv_decision: ConvergenceDecision | None = None,
+        conv_decision: StateDecision | None = None,
         clusters: list[ClusterSnapshot] | None = None,
         decision: DecisionResult | None = None,
         profile: UserProfile | None = None,
@@ -173,14 +173,18 @@ class _Patches:
             return_value="deadbeef",
         )
         self.conv_check = _patch(
-            "backend.orchestrator.orchestrator.convergence_agent.check",
+            "backend.orchestrator.orchestrator.state_agent.check",
             return_value=self._conv,
         )
         mock_rr = MagicMock(spec=RetrievalResult)
         mock_rr.reformulated_query = "mock reformulated query"
         mock_rr.candidates = []
-        self.retrieval_retrieve = _patch(
-            "backend.orchestrator.orchestrator.retrieval_agent.retrieve",
+        self.retrieval_retrieve_from_message = _patch(
+            "backend.orchestrator.orchestrator.retrieval_agent.retrieve_from_message",
+            return_value=mock_rr,
+        )
+        self.retrieval_retrieve_from_profile = _patch(
+            "backend.orchestrator.orchestrator.retrieval_agent.retrieve_from_profile",
             return_value=mock_rr,
         )
         mock_sr = MagicMock()
@@ -354,13 +358,13 @@ class TestRenderIsDeterministic:
         assert "Great dramas" in result.assistant_message
 
 
-class TestConvergenceShortCircuits:
+class TestStateShortCircuits:
     """Terminate, natural_end, and clarify_drift bypass the main pipeline."""
 
     def test_terminate_returns_stop_step_type(self) -> None:
         full = _full(turns=[])
-        conv = ConvergenceDecision(
-            action=ConvergenceAction.terminate,
+        conv = StateDecision(
+            action=StateAction.terminate,
             reason="max_turns exceeded",
             reply="Session over.",
         )
@@ -380,8 +384,8 @@ class TestConvergenceShortCircuits:
 
     def test_natural_end_does_not_persist_profile(self) -> None:
         full = _full(turns=[])
-        conv = ConvergenceDecision(
-            action=ConvergenceAction.natural_end,
+        conv = StateDecision(
+            action=StateAction.natural_end,
             reason="oracle said bye",
             reply="Goodbye!",
         )
@@ -395,8 +399,8 @@ class TestConvergenceShortCircuits:
 
     def test_clarify_drift_does_not_snapshot_clusters(self) -> None:
         full = _full(turns=[])
-        conv = ConvergenceDecision(
-            action=ConvergenceAction.clarify_drift,
+        conv = StateDecision(
+            action=StateAction.clarify_drift,
             reason="contradiction",
             reply="Did your preference change?",
             drift_topic="horror",
@@ -480,8 +484,8 @@ class TestProgressCallback:
 
     def test_terminate_emits_wrap_up(self) -> None:
         full = _full(turns=[])
-        conv = ConvergenceDecision(
-            action=ConvergenceAction.terminate,
+        conv = StateDecision(
+            action=StateAction.terminate,
             reason="max_turns exceeded",
             reply="Session over.",
         )
@@ -500,8 +504,8 @@ class TestProgressCallback:
 
     def test_natural_end_emits_wrap_up(self) -> None:
         full = _full(turns=[])
-        conv = ConvergenceDecision(
-            action=ConvergenceAction.natural_end,
+        conv = StateDecision(
+            action=StateAction.natural_end,
             reason="oracle said bye",
             reply="Goodbye!",
         )
@@ -521,8 +525,8 @@ class TestProgressCallback:
 
     def test_clarify_drift_emits_wrap_up(self) -> None:
         full = _full(turns=[])
-        conv = ConvergenceDecision(
-            action=ConvergenceAction.clarify_drift,
+        conv = StateDecision(
+            action=StateAction.clarify_drift,
             reason="contradiction",
             reply="Did your preference change?",
             drift_topic="horror",
@@ -574,7 +578,7 @@ class TestProgressCallback:
 
 
 class TestDriftConfirmAndDismiss:
-    """drift_confirmed re-retrieves with drift query + profile_summary; drift_dismissed uses speculative clusters."""
+    """drift_confirmed re-retrieves via retrieve_from_profile; drift_dismissed uses speculative clusters."""
 
     def _drift_full(self) -> MagicMock:
         """Session whose last turn is a drift-clarification turn."""
@@ -583,21 +587,21 @@ class TestDriftConfirmAndDismiss:
         full = _full(turns=[drift_turn])
         return full
 
-    def test_drift_confirmed_calls_retrieval_retrieve(self) -> None:
+    def test_drift_confirmed_calls_retrieve_from_profile(self) -> None:
         full = self._drift_full()
-        conv = ConvergenceDecision(
-            action=ConvergenceAction.drift_confirmed,
+        conv = StateDecision(
+            action=StateAction.drift_confirmed,
             reason="oracle confirmed genre change",
         )
         with _Patches(full=full, conv_decision=conv) as p:
             orch = Orchestrator()
             orch.handle_turn(full.session_id, "Yes I changed my mind")
-        assert p.retrieval_retrieve.called
+        assert p.retrieval_retrieve_from_profile.called
 
-    def test_drift_confirmed_uses_profile_summary_as_query(self) -> None:
+    def test_drift_confirmed_uses_profile_summary_as_summary_arg(self) -> None:
         full = self._drift_full()
-        conv = ConvergenceDecision(
-            action=ConvergenceAction.drift_confirmed,
+        conv = StateDecision(
+            action=StateAction.drift_confirmed,
             reason="oracle confirmed genre change",
         )
         profile = UserProfile(
@@ -609,40 +613,59 @@ class TestDriftConfirmAndDismiss:
         with _Patches(full=full, conv_decision=conv, profile=profile) as p:
             orch = Orchestrator()
             orch.handle_turn(full.session_id, "Yes I changed my mind")
-        call_kwargs = p.retrieval_retrieve.call_args.kwargs
-        assert call_kwargs.get("user_query") == "Enjoys slow drama"
+        call_kwargs = p.retrieval_retrieve_from_profile.call_args.kwargs
+        assert call_kwargs.get("summary") == "Enjoys slow drama"
 
     def test_drift_confirmed_falls_back_to_user_message_when_no_profile_summary(self) -> None:
         full = self._drift_full()
         full.preference_profile = None
-        conv = ConvergenceDecision(
-            action=ConvergenceAction.drift_confirmed,
+        conv = StateDecision(
+            action=StateAction.drift_confirmed,
             reason="oracle confirmed genre change",
         )
         profile = UserProfile(constraints=[], preferences=[], attitudes=[], summary="")
         with _Patches(full=full, conv_decision=conv, profile=profile) as p:
             orch = Orchestrator()
             orch.handle_turn(full.session_id, "Yes I changed my mind")
-        call_kwargs = p.retrieval_retrieve.call_args.kwargs
-        assert call_kwargs.get("user_query") == "Yes I changed my mind"
+        call_kwargs = p.retrieval_retrieve_from_profile.call_args.kwargs
+        assert call_kwargs.get("summary") == "Yes I changed my mind"
 
-    def test_drift_dismissed_does_not_rerun_retrieval_with_drift_query(self) -> None:
+    def test_drift_confirmed_passes_seen_films_as_excluded_films(self) -> None:
         full = self._drift_full()
-        conv = ConvergenceDecision(
-            action=ConvergenceAction.drift_dismissed,
+        full.preference_profile = {
+            "constraints": [], "preferences": [], "attitudes": [], "summary": "Likes drama",
+            "seen_films": ["Film X", "Film Y"], "anchor_films": [],
+        }
+        conv = StateDecision(
+            action=StateAction.drift_confirmed,
+            reason="oracle confirmed genre change",
+        )
+        profile = UserProfile(
+            constraints=[], preferences=[], attitudes=[], summary="Likes drama",
+            seen_films=["Film X", "Film Y"],
+        )
+        with _Patches(full=full, conv_decision=conv, profile=profile) as p:
+            orch = Orchestrator()
+            orch.handle_turn(full.session_id, "Yes I changed my mind")
+        call_kwargs = p.retrieval_retrieve_from_profile.call_args.kwargs
+        assert "Film X" in call_kwargs.get("excluded_films", [])
+        assert "Film Y" in call_kwargs.get("excluded_films", [])
+
+    def test_drift_dismissed_does_not_call_retrieve_from_profile(self) -> None:
+        full = self._drift_full()
+        conv = StateDecision(
+            action=StateAction.drift_dismissed,
             reason="oracle explained misunderstanding",
         )
         with _Patches(full=full, conv_decision=conv) as p:
             orch = Orchestrator()
             orch.handle_turn(full.session_id, "No I meant supernatural drama")
-        if p.retrieval_retrieve.called:
-            call_kwargs = p.retrieval_retrieve.call_args.kwargs
-            assert call_kwargs.get("user_query") != "Actually show me horror"
+        assert not p.retrieval_retrieve_from_profile.called
 
     def test_drift_dismissed_proceeds_to_decision_agent(self) -> None:
         full = self._drift_full()
-        conv = ConvergenceDecision(
-            action=ConvergenceAction.drift_dismissed,
+        conv = StateDecision(
+            action=StateAction.drift_dismissed,
             reason="oracle explained misunderstanding",
         )
         with _Patches(full=full, conv_decision=conv) as p:
@@ -652,8 +675,8 @@ class TestDriftConfirmAndDismiss:
 
     def test_drift_confirmed_proceeds_to_decision_agent(self) -> None:
         full = self._drift_full()
-        conv = ConvergenceDecision(
-            action=ConvergenceAction.drift_confirmed,
+        conv = StateDecision(
+            action=StateAction.drift_confirmed,
             reason="oracle confirmed genre change",
         )
         with _Patches(full=full, conv_decision=conv) as p:
@@ -662,13 +685,13 @@ class TestDriftConfirmAndDismiss:
         assert p.decision_decide.called
 
 
-class TestTerminalConvergenceTolerance:
-    """When convergence is terminal, a cluster-agent crash must NOT kill the turn."""
+class TestTerminalStateTolerance:
+    """When state is terminal, a cluster-agent crash must NOT kill the turn."""
 
     def test_natural_end_survives_cluster_crash(self) -> None:
         full = _full(turns=[])
-        conv = ConvergenceDecision(
-            action=ConvergenceAction.natural_end,
+        conv = StateDecision(
+            action=StateAction.natural_end,
             reason="oracle said bye",
             reply="Goodbye!",
         )
@@ -682,8 +705,8 @@ class TestTerminalConvergenceTolerance:
 
     def test_terminate_survives_cluster_crash(self) -> None:
         full = _full(turns=[])
-        conv = ConvergenceDecision(
-            action=ConvergenceAction.terminate,
+        conv = StateDecision(
+            action=StateAction.terminate,
             reason="max turns",
             reply="Session over.",
         )
@@ -697,8 +720,8 @@ class TestTerminalConvergenceTolerance:
 
     def test_clarify_drift_survives_profile_crash(self) -> None:
         full = _full(turns=[])
-        conv = ConvergenceDecision(
-            action=ConvergenceAction.clarify_drift,
+        conv = StateDecision(
+            action=StateAction.clarify_drift,
             reason="contradiction",
             reply="Did your preference change?",
             drift_topic="horror",
@@ -712,3 +735,84 @@ class TestTerminalConvergenceTolerance:
                 orch = Orchestrator()
                 result = orch.handle_turn(full.session_id, "horror please")
         assert result.step_type == StepType.ask
+
+
+class TestReRetrieve:
+    """re_retrieve runs a fresh chain via retrieve_from_profile with seen_films as excluded_films."""
+
+    def test_re_retrieve_calls_retrieve_from_profile(self) -> None:
+        prior_show = _turn("show", "Here are some films", clusters=[_cluster()])
+        full = _full(turns=[prior_show])
+        conv = StateDecision(action=StateAction.re_retrieve, reason="oracle already seen all films")
+        with _Patches(full=full, conv_decision=conv) as p:
+            orch = Orchestrator()
+            orch.handle_turn(full.session_id, "I've already seen all of those")
+        assert p.retrieval_retrieve_from_profile.called
+
+    def test_re_retrieve_proceeds_to_decision_agent(self) -> None:
+        prior_show = _turn("show", "Here are some films", clusters=[_cluster()])
+        full = _full(turns=[prior_show])
+        conv = StateDecision(action=StateAction.re_retrieve, reason="oracle already seen all films")
+        with _Patches(full=full, conv_decision=conv) as p:
+            orch = Orchestrator()
+            orch.handle_turn(full.session_id, "I've already seen all of those")
+        assert p.decision_decide.called
+
+    def test_re_retrieve_passes_seen_films_as_excluded_films(self) -> None:
+        prior_show = _turn("show", "Here are some films", clusters=[_cluster()])
+        full = _full(turns=[prior_show], preference_profile={
+            "constraints": [],
+            "preferences": [],
+            "attitudes": [],
+            "summary": "Likes slow drama",
+            "seen_films": ["Film A", "Film B"],
+            "anchor_films": [],
+        })
+        conv = StateDecision(action=StateAction.re_retrieve, reason="all seen")
+        profile = UserProfile(
+            constraints=[],
+            preferences=[],
+            attitudes=[],
+            summary="Likes slow drama",
+            seen_films=["Film A", "Film B"],
+        )
+        with _Patches(full=full, conv_decision=conv, profile=profile) as p:
+            orch = Orchestrator()
+            orch.handle_turn(full.session_id, "I've seen them all")
+        call_kwargs = p.retrieval_retrieve_from_profile.call_args.kwargs
+        assert "Film A" in call_kwargs.get("excluded_films", [])
+        assert "Film B" in call_kwargs.get("excluded_films", [])
+
+
+class TestSeenFilmsAccumulation:
+    """seen_films is accumulated deterministically across turns."""
+
+    def test_recommendations_added_to_seen_films(self) -> None:
+        cluster = _cluster("Drama", n_assignments=3)
+        full = _full(turns=[])
+        decision = _decision_recommend(cluster.id)
+        with _Patches(full=full, clusters=[cluster], decision=decision) as p:
+            orch = Orchestrator()
+            orch.handle_turn(full.session_id, "surprise me")
+        p.update_profile.assert_called_once()
+        call_args = p.update_profile.call_args
+        persisted = call_args.args[1] if call_args.args else call_args.kwargs.get("preference_profile") or call_args.kwargs.get("profile_jsonb")
+        assert "seen_films" in persisted
+        assert len(persisted["seen_films"]) > 0
+
+    def test_anchor_films_merged_into_seen(self) -> None:
+        full = _full(turns=[], preference_profile=None)
+        profile = UserProfile(
+            constraints=[],
+            preferences=[],
+            attitudes=[],
+            summary="Test",
+            anchor_films=["Interstellar"],
+        )
+        with _Patches(full=full, profile=profile) as p:
+            orch = Orchestrator()
+            orch.handle_turn(full.session_id, "something like Interstellar")
+        p.update_profile.assert_called_once()
+        call_args = p.update_profile.call_args
+        persisted = call_args.args[1] if call_args.args else call_args.kwargs.get("preference_profile") or call_args.kwargs.get("profile_jsonb")
+        assert "Interstellar" in persisted.get("seen_films", [])

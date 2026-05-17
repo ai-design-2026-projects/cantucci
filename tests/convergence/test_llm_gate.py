@@ -11,8 +11,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from backend.convergence.tools.llm_gate import check_llm_convergence
-from backend.convergence.types import ConvergenceAction, ConvergenceCheckResponse
+from backend.state.tools.llm_gate import check_llm_state as check_llm_convergence
+from backend.state.types import StateAction as ConvergenceAction, StateCheckResponse as ConvergenceCheckResponse
 from backend.llm.types import LLMResponse
 
 
@@ -51,14 +51,14 @@ def _call(**overrides: Any):
         cfg=_cfg(),
     )
     kwargs.update(overrides)
-    return check_llm_convergence(**kwargs)
+    return check_llm_convergence(**kwargs)  # aliased to check_llm_state
 
 
 class TestProceedDecision:
     def test_proceed_action(self, monkeypatch: pytest.MonkeyPatch) -> None:
         parsed = ConvergenceCheckResponse(decision="proceed", reason="oracle still exploring")
         monkeypatch.setattr(
-            "backend.convergence.tools.llm_gate.llm_harness.call",
+            "backend.state.tools.llm_gate.llm_harness.call",
             lambda **_kw: _llm_response(parsed),
         )
         result = _call()
@@ -68,7 +68,7 @@ class TestProceedDecision:
     def test_proceed_carries_reason(self, monkeypatch: pytest.MonkeyPatch) -> None:
         parsed = ConvergenceCheckResponse(decision="proceed", reason="no closing signal")
         monkeypatch.setattr(
-            "backend.convergence.tools.llm_gate.llm_harness.call",
+            "backend.state.tools.llm_gate.llm_harness.call",
             lambda **_kw: _llm_response(parsed),
         )
         result = _call()
@@ -83,7 +83,7 @@ class TestNaturalEndDecision:
             farewell_reply="Thanks for exploring with us! Enjoy the film.",
         )
         monkeypatch.setattr(
-            "backend.convergence.tools.llm_gate.llm_harness.call",
+            "backend.state.tools.llm_gate.llm_harness.call",
             lambda **_kw: _llm_response(parsed),
         )
         result = _call(user_message="Thanks, that's all I needed. Bye!")
@@ -97,7 +97,7 @@ class TestNaturalEndDecision:
             farewell_reply=farewell,
         )
         monkeypatch.setattr(
-            "backend.convergence.tools.llm_gate.llm_harness.call",
+            "backend.state.tools.llm_gate.llm_harness.call",
             lambda **_kw: _llm_response(parsed),
         )
         result = _call()
@@ -110,7 +110,7 @@ class TestNaturalEndDecision:
             farewell_reply=None,
         )
         monkeypatch.setattr(
-            "backend.convergence.tools.llm_gate.llm_harness.call",
+            "backend.state.tools.llm_gate.llm_harness.call",
             lambda **_kw: _llm_response(parsed),
         )
         result = _call()
@@ -129,7 +129,7 @@ class TestClarifyDriftDecision:
             clarify_reply="Earlier you said you don't like horror — did your preference change?",
         )
         monkeypatch.setattr(
-            "backend.convergence.tools.llm_gate.llm_harness.call",
+            "backend.state.tools.llm_gate.llm_harness.call",
             lambda **_kw: _llm_response(parsed),
         )
         result = _call(user_message="I want to watch a horror film tonight")
@@ -145,7 +145,7 @@ class TestClarifyDriftDecision:
             clarify_reply="Which do you prefer?",
         )
         monkeypatch.setattr(
-            "backend.convergence.tools.llm_gate.llm_harness.call",
+            "backend.state.tools.llm_gate.llm_harness.call",
             lambda **_kw: _llm_response(parsed),
         )
         result = _call()
@@ -164,7 +164,7 @@ class TestClarifyDriftDecision:
             clarify_reply=None,
         )
         monkeypatch.setattr(
-            "backend.convergence.tools.llm_gate.llm_harness.call",
+            "backend.state.tools.llm_gate.llm_harness.call",
             lambda **_kw: _llm_response(parsed),
         )
         result = _call()
@@ -178,7 +178,7 @@ class TestPreferenceProfilePassthrough:
     def test_structured_profile_accepted(self, monkeypatch: pytest.MonkeyPatch) -> None:
         parsed = ConvergenceCheckResponse(decision="proceed", reason="ok")
         monkeypatch.setattr(
-            "backend.convergence.tools.llm_gate.llm_harness.call",
+            "backend.state.tools.llm_gate.llm_harness.call",
             lambda **_kw: _llm_response(parsed),
         )
         profile = {
@@ -193,7 +193,7 @@ class TestPreferenceProfilePassthrough:
     def test_none_profile_accepted(self, monkeypatch: pytest.MonkeyPatch) -> None:
         parsed = ConvergenceCheckResponse(decision="proceed", reason="ok")
         monkeypatch.setattr(
-            "backend.convergence.tools.llm_gate.llm_harness.call",
+            "backend.state.tools.llm_gate.llm_harness.call",
             lambda **_kw: _llm_response(parsed),
         )
         result = _call(preference_profile=None)
@@ -214,7 +214,7 @@ class TestDryRunFixture:
             model_and_version="gpt-4o-mini",
             seed=0,
             max_tokens=256,
-            step_type="convergence_check",
+            step_type="state_check",
             messages=[{"role": "system", "content": "test"}],
             prompt_hash="cafef00d",
             cost_limit_usd=1.0,

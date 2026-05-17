@@ -124,22 +124,22 @@ def test_vector_search_excludes_ids(db_url: str, mini_catalogue: int) -> None:
 def test_retrieval_agent_excludes_titles_end_to_end(
     db_url: str, mini_catalogue: int, monkeypatch
 ) -> None:
-    """retrieval_agent.retrieve drops reformulator-emitted exclusions from candidates."""
+    """retrieve_from_message drops reformulator-emitted exclusions from candidates."""
     _, sample_title = _sample_title(db_url)
 
     # Stub the reformulator so we can pin the exclusion list deterministically.
-    def _fake_reformulate(**_: object) -> ReformulatedQuery:
+    def _fake_from_message(**_: object) -> ReformulatedQuery:
         return ReformulatedQuery(
             query="a contemplative film about identity and memory",
             excluded_films=[sample_title],
         )
 
     monkeypatch.setattr(
-        "backend.retrieval.agent.query_reformulator.reformulate",
-        _fake_reformulate,
+        "backend.retrieval.agent.query_reformulator.from_message",
+        _fake_from_message,
     )
 
-    result = retrieval_agent.retrieve(
+    result = retrieval_agent.retrieve_from_message(
         user_query="something contemplative about identity and memory",
         k=10,
         session_id=uuid4(),
@@ -184,7 +184,7 @@ def test_reformulator_prompt_extracts_positive_mentions() -> None:
 def test_retrieval_agent_dry_run_returns_fixture_reformulation(
     db_url: str, mini_catalogue: int
 ) -> None:
-    """In dry_run, reformulated_query matches the canned fixture's `query` field."""
+    """In dry_run, retrieve_from_message reformulated_query matches the canned fixture's `query` field."""
     fixture_path = (
         Path(__file__).resolve().parents[2]
         / "tests"
@@ -194,7 +194,7 @@ def test_retrieval_agent_dry_run_returns_fixture_reformulation(
     )
     expected = json.loads(fixture_path.read_text())["query"]
 
-    result = retrieval_agent.retrieve(
+    result = retrieval_agent.retrieve_from_message(
         user_query="anything",
         k=5,
         session_id=uuid4(),

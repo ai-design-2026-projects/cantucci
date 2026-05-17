@@ -8,8 +8,8 @@ from __future__ import annotations
 import uuid
 from unittest.mock import MagicMock
 
-from backend.convergence.tools.hard_limits import check_hard_limits
-from backend.convergence.types import ConvergenceAction
+from backend.state.tools.hard_limits import check_hard_limits
+from backend.state.types import StateAction as ConvergenceAction
 
 
 def _turn(step_type: str | None = "show") -> MagicMock:

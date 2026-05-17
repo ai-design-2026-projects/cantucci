@@ -13,7 +13,7 @@ from uuid import UUID
 
 import backend.api.sessions as api_sessions
 from backend.api.types import StepType
-from backend.convergence.types import ConvergenceDecision
+from backend.state.types import StateDecision
 from backend.routers.dtos import TurnResult
 
 log = logging.getLogger(__name__)
@@ -83,7 +83,7 @@ def emit_drift_clarification(
     turn_id: UUID,
     turn_number: int,
     user_message: str,
-    decision: ConvergenceDecision,
+    decision: StateDecision,
 ) -> TurnResult:
     """Persist and return a drift-clarification turn.
 
@@ -97,7 +97,7 @@ def emit_drift_clarification(
         turn_id:      Pre-allocated turn UUID.
         turn_number:  1-based index for this turn.
         user_message: Oracle's message that triggered drift detection.
-        decision:     ConvergenceDecision from check_llm_convergence.
+        decision:     StateDecision from check_llm_state.
 
     Returns:
         A TurnResult with step_type=ask, converged=False.

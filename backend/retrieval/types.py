@@ -22,6 +22,21 @@ class ReformulatedQuery(BaseModel):
     excluded_films: list[str] = Field(default_factory=list)
 
 
+class ReformulatedProfileQuery(BaseModel):
+    """Structured output of the profile-based reformulator (``query_reformulate_profile_v1.j2``).
+
+    Used when retrieval is driven by the extracted preference profile rather than
+    the oracle's raw utterance. Exclusions are handled deterministically by the
+    caller (via the orchestrator's ``seen_films`` list) and must NOT be extracted
+    by the LLM — hence only a ``query`` field, no ``excluded_films``.
+
+    Attributes:
+        query: HyDE-style enriched search string fed to vector search.
+    """
+
+    query: str = Field(min_length=1)
+
+
 @dataclass
 class RetrievalResult:
     """Output of the Retrieval System for one oracle turn.

@@ -1,7 +1,7 @@
-"""Convergence types shared between convergence tools and the orchestrator.
+"""State agent types shared between state tools and the orchestrator.
 
-These live in a dedicated types module because they cross the convergence →
-orchestrator package boundary: convergence_agent produces them, orchestrator.py
+These live in a dedicated types module because they cross the state →
+orchestrator package boundary: state_agent produces them, orchestrator.py
 consumes them.
 """
 
@@ -12,8 +12,8 @@ from typing import Literal
 from pydantic import BaseModel
 
 
-class ConvergenceAction(str, Enum):
-    """Outcome of a single convergence-gate evaluation.
+class StateAction(str, Enum):
+    """Outcome of a single state-gate evaluation.
 
     Attributes:
         proceed:          Normal pipeline should run this turn.
@@ -24,6 +24,9 @@ class ConvergenceAction(str, Enum):
                           the drift query and the profile summary.
         drift_dismissed:  Oracle explained away the contradiction; proceed normally
                           with the current-turn retrieval.
+        re_retrieve:      Oracle signals they have already seen all recommended films;
+                          trigger a fresh retrieval with the same preferences but
+                          excluding all previously seen titles.
     """
 
     proceed = "proceed"
@@ -32,10 +35,11 @@ class ConvergenceAction(str, Enum):
     clarify_drift = "clarify_drift"
     drift_confirmed = "drift_confirmed"
     drift_dismissed = "drift_dismissed"
+    re_retrieve = "re_retrieve"
 
 
 @dataclass(frozen=True)
-class ConvergenceDecision:
+class StateDecision:
     """Result returned by every gate function.
 
     The orchestrator branches on ``.action`` and uses ``.reply`` when it
@@ -54,7 +58,7 @@ class ConvergenceDecision:
                             and rerun cluster_agent with this query instead.
     """
 
-    action: ConvergenceAction
+    action: StateAction
     reason: str
     reply: str | None = None
     drift_topic: str | None = None
@@ -63,11 +67,11 @@ class ConvergenceDecision:
     retrieval_override: str | None = None
 
 
-class ConvergenceCheckResponse(BaseModel):
+class StateCheckResponse(BaseModel):
     """JSON schema enforced on the LLM gate response via llm_harness response_schema.
 
     Attributes:
-        decision:          Gate outcome — one of proceed / natural_end / clarify_drift.
+        decision:          Gate outcome.
         reason:            One-sentence rationale for logging.
         drift_topic:       What the contradiction is about (clarify_drift only).
         prior_statement:   What the oracle said earlier about this topic.
@@ -76,7 +80,14 @@ class ConvergenceCheckResponse(BaseModel):
         clarify_reply:     Assistant message to emit on clarify_drift.
     """
 
-    decision: Literal["proceed", "natural_end", "clarify_drift", "drift_confirmed", "drift_dismissed"]
+    decision: Literal[
+        "proceed",
+        "natural_end",
+        "clarify_drift",
+        "drift_confirmed",
+        "drift_dismissed",
+        "re_retrieve",
+    ]
     reason: str
     drift_topic: str | None = None
     prior_statement: str | None = None
