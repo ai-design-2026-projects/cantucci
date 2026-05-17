@@ -2,10 +2,11 @@
 
 No in-memory session state: all persistence flows through ``backend.api``.
 
-Turn flow (per architecture.md):
-  Oracle → Orchestrator → Convergence Agent → Cluster Agent (→ Retrieval
-  internally) → Decision Agent (decides + generates question when continuing) →
-  Profile Agent → Orchestrator writes turn / clusters / feedback / profile.
+Turn flow:
+  Oracle → Orchestrator → Wave 1 (parallel: Convergence + Profile + Refine if
+  applicable) → if non-terminal: Retrieval + Cluster (fresh path, serial) or
+  Refine result (refinement path) → Decision Agent → Orchestrator writes turn /
+  clusters / feedback / profile.
 
 The Orchestrator is the sole writer to the DB. All sub-agents are read-only.
 Private decision logic lives in ``backend/orchestrator/tools/``.
@@ -41,7 +42,6 @@ from backend.orchestrator.tools.feedback import classify_feedback
 from backend.orchestrator.tools.policy import (
     cluster_snapshot_to_spec,
     prior_questions,
-    should_retrieve,
 )
 from backend.orchestrator.tools.render import render_recommendation
 from backend.orchestrator.tools.turns import emit_drift_clarification, emit_early_clarification
@@ -118,12 +118,14 @@ class Orchestrator:
 
         Full flow:
           1. Load session state from DB.
-          2. Convergence Agent: hard-limit + LLM gate (uses N-1 profile).
-          3. Retrieval/cluster decision.
-          4. Cluster Agent (Scenario A or B).
-          5. Decision Agent: decides action and, when continuing, generates the question.
-          6. Profile Agent: extract updated profile → persist on session.
-          7. Persist the turn and oracle feedback.
+          2. Wave 1 (parallel): Convergence Agent + Profile Agent + Refine (if
+             refinement turn). Retrieval runs serially AFTER convergence on
+             fresh turns, so wasted retrieval calls are avoided on terminal paths.
+          3. If convergence is terminal, discard speculative results and return early.
+          4. Fresh path (after convergence): retrieve → soft_cluster → describe_clusters.
+             Refinement path: resolve the parallel refine future.
+          5. Decision Agent: decides action and generates question when continuing.
+          6. Persist turn, clusters, feedback, and updated profile.
 
         Args:
             session_id:   UUID of the target session.
@@ -186,45 +188,18 @@ class Orchestrator:
             and prior_turn.step_type == StepType.ask.value
             and prior_turn.clusters
         )
-        ret = should_retrieve(full, user_message)
 
         if is_refinement:
             log.info(
                 "refinement after ask",
                 extra={"session_id": str(session_id), "turn_number": turn_number},
             )
-            cluster_call = lambda: cluster_agent.refine(
-                prior_clusters=_prior_clusters_from_turn(prior_turn),
-                user_query=user_message,
-                asked_question=prior_turn.assistant_message or "",
-                user_answer=user_message,
-                session_id=session_id,
-                run_id=full.run_id,
-                turn_id=turn_id,
-            )
-        else:
-            log.info(
-                "fresh retrieval",
-                extra={
-                    "session_id": str(session_id),
-                    "turn_number": turn_number,
-                    "retrieve_new": ret.retrieve,
-                },
-            )
-            cluster_call = lambda: self._fresh_chain(
-                ret.query or user_message,
-                cfg=cfg,
-                session_id=session_id,
-                full=full,
-                turn_id=turn_id,
-                turn_number=turn_number,
-            )
 
-        # Wave 1: Convergence + Cluster (speculative) + Profile in parallel.
-        # Convergence is read first; if it is terminal the speculative results
-        # are discarded. We still drain those futures (try/except) so threads
-        # are not leaked. Exceptions in speculative work are only silenced when
-        # the result is discarded — on the proceed path they propagate normally.
+        # Wave 1: convergence + profile (always) + refine (refinement turns only).
+        # Retrieval is intentionally absent from this pool — it runs serially after
+        # convergence clears, so terminal actions (terminate, natural_end,
+        # clarify_drift) and retrieval_override reruns never pay for a wasted
+        # retrieval call.
         _emit(ProgressStep.understand, "start")
         with ThreadPoolExecutor(max_workers=3) as pool:
             f_conv = pool.submit(
@@ -238,7 +213,6 @@ class Orchestrator:
                 preference_profile=prior_profile,
                 cfg=cfg,
             )
-            f_cluster = pool.submit(cluster_call)
             f_profile = pool.submit(
                 profile_agent.extract,
                 session_id=session_id,
@@ -249,6 +223,20 @@ class Orchestrator:
                 prior_profile=prior_profile,
                 recent_turns=recent_turns,
             )
+            f_refine = (
+                pool.submit(
+                    cluster_agent.refine,
+                    prior_clusters=_prior_clusters_from_turn(prior_turn),
+                    user_query=user_message,
+                    asked_question=prior_turn.assistant_message or "",
+                    user_answer=user_message,
+                    session_id=session_id,
+                    run_id=full.run_id,
+                    turn_id=turn_id,
+                )
+                if is_refinement
+                else None
+            )
             conv = f_conv.result()
 
             _terminal = conv.action in (
@@ -257,7 +245,9 @@ class Orchestrator:
                 ConvergenceAction.clarify_drift,
             )
             if _terminal:
-                for _f, _name in ((f_cluster, "cluster"), (f_profile, "profile")):
+                for _f, _name in ((f_refine, "refine"), (f_profile, "profile")):
+                    if _f is None:
+                        continue
                     try:
                         _f.result()
                     except Exception as _exc:
@@ -272,8 +262,22 @@ class Orchestrator:
                 clusters = []
                 new_profile = prior_profile
             else:
-                clusters = f_cluster.result()
                 new_profile = f_profile.result()
+                if is_refinement:
+                    clusters = f_refine.result()
+                elif conv.action is ConvergenceAction.drift_confirmed or conv.retrieval_override:
+                    # drift_confirmed and retrieval_override each replace clusters via
+                    # their own _fresh_chain call below — skip the initial retrieval.
+                    clusters = []
+                else:
+                    clusters = self._fresh_chain(
+                        user_message,
+                        cfg=cfg,
+                        session_id=session_id,
+                        full=full,
+                        turn_id=turn_id,
+                        turn_number=turn_number,
+                    )
         _emit(ProgressStep.understand, "end")
 
         if conv.action is ConvergenceAction.terminate:
@@ -315,6 +319,31 @@ class Orchestrator:
                 )
             finally:
                 _emit(ProgressStep.wrap_up, "end")
+
+        if conv.action is ConvergenceAction.drift_confirmed:
+            drift_query = new_profile.summary or user_message
+            log.info(
+                "drift confirmed — re-retrieving with profile summary as query",
+                extra={
+                    "session_id": str(session_id),
+                    "turn_id": str(turn_id),
+                    "using_profile_summary": bool(new_profile.summary),
+                },
+            )
+            clusters = self._fresh_chain(
+                drift_query,
+                cfg=cfg,
+                session_id=session_id,
+                full=full,
+                turn_id=turn_id,
+                turn_number=turn_number,
+            )
+
+        if conv.action is ConvergenceAction.drift_dismissed:
+            log.info(
+                "drift dismissed — using current-turn retrieval",
+                extra={"session_id": str(session_id), "turn_id": str(turn_id)},
+            )
 
         # Convergence ↔ Cluster reconciliation: if convergence supplies a
         # retrieval override, the speculative cluster result is stale — rerun.
@@ -408,7 +437,6 @@ class Orchestrator:
             )
             reply = render_recommendation(
                 best_cluster=best_cluster,
-                decision=decision,
                 top_k=cfg.session.recommendation_top_k,
             )
             converged = False

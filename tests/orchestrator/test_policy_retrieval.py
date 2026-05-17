@@ -83,25 +83,23 @@ class TestNoPriorDrift:
 
 
 class TestPostDriftRetrieval:
-    """Retrieve using the drift turn's user_message after a resolve_drift feedback row."""
+    """After a resolve_drift feedback, should_retrieve does NOT auto-trigger.
 
-    def test_retrieve_true_after_drift(self) -> None:
+    Drift confirmation is now handled by the convergence gate, which emits
+    drift_confirmed / drift_dismissed. should_retrieve only fires on the first turn.
+    """
+
+    def test_retrieve_false_after_drift(self) -> None:
         turn_id = uuid.uuid4()
         fb = _feedback(turn_id, "resolve_drift")
         full = _full(turns=[_turn(turn_id, "I want romance films")], feedback=[fb])
         result = should_retrieve(full, "yes that's right")
-        assert result.retrieve is True
+        assert result.retrieve is False
+        assert result.query is None
 
-    def test_query_is_drift_turn_user_message(self) -> None:
+    def test_resolve_drift_feedback_on_latest_turn_does_not_trigger(self) -> None:
         turn_id = uuid.uuid4()
         fb = _feedback(turn_id, "resolve_drift")
         full = _full(turns=[_turn(turn_id, "I want romance films")], feedback=[fb])
         result = should_retrieve(full, "yes that's right")
-        assert result.query == "I want romance films"
-
-    def test_query_is_not_current_message(self) -> None:
-        turn_id = uuid.uuid4()
-        fb = _feedback(turn_id, "resolve_drift")
-        full = _full(turns=[_turn(turn_id, "I want romance films")], feedback=[fb])
-        result = should_retrieve(full, "yes that's right")
-        assert result.query != "yes that's right"
+        assert result.retrieve is False

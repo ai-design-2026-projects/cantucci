@@ -70,7 +70,7 @@ def reformulate(
     system_text, prompt_hash = load_prompt(
         "query_reformulate_v2",
         {
-            "user_query": user_query
+            "user_query": user_query,
         },
     )
 

@@ -16,16 +16,22 @@ class ConvergenceAction(str, Enum):
     """Outcome of a single convergence-gate evaluation.
 
     Attributes:
-        proceed:       Normal pipeline should run this turn.
-        terminate:     Hard limit hit; abandon the session without LLM calls.
-        natural_end:   LLM detected that the oracle wrapped up the conversation.
-        clarify_drift: LLM detected a preference contradiction; emit clarification.
+        proceed:          Normal pipeline should run this turn.
+        terminate:        Hard limit hit; abandon the session without LLM calls.
+        natural_end:      LLM detected that the oracle wrapped up the conversation.
+        clarify_drift:    LLM detected a preference contradiction; emit clarification.
+        drift_confirmed:  Oracle confirmed the preference change; re-retrieve with
+                          the drift query and the profile summary.
+        drift_dismissed:  Oracle explained away the contradiction; proceed normally
+                          with the current-turn retrieval.
     """
 
     proceed = "proceed"
     terminate = "terminate"
     natural_end = "natural_end"
     clarify_drift = "clarify_drift"
+    drift_confirmed = "drift_confirmed"
+    drift_dismissed = "drift_dismissed"
 
 
 @dataclass(frozen=True)
@@ -70,7 +76,7 @@ class ConvergenceCheckResponse(BaseModel):
         clarify_reply:     Assistant message to emit on clarify_drift.
     """
 
-    decision: Literal["proceed", "natural_end", "clarify_drift"]
+    decision: Literal["proceed", "natural_end", "clarify_drift", "drift_confirmed", "drift_dismissed"]
     reason: str
     drift_topic: str | None = None
     prior_statement: str | None = None

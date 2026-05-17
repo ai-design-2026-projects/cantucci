@@ -27,10 +27,8 @@ def should_retrieve(full: SessionFull, user_message: str) -> RetrievalDecision:
 
     Policy:
     - Always retrieve on the first turn using the current oracle message.
-    - Retrieve on the turn immediately after a drift-clarification turn,
-      using the drift turn's user_message (the conflicting statement) as the
-      query rather than the current clarification response.
-    - Reuse prior candidates on all other turns.
+    - Reuse prior candidates on all other turns. Drift confirmation is handled
+      by the convergence gate, which sets retrieval_override on drift_confirmed.
 
     Args:
         full:         Full session state for the turn about to run.
@@ -42,16 +40,6 @@ def should_retrieve(full: SessionFull, user_message: str) -> RetrievalDecision:
     """
     if not full.turns:
         return RetrievalDecision(retrieve=True, query=user_message)
-
-    prev = full.turns[-1]
-    drift_resolved = any(
-        f.turn_id == prev.id and f.feedback_type == "resolve_drift"
-        for f in full.feedback
-    )
-    if drift_resolved:
-        # Use the drift turn's user_message — the conflicting oracle statement —
-        # so retrieval targets the new preference, not the clarification reply.
-        return RetrievalDecision(retrieve=True, query=prev.user_message)
 
     return RetrievalDecision(retrieve=False, query=None)
 

@@ -183,6 +183,112 @@ class TestClarifyDriftDecision:
         assert len(result.reply) > 0
 
 
+class TestDriftConfirmedDecision:
+    """Gate returns drift_confirmed when oracle reaffirms the preference change."""
+
+    def test_drift_confirmed_action(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        parsed = ConvergenceCheckResponse(
+            decision="drift_confirmed",
+            reason="oracle said yes I changed my mind",
+        )
+        monkeypatch.setattr(
+            "backend.convergence.tools.llm_gate.llm_harness.call",
+            lambda **_kw: _llm_response(parsed),
+        )
+        result = _call(
+            user_message="Yes, I changed my mind, show me horror",
+            in_drift_clarification_state=True,
+        )
+        assert result.action is ConvergenceAction.drift_confirmed
+        assert result.reply is None
+
+    def test_drift_confirmed_carries_reason(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        parsed = ConvergenceCheckResponse(
+            decision="drift_confirmed",
+            reason="oracle explicitly confirmed genre change",
+        )
+        monkeypatch.setattr(
+            "backend.convergence.tools.llm_gate.llm_harness.call",
+            lambda **_kw: _llm_response(parsed),
+        )
+        result = _call(in_drift_clarification_state=True)
+        assert "oracle explicitly confirmed genre change" in result.reason
+
+
+class TestDriftDismissedDecision:
+    """Gate returns drift_dismissed when oracle explains away the contradiction."""
+
+    def test_drift_dismissed_action(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        parsed = ConvergenceCheckResponse(
+            decision="drift_dismissed",
+            reason="oracle clarified they meant supernatural drama, not horror",
+        )
+        monkeypatch.setattr(
+            "backend.convergence.tools.llm_gate.llm_harness.call",
+            lambda **_kw: _llm_response(parsed),
+        )
+        result = _call(
+            user_message="No I meant supernatural drama, not horror",
+            in_drift_clarification_state=True,
+        )
+        assert result.action is ConvergenceAction.drift_dismissed
+        assert result.reply is None
+
+    def test_drift_dismissed_carries_reason(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        parsed = ConvergenceCheckResponse(
+            decision="drift_dismissed",
+            reason="oracle corrected misunderstanding",
+        )
+        monkeypatch.setattr(
+            "backend.convergence.tools.llm_gate.llm_harness.call",
+            lambda **_kw: _llm_response(parsed),
+        )
+        result = _call(in_drift_clarification_state=True)
+        assert "oracle corrected misunderstanding" in result.reason
+
+
+class TestDriftClarificationStateFlag:
+    """in_drift_clarification_state is forwarded into the prompt template."""
+
+    def test_flag_passed_without_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        parsed = ConvergenceCheckResponse(decision="proceed", reason="ambiguous")
+        captured: dict = {}
+
+        def mock_load_prompt(name: str, ctx: dict):
+            captured.update(ctx)
+            return ("system text", "deadbeef")
+
+        monkeypatch.setattr(
+            "backend.convergence.tools.llm_gate.load_prompt",
+            mock_load_prompt,
+        )
+        monkeypatch.setattr(
+            "backend.convergence.tools.llm_gate.llm_harness.call",
+            lambda **_kw: _llm_response(parsed),
+        )
+        _call(in_drift_clarification_state=True)
+        assert captured.get("in_drift_clarification_state") is True
+
+    def test_flag_false_by_default(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        parsed = ConvergenceCheckResponse(decision="proceed", reason="normal turn")
+        captured: dict = {}
+
+        def mock_load_prompt(name: str, ctx: dict):
+            captured.update(ctx)
+            return ("system text", "deadbeef")
+
+        monkeypatch.setattr(
+            "backend.convergence.tools.llm_gate.load_prompt",
+            mock_load_prompt,
+        )
+        monkeypatch.setattr(
+            "backend.convergence.tools.llm_gate.llm_harness.call",
+            lambda **_kw: _llm_response(parsed),
+        )
+        _call()
+        assert captured.get("in_drift_clarification_state") is False
+
+
 class TestDryRunFixture:
     """The dry-run fixture for convergence_check validates against the schema."""
 

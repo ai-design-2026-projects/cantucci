@@ -219,10 +219,6 @@ class _Patches:
         self.update_profile = _patch(
             "backend.orchestrator.orchestrator.api_sessions.update_preference_profile",
         )
-        self.should_retrieve = _patch(
-            "backend.orchestrator.orchestrator.should_retrieve",
-            return_value=MagicMock(retrieve=False, query=None),
-        )
         return self
 
     def __exit__(self, *args):
@@ -355,7 +351,7 @@ class TestRenderIsDeterministic:
         with _Patches(full=full, clusters=[cluster], decision=decision):
             orch = Orchestrator()
             result = orch.handle_turn(full.session_id, "surprise me")
-        assert "best match for oracle" in result.assistant_message
+        assert "Great dramas" in result.assistant_message
 
 
 class TestConvergenceShortCircuits:
@@ -575,6 +571,95 @@ class TestProgressCallback:
             orch = Orchestrator()
             result = orch.handle_turn(full.session_id, "go", progress_cb=boom)
         assert result.step_type == StepType.show
+
+
+class TestDriftConfirmAndDismiss:
+    """drift_confirmed re-retrieves with drift query + profile_summary; drift_dismissed uses speculative clusters."""
+
+    def _drift_full(self) -> MagicMock:
+        """Session whose last turn is a drift-clarification turn."""
+        drift_turn = _turn("ask", "Did your preference change?")
+        drift_turn.user_message = "Actually show me horror"
+        full = _full(turns=[drift_turn])
+        return full
+
+    def test_drift_confirmed_calls_retrieval_retrieve(self) -> None:
+        full = self._drift_full()
+        conv = ConvergenceDecision(
+            action=ConvergenceAction.drift_confirmed,
+            reason="oracle confirmed genre change",
+        )
+        with _Patches(full=full, conv_decision=conv) as p:
+            orch = Orchestrator()
+            orch.handle_turn(full.session_id, "Yes I changed my mind")
+        assert p.retrieval_retrieve.called
+
+    def test_drift_confirmed_uses_profile_summary_as_query(self) -> None:
+        full = self._drift_full()
+        conv = ConvergenceDecision(
+            action=ConvergenceAction.drift_confirmed,
+            reason="oracle confirmed genre change",
+        )
+        profile = UserProfile(
+            constraints=["no horror"],
+            preferences=["slow burn"],
+            attitudes=[],
+            summary="Enjoys slow drama",
+        )
+        with _Patches(full=full, conv_decision=conv, profile=profile) as p:
+            orch = Orchestrator()
+            orch.handle_turn(full.session_id, "Yes I changed my mind")
+        call_kwargs = p.retrieval_retrieve.call_args.kwargs
+        assert call_kwargs.get("user_query") == "Enjoys slow drama"
+
+    def test_drift_confirmed_falls_back_to_user_message_when_no_profile_summary(self) -> None:
+        full = self._drift_full()
+        full.preference_profile = None
+        conv = ConvergenceDecision(
+            action=ConvergenceAction.drift_confirmed,
+            reason="oracle confirmed genre change",
+        )
+        profile = UserProfile(constraints=[], preferences=[], attitudes=[], summary="")
+        with _Patches(full=full, conv_decision=conv, profile=profile) as p:
+            orch = Orchestrator()
+            orch.handle_turn(full.session_id, "Yes I changed my mind")
+        call_kwargs = p.retrieval_retrieve.call_args.kwargs
+        assert call_kwargs.get("user_query") == "Yes I changed my mind"
+
+    def test_drift_dismissed_does_not_rerun_retrieval_with_drift_query(self) -> None:
+        full = self._drift_full()
+        conv = ConvergenceDecision(
+            action=ConvergenceAction.drift_dismissed,
+            reason="oracle explained misunderstanding",
+        )
+        with _Patches(full=full, conv_decision=conv) as p:
+            orch = Orchestrator()
+            orch.handle_turn(full.session_id, "No I meant supernatural drama")
+        if p.retrieval_retrieve.called:
+            call_kwargs = p.retrieval_retrieve.call_args.kwargs
+            assert call_kwargs.get("user_query") != "Actually show me horror"
+
+    def test_drift_dismissed_proceeds_to_decision_agent(self) -> None:
+        full = self._drift_full()
+        conv = ConvergenceDecision(
+            action=ConvergenceAction.drift_dismissed,
+            reason="oracle explained misunderstanding",
+        )
+        with _Patches(full=full, conv_decision=conv) as p:
+            orch = Orchestrator()
+            orch.handle_turn(full.session_id, "No I meant supernatural drama")
+        assert p.decision_decide.called
+
+    def test_drift_confirmed_proceeds_to_decision_agent(self) -> None:
+        full = self._drift_full()
+        conv = ConvergenceDecision(
+            action=ConvergenceAction.drift_confirmed,
+            reason="oracle confirmed genre change",
+        )
+        with _Patches(full=full, conv_decision=conv) as p:
+            orch = Orchestrator()
+            orch.handle_turn(full.session_id, "Yes I changed my mind")
+        assert p.decision_decide.called
 
 
 class TestTerminalConvergenceTolerance:

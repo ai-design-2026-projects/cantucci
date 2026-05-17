@@ -76,6 +76,12 @@ def check(
     show_count = sum(1 for t in full.turns if t.step_type == StepType.show.value)
     recent_turns: list[TurnDetail] = full.turns[-2:]
 
+    prev = full.turns[-1] if full.turns else None
+    in_drift_clarification_state = prev is not None and any(
+        f.turn_id == prev.id and f.feedback_type == "resolve_drift"
+        for f in full.feedback
+    )
+
     return check_llm_convergence(
         session_id=session_id,
         run_id=run_id,
@@ -87,4 +93,5 @@ def check(
         show_count=show_count,
         cfg=cfg,
         accumulated_cost_usd=accumulated_cost_usd,
+        in_drift_clarification_state=in_drift_clarification_state,
     )

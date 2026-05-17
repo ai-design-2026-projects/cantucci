@@ -61,12 +61,17 @@ def check_llm_convergence(
     show_count: int,
     cfg: Settings,
     accumulated_cost_usd: float = 0.0,
+    in_drift_clarification_state: bool = False,
 ) -> ConvergenceDecision:
     """LLM gate: detects natural conversation end and preference drift in one call.
 
     Consumes the N-1 preference profile (from sessions.preference_profile) and the
     last 2 completed turns. The Profile Agent runs after this gate and updates the
     profile for the next turn.
+
+    When ``in_drift_clarification_state`` is True, the gate is on the turn
+    immediately after a ``clarify_drift`` turn. It must emit ``drift_confirmed``
+    or ``drift_dismissed`` to confirm or dismiss the previously flagged contradiction.
 
     Args:
         session_id:         Target session UUID (for log correlation).
@@ -80,12 +85,16 @@ def check_llm_convergence(
         show_count:         Number of show-type turns already completed.
         cfg:                Active typed settings (model, session limits).
         accumulated_cost_usd: Running USD cost for the current turn (cost guard).
+        in_drift_clarification_state: True when the previous turn was a
+                            ``clarify_drift`` turn awaiting oracle resolution.
 
     Returns:
         ``ConvergenceDecision`` with action one of:
-          * ``proceed``       — normal pipeline should run.
-          * ``natural_end``   — oracle wrapped up; mark converged.
-          * ``clarify_drift`` — contradiction detected; emit clarification.
+          * ``proceed``          — normal pipeline should run.
+          * ``natural_end``      — oracle wrapped up; mark converged.
+          * ``clarify_drift``    — contradiction detected; emit clarification.
+          * ``drift_confirmed``  — oracle confirmed the preference change.
+          * ``drift_dismissed``  — oracle explained away the contradiction.
 
     Raises:
         LLMParseError:     If all retry attempts return malformed JSON.
@@ -115,6 +124,7 @@ def check_llm_convergence(
                 for t in recent_turns
             ],
             "user_message": user_message,
+            "in_drift_clarification_state": in_drift_clarification_state,
             "response_schema_json": json.dumps(
                 _prompt_schema(ConvergenceCheckResponse),
                 indent=2,
@@ -189,6 +199,18 @@ def check_llm_convergence(
             drift_topic=parsed.drift_topic,
             prior_statement=parsed.prior_statement,
             current_statement=parsed.current_statement,
+        )
+
+    if parsed.decision == "drift_confirmed":
+        return ConvergenceDecision(
+            action=ConvergenceAction.drift_confirmed,
+            reason=parsed.reason,
+        )
+
+    if parsed.decision == "drift_dismissed":
+        return ConvergenceDecision(
+            action=ConvergenceAction.drift_dismissed,
+            reason=parsed.reason,
         )
 
     return ConvergenceDecision(

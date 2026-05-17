@@ -16,7 +16,6 @@ log = logging.getLogger(__name__)
 def render_recommendation(
     *,
     best_cluster: ClusterSnapshot,
-    decision: DecisionResult,
     top_k: int,
 ) -> str:
     """Format a recommendation reply from the best cluster and decision rationale.
@@ -43,7 +42,6 @@ def render_recommendation(
     reply = (
         f"**{best_cluster.name}**\n\n"
         f"{best_cluster.description or ''}\n\n"
-        f"*Why this fits:* {decision.rationale}\n\n"
         f"Top picks:\n{film_lines}"
     )
 

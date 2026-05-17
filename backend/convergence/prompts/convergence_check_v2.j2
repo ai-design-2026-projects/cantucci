@@ -10,6 +10,12 @@ and return one of three decisions.
 - **clarify_drift** — the oracle's current message contradicts a preference they stated
   earlier (preference drift). You must ask for clarification before continuing so the
   profile stays consistent.
+- **drift_confirmed** — (only valid when in drift-clarification state) the oracle's reply
+  confirms the preference change is real and intentional. The system will re-retrieve
+  using the oracle's updated preference.
+- **drift_dismissed** — (only valid when in drift-clarification state) the oracle's reply
+  explains away the apparent contradiction (e.g. they misunderstood, or meant something
+  different). The system will continue with the current preferences.
 
 # Guidance
 
@@ -70,6 +76,27 @@ Oracle: "Actually, I want to watch a horror film tonight."
 
 {"decision": "clarify_drift", "reason": "oracle now requests horror after explicitly ruling it out", "drift_topic": "horror films", "prior_statement": "no horror movies", "current_statement": "I want to watch a horror film tonight", "farewell_reply": null, "clarify_reply": "Earlier you told me you don't like horror — has that changed, or would you prefer to stick with your original preference?"}
 
+{% if in_drift_clarification_state %}
+# Drift-clarification state
+
+The previous turn flagged a preference contradiction and asked the oracle to clarify.
+The oracle's current message is their response to that clarification question.
+
+Your task here is narrow: decide whether the contradiction was real or not.
+
+- **drift_confirmed** — the oracle's reply shows they genuinely changed their preference
+  (e.g. "yes I changed my mind", "actually I want that now", "ignore what I said before").
+  Use this when the oracle reaffirms the new, contradicting preference.
+- **drift_dismissed** — the oracle's reply explains the contradiction away
+  (e.g. "no I meant something else", "you misunderstood", "I was describing what I don't want").
+  Use this when the oracle is NOT actually changing the earlier stated preference.
+
+Do NOT emit **clarify_drift** again — one clarification is enough. Commit to confirmed or
+dismissed based on the oracle's reply. You may still emit **natural_end** if the oracle
+signals they are done with the conversation. Emit **proceed** only if the reply is entirely
+ambiguous (cannot determine confirmed or dismissed).
+
+{% endif %}
 # Session context
 
 Turn: {{ turn_number }} / {{ max_turns }}
