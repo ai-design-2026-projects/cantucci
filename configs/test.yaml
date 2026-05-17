@@ -53,9 +53,10 @@ clustering:
   min_singleton_floor: 3
 
 ingestion:
-  # Smoke tests reuse the pre-existing public artifacts (no timestamp suffix)
-  # so they don't need a TMDB snapshot to run. mini_size above (200) must
-  # match the row count of the parquet pinned here.
+  # Smoke tests reuse the pre-existing public artifacts so they don't need a
+  # fresh TMDB snapshot to run. The mini parquet's actual row count is a
+  # property of the snapshot pinned below — split.mini_size above only drives
+  # stage-2 split creation (Colab notebook), not test reads.
   hf_repo: "446f6e6e79/CinePal-embeddings"
   artifacts:
     # snapshot is never fetched by tests (only the embedded artifacts are);

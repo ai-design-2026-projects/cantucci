@@ -5,7 +5,8 @@ Covers, against the real mini-catalogue fixture:
   - ``api.movies.vector_search(exclude_ids=...)`` actually drops the listed IDs
   - ``retrieval.agent.retrieve`` plumbs reformulator exclusions through end-to-end
 
-The mini catalogue is small (~200 rows) and content-dependent, so the tests
+The mini catalogue is small and content-dependent (its exact row count is a
+property of the snapshot pinned in `ingestion.artifacts.mini`), so the tests
 discover representative titles at runtime rather than hard-coding film names
 that may not exist in the artifact.
 """
@@ -36,8 +37,8 @@ def _sample_title(db_url: str) -> tuple[int, str]:
 def _shared_word_title_pair(db_url: str) -> tuple[str, list[int]]:
     """Find a word that appears in >=2 catalogue titles; return (word, matching_ids).
 
-    Falls back to ``None`` results if no shared word exists (highly unlikely in
-    a ~200-row mini catalogue but defensive).
+    Falls back to ``None`` results if no shared word exists (highly unlikely
+    on the mini catalogue but defensive).
     """
     with psycopg.connect(db_url) as conn:
         rows = conn.execute("SELECT id, title FROM movies").fetchall()
