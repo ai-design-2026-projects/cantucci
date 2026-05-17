@@ -15,7 +15,7 @@ The ``understand`` step wraps Wave 1, in which three agents run
 concurrently on a ``ThreadPoolExecutor(max_workers=3)``:
 
 * ``convergence_agent.check``  — hard-limit and LLM drift/end gate.
-* ``cluster_agent.cluster``    — retrieval (internal) + soft clustering.
+* retrieval + ``cluster_agent.soft_cluster`` + ``cluster_agent.describe_clusters``.
 * ``profile_agent.extract``    — preference-profile extraction.
 
 The ``choose`` step wraps Wave 2, which is a single serial call to
@@ -42,8 +42,7 @@ class ProgressStep(str, Enum):
     concurrently or lie about ordering. Each value here wraps one logical
     block the user perceives as a single activity:
 
-    * ``understand`` — Wave 1, parallel: convergence + cluster (retrieval
-      inside) + profile.
+    * ``understand`` — Wave 1, parallel: convergence + retrieval/cluster + profile.
                        ─────────────────────────────────────────────────
     * ``choose``     — Wave 2, serial: decision (now generates the
       clarifying question itself; ambiguity merged in per PR #61).

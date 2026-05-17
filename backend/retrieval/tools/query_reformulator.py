@@ -62,6 +62,11 @@ def reformulate(
     config_hash = get_config_hash()
     model_and_version = cfg.models.fast.name
 
+    log.debug(
+        "query reformulator input",
+        extra={"session_id": str(session_id), "turn_id": str(turn_id), "user_query": user_query},
+    )
+
     system_text, prompt_hash = load_prompt(
         "query_reformulate_v2",
         {

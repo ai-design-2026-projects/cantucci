@@ -20,6 +20,7 @@ from uuid import UUID, uuid4
 import backend.api.retrieval as api_retrieval
 import backend.api.runs as api_runs
 import backend.api.sessions as api_sessions
+import backend.retrieval.agent as retrieval_agent
 from backend.cluster import cluster_agent
 from backend.convergence import convergence_agent
 from backend.decision import decision_agent
@@ -179,7 +180,6 @@ class Orchestrator:
             },
         )
 
-        # Precompute pure cluster inputs so Wave 1 can dispatch immediately.
         prior_turn = full.turns[-1] if full.turns else None
         is_refinement = (
             prior_turn is not None
@@ -193,15 +193,14 @@ class Orchestrator:
                 "refinement after ask",
                 extra={"session_id": str(session_id), "turn_number": turn_number},
             )
-            cluster_kwargs: dict = dict(
+            cluster_call = lambda: cluster_agent.refine(
+                prior_clusters=_prior_clusters_from_turn(prior_turn),
+                user_query=user_message,
+                asked_question=prior_turn.assistant_message or "",
+                user_answer=user_message,
                 session_id=session_id,
                 run_id=full.run_id,
                 turn_id=turn_id,
-                turn_number=turn_number,
-                user_query=user_message,
-                prior_clusters=_prior_clusters_from_turn(prior_turn),
-                asked_question=prior_turn.assistant_message or "",
-                user_answer=user_message,
             )
         else:
             log.info(
@@ -212,12 +211,13 @@ class Orchestrator:
                     "retrieve_new": ret.retrieve,
                 },
             )
-            cluster_kwargs = dict(
+            cluster_call = lambda: self._fresh_chain(
+                ret.query or user_message,
+                cfg=cfg,
                 session_id=session_id,
-                run_id=full.run_id,
+                full=full,
                 turn_id=turn_id,
                 turn_number=turn_number,
-                user_query=ret.query or user_message,
             )
 
         # Wave 1: Convergence + Cluster (speculative) + Profile in parallel.
@@ -238,7 +238,7 @@ class Orchestrator:
                 preference_profile=prior_profile,
                 cfg=cfg,
             )
-            f_cluster = pool.submit(cluster_agent.cluster, **cluster_kwargs)
+            f_cluster = pool.submit(cluster_call)
             f_profile = pool.submit(
                 profile_agent.extract,
                 session_id=session_id,
@@ -327,12 +327,13 @@ class Orchestrator:
                     "override_query": conv.retrieval_override,
                 },
             )
-            clusters = cluster_agent.cluster(
+            clusters = self._fresh_chain(
+                conv.retrieval_override,
+                cfg=cfg,
                 session_id=session_id,
-                run_id=full.run_id,
+                full=full,
                 turn_id=turn_id,
                 turn_number=turn_number,
-                user_query=conv.retrieval_override,
             )
 
         if not clusters:
@@ -473,6 +474,54 @@ class Orchestrator:
             step_type=step_type,
             converged=converged,
             created_at=now,
+        )
+
+    def _fresh_chain(
+        self,
+        query: str,
+        *,
+        cfg,
+        session_id: UUID,
+        full,
+        turn_id: UUID,
+        turn_number: int,
+    ) -> list[ClusterSnapshot]:
+        """Run retrieval → HDBSCAN → LLM describe for a fresh (non-refinement) turn.
+
+        Args:
+            query:        The query to retrieve and cluster against.
+            cfg:          Loaded settings for the current turn.
+            session_id:   UUID of the current session.
+            full:         Full session state loaded from DB.
+            turn_id:      UUID of the current turn.
+            turn_number:  1-based turn index within the session.
+
+        Returns:
+            List of named ``ClusterSnapshot`` objects, or an empty list when
+            retrieval yields no candidates or HDBSCAN classifies all as noise.
+        """
+        rr = retrieval_agent.retrieve(
+            user_query=query,
+            k=cfg.retrieval.top_k,
+            session_id=session_id,
+            run_id=full.run_id,
+            turn_id=turn_id,
+        )
+        sr = cluster_agent.soft_cluster(
+            retrieval_result=rr,
+            session_id=session_id,
+            turn_id=turn_id,
+            turn_number=turn_number,
+        )
+        if sr is None:
+            return []
+        return cluster_agent.describe_clusters(
+            soft_result=sr,
+            user_query=query,
+            reformulated_query=rr.reformulated_query,
+            session_id=session_id,
+            run_id=full.run_id,
+            turn_id=turn_id,
         )
 
     def _terminate_turn(

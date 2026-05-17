@@ -26,6 +26,7 @@ from backend.api.types import (
     StepType,
     TurnDetail,
 )
+from backend.retrieval.types import RetrievalResult
 from backend.convergence.types import ConvergenceAction, ConvergenceDecision
 from backend.decision.types import DecisionAction, DecisionResult
 from backend.profile.types import UserProfile
@@ -149,8 +150,6 @@ class _Patches:
         self._patchers: list = []
 
     def __enter__(self):
-        base = "backend.orchestrator.orchestrator"
-
         def _patch(target, return_value=None, side_effect=None):
             kw = {}
             if return_value is not None:
@@ -177,8 +176,24 @@ class _Patches:
             "backend.orchestrator.orchestrator.convergence_agent.check",
             return_value=self._conv,
         )
-        self.cluster_cluster = _patch(
-            "backend.orchestrator.orchestrator.cluster_agent.cluster",
+        mock_rr = MagicMock(spec=RetrievalResult)
+        mock_rr.reformulated_query = "mock reformulated query"
+        mock_rr.candidates = []
+        self.retrieval_retrieve = _patch(
+            "backend.orchestrator.orchestrator.retrieval_agent.retrieve",
+            return_value=mock_rr,
+        )
+        mock_sr = MagicMock()
+        self.cluster_soft = _patch(
+            "backend.orchestrator.orchestrator.cluster_agent.soft_cluster",
+            return_value=mock_sr,
+        )
+        self.cluster_describe = _patch(
+            "backend.orchestrator.orchestrator.cluster_agent.describe_clusters",
+            return_value=self._clusters,
+        )
+        self.cluster_refine = _patch(
+            "backend.orchestrator.orchestrator.cluster_agent.refine",
             return_value=self._clusters,
         )
         self.decision_decide = _patch(
@@ -227,15 +242,15 @@ class TestScenarioAFreshClustering:
         with _Patches(full=full) as p:
             orch = Orchestrator()
             orch.handle_turn(full.session_id, "I want something contemplative")
-        call_kwargs = p.cluster_cluster.call_args.kwargs
-        assert "prior_clusters" not in call_kwargs or call_kwargs.get("prior_clusters") is None
+        assert p.cluster_soft.called
+        assert not p.cluster_refine.called
 
     def test_cluster_called_with_user_query(self) -> None:
         full = _full(turns=[_turn("show", "Here is a pick")])
         with _Patches(full=full) as p:
             orch = Orchestrator()
             orch.handle_turn(full.session_id, "more like that")
-        call_kwargs = p.cluster_cluster.call_args.kwargs
+        call_kwargs = p.cluster_describe.call_args.kwargs
         assert "user_query" in call_kwargs
 
 
@@ -249,7 +264,8 @@ class TestScenarioBRefinementAfterAsk:
         with _Patches(full=full) as p:
             orch = Orchestrator()
             orch.handle_turn(full.session_id, "Drama please")
-        call_kwargs = p.cluster_cluster.call_args.kwargs
+        assert p.cluster_refine.called
+        call_kwargs = p.cluster_refine.call_args.kwargs
         assert call_kwargs.get("prior_clusters") is not None
         assert len(call_kwargs["prior_clusters"]) == 1
 
@@ -259,7 +275,7 @@ class TestScenarioBRefinementAfterAsk:
         with _Patches(full=full) as p:
             orch = Orchestrator()
             orch.handle_turn(full.session_id, "Action")
-        call_kwargs = p.cluster_cluster.call_args.kwargs
+        call_kwargs = p.cluster_refine.call_args.kwargs
         assert call_kwargs.get("asked_question") == "What do you feel like?"
 
     def test_scenario_a_when_prior_turn_is_show(self) -> None:
@@ -268,8 +284,8 @@ class TestScenarioBRefinementAfterAsk:
         with _Patches(full=full) as p:
             orch = Orchestrator()
             orch.handle_turn(full.session_id, "something different")
-        call_kwargs = p.cluster_cluster.call_args.kwargs
-        assert not call_kwargs.get("prior_clusters")
+        assert not p.cluster_refine.called
+        assert p.cluster_soft.called
 
 
 class TestProfileAgentFlow:
@@ -534,8 +550,7 @@ class TestProgressCallback:
         full = _full(turns=[])
         rec = _Recorder()
         with _Patches(full=full) as p:
-            # ``_Patches`` ignores empty cluster lists (``or`` default); override.
-            p.cluster_cluster.return_value = []
+            p.cluster_soft.return_value = None
             with patch("backend.orchestrator.orchestrator.emit_early_clarification") as mock_emit:
                 mock_emit.return_value = MagicMock(step_type=StepType.ask)
                 orch = Orchestrator()
@@ -573,7 +588,7 @@ class TestTerminalConvergenceTolerance:
             reply="Goodbye!",
         )
         with _Patches(full=full, conv_decision=conv) as p:
-            p.cluster_cluster.side_effect = RuntimeError("retrieval reformulation failed")
+            p.cluster_soft.side_effect = RuntimeError("retrieval reformulation failed")
             with patch("backend.orchestrator.orchestrator.api_sessions.mark_converged"), \
                  patch("backend.orchestrator.orchestrator.api_sessions.append_turn"):
                 orch = Orchestrator()
@@ -588,7 +603,7 @@ class TestTerminalConvergenceTolerance:
             reply="Session over.",
         )
         with _Patches(full=full, conv_decision=conv) as p:
-            p.cluster_cluster.side_effect = RuntimeError("retrieval reformulation failed")
+            p.cluster_soft.side_effect = RuntimeError("retrieval reformulation failed")
             with patch("backend.orchestrator.orchestrator.api_sessions.mark_abandoned"), \
                  patch("backend.orchestrator.orchestrator.api_sessions.append_turn"):
                 orch = Orchestrator()
