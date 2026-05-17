@@ -3,16 +3,24 @@
 # Mirrors configs/default.yaml shape (validated by Settings); only the values
 # below are intentionally different.
 
-model:
-  # Same model identifier as default — replay invariants check shape, not the
-  # actual API call, since dry_run=true bypasses every network round-trip.
-  name: "openai/gpt-oss-120b:free"
-  provider: openrouter
-  seed: 42
-  max_tokens: 1024
-  # Force every llm_harness.call() to load a fixture from tests/fixtures/dry_run/
-  # instead of hitting the real API. Must be false in production.
-  dry_run: true
+models:
+  # Same model identifier across tiers — replay invariants check shape, not the
+  # actual API call, since dry_run=true bypasses every network round-trip on
+  # both tiers.
+  strong:
+    name: "openai/gpt-oss-120b:free"
+    provider: openrouter
+    seed: 42
+    max_tokens: 1024
+    # Force every llm_harness.call() to load a fixture from tests/fixtures/dry_run/
+    # instead of hitting the real API. Must be false in production.
+    dry_run: true
+  fast:
+    name: "openai/gpt-oss-120b:free"
+    provider: openrouter
+    seed: 42
+    max_tokens: 1024
+    dry_run: true
 
 session:
   max_turns: 15

@@ -31,9 +31,10 @@ nothing more. Quality, fairness, and clustering evaluation belong elsewhere.
 
 1. **route table matches spec** — `POST /sessions`, `POST /sessions/{id}/turns`,
    `GET /sessions/{id}` are present.
-2. **dry_run is active** — guard test: `settings.model.dry_run is True` under
-   `configs/test.yaml`. If this flips, every other backend smoke test silently
-   becomes a real-API test.
+2. **dry_run is active** — guard test: both `settings.models.strong.dry_run`
+   and `settings.models.fast.dry_run` are True under `configs/test.yaml`.
+   If either flips, the corresponding tier's smoke tests silently become
+   real-API tests.
 3. **create session persists** — `POST /sessions` returns a 201 with a UUID,
    `GET /sessions/{id}` returns the same id.
 4. **full turn runs end-to-end** — `POST /sessions/{id}/turns` returns a

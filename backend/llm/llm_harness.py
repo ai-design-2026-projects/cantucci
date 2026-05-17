@@ -112,10 +112,11 @@ def call(
         openai.APIError:     On any non-transient API error (raised immediately, no retry).
     """
     # dry_run resolves to True when either the caller passes dry_run=True or
-    # the active YAML config sets model.dry_run=true (smoke-test mode). It is
+    # any active model tier sets dry_run=true (smoke-test mode). It is
     # evaluated before the cost guard because a fixture response accrues no
     # real cost, so the guard would spuriously reject configs with zero budget.
-    effective_dry_run = dry_run or get_settings().model.dry_run
+    _cfg_models = get_settings().models
+    effective_dry_run = dry_run or _cfg_models.strong.dry_run or _cfg_models.fast.dry_run
     if effective_dry_run:
         fixture_path = _DRY_RUN_FIXTURES_DIR / f"{step_type}.json"
         if not fixture_path.is_file():

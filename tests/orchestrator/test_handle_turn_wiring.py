@@ -78,10 +78,10 @@ def _full(
 
 def _cfg() -> MagicMock:
     cfg = MagicMock()
-    cfg.model.name = "gpt-4o-mini"
-    cfg.model.provider = "openai"
-    cfg.model.seed = 42
-    cfg.model.max_tokens = 256
+    cfg.models.strong.name = "gpt-4o-mini"
+    cfg.models.strong.provider = "openai"
+    cfg.models.strong.seed = 42
+    cfg.models.strong.max_tokens = 256
     cfg.session.max_turns = 15
     cfg.session.max_recommendations = 5
     cfg.session.cost_limit_usd = 5.0

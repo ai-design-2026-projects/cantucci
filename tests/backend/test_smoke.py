@@ -50,7 +50,9 @@ def test_route_table_matches_spec(client: TestClient) -> None:
 
 def test_dry_run_is_active_in_test_config() -> None:
     """Guard: the test config must actually have dry_run on, or every smoke is a no-op."""
-    assert get_settings().model.dry_run is True
+    cfg = get_settings()
+    assert cfg.models.strong.dry_run is True
+    assert cfg.models.fast.dry_run is True
 
 
 def test_create_session_persists_row(client: TestClient) -> None:

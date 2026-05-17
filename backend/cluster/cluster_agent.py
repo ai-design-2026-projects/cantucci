@@ -163,7 +163,7 @@ def cluster(
         min_samples=cfg.clustering.min_samples,
         cluster_selection_method=cfg.clustering.cluster_selection_method,
         umap_cfg=cfg.clustering.umap,
-        seed=cfg.model.seed,
+        seed=cfg.models.strong.seed,
     )
 
     log.debug(
