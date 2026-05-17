@@ -20,7 +20,7 @@ from backend.llm import llm_harness
 from backend.llm.prompts import make_prompt_loader
 from backend.settings import get_config_hash, get_settings
 from backend.api.types import ClusterSnapshot
-from backend.decision.types import DecisionAction, DecisionQuestion, DecisionResponse, DecisionResult
+from backend.decision.types import DecisionAction, DecisionResponse, DecisionResult
 
 log = logging.getLogger(__name__)
 
@@ -181,15 +181,27 @@ def decide(
         else DecisionAction.continue_
     )
 
+    def _index_to_uuid(idx: int) -> UUID | None:
+        """Map a 0-based cluster index from the prompt back to its UUID."""
+        if 0 <= idx < len(clusters):
+            return clusters[idx].id
+        log.warning(
+            "Decision agent: cluster index out of range, ignoring",
+            extra={"index": idx, "n_clusters": len(clusters), "session_id": str(session_id)},
+        )
+        return None
+
     best_cluster_id: UUID | None = None
-    if parsed.best_cluster_id:
-        try:
-            best_cluster_id = UUID(parsed.best_cluster_id)
-        except ValueError:
-            log.warning(
-                "Decision agent: invalid best_cluster_id UUID, ignoring",
-                extra={"raw": parsed.best_cluster_id, "session_id": str(session_id)},
-            )
+    if parsed.best_cluster_id is not None:
+        best_cluster_id = _index_to_uuid(parsed.best_cluster_id)
+
+    question: DecisionQuestion | None = parsed.question
+    cluster_refs: list[UUID] = []
+    if question is not None:
+        for idx in question.cluster_refs:
+            resolved = _index_to_uuid(idx)
+            if resolved is not None:
+                cluster_refs.append(resolved)
 
     log.debug(
         "Decision agent result",
@@ -197,23 +209,11 @@ def decide(
             "session_id": str(session_id),
             "turn_number": turn_number,
             "action": action.value,
-            "question": parsed.question.text if parsed.question else None,
+            "question": question.text if question else None,
             "best_cluster_id": str(best_cluster_id) if best_cluster_id else None,
             "entropy_score": entropy,
         },
     )
-
-    question: DecisionQuestion | None = parsed.question
-    cluster_refs: list[UUID] = []
-    if question is not None:
-        for ref in question.cluster_refs:
-            try:
-                cluster_refs.append(UUID(ref))
-            except ValueError:
-                log.warning(
-                    "Decision agent: invalid cluster_ref UUID in question, skipping",
-                    extra={"raw": ref, "session_id": str(session_id)},
-                )
 
     return DecisionResult(
         action=action,

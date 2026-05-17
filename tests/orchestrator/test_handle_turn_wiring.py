@@ -560,3 +560,55 @@ class TestProgressCallback:
             orch = Orchestrator()
             result = orch.handle_turn(full.session_id, "go", progress_cb=boom)
         assert result.step_type == StepType.show
+
+
+class TestTerminalConvergenceTolerance:
+    """When convergence is terminal, a cluster-agent crash must NOT kill the turn."""
+
+    def test_natural_end_survives_cluster_crash(self) -> None:
+        full = _full(turns=[])
+        conv = ConvergenceDecision(
+            action=ConvergenceAction.natural_end,
+            reason="oracle said bye",
+            reply="Goodbye!",
+        )
+        with _Patches(full=full, conv_decision=conv) as p:
+            p.cluster_cluster.side_effect = RuntimeError("retrieval reformulation failed")
+            with patch("backend.orchestrator.orchestrator.api_sessions.mark_converged"), \
+                 patch("backend.orchestrator.orchestrator.api_sessions.append_turn"):
+                orch = Orchestrator()
+                result = orch.handle_turn(full.session_id, "that's all, thanks")
+        assert result.step_type == StepType.stop
+
+    def test_terminate_survives_cluster_crash(self) -> None:
+        full = _full(turns=[])
+        conv = ConvergenceDecision(
+            action=ConvergenceAction.terminate,
+            reason="max turns",
+            reply="Session over.",
+        )
+        with _Patches(full=full, conv_decision=conv) as p:
+            p.cluster_cluster.side_effect = RuntimeError("retrieval reformulation failed")
+            with patch("backend.orchestrator.orchestrator.api_sessions.mark_abandoned"), \
+                 patch("backend.orchestrator.orchestrator.api_sessions.append_turn"):
+                orch = Orchestrator()
+                result = orch.handle_turn(full.session_id, "done")
+        assert result.step_type == StepType.stop
+
+    def test_clarify_drift_survives_profile_crash(self) -> None:
+        full = _full(turns=[])
+        conv = ConvergenceDecision(
+            action=ConvergenceAction.clarify_drift,
+            reason="contradiction",
+            reply="Did your preference change?",
+            drift_topic="horror",
+            prior_statement="no horror",
+            current_statement="horror please",
+        )
+        with _Patches(full=full, conv_decision=conv) as p:
+            p.profile_extract.side_effect = RuntimeError("profile agent crashed")
+            with patch("backend.orchestrator.orchestrator.emit_drift_clarification") as mock_emit:
+                mock_emit.return_value = MagicMock(step_type=StepType.ask)
+                orch = Orchestrator()
+                result = orch.handle_turn(full.session_id, "horror please")
+        assert result.step_type == StepType.ask

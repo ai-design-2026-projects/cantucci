@@ -29,11 +29,12 @@ class DecisionQuestion(BaseModel):
 
     Attributes:
         text:         The question text to surface to the oracle.
-        cluster_refs: UUIDs (as strings) of the clusters this question targets.
+        cluster_refs: Integer indices (0-based) of the clusters this question
+                      targets. Mapped back to UUIDs in decision_agent.
     """
 
     text: str = Field(min_length=1)
-    cluster_refs: list[str] = Field(default_factory=list)
+    cluster_refs: list[int] = Field(default_factory=list)
 
 
 class DecisionResponse(BaseModel):
@@ -43,14 +44,14 @@ class DecisionResponse(BaseModel):
 
     Attributes:
         action:          ``"recommend"`` or ``"continue"``.
-        best_cluster_id: UUID string of the recommended cluster, or ``None``.
+        best_cluster_id: Integer index (0-based) of the recommended cluster, or ``None``.
         rationale:       One-sentence explanation of the decision.
         entropy_score:   Uncertainty estimate echoed from the prompt (0 = certain).
         question:        Present iff ``action == "continue"``; ``None`` otherwise.
     """
 
     action: str
-    best_cluster_id: str | None = None
+    best_cluster_id: int | None = None
     rationale: str
     entropy_score: float
     question: DecisionQuestion | None = None

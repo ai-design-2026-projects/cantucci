@@ -16,7 +16,7 @@ where the original query was vague.
 # Current state — clusters before refinement
 
 {% for c in prior_clusters %}
-Cluster {{ c.cluster_id }} — "{{ c.name }}"
+Cluster {{ loop.index0 }} — "{{ c.name }}"
   Description: {{ c.description }}
   Films:
 {% for f in c.films %}    - [{{ f.movie_id }}] {{ f.title }}{% if f.excluded %} (previously excluded){% endif %} — {{ f.overview }}
@@ -98,11 +98,11 @@ This is for downstream debugging; keep it concise but specific.
 
 Suppose the prior state looked like this:
 
-  Cluster c0 — "Slow Domestic Grief Dramas"
+  Cluster 0 — "Slow Domestic Grief Dramas"
     Films: [101] Manchester by the Sea, [102] A Ghost Story, [103] The Father
-  Cluster c1 — "Cosmic-Scale Awe Sci-Fi"
+  Cluster 1 — "Cosmic-Scale Awe Sci-Fi"
     Films: [201] Arrival, [202] Interstellar, [203] Annihilation
-  Cluster c2 — "Quippy Ensemble Heists"
+  Cluster 2 — "Quippy Ensemble Heists"
     Films: [301] Ocean's Eleven, [302] Logan Lucky, [303] Hustlers
 
 And the conversation was:
@@ -114,7 +114,7 @@ A reasonable refinement:
 
 ```json
 {
-  "reasoning": "The oracle wants cosmic-scale science fiction but ruled out emotionally cold puzzle films, which sharpens cluster c1 toward the awe-and-grief end of the genre and disqualifies the domestic dramas and heists. I am dropping c0 and c2 entirely. Cluster c1 is renamed to centre the emotional register the oracle named, and Interstellar is moved out — it leans more on cold puzzle structure than the answer permits — while Annihilation and Arrival stay with boosted scores.",
+  "reasoning": "The oracle wants cosmic-scale science fiction but ruled out emotionally cold puzzle films, which sharpens cluster 1 toward the awe-and-grief end of the genre and disqualifies the domestic dramas and heists. I am dropping clusters 0 and 2 entirely. Cluster 1 is renamed to centre the emotional register the oracle named, and Interstellar is moved out — it leans more on cold puzzle structure than the answer permits — while Annihilation and Arrival stay with boosted scores.",
   "clusters": [
     {
       "name": "Grief-Carried Cosmic Awe",
@@ -128,8 +128,8 @@ A reasonable refinement:
 }
 ```
 
-Note the example demonstrates one cluster dropped (c0), one cluster dropped
-(c2), one cluster renamed and rescored (c1), one film removed (Interstellar),
+Note the example demonstrates one cluster dropped (0), one cluster dropped
+(2), one cluster renamed and rescored (1), one film removed (Interstellar),
 and one film implicitly kept across the rename (Arrival, Annihilation). It is
 intentionally short — your own reasoning and structure should match the depth
 of the actual input you receive.

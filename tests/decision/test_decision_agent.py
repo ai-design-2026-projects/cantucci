@@ -142,10 +142,10 @@ class TestSchemaValidation:
     def test_recommend_with_question_raises(self) -> None:
         bad_fixture = json.dumps({
             "action": "recommend",
-            "best_cluster_id": str(uuid.uuid4()),
+            "best_cluster_id": 0,
             "rationale": "clear winner",
             "entropy_score": 0.2,
-            "question": {"text": "oops", "ui_format": "binary", "cluster_refs": []},
+            "question": {"text": "oops", "cluster_refs": []},
         })
         from backend.decision.types import DecisionResponse
         from pydantic import ValidationError

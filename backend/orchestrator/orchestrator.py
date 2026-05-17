@@ -221,6 +221,10 @@ class Orchestrator:
             )
 
         # Wave 1: Convergence + Cluster (speculative) + Profile in parallel.
+        # Convergence is read first; if it is terminal the speculative results
+        # are discarded. We still drain those futures (try/except) so threads
+        # are not leaked. Exceptions in speculative work are only silenced when
+        # the result is discarded — on the proceed path they propagate normally.
         _emit(ProgressStep.understand, "start")
         with ThreadPoolExecutor(max_workers=3) as pool:
             f_conv = pool.submit(
@@ -246,11 +250,32 @@ class Orchestrator:
                 recent_turns=recent_turns,
             )
             conv = f_conv.result()
-            clusters = f_cluster.result()
-            new_profile = f_profile.result()
+
+            _terminal = conv.action in (
+                ConvergenceAction.terminate,
+                ConvergenceAction.natural_end,
+                ConvergenceAction.clarify_drift,
+            )
+            if _terminal:
+                for _f, _name in ((f_cluster, "cluster"), (f_profile, "profile")):
+                    try:
+                        _f.result()
+                    except Exception as _exc:
+                        log.warning(
+                            "speculative agent failed (discarded — convergence terminal)",
+                            extra={
+                                "agent": _name,
+                                "session_id": str(session_id),
+                                "error": str(_exc),
+                            },
+                        )
+                clusters = []
+                new_profile = prior_profile
+            else:
+                clusters = f_cluster.result()
+                new_profile = f_profile.result()
         _emit(ProgressStep.understand, "end")
 
-        # Early-exit branches: cluster + profile results are discarded.
         if conv.action is ConvergenceAction.terminate:
             _emit(ProgressStep.wrap_up, "start")
             try:
