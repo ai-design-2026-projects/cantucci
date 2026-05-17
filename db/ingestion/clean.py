@@ -43,6 +43,12 @@ def _composite_text(row: dict[str, Any]) -> str:
         # crashes on the first missing tagline / overview.
         return v.strip() if isinstance(v, str) else ""
 
+    def _l(v: Any) -> list:
+        # Same trap as _s for list-typed columns: `NaN or []` evaluates to NaN,
+        # then iteration explodes. Currently safe because map_record always
+        # writes lists, but cheaper to guard than to debug 70k rows in.
+        return v if isinstance(v, list) else []
+
     parts: list[str] = []
     title = _s(row.get("title"))
     original_title = _s(row.get("original_title"))
@@ -51,15 +57,17 @@ def _composite_text(row: dict[str, Any]) -> str:
         parts.append(original_title)
 
     year = row.get("release_year")
-    if year:
+    # pd.notna handles None and float('nan'); `and year` keeps the original
+    # truthy guard so 0 (or future negatives) don't end up in the text.
+    if pd.notna(year) and year:
         parts.append(str(int(year)))
 
-    parts.append(" ".join(g.get("name", "") for g in (row.get("genres") or [])))
+    parts.append(" ".join(g.get("name", "") for g in _l(row.get("genres"))))
     parts.append(_s(row.get("tagline")))
     parts.append(_s(row.get("overview")))
-    parts.append(" ".join(row.get("top3_cast") or []))
+    parts.append(" ".join(_l(row.get("top3_cast"))))
     parts.append(_s(row.get("director")))
-    parts.append(" ".join(k.get("name", "") for k in (row.get("keywords") or [])))
+    parts.append(" ".join(k.get("name", "") for k in _l(row.get("keywords"))))
 
     return " ".join(p for p in (str(p).strip() for p in parts) if p)
 

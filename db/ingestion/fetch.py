@@ -1,11 +1,10 @@
 """Download a single parquet artifact from the Hugging Face Dataset repo."""
 import logging
-import os
 from pathlib import Path
 
 from huggingface_hub import hf_hub_download
 
-from backend.settings import ARTIFACTS_DIR
+from backend.settings import ARTIFACTS_DIR, get_env
 
 log = logging.getLogger(__name__)
 
@@ -24,13 +23,14 @@ def fetch_artifact(
         filename:       Exact filename inside the repo, e.g. ``"main_20260517.parquet"``.
                         Pinning the timestamped name here is what ties this run to a
                         specific snapshot for the replayability contract.
-        token:          HF access token for private repos. Falls back to ``HF_TOKEN``.
+        token:          HF access token for private repos. Falls back to
+                        ``get_env().hf_token`` (sourced from ``HF_TOKEN``).
         artifacts_dir:  Local destination directory. Defaults to ``data/artifacts/``.
 
     Returns:
         Absolute path to the downloaded parquet file on disk.
     """
-    resolved_token = token or os.environ.get("HF_TOKEN") or None
+    resolved_token = token or get_env().hf_token or None
     dest = artifacts_dir or ARTIFACTS_DIR
     dest.mkdir(parents=True, exist_ok=True)
 

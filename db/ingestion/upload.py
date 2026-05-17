@@ -11,13 +11,14 @@ These are the **only** code paths in the repo that write to HuggingFace.
 """
 import json
 import logging
-import os
 from datetime import datetime, timezone
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 from huggingface_hub import HfApi
+
+from backend.settings import get_env
 
 log = logging.getLogger(__name__)
 
@@ -68,7 +69,7 @@ def upload_artifacts(
         artifacts_dir:  Local directory to write the parquets to before upload.
         timestamp:      Suffix appended to each filename. Defaults to today's UTC date
                         (``YYYYMMDD``). Pass a custom value to override (e.g. for tests).
-        token:          HF token. Falls back to the ``HF_TOKEN`` env var.
+        token:          HF token. Falls back to ``get_env().hf_token`` (sourced from ``HF_TOKEN``).
         commit_message: Commit message for the HF upload. Defaults to a description
                         that includes the timestamp.
 
@@ -78,7 +79,7 @@ def upload_artifacts(
     """
     artifacts_dir.mkdir(parents=True, exist_ok=True)
     stamp = timestamp or datetime.now(timezone.utc).strftime("%Y%m%d")
-    resolved_token = token or os.environ.get("HF_TOKEN") or None
+    resolved_token = token or get_env().hf_token or None
 
     # Local on-disk names stay flat (we write next to other artifacts);
     # only the HF path-in-repo carries the embeddings/ prefix.
@@ -125,23 +126,21 @@ def upload_snapshot(
     commit_message: str | None = None,
 ) -> str:
     """Upload a stage-1 cleaned snapshot parquet to ``<repo_id>/snapshots/``.
-
     Args:
         parquet_path:   Local path to the cleaned snapshot parquet produced by
                         ``db/scrape.py``.
         repo_id:        Target HF dataset repo, e.g. ``"446f6e6e79/CinePal-embeddings"``.
-        token:          HF token. Falls back to the ``HF_TOKEN`` env var.
+        token:          HF token. Falls back to ``get_env().hf_token`` (sourced from ``HF_TOKEN``).
         timestamp:      Filename suffix (``YYYYMMDD``). Defaults to today's UTC date.
         commit_message: Commit message for the HF upload. Defaults to a description
                         that includes the timestamp.
-
     Returns:
         The ``path_in_repo`` of the uploaded file, e.g.
         ``"snapshots/snapshot_20260517.parquet"``. Print this so it can be pinned
         in ``configs/default.yaml`` under ``ingestion.artifacts.snapshot``.
     """
     stamp = timestamp or datetime.now(timezone.utc).strftime("%Y%m%d")
-    resolved_token = token or os.environ.get("HF_TOKEN") or None
+    resolved_token = token or get_env().hf_token or None
     path_in_repo = f"snapshots/snapshot_{stamp}.parquet"
 
     api = HfApi()
