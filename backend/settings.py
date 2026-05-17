@@ -244,7 +244,10 @@ class EnvSettings(BaseSettings):
     raise ``pydantic.ValidationError`` at instantiation time.
 
     Attributes:
-        database_url:    Postgres connection string.
+        database_url:    Postgres connection string. Optional so artifact-only
+                         paths (e.g. the Colab TMDB snapshot) can instantiate
+                         ``EnvSettings`` without a DB; the connection pool in
+                         ``backend/api/db.py`` raises if it's empty when used.
         openai_api_key:  OpenAI API key for LLM calls.
         hf_token:        Hugging Face API token (for private repos).
         tmdb_api_key:    TMDB API key — only used by the Colab snapshot script
@@ -257,7 +260,7 @@ class EnvSettings(BaseSettings):
         extra="ignore",
     )
 
-    database_url: str
+    database_url: str = ""
     openai_api_key: str = ""
     openrouter_api_key: str = ""
     hf_token: str = ""

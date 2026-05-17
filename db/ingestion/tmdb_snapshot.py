@@ -33,8 +33,79 @@ log = logging.getLogger(__name__)
 
 _TMDB_API_BASE = "https://api.themoviedb.org/3"
 _TMDB_EXPORTS_BASE = "http://files.tmdb.org/p/exports"
-_DEFAULT_CONCURRENCY = 40
+_DEFAULT_CONCURRENCY = 20
+_DEFAULT_RATE_PER_SEC = 30.0
+_MAX_429_RETRIES = 5
+_MAX_BACKOFF_SECONDS = 60.0
 _BAYESIAN_PRIOR_VOTES = 50
+
+
+class _AsyncRateLimiter:
+    """Async token-bucket rate limiter shared across coroutines.
+
+    Refills ``rate_per_sec`` tokens per second up to a burst cap of one
+    second's worth. ``acquire()`` consumes one token, sleeping just long
+    enough for the next token to materialise when the bucket is empty.
+    A single lock serialises the read-modify-write on the bucket state so
+    the global rate holds even with hundreds of concurrent waiters.
+    """
+
+    def __init__(self, rate_per_sec: float) -> None:
+        if rate_per_sec <= 0:
+            raise ValueError("rate_per_sec must be > 0")
+        self._rate = rate_per_sec
+        self._tokens = rate_per_sec
+        self._last = asyncio.get_event_loop().time()
+        self._lock = asyncio.Lock()
+
+    async def acquire(self) -> None:
+        """Block until one token is available, then consume it."""
+        async with self._lock:
+            now = asyncio.get_event_loop().time()
+            elapsed = now - self._last
+            self._last = now
+            self._tokens = min(self._rate, self._tokens + elapsed * self._rate)
+            if self._tokens < 1.0:
+                wait = (1.0 - self._tokens) / self._rate
+                await asyncio.sleep(wait)
+                self._tokens = 0.0
+            else:
+                self._tokens -= 1.0
+
+
+def _run_async(coro: Any) -> Any:
+    """Run *coro* to completion from sync code, even inside a running loop.
+
+    ``asyncio.run`` raises when called from a thread that already has an active
+    event loop, which is the default state in Jupyter / Colab. To keep the
+    snapshot callable from both plain scripts and notebooks, fall back to
+    executing the coroutine on a fresh loop in a worker thread when a loop is
+    already running on this thread.
+    """
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(coro)
+
+    import threading
+
+    result: dict[str, Any] = {}
+
+    def _runner() -> None:
+        loop = asyncio.new_event_loop()
+        try:
+            result["value"] = loop.run_until_complete(coro)
+        except BaseException as exc:  # noqa: BLE001 — re-raised on the caller's thread
+            result["error"] = exc
+        finally:
+            loop.close()
+
+    thread = threading.Thread(target=_runner, daemon=True)
+    thread.start()
+    thread.join()
+    if "error" in result:
+        raise result["error"]
+    return result["value"]
 
 
 def _export_url(when: datetime) -> str:
@@ -91,11 +162,21 @@ def _filter_export(
 async def _fetch_one(
     client: httpx.AsyncClient,
     sem: asyncio.Semaphore,
+    limiter: _AsyncRateLimiter,
     api_key: str,
     movie_id: int,
+    *,
+    attempt: int = 0,
 ) -> dict[str, Any] | None:
-    """Fetch a single movie's full record. Returns None on 404 / deleted."""
+    """Fetch a single movie's full record. Returns None on 404 / deleted.
+
+    Rate-limit handling: 429 responses honour ``Retry-After`` and back off
+    exponentially (``2 ** attempt``, capped at ``_MAX_BACKOFF_SECONDS``).
+    After ``_MAX_429_RETRIES`` failed attempts the call raises rather than
+    silently dropping the id, per the project's fail-loudly policy.
+    """
     params = {"api_key": api_key, "append_to_response": "credits,keywords"}
+    await limiter.acquire()
     async with sem:
         resp = await client.get(
             f"{_TMDB_API_BASE}/movie/{movie_id}",
@@ -105,10 +186,22 @@ async def _fetch_one(
     if resp.status_code == 404:
         return None
     if resp.status_code == 429:
+        if attempt >= _MAX_429_RETRIES:
+            raise httpx.HTTPStatusError(
+                f"TMDB 429 after {attempt} retries for id {movie_id}",
+                request=resp.request,
+                response=resp,
+            )
         retry_after = float(resp.headers.get("retry-after", "1"))
-        log.warning("rate-limited by TMDB", extra={"id": movie_id, "retry_after": retry_after})
-        await asyncio.sleep(retry_after)
-        return await _fetch_one(client, sem, api_key, movie_id)
+        sleep_for = min(_MAX_BACKOFF_SECONDS, max(retry_after, 2 ** attempt))
+        log.warning(
+            "rate-limited by TMDB",
+            extra={"id": movie_id, "attempt": attempt, "sleep_for": sleep_for},
+        )
+        await asyncio.sleep(sleep_for)
+        return await _fetch_one(
+            client, sem, limiter, api_key, movie_id, attempt=attempt + 1
+        )
     resp.raise_for_status()
     return resp.json()
 
@@ -118,14 +211,16 @@ async def _fetch_all(
     *,
     api_key: str,
     concurrency: int,
+    rate_per_sec: float = _DEFAULT_RATE_PER_SEC,
     progress_every: int = 1000,
 ) -> list[dict[str, Any]]:
-    """Fan out one request per id with bounded concurrency."""
+    """Fan out one request per id with bounded concurrency and a global rate cap."""
     sem = asyncio.Semaphore(concurrency)
+    limiter = _AsyncRateLimiter(rate_per_sec)
     results: list[dict[str, Any]] = []
     async with httpx.AsyncClient(http2=False) as client:
         tasks = [
-            asyncio.create_task(_fetch_one(client, sem, api_key, mid))
+            asyncio.create_task(_fetch_one(client, sem, limiter, api_key, mid))
             for mid in ids
         ]
         for i, task in enumerate(asyncio.as_completed(tasks), start=1):
@@ -267,6 +362,7 @@ def snapshot(
     min_vote_count: int = 5,
     min_popularity: float = 1.0,
     concurrency: int = _DEFAULT_CONCURRENCY,
+    rate_per_sec: float = _DEFAULT_RATE_PER_SEC,
     limit: int | None = None,
 ) -> pd.DataFrame:
     """Produce a fresh TMDB catalogue snapshot as a cleaned DataFrame.
@@ -278,6 +374,9 @@ def snapshot(
         min_popularity:  Pre-filter on the export's ``popularity`` field before
                          spending any per-movie requests.
         concurrency:     Max concurrent in-flight requests to ``/movie/{id}``.
+        rate_per_sec:    Global token-bucket cap on outbound requests, shared
+                         across all coroutines. TMDB throttles around 50 req/s
+                         per IP; the default of 30 leaves headroom for retries.
         limit:           Optional cap for dry runs (e.g. 1000). Production
                          snapshots leave this at None.
 
@@ -299,7 +398,14 @@ def snapshot(
         ids = ids[:limit]
         log.info("dry-run limit applied", extra={"limit": limit})
 
-    records = asyncio.run(_fetch_all(ids, api_key=resolved_key, concurrency=concurrency))
+    records = _run_async(
+        _fetch_all(
+            ids,
+            api_key=resolved_key,
+            concurrency=concurrency,
+            rate_per_sec=rate_per_sec,
+        )
+    )
 
     kept = [r for r in records if (r.get("vote_count") or 0) >= min_vote_count]
     log.info(
