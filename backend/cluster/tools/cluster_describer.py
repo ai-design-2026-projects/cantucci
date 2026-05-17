@@ -67,7 +67,7 @@ def describe(
     """
     cfg = get_settings()
     config_hash = get_config_hash()
-    model_and_version = cfg.model.name
+    model_and_version = cfg.models.fast.name
 
     system_text, prompt_hash = load_prompt(
         "cluster_describe_v2",
@@ -89,9 +89,9 @@ def describe(
         turn_id=turn_id,
         config_hash=config_hash,
         model_and_version=model_and_version,
-        provider=cfg.model.provider,
-        seed=cfg.model.seed,
-        max_tokens=cfg.model.max_tokens,
+        provider=cfg.models.fast.provider,
+        seed=cfg.models.fast.seed,
+        max_tokens=cfg.models.fast.max_tokens,
         step_type=_STEP_TYPE,
         messages=messages,
         prompt_hash=prompt_hash,

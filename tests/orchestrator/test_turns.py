@@ -12,7 +12,7 @@ import pytest
 
 from backend.api.types import StepType
 from backend.orchestrator.tools.turns import emit_drift_clarification, emit_early_clarification
-from backend.orchestrator.types import ConvergenceAction, ConvergenceDecision
+from backend.convergence.types import ConvergenceAction, ConvergenceDecision
 
 
 def _decision(reply: str | None = None, drift_topic: str | None = None) -> ConvergenceDecision:

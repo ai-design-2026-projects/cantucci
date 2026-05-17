@@ -12,8 +12,8 @@ Usage::
     from backend.settings import get_settings, get_config_hash, get_env, BACKEND_DIR, prompts_dir
 
     cfg = get_settings()
-    model_name = cfg.model.name
-    seed = cfg.model.seed
+    model_name = cfg.models.strong.name
+    seed = cfg.models.strong.seed
     prompt_path = prompts_dir("orchestrator") / "system_v1.j2"
 
     db_url = get_env().database_url
@@ -75,6 +75,22 @@ class ModelConfig(BaseModel):
     seed: int
     max_tokens: int
     dry_run: bool = False
+
+
+class ModelTiers(BaseModel):
+    """Two-tier LLM configuration: a strong default and a cheaper fast tier.
+
+    Judgment-heavy agents (decision routing, profile extraction, cluster
+    refinement, convergence check) use ``strong``. Mechanical prompts
+    (query reformulation, cluster naming) use ``fast``.
+
+    Attributes:
+        strong: Primary model used by every critical-path agent and recorded
+                as the canonical session model on the ``runs`` / ``sessions`` rows.
+        fast:   Smaller / cheaper model used for bounded, low-judgment prompts.
+    """
+    strong: ModelConfig
+    fast: ModelConfig
 
 
 class SessionConfig(BaseModel):
@@ -173,7 +189,7 @@ class Settings(BaseModel):
     """Full typed configuration loaded from a YAML config file.
 
     Attributes:
-        model:          LLM model parameters.
+        models:         Two-tier LLM model parameters (``strong`` + ``fast``).
         session:        Session runtime limits.
         retrieval:      Vector-search parameters.
         split:          Dataset-generation split parameters.
@@ -181,7 +197,7 @@ class Settings(BaseModel):
         clustering:     HDBSCAN parameters.
     """
 
-    model: ModelConfig
+    models: ModelTiers
     session: SessionConfig
     retrieval: RetrievalConfig
     split: SplitConfig

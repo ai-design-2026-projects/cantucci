@@ -79,16 +79,16 @@ class Orchestrator:
             condition="baseline",
             config_snapshot=config_snapshot,
             config_hash=config_hash,
-            seed=cfg.model.seed,
-            model_version=cfg.model.name,
+            seed=cfg.models.strong.seed,
+            model_version=cfg.models.strong.name,
         )
 
         now = datetime.now(timezone.utc)
         session_id = api_sessions.create_session(
             run_id=run_id,
-            seed=cfg.model.seed,
+            seed=cfg.models.strong.seed,
             config_hash=config_hash,
-            model_version=cfg.model.name,
+            model_version=cfg.models.strong.name,
             max_turns=cfg.session.max_turns,
             cost_limit_usd=Decimal(str(cfg.session.cost_limit_usd)),
         )
@@ -142,7 +142,19 @@ class Orchestrator:
             LLMParseError:     If any agent LLM call returns malformed JSON.
         """
         def _emit(step: ProgressStep, phase: ProgressPhase) -> None:
-            progress_cb(make_progress_event(step, phase))
+            try:
+                progress_cb(make_progress_event(step, phase))
+            except Exception:
+                log.warning(
+                    "progress callback failed",
+                    exc_info=True,
+                    extra={
+                        "session_id": str(session_id),
+                        "turn_id": str(turn_id),
+                        "step": step.value,
+                        "phase": phase,
+                    },
+                )
 
         full = api_retrieval.get_session_full(session_id)
 

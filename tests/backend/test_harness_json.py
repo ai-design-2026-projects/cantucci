@@ -61,8 +61,11 @@ def _no_dry_run(monkeypatch: pytest.MonkeyPatch) -> None:
     import backend.settings as settings
 
     real = settings.get_settings()
-    fake_model = real.model.model_copy(update={"dry_run": False})
-    fake_settings = real.model_copy(update={"model": fake_model})
+    fake_models = real.models.model_copy(update={
+        "strong": real.models.strong.model_copy(update={"dry_run": False}),
+        "fast": real.models.fast.model_copy(update={"dry_run": False}),
+    })
+    fake_settings = real.model_copy(update={"models": fake_models})
     monkeypatch.setattr(settings, "get_settings", lambda: fake_settings)
     # The harness imports get_settings directly, so patch its reference too.
     monkeypatch.setattr(llm_harness, "get_settings", lambda: fake_settings)

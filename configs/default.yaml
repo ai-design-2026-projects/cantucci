@@ -3,20 +3,32 @@
 # Override path: set CONFIG_PATH env var to point to a different file.
 # All secrets (API keys, DB URL) remain in .env — never put them here.
 
-model:
-  # LLM model identifier. Used by every agent LLM call.
-  # For openai: must match a key prefix in llm_harness._COST_PER_M for cost estimation.
-  # For openrouter: cost estimation logs a warning and charges 0.
-  name: "openrouter/owl-alpha"
-  # API provider: "openai" or "openrouter".
-  # "openai" sends to https://api.openai.com/v1 and requires OPENAI_API_KEY.
-  # "openrouter" sends to https://openrouter.ai/api/v1 and requires OPENROUTER_API_KEY.
-  provider: openrouter
-  # RNG seed passed to the chat completion API. Only sent for provider=openai;
-  # omitted for openrouter since most models ignore or reject it.
-  seed: 42
-  # Maximum completion tokens per LLM call. Applies to all agents.
-  max_tokens: 1024
+models:
+  # Two-tier LLM configuration.
+  # `strong` is the default model used by every judgment-heavy agent (decision
+  # routing, profile extraction, cluster refinement, convergence check) and is
+  # recorded as the canonical model on the runs / sessions rows.
+  # `fast` is a smaller/cheaper model used by mechanical prompts: retrieval
+  # query reformulation and cluster naming.
+  strong:
+    # LLM model identifier. For openai: must match a key prefix in
+    # llm_harness._COST_PER_M for cost estimation. For openrouter: cost
+    # estimation logs a warning and charges 0.
+    name: "openai/gpt-oss-120b:free"
+    # API provider: "openai" or "openrouter".
+    # "openai" sends to https://api.openai.com/v1 and requires OPENAI_API_KEY.
+    # "openrouter" sends to https://openrouter.ai/api/v1 and requires OPENROUTER_API_KEY.
+    provider: openrouter
+    # RNG seed passed to the chat completion API. Only sent for provider=openai;
+    # omitted for openrouter since most models ignore or reject it.
+    seed: 42
+    # Maximum completion tokens per LLM call.
+    max_tokens: 1024
+  fast:
+    name: "openai/gpt-oss-120b:free"
+    provider: openrouter
+    seed: 42
+    max_tokens: 1024
 
 session:
   # Hard turn budget. The convergence hard-limit gate abandons the session after
