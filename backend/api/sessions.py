@@ -24,7 +24,7 @@ def create_session(
     model_version: str,
     max_turns: int = 15,
     cost_limit_usd: Decimal | None = None,
-    persona_id: str | None = None,
+    user_id: uuid.UUID | None = None,
 ) -> uuid.UUID:
     """Insert a new session row and return its UUID.
 
@@ -35,7 +35,7 @@ def create_session(
         model_version: LLM model identifier.
         max_turns: Hard turn budget for this session.
         cost_limit_usd: Optional cost hard-stop (raises CostLimitExceeded when hit).
-        persona_id: LLM-simulated oracle persona; None for human oracles.
+        user_id: Authenticated user who owns this session; None for anonymous.
 
     Returns:
         UUID of the newly created session.
@@ -45,12 +45,12 @@ def create_session(
             """
             INSERT INTO sessions
                 (run_id, seed, config_hash, model_version, max_turns,
-                 cost_limit_usd, persona_id)
+                 cost_limit_usd, user_id)
             VALUES (%s, %s, %s, %s, %s, %s, %s)
             RETURNING id
             """,
             (run_id, seed, config_hash, model_version,
-             max_turns, cost_limit_usd, persona_id),
+             max_turns, cost_limit_usd, user_id),
         ).fetchone()
 
     session_id: uuid.UUID = row[0]

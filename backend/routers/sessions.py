@@ -5,7 +5,6 @@ Invariants enforced here:
 - No LLM imports. All model calls happen inside the orchestrator.
 - Timestamps are set by the orchestrator (server-side UTC); never read from
   request bodies.
-- TODO: add an auth dependency (e.g. X-Oracle-Id header) when auth is designed.
 """
 
 import asyncio
@@ -16,6 +15,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
+from backend.auth import User, get_current_user
 from backend.exceptions import SessionNotFound
 from backend.orchestrator.orchestrator import Orchestrator
 from backend.orchestrator.progress import (
@@ -49,21 +49,25 @@ def _orchestrator(request: Request) -> Orchestrator:
 
 
 @router.post("", response_model=SessionState, status_code=201)
-def create_session(orchestrator: Orchestrator = Depends(_orchestrator)) -> SessionState:
+def create_session(
+    orchestrator: Orchestrator = Depends(_orchestrator),
+    user: User | None = Depends(get_current_user),
+) -> SessionState:
     """Create a new recommendation session.
 
-    Returns an initial ``SessionState`` with status=active and an empty turn
-    list. The session_id in the response is used as the path parameter for
-    subsequent turn requests.
+    Anonymous callers (no ``Authorization`` header) get a session with
+    ``user_id=NULL``. Authenticated callers get the session linked to their
+    ``user_id``.
 
     Args:
         orchestrator: Injected via ``_orchestrator`` dependency.
+        user:         Resolved by ``get_current_user``; None for anonymous.
 
     Returns:
         The newly created ``SessionState`` (HTTP 201).
     """
     log.debug("POST /sessions request received")
-    state = orchestrator.create_session()
+    state = orchestrator.create_session(user_id=user.id if user else None)
     log.info("session created", extra={"session_id": str(state.session_id)})
     log.debug(
         "POST /sessions response",

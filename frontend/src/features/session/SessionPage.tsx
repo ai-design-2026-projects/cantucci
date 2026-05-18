@@ -30,7 +30,7 @@ export function SessionPage() {
   if (!sessionId) return null;
 
   return (
-    <div className="flex flex-col min-h-dvh pt-[52px] bg-background">
+    <div className="flex flex-col min-h-dvh pt-[96px] bg-background">
       <SessionHeader
         turnCount={turnCount}
         maxTurns={maxTurns}
