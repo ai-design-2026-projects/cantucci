@@ -1,7 +1,7 @@
 import { motion } from "framer-motion";
+import { TooltipProvider, Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { useUiStore } from "@/store/uiStore";
-import { Mascot } from "@/components/mascot/Mascot";
-import { buildPosterUrl, formatRating } from "@/features/clusters/utils/clusterFormatters";
+import { clusterColor, formatRating } from "@/features/clusters/utils/clusterFormatters";
 import type { RecommendationPayload } from "@/utils/types";
 
 interface RecommendationMessageProps {
@@ -9,82 +9,83 @@ interface RecommendationMessageProps {
 }
 
 /**
- * Premium recommendation card rendered in place of a plain assistant bubble
- * when the turn carries a structured ``recommendation`` payload.
+ * In-chat recommendation card rendered when the turn carries a structured
+ * ``recommendation`` payload.
  *
- * Gold border-glow signals a convergence moment. Mascot aha pose sits in the
- * top-right corner. Films scroll horizontally — click any to open the detail
- * dialog.
+ * Visually matches the right-panel ``ClusterCard``: left color stripe derived
+ * from the cluster UUID, cluster name + description, and a grid of film poster
+ * thumbnails with click-to-open detail.
  *
  * @param recommendation - Structured cluster + films payload from TurnResult.
  */
 export function RecommendationMessage({ recommendation }: RecommendationMessageProps) {
   const { openFilmDetail } = useUiStore();
   const { cluster, films } = recommendation;
+  const color = clusterColor(cluster.id);
 
   return (
     <motion.div
-      className="relative rounded-xl border border-primary/30 bg-bg-surface shadow-[0_0_24px_-4px_hsl(var(--primary)/0.18)] overflow-hidden"
+      className="flex flex-col gap-2"
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.35 }}
     >
-      <div className="absolute top-3 right-3 z-10">
-        <Mascot pose="aha" size={48} />
-      </div>
+      <p className="text-sm font-medium text-muted-foreground tracking-wide uppercase px-0.5">
+        Here are your recommendations
+      </p>
 
-      <div className="p-5 pr-16">
-        <h3 className="font-display text-xl text-foreground tracking-tight leading-tight">
+      <div className="relative rounded-lg border border-border bg-card overflow-hidden">
+      <div className="absolute left-0 top-0 bottom-0 w-1 shrink-0" style={{ backgroundColor: color }} />
+
+      <div className="pl-5 pr-4 pt-4 pb-3">
+        <h3 className="font-display text-base text-foreground tracking-tight leading-tight">
           {cluster.name}
         </h3>
         {cluster.description && (
-          <p className="mt-1.5 text-sm text-muted-foreground leading-relaxed">
+          <p className="mt-0.5 text-xs text-muted-foreground leading-relaxed line-clamp-2">
             {cluster.description}
           </p>
         )}
-      </div>
 
-      <div
-        className="px-5 pb-5 flex gap-3 overflow-x-auto"
-        style={{ scrollbarWidth: "thin" }}
-      >
-        {films.map((film) => {
-          const posterSrc = buildPosterUrl(film.poster_url);
-          return (
-            <button
-              key={film.id}
-              type="button"
-              onClick={() => openFilmDetail(film.id)}
-              className="shrink-0 w-28 flex flex-col gap-1.5 text-left rounded-md focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            >
-              <div className="w-28 h-40 rounded-md overflow-hidden bg-muted">
-                {posterSrc ? (
-                  <img
-                    src={posterSrc}
-                    alt={film.title}
-                    className="w-full h-full object-cover hover:scale-105 transition-transform duration-300"
-                  />
-                ) : (
-                  <div className="w-full h-full flex items-center justify-center text-muted-foreground text-xs p-2 text-center leading-tight">
-                    {film.title}
-                  </div>
-                )}
-              </div>
-              <p className="text-xs font-medium text-foreground leading-tight line-clamp-2">
-                {film.title}
-              </p>
-              <div className="flex items-center gap-1 text-[0.6875rem] text-muted-foreground">
-                {film.release_year && <span>{film.release_year}</span>}
-                {film.vote_average !== null && (
-                  <>
-                    {film.release_year && <span>·</span>}
-                    <span>⭐ {formatRating(film.vote_average)}</span>
-                  </>
-                )}
-              </div>
-            </button>
-          );
-        })}
+        {films.length > 0 && (
+          <TooltipProvider delayDuration={300}>
+            <div className="mt-3 flex flex-wrap gap-1.5">
+              {films.slice(0, 8).map((film) => (
+                <Tooltip key={film.id}>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      onClick={() => openFilmDetail(film.id)}
+                      className="shrink-0 w-12 h-[72px] rounded overflow-hidden bg-muted focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    >
+                      {film.poster_url ? (
+                        <img
+                          src={film.poster_url}
+                          alt={film.title}
+                          className="w-full h-full object-cover hover:scale-110 transition-transform duration-200"
+                        />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center text-muted-foreground text-[0.5rem] p-1 text-center leading-tight">
+                          {film.title}
+                        </div>
+                      )}
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">
+                    <p className="font-medium">{film.title}</p>
+                    {film.release_year && (
+                      <p className="text-muted-foreground text-xs">{film.release_year}</p>
+                    )}
+                    {film.vote_average !== null && (
+                      <p className="text-muted-foreground text-xs">⭐ {formatRating(film.vote_average)}</p>
+                    )}
+                  </TooltipContent>
+                </Tooltip>
+              ))}
+            </div>
+          </TooltipProvider>
+        )}
+      </div>
       </div>
     </motion.div>
   );

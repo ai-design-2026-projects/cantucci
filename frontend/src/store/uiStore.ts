@@ -12,12 +12,22 @@ interface UiStore {
    * events streamed from POST /sessions/{id}/turns.
    */
   currentStep: ProgressStep | null;
+  /**
+   * True after the user clicks "Review conversation" in the StopOverlay,
+   * dismissing it. Enables the "Go back to recommendations" button in chat.
+   * Reset when the session changes.
+   */
+  stopOverlayDismissed: boolean;
   /** Open the film detail modal for the given movie id. */
   openFilmDetail: (movieId: number) => void;
   /** Close the film detail modal. */
   closeFilmDetail: () => void;
   /** Set the active pipeline step (called on progress events). */
   setCurrentStep: (step: ProgressStep | null) => void;
+  /** Mark the stop overlay as dismissed (user clicked "Review conversation"). */
+  dismissStopOverlay: () => void;
+  /** Re-open the stop overlay (user clicked "Go back to recommendations"). */
+  reopenStopOverlay: () => void;
   /** Reset to initial state. */
   reset: () => void;
 }
@@ -26,14 +36,18 @@ export const useUiStore = create<UiStore>((set) => ({
   selectedMovieId: null,
   isFilmDetailOpen: false,
   currentStep: null,
+  stopOverlayDismissed: false,
   openFilmDetail: (movieId) =>
     set({ selectedMovieId: movieId, isFilmDetailOpen: true }),
   closeFilmDetail: () => set({ isFilmDetailOpen: false, selectedMovieId: null }),
   setCurrentStep: (step) => set({ currentStep: step }),
+  dismissStopOverlay: () => set({ stopOverlayDismissed: true }),
+  reopenStopOverlay: () => set({ stopOverlayDismissed: false }),
   reset: () =>
     set({
       selectedMovieId: null,
       isFilmDetailOpen: false,
       currentStep: null,
+      stopOverlayDismissed: false,
     }),
 }));

@@ -5,6 +5,7 @@ import { StopOverlay } from "./StopOverlay";
 import { useFetchSession } from "./hooks/useFetchSession";
 import { useSessionHandler } from "./hooks/useSessionHandler";
 import { useSessionStore } from "@/store/sessionStore";
+import { useUiStore } from "@/store/uiStore";
 
 /**
  * Root page for an active session.
@@ -18,11 +19,13 @@ export function SessionPage() {
   const { sessionId } = useSessionStore();
   const { data: session } = useFetchSession(sessionId);
   const { restartSession } = useSessionHandler();
+  const { stopOverlayDismissed, reopenStopOverlay } = useUiStore();
 
   const turnCount = session?.turns.length ?? 0;
   const maxTurns = session?.max_turns ?? 20;
   const isTerminal =
     session?.status === "converged" || session?.status === "abandoned";
+  const hasStopTurn = session?.turns.some((t) => t.step_type === "stop") ?? false;
 
   if (!sessionId) return null;
 
@@ -39,6 +42,17 @@ export function SessionPage() {
       </div>
       <FilmDetailDialog />
       <StopOverlay session={session} onRestart={restartSession} />
+      {hasStopTurn && stopOverlayDismissed && (
+        <div className="fixed bottom-6 right-6 z-40">
+          <button
+            type="button"
+            onClick={reopenStopOverlay}
+            className="bg-primary text-primary-foreground rounded-full px-4 py-2 text-sm font-medium shadow-lg hover:bg-primary/90 transition-colors"
+          >
+            See recommendations
+          </button>
+        </div>
+      )}
     </div>
   );
 }

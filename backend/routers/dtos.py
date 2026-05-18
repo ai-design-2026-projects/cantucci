@@ -41,6 +41,7 @@ class TurnResult(BaseModel):
         step_type:        Whether the response shows a result, asks, or stops.
         converged:        True when the session reached a convergence decision.
         created_at:       Server-set UTC timestamp of the turn.
+        recommendation:   Structured cluster + films payload for show/stop turns.
     """
 
     turn_id: UUID
@@ -52,6 +53,7 @@ class TurnResult(BaseModel):
     converged: bool
     created_at: datetime
     ambiguity_meta: AmbiguityMeta | None = None
+    recommendation: "RecommendationPublic | None" = None
 
 
 class SessionState(BaseModel):
@@ -174,6 +176,18 @@ class MoviePublic(BaseModel):
     original_language: str | None
 
 
+class RecommendationPublic(BaseModel):
+    """Structured recommendation payload emitted on show and stop turns.
+
+    Attributes:
+        cluster: The cluster selected as best match by the Decision Agent.
+        films:   Top-K films in descending score order, fully enriched.
+    """
+
+    cluster: ClusterPublic
+    films: list[MoviePublic]
+
+
 class ConvergedClusterPublic(BaseModel):
     """Payload returned by GET /sessions/{id}/converged-cluster.
 
@@ -188,3 +202,6 @@ class ConvergedClusterPublic(BaseModel):
     cluster: ClusterPublic
     movies: list[MoviePublic]
     preference_profile: dict[str, Any] | None
+
+
+TurnResult.model_rebuild()

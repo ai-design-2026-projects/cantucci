@@ -1,12 +1,15 @@
 /**
- * Build a full TMDB poster image URL from a relative path.
+ * Return the poster URL as-is.
  *
- * @param posterPath - Relative path from the movies table (e.g. ``"/abc.jpg"``).
- * @returns Full URL, or null when posterPath is null/empty.
+ * The backend already returns a full TMDB URL in ``poster_url``
+ * (``https://image.tmdb.org/t/p/w500{path}``). This function is kept as a
+ * passthrough so call sites don't need to change.
+ *
+ * @param posterUrl - Full poster URL from the backend, or null/undefined.
+ * @returns The URL unchanged, or null when absent.
  */
-export function buildPosterUrl(posterPath: string | null | undefined): string | null {
-  if (!posterPath) return null;
-  return `https://image.tmdb.org/t/p/w500${posterPath}`;
+export function buildPosterUrl(posterUrl: string | null | undefined): string | null {
+  return posterUrl ?? null;
 }
 
 /**

@@ -16,6 +16,7 @@ from backend.api.types import MovieHit, MovieMetadata
 
 log = logging.getLogger(__name__)
 
+_TMDB_BASE = "https://image.tmdb.org/t/p/w500"
 
 def vector_search(
     embedding: Union[list[float], "np.ndarray"],  # type: ignore[type-arg]
@@ -234,12 +235,11 @@ def fetch_stubs(movie_ids: list[int]) -> list[dict]:
             (movie_ids,),
         ).fetchall()
 
-    tmdb_base = "https://image.tmdb.org/t/p/w500"
     by_id = {
         r[0]: {
             "id": r[0],
             "title": r[1],
-            "poster_url": f"{tmdb_base}{r[2]}" if r[2] else None,
+            "poster_url": f"{_TMDB_BASE}{r[2]}" if r[2] else None,
             "release_year": r[3],
             "vote_average": r[4],
         }
@@ -247,6 +247,89 @@ def fetch_stubs(movie_ids: list[int]) -> list[dict]:
     }
     result = [by_id[mid] for mid in movie_ids if mid in by_id]
     log.debug("fetch_stubs", extra={"requested": len(movie_ids), "returned": len(result)})
+    return result
+
+
+def fetch_movies_public(movie_ids: list[int]) -> list[dict]:
+    """Return full MoviePublic-shaped dicts for the given movie IDs.
+
+    Joins movies ← movie_genres → genres, crew_members (Director), and
+    cast_members (top 3 by cast_order) in one query.  Missing IDs are silently
+    omitted.  Order matches *movie_ids*.
+
+    Args:
+        movie_ids: TMDB integer IDs to look up.
+
+    Returns:
+        List of dicts with keys matching the ``MoviePublic`` DTO fields.
+        ``poster_url`` is a full TMDB URL.  Order matches *movie_ids*.
+    """
+    if not movie_ids:
+        return []
+
+    with transaction() as conn:
+        rows = conn.execute(
+            """
+            SELECT
+                m.id,
+                m.title,
+                m.release_year,
+                m.runtime,
+                m.vote_average,
+                m.vote_count,
+                m.bayesian_rating,
+                m.overview,
+                m.poster_path,
+                m.original_language,
+                COALESCE(
+                    ARRAY_AGG(DISTINCT g.name ORDER BY g.name)
+                        FILTER (WHERE g.name IS NOT NULL),
+                    '{}'
+                ) AS genres,
+                (
+                    SELECT p.name
+                    FROM crew_members cm2
+                    JOIN people p ON p.id = cm2.person_id
+                    WHERE cm2.movie_id = m.id AND cm2.job = 'Director'
+                    LIMIT 1
+                ) AS director,
+                ARRAY(
+                    SELECT p.name
+                    FROM cast_members cm3
+                    JOIN people p ON p.id = cm3.person_id
+                    WHERE cm3.movie_id = m.id
+                    ORDER BY cm3.cast_order NULLS LAST
+                    LIMIT 3
+                ) AS top_cast
+            FROM movies m
+            LEFT JOIN movie_genres mg ON mg.movie_id = m.id
+            LEFT JOIN genres g ON g.id = mg.genre_id
+            WHERE m.id = ANY(%s)
+            GROUP BY m.id
+            """,
+            (movie_ids,),
+        ).fetchall()
+
+    by_id: dict[int, dict] = {
+        r[0]: {
+            "id": r[0],
+            "title": r[1],
+            "release_year": r[2],
+            "runtime": r[3],
+            "vote_average": r[4],
+            "vote_count": r[5],
+            "bayesian_rating": r[6],
+            "overview": r[7],
+            "poster_url": (f"{_TMDB_BASE}{r[8]}" if r[8] else None),
+            "original_language": r[9],
+            "genres": list(r[10]) if r[10] else [],
+            "director": r[11],
+            "top_cast": list(r[12]) if r[12] else [],
+        }
+        for r in rows
+    }
+    result = [by_id[mid] for mid in movie_ids if mid in by_id]
+    log.debug("fetch_movies_public", extra={"requested": len(movie_ids), "returned": len(result)})
     return result
 
 

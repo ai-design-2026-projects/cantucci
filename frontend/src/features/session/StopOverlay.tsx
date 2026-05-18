@@ -1,9 +1,10 @@
-import { useState, useEffect } from "react";
+import { useEffect } from "react";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { DialogOverlay, DialogPortal } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Mascot } from "@/components/mascot/Mascot";
 import { RecommendationMessage } from "@/features/conversation/RecommendationMessage";
+import { useUiStore } from "@/store/uiStore";
 import { cn } from "@/lib/utils";
 import type { SessionState, TurnResult } from "@/utils/types";
 
@@ -28,18 +29,25 @@ interface StopOverlayProps {
  * @param onRestart - Callback to tear down and boot a new session.
  */
 export function StopOverlay({ session, onRestart }: StopOverlayProps) {
-  const [dismissed, setDismissed] = useState(false);
+  const { stopOverlayDismissed, dismissStopOverlay, reopenStopOverlay } = useUiStore();
 
   const sessionId = session?.session_id;
   useEffect(() => {
-    setDismissed(false);
-  }, [sessionId]);
+    reopenStopOverlay();
+  }, [sessionId, reopenStopOverlay]);
 
   const stopTurn: TurnResult | undefined = session?.turns
     .filter((t) => t.step_type === "stop")
     .at(-1);
 
-  const open = stopTurn !== undefined && !dismissed;
+  const lastShowRecommendation =
+    stopTurn?.recommendation ??
+    session?.turns
+      .filter((t) => t.step_type === "show" && t.recommendation !== null)
+      .at(-1)?.recommendation ??
+    null;
+
+  const open = stopTurn !== undefined && !stopOverlayDismissed;
   const isConverged = stopTurn?.converged ?? false;
 
   return (
@@ -85,14 +93,14 @@ export function StopOverlay({ session, onRestart }: StopOverlayProps) {
               </div>
             </div>
 
-            {stopTurn?.recommendation && (
-              <RecommendationMessage recommendation={stopTurn.recommendation} />
+            {lastShowRecommendation && (
+              <RecommendationMessage recommendation={lastShowRecommendation} />
             )}
 
             <div className="flex flex-col sm:flex-row items-center justify-end gap-3 pt-2">
               <Button
                 variant="ghost"
-                onClick={() => setDismissed(true)}
+                onClick={dismissStopOverlay}
               >
                 Review conversation
               </Button>

@@ -20,7 +20,7 @@ import { PipelineStatusLine } from "./PipelineStatusLine";
 export function WaitingBubbleContent() {
   return (
     <div
-      className="flex flex-col items-start gap-2"
+      className="flex flex-row items-center gap-3"
       data-testid="waiting-bubble-content"
     >
       <Mascot pose="bob" size={40} />

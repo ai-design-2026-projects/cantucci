@@ -16,6 +16,7 @@ from fastapi import FastAPI
 
 from backend.logging_setup import configure_logging
 from backend.orchestrator.orchestrator import Orchestrator
+from backend.routers.movies import router as movies_router
 from backend.routers.sessions import router as sessions_router
 from db.ingestion.embed import preload_model
 
@@ -61,3 +62,4 @@ app = FastAPI(
 )
 
 app.include_router(sessions_router)
+app.include_router(movies_router)
