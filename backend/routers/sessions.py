@@ -5,18 +5,19 @@ Invariants enforced here:
 - No LLM imports. All model calls happen inside the orchestrator.
 - Timestamps are set by the orchestrator (server-side UTC); never read from
   request bodies.
-- TODO: add an auth dependency (e.g. X-Oracle-Id header) when auth is designed.
 """
 
 import asyncio
 import logging
-from contextlib import suppress
+from dataclasses import asdict
 from typing import AsyncIterator
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
+import backend.api.sessions as api_sessions
+from backend.auth import User, get_current_user
 from backend.exceptions import SessionNotFound
 from backend.orchestrator.orchestrator import Orchestrator
 from backend.orchestrator.turn.progress import (
@@ -59,12 +60,13 @@ def create_session(orchestrator: Orchestrator = Depends(_orchestrator)) -> Sessi
 
     Args:
         orchestrator: Injected via ``_orchestrator`` dependency.
+        user:         Resolved by ``get_current_user``; None for anonymous.
 
     Returns:
         The newly created ``SessionDto`` (HTTP 201).
     """
     log.debug("POST /sessions request received")
-    state = orchestrator.create_session()
+    state = orchestrator.create_session(user_id=user.id if user else None)
     log.info("session created", extra={"session_id": str(state.session_id)})
     log.debug(
         "POST /sessions response",
@@ -255,3 +257,37 @@ def get_session(
         extra={"session_id": str(session_id), "n_turns": len(state.turns)},
     )
     return state
+
+
+@router.delete("/delete/{session_id}", status_code=204)
+def delete_session(
+    session_id: UUID,
+    user: User | None = Depends(get_current_user),
+) -> None:
+    """Delete a session and all its child data.
+
+    Only the owning user can delete a session. Both "not found" and "owned by
+    someone else" return 404 to avoid disclosing session existence to
+    unauthorized callers.
+
+    Active sessions are deletable. If a turn is in flight when the delete
+    commits, the in-flight turn will receive a ForeignKeyViolation on its next
+    DB write, which surfaces as an ErrorEvent on its NDJSON stream.
+
+    Args:
+        session_id: UUID of the session to delete (path parameter).
+        user:       Resolved by ``get_current_user``; None for anonymous callers.
+
+    Returns:
+        HTTP 204 No Content on success.
+
+    Raises:
+        HTTPException(401): If the request is anonymous.
+        HTTPException(404): If the session does not exist or is not owned by the caller.
+    """
+    if user is None:
+        raise HTTPException(status_code=401, detail="Authentication required.")
+    deleted = api_sessions.delete_session(session_id, user.id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Session not found.")
+    log.debug("DELETE /sessions/{id} user=%s session=%s", user.id, session_id)

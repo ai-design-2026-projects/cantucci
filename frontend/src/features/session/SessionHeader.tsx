@@ -1,9 +1,13 @@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { useAuthStore } from "@/store/authStore";
+import { useUiStore } from "@/store/uiStore";
 import { useSessionStore } from "@/store/sessionStore";
-import { ThemeToggle } from "@/components/ThemeToggle";
 import { ClusterSnapshotSheet } from "@/features/clusters/ClusterSnapshotSheet";
 import { formatOracleType, formatTurnLabel } from "./utils/sessionFormatters";
+import { cn } from "@/lib/utils";
+
+const SIDEBAR_WIDTH = 260;
 
 interface SessionHeaderProps {
   /** Total turns taken so far. */
@@ -12,18 +16,24 @@ interface SessionHeaderProps {
   maxTurns: number;
   /** Whether the session is in a terminal state (converged or abandoned). */
   isTerminal: boolean;
-  /** Called when the user clicks "New Session". */
-  onRestart: () => void;
+  /**
+   * Called when the user clicks "New Session". When undefined (authenticated
+   * URL sessions), the button is hidden — the sidebar handles new session creation.
+   */
+  onRestart?: () => void;
 }
 
 /**
- * Top navigation bar showing session progress and oracle type.
+ * Secondary navigation bar showing session-specific progress and controls.
+ *
+ * Positioned below the AppShell header at top-[52px]. Shifts its left edge to
+ * account for the sidebar when it is open and the user is authenticated.
  *
  * @param turnCount - Current number of completed turns.
  * @param maxTurns - Session turn budget.
  * @param isTerminal - Whether the session has ended.
- * @param onRestart - Callback for starting a new session.
- * @returns Header bar with title, progress badge, oracle badge, and restart button.
+ * @param onRestart - Optional callback for starting a new session (anonymous flow only).
+ * @returns Session toolbar fixed below the app header.
  */
 export function SessionHeader({
   turnCount,
@@ -32,13 +42,19 @@ export function SessionHeader({
   onRestart,
 }: SessionHeaderProps) {
   const { oracleType } = useSessionStore();
+  const { status } = useAuthStore();
+  const { sidebarOpen } = useUiStore();
+
+  const isAuthenticated = status === "authenticated";
+  const leftOffset = isAuthenticated && sidebarOpen ? SIDEBAR_WIDTH : 0;
 
   return (
-    <header className="fixed top-0 left-0 right-0 z-40 flex items-center gap-3 px-6 h-[52px] bg-background/85 border-b border-border-subtle backdrop-blur-[12px] [-webkit-backdrop-filter:blur(12px)]">
-      <span className="font-display text-lg text-primary tracking-tight shrink-0">
-        Cinepal
-      </span>
-
+    <header
+      className={cn(
+        "fixed top-[52px] right-0 z-40 flex items-center gap-3 px-6 h-[44px] bg-background/85 border-b border-border-subtle backdrop-blur-[12px] [-webkit-backdrop-filter:blur(12px)] transition-[left] duration-200"
+      )}
+      style={{ left: leftOffset }}
+    >
       <div className="flex items-center gap-2">
         {isTerminal ? (
           <Badge variant="gold">Ended</Badge>
@@ -52,10 +68,11 @@ export function SessionHeader({
 
       <div className="ml-auto flex items-center gap-2">
         <ClusterSnapshotSheet />
-        <ThemeToggle />
-        <Button variant="ghost" size="sm" onClick={onRestart}>
-          New Session
-        </Button>
+        {onRestart && (
+          <Button variant="ghost" size="sm" onClick={onRestart}>
+            New Session
+          </Button>
+        )}
       </div>
     </header>
   );

@@ -13,9 +13,12 @@ from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+
 
 from backend.logging_setup import configure_logging
 from backend.orchestrator.orchestrator import Orchestrator
+from backend.routers.auth import router as auth_router
 from backend.routers.movies import router as movies_router
 from backend.routers.sessions import router as sessions_router
 from db.ingestion.embed import preload_model
@@ -61,5 +64,16 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["Authorization", "Content-Type"],
+)
+
+app.include_router(auth_router)
 app.include_router(sessions_router)
 app.include_router(movies_router)

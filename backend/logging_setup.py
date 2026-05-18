@@ -71,6 +71,7 @@ _COMPONENTS: tuple[tuple[str, str], ...] = (
     ("retrieval", "backend.retrieval"),
     ("prompts", "backend.llm.prompts"),
     ("llm", "backend.llm.llm_harness"),
+    ("auth", "auth"),
 )
 
 _FILE_MAX_BYTES = 10 * 1024 * 1024  # 10 MB per file before rotation
@@ -217,7 +218,6 @@ def configure_logging() -> None:
     # child module (e.g. backend.cluster.tools.X) routes into the same file.
     for component, prefix in _COMPONENTS:
         pkg_log = logging.getLogger(prefix)
-        # Drop any handlers from a previous configure_logging() call.
         for existing in list(pkg_log.handlers):
             if isinstance(existing, RotatingFileHandler):
                 pkg_log.removeHandler(existing)
@@ -287,3 +287,5 @@ def log_llm_call(
             "latency_ms": latency_ms,
         },
     )
+
+

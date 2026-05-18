@@ -20,6 +20,8 @@ An AI system that clusters a movie catalogue by *conversing* with a human oracle
 ```bash
 # 1. Environment
 cp .env.example .env   # fill DATABASE_URL, OPENAI_API_KEY (HF_TOKEN if repo is private)
+# AUTH_SECRET is required — generate one and add it to .env:
+#   echo "AUTH_SECRET=$(openssl rand -hex 32)" >> .env
 
 # 2. Python dependencies
 pip install -r requirements.txt

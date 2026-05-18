@@ -18,6 +18,8 @@ interface UiStore {
    * Reset when the session changes.
    */
   stopOverlayDismissed: boolean;
+  /** Whether the session history sidebar is currently visible. */
+  sidebarOpen: boolean;
   /** Open the film detail modal for the given movie id. */
   openFilmDetail: (movieId: number) => void;
   /** Close the film detail modal. */
@@ -28,6 +30,8 @@ interface UiStore {
   dismissStopOverlay: () => void;
   /** Re-open the stop overlay (user clicked "Go back to recommendations"). */
   reopenStopOverlay: () => void;
+  /** Toggle the sidebar open/closed. */
+  toggleSidebar: () => void;
   /** Reset to initial state. */
   reset: () => void;
 }
@@ -37,12 +41,14 @@ export const useUiStore = create<UiStore>((set) => ({
   isFilmDetailOpen: false,
   currentStep: null,
   stopOverlayDismissed: false,
+  sidebarOpen: true,
   openFilmDetail: (movieId) =>
     set({ selectedMovieId: movieId, isFilmDetailOpen: true }),
   closeFilmDetail: () => set({ isFilmDetailOpen: false, selectedMovieId: null }),
   setCurrentStep: (step) => set({ currentStep: step }),
   dismissStopOverlay: () => set({ stopOverlayDismissed: true }),
   reopenStopOverlay: () => set({ stopOverlayDismissed: false }),
+  toggleSidebar: () => set((s) => ({ sidebarOpen: !s.sidebarOpen })),
   reset: () =>
     set({
       selectedMovieId: null,

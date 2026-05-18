@@ -1,7 +1,25 @@
 /**
  * TypeScript types mirroring the backend Pydantic DTOs.
- * These are the shapes returned by /sessions and /movies endpoints.
+ * These are the shapes returned by /sessions, /movies, and /auth endpoints.
  */
+
+export type UserRole = "user" | "admin";
+
+export interface User {
+  id: string;
+  email: string;
+  role: UserRole;
+}
+
+export interface LoginRequest {
+  email: string;
+  password: string;
+}
+
+export interface LoginResponse {
+  token: string;
+  user: User;
+}
 
 export type StepType = "show" | "ask" | "stop";
 export type SessionStatus = "active" | "converged" | "abandoned";
@@ -53,6 +71,15 @@ export interface SessionDto {
   created_at: string;
   updated_at: string;
   turns: TurnDto[];
+}
+
+export interface SessionSummary {
+  session_id: string;
+  status: SessionStatus;
+  created_at: string;
+  updated_at: string;
+  turn_count: number;
+  first_user_message: string | null;
 }
 
 export interface SoftScore {

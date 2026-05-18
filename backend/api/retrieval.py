@@ -47,7 +47,6 @@ def get_run_results(run_id: uuid.UUID) -> RunResults:
                 s.seed,
                 s.config_hash,
                 s.model_version,
-                s.persona_id,
                 s.status,
                 COUNT(t.id) AS turn_count,
                 MAX(t.turn_number) FILTER (WHERE t.converged) AS converged_at_turn
@@ -149,10 +148,9 @@ def get_run_results(run_id: uuid.UUID) -> RunResults:
             seed=r[2],
             config_hash=r[3],
             model_version=r[4],
-            persona_id=r[5],
-            status=r[6],
-            turn_count=r[7],
-            converged_at_turn=r[8],
+            status=r[5],
+            turn_count=r[6],
+            converged_at_turn=r[7],
             metrics=metrics_by_sid.get(r[0]),
             judge_scores=judge_by_sid.get(r[0], []),
         )
@@ -186,7 +184,7 @@ def get_session_full(session_id: uuid.UUID) -> SessionRow:
         sess_row = conn.execute(
             """
             SELECT id, run_id, seed, config_hash, model_version,
-                   persona_id, status, preference_profile,
+                   status, preference_profile,
                    created_at, updated_at, max_turns
             FROM sessions
             WHERE id = %s
@@ -331,12 +329,11 @@ def get_session_full(session_id: uuid.UUID) -> SessionRow:
         seed=sess_row[2],
         config_hash=sess_row[3],
         model_version=sess_row[4],
-        persona_id=sess_row[5],
-        status=sess_row[6],
-        preference_profile=sess_row[7],
-        created_at=sess_row[8],
-        updated_at=sess_row[9],
-        max_turns=sess_row[10],
+        status=sess_row[5],
+        preference_profile=sess_row[6],
+        created_at=sess_row[7],
+        updated_at=sess_row[8],
+        max_turns=sess_row[9],
         turns=turns,
         feedback=feedback,
         metrics=metrics,

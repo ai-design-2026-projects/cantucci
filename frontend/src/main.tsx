@@ -1,9 +1,11 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
+import { RouterProvider } from "react-router-dom";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { ThemeProvider } from "next-themes";
+import { Toaster } from "sonner";
 import { queryClient } from "@/clients/queryClient";
-import { App } from "./App";
+import { router } from "@/routes";
 import "./styles/globals.css";
 import "./styles/tailwind.css";
 import "./styles/animations.css";
@@ -20,7 +22,8 @@ createRoot(container).render(
       disableTransitionOnChange
     >
       <QueryClientProvider client={queryClient}>
-        <App />
+        <Toaster richColors position="bottom-right" />
+        <RouterProvider router={router} />
       </QueryClientProvider>
     </ThemeProvider>
   </StrictMode>

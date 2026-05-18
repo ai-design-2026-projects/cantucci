@@ -33,11 +33,17 @@ log = logging.getLogger(__name__)
 
 class Orchestrator:
     """Stateless coordinator. One process-wide instance shared across all
-    sessions; per-turn state lives in a fresh ``TurnRunner`` per call."""
+    sessions; per-turn state lives in a fresh ``TurnRunner`` per call.
+    """
 
-    def create_session(self) -> SessionDto:
-        """
-        Create a new session by writing a new session row to the DB;
+    def create_session(self, user_id: UUID | None = None) -> SessionState:
+        """Create a run + session row and return the initial SessionState.
+
+        Loads the default config for model, seed, and session parameters.
+
+        Args:
+            user_id: Authenticated user who owns this session; None for anonymous.
+
         Returns:
             A ``SessionDto`` with status=active and an empty turn list.
         """
@@ -64,6 +70,7 @@ class Orchestrator:
             model_version=cfg.models.strong.name,
             max_turns=cfg.session.max_turns,
             cost_limit_usd=Decimal(str(cfg.session.cost_limit_usd)),
+            user_id=user_id,
         )
 
         log.info(

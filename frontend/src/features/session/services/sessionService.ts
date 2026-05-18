@@ -29,3 +29,21 @@ export async function fetchSession(sessionId: string): Promise<SessionDto> {
     })),
   };
 }
+
+/**
+ * List all sessions owned by the authenticated user, newest first.
+ *
+ * @returns Array of SessionSummary objects ordered by updated_at DESC.
+ */
+export function listSessions(): Promise<SessionSummary[]> {
+  return get<SessionSummary[]>("/sessions/list");
+}
+
+/**
+ * Delete a session by ID. The caller must own the session.
+ *
+ * @param sessionId - UUID of the session to delete.
+ */
+export function deleteSession(sessionId: string): Promise<void> {
+  return del<void>(`/sessions/delete/${sessionId}`);
+}
