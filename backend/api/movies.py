@@ -12,7 +12,7 @@ from typing import Union
 import numpy as np
 
 from backend.api.db import transaction
-from backend.api.types import MovieHit, MovieMetadata
+from backend.api.types import MovieHit, MovieRow
 
 log = logging.getLogger(__name__)
 
@@ -144,7 +144,7 @@ def resolve_titles_to_ids(titles: list[str]) -> list[int]:
     return ids
 
 
-def fetch_metadata(movie_ids: list[int]) -> list[MovieMetadata]:
+def fetch_metadata(movie_ids: list[int]) -> list[MovieRow]:
     """Return enriched metadata for each movie in *movie_ids*.
 
     Joins movies ← movie_genres → genres and crew_members (Director only).
@@ -155,7 +155,7 @@ def fetch_metadata(movie_ids: list[int]) -> list[MovieMetadata]:
         movie_ids: TMDB integer IDs to look up.
 
     Returns:
-        List of MovieMetadata in the same order as *movie_ids*, with missing
+        List of MovieRow in the same order as *movie_ids*, with missing
         IDs dropped.
     """
     if not movie_ids:
@@ -190,8 +190,8 @@ def fetch_metadata(movie_ids: list[int]) -> list[MovieMetadata]:
             (movie_ids,),
         ).fetchall()
 
-    by_id: dict[int, MovieMetadata] = {
-        r[0]: MovieMetadata(
+    by_id: dict[int, MovieRow] = {
+        r[0]: MovieRow(
             movie_id=r[0],
             title=r[1],
             overview=r[2],
@@ -250,8 +250,8 @@ def fetch_stubs(movie_ids: list[int]) -> list[dict]:
     return result
 
 
-def fetch_movies_public(movie_ids: list[int]) -> list[dict]:
-    """Return full MoviePublic-shaped dicts for the given movie IDs.
+def fetch_movies_dto(movie_ids: list[int]) -> list[dict]:
+    """Return full MovieDto-shaped dicts for the given movie IDs.
 
     Joins movies ← movie_genres → genres, crew_members (Director), and
     cast_members (top 3 by cast_order) in one query.  Missing IDs are silently
@@ -261,7 +261,7 @@ def fetch_movies_public(movie_ids: list[int]) -> list[dict]:
         movie_ids: TMDB integer IDs to look up.
 
     Returns:
-        List of dicts with keys matching the ``MoviePublic`` DTO fields.
+        List of dicts with keys matching the ``MovieDto`` DTO fields.
         ``poster_url`` is a full TMDB URL.  Order matches *movie_ids*.
     """
     if not movie_ids:
@@ -329,7 +329,7 @@ def fetch_movies_public(movie_ids: list[int]) -> list[dict]:
         for r in rows
     }
     result = [by_id[mid] for mid in movie_ids if mid in by_id]
-    log.debug("fetch_movies_public", extra={"requested": len(movie_ids), "returned": len(result)})
+    log.debug("fetch_movies_dto", extra={"requested": len(movie_ids), "returned": len(result)})
     return result
 
 

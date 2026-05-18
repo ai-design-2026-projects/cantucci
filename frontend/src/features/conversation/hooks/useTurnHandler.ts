@@ -3,7 +3,7 @@ import { streamTurn } from "@/features/conversation/services/turnService";
 import { useSessionStore } from "@/store/sessionStore";
 import { useUiStore } from "@/store/uiStore";
 import { useClusterSnapshotStore } from "@/store/clusterSnapshotStore";
-import type { SessionState, TurnResult } from "@/utils/types";
+import type { SessionDto, TurnDto } from "@/utils/types";
 
 interface PostTurnParams {
   /** Session id to post the turn to. */
@@ -31,7 +31,7 @@ export function useTurnHandler() {
   const { setSnapshot, setRefining } = useClusterSnapshotStore();
 
   const { mutate: submitTurn, isPending, error } = useMutation<
-    TurnResult,
+    TurnDto,
     Error,
     PostTurnParams
   >({
@@ -53,9 +53,9 @@ export function useTurnHandler() {
       await queryClient.cancelQueries({ queryKey: ["session", sessionId] });
       setCurrentStep(null);
 
-      const previous = queryClient.getQueryData<SessionState>(["session", sessionId]);
+      const previous = queryClient.getQueryData<SessionDto>(["session", sessionId]);
       if (previous) {
-        const optimistic: TurnResult = {
+        const optimistic: TurnDto = {
           turn_id: `optimistic-${Date.now()}`,
           session_id: sessionId,
           turn_number: previous.turns.length + 1,
@@ -67,7 +67,7 @@ export function useTurnHandler() {
           ambiguity_meta: null,
           recommendation: null,
         };
-        queryClient.setQueryData<SessionState>(["session", sessionId], {
+        queryClient.setQueryData<SessionDto>(["session", sessionId], {
           ...previous,
           turns: [...previous.turns, optimistic],
         });
@@ -75,7 +75,7 @@ export function useTurnHandler() {
       return { previous };
     },
     onError: (_err, { sessionId }, context) => {
-      const ctx = context as { previous?: SessionState } | undefined;
+      const ctx = context as { previous?: SessionDto } | undefined;
       if (ctx?.previous) {
         queryClient.setQueryData(["session", sessionId], ctx.previous);
       }

@@ -1,4 +1,4 @@
-import type { ClusterSnapshotPayload, TurnResult } from "@/utils/types";
+import type { ClusterSnapshotPayload, TurnDto } from "@/utils/types";
 
 /**
  * One wave-level checkpoint the backend can report progress on.
@@ -26,7 +26,7 @@ export interface ProgressEvent {
 /** Terminal success event carrying the full turn payload. */
 export interface ResultEvent {
   type: "result";
-  data: TurnResult;
+  data: TurnDto;
 }
 
 /** Terminal failure event emitted when the worker raises mid-stream. */
@@ -56,7 +56,7 @@ export interface StreamTurnHandlers {
 /**
  * Submit one oracle turn and consume the NDJSON event stream.
  *
- * Resolves with the ``TurnResult`` from the terminal ``result`` event and
+ * Resolves with the ``TurnDto`` from the terminal ``result`` event and
  * rejects on either a terminal ``error`` event or a transport-level failure.
  * Progress events are dispatched to ``handlers.onProgress`` as they arrive.
  *
@@ -67,13 +67,13 @@ export interface StreamTurnHandlers {
  * @param sessionId - UUID of the active session.
  * @param userMessage - Oracle's message text.
  * @param handlers - Optional callbacks for non-terminal events.
- * @returns The terminal ``TurnResult`` once the stream closes successfully.
+ * @returns The terminal ``TurnDto`` once the stream closes successfully.
  */
 export async function streamTurn(
   sessionId: string,
   userMessage: string,
   handlers: StreamTurnHandlers = {},
-): Promise<TurnResult> {
+): Promise<TurnDto> {
   const response = await fetch(`/sessions/${sessionId}/turns`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -101,7 +101,7 @@ export async function streamTurn(
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
-  let terminal: TurnResult | null = null;
+  let terminal: TurnDto | null = null;
 
   while (true) {
     const { value, done } = await reader.read();

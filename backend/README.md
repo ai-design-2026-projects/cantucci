@@ -31,8 +31,13 @@ backend/
 ├── cluster/             Soft clustering, cluster description/refinement tools.
 ├── decision/            Decision agent and entropy/relevance helpers.
 ├── orchestrator/
-│   ├── orchestrator.py  Orchestrator: sole DB writer, coordinates the turn pipeline.
-│   └── tools/           feedback.py, policy.py, render.py, turns.py
+│   ├── orchestrator.py  Thin public surface: create_session, run_turn, get_session.
+│   ├── turn_runner.py   Per-turn state holder + branch dispatcher (one runner per turn).
+│   ├── speculative.py   SpeculativeBranch, spawn/resolve/cancel helpers for the task graph.
+│   ├── presentation.py  Render + RecommendationDto assembly + ClusterSnapshotEvent.
+│   ├── terminal_paths.py terminate / natural_end / drift / empty-clusters bypass turns.
+│   ├── history.py       Pure helpers reading prior turn history.
+│   └── progress.py      ProgressEvent / ClusterSnapshotEvent stream protocol.
 └── routers/
     ├── dtos.py          Pydantic HTTP request/response models.
     └── sessions.py      HTTP endpoints: POST /sessions, POST /sessions/{id}/turns,

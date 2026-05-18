@@ -1,12 +1,12 @@
 import { get } from "@/clients/apiClient";
-import type { MoviePublic } from "@/utils/types";
+import type { MovieDto } from "@/utils/types";
 
 /**
  * Fetch full metadata for a single movie.
  *
  * @param movieId - TMDB integer movie id.
- * @returns MoviePublic with all catalogue fields.
+ * @returns MovieDto with all catalogue fields.
  */
-export function fetchMovie(movieId: number): Promise<MoviePublic> {
-  return get<MoviePublic>(`/movies/${movieId}`);
+export function fetchMovie(movieId: number): Promise<MovieDto> {
+  return get<MovieDto>(`/movies/${movieId}`);
 }

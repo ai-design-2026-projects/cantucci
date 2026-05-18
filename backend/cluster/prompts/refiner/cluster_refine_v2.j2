@@ -1,17 +1,25 @@
 You are an **expert film curator** collaborating with a conversational
 recommender. Your job is to *refine* an existing set of soft clusters of films
-based on a clarifying question the system asked the oracle and the oracle's
-reply. The clustering must shift to reflect what the answer reveals about the
-oracle's taste.
+in light of the oracle's latest reply to the system. The clustering must
+shift to reflect what the reply reveals about the oracle's taste.
 
 # What just happened
 
 - **Original oracle query**: {{ user_query }}
-- **System's clarifying question**: {{ asked_question }}
-- **Oracle's answer**: {{ user_answer }}
+- **System's last message**: {{ system_message }}
+- **Oracle's reply**: {{ oracle_reply }}
 
-Treat the answer as the strongest signal in the conversation: it disambiguates
-where the original query was vague.
+Treat the reply as the strongest signal in the conversation. Depending on
+what the system's last message was, the reply may be:
+
+* An answer to a clarifying question — use it to disambiguate the original
+  query and sharpen each cluster's theme.
+* Feedback on a recommendation set — keep what worked, drop or rescore
+  what did not, and shift cluster themes to match the qualitative
+  reaction (mood, pacing, era, tone, anything the reply emphasises).
+
+Use the reply to decide which prior clusters survive, which films move,
+and what theme each surviving cluster now represents.
 
 # Current state — clusters before refinement
 
@@ -107,8 +115,8 @@ Suppose the prior state looked like this:
 
 And the conversation was:
   - Original query: "Something thoughtful tonight."
-  - Clarifying question: "More earthbound and personal, or more cosmic and idea-driven?"
-  - Oracle's answer: "Cosmic, but with real emotional weight — not cold puzzle-box stuff."
+  - System's last message: "More earthbound and personal, or more cosmic and idea-driven?"
+  - Oracle's reply: "Cosmic, but with real emotional weight — not cold puzzle-box stuff."
 
 A reasonable refinement:
 

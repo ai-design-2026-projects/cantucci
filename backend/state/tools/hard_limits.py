@@ -5,7 +5,7 @@ Trips when the turn budget or recommendation cap has been exhausted.
 
 import logging
 
-from backend.api.types import SessionFull, StepType
+from backend.api.types import SessionRow, StepType
 from backend.state.types import StateAction, StateDecision
 from backend.settings import Settings
 
@@ -15,7 +15,7 @@ log = logging.getLogger(__name__)
 def check_hard_limits(
     *,
     turn_number: int,
-    full: SessionFull,
+    full: SessionRow,
     cfg: Settings,
 ) -> StateDecision:
     """Deterministic hard-limit gate. Runs BEFORE any LLM call.

@@ -3,7 +3,7 @@ import { Composer } from "./Composer";
 import { MessageBubble } from "./MessageBubble";
 import { useFetchTurns } from "./hooks/useFetchTurns";
 import { useTurnHandler } from "./hooks/useTurnHandler";
-import type { TurnResult } from "@/utils/types";
+import type { TurnDto } from "@/utils/types";
 
 interface ConversationPanelProps {
   /** Active session UUID. */
@@ -54,7 +54,7 @@ export function ConversationPanel({ sessionId, isTerminal = false }: Conversatio
           </div>
         )}
 
-        {turns.map((turn: TurnResult, i: number) => (
+        {turns.map((turn: TurnDto, i: number) => (
           <MessageBubble
             key={turn.turn_id}
             turn={turn}

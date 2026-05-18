@@ -17,7 +17,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from backend.api.types import ClusterAssignment, ClusterSnapshot
+from backend.api.types import ClusterAssignment, ClusterRow
 from backend.decision import decision_agent
 from backend.decision.types import DecisionAction, DecisionResult
 
@@ -26,8 +26,8 @@ from backend.decision.types import DecisionAction, DecisionResult
 # Builders
 # ---------------------------------------------------------------------------
 
-def _cluster(name: str = "Drama", n: int = 3) -> ClusterSnapshot:
-    c = MagicMock(spec=ClusterSnapshot)
+def _cluster(name: str = "Drama", n: int = 3) -> ClusterRow:
+    c = MagicMock(spec=ClusterRow)
     c.id = uuid.uuid4()
     c.name = name
     c.description = "Intense dramas"
@@ -52,9 +52,9 @@ def _cfg() -> MagicMock:
     return cfg
 
 
-def _call_decide(clusters: list[ClusterSnapshot] | None = None, **kwargs: Any) -> DecisionResult:
+async def _call_decide(clusters: list[ClusterRow] | None = None, **kwargs: Any) -> DecisionResult:
     """Call decide() with all required fields mocked."""
-    return decision_agent.decide(
+    return await decision_agent.decide(
         session_id=uuid.uuid4(),
         run_id=uuid.uuid4(),
         turn_id=uuid.uuid4(),
@@ -72,20 +72,20 @@ def _call_decide(clusters: list[ClusterSnapshot] | None = None, **kwargs: Any) -
 class TestEmptyClustersShortCircuit:
     """Empty cluster list short-circuits to continue with no LLM call."""
 
-    def test_returns_continue(self) -> None:
+    async def test_returns_continue(self) -> None:
         with patch("backend.decision.decision_agent.llm_harness") as mock_harness:
-            result = _call_decide(clusters=[])
+            result = await _call_decide(clusters=[])
         assert result.action == DecisionAction.continue_
         mock_harness.call.assert_not_called()
 
-    def test_entropy_is_one(self) -> None:
+    async def test_entropy_is_one(self) -> None:
         with patch("backend.decision.decision_agent.llm_harness"):
-            result = _call_decide(clusters=[])
+            result = await _call_decide(clusters=[])
         assert result.entropy_score == 1.0
 
-    def test_no_question_text(self) -> None:
+    async def test_no_question_text(self) -> None:
         with patch("backend.decision.decision_agent.llm_harness"):
-            result = _call_decide(clusters=[])
+            result = await _call_decide(clusters=[])
         assert result.question_text is None
 
 
@@ -93,7 +93,7 @@ class TestDryRunFixture:
     """The fixture at tests/fixtures/dry_run/decision_route.json is valid and
     the agent returns a well-formed DecisionResult with a question."""
 
-    def test_fixture_parses_correctly(self) -> None:
+    async def test_fixture_parses_correctly(self) -> None:
         fixture_path = Path(__file__).parents[1] / "fixtures" / "dry_run" / "decision_route.json"
         data = json.loads(fixture_path.read_text())
         assert data["action"] in {"recommend", "continue"}
@@ -101,23 +101,23 @@ class TestDryRunFixture:
             assert data["question"] is not None
             assert "text" in data["question"]
 
-    def test_continue_fixture_returns_question_in_result(self) -> None:
+    async def test_continue_fixture_returns_question_in_result(self) -> None:
         with (
             patch("backend.decision.decision_agent.get_settings", return_value=_cfg()),
             patch("backend.decision.decision_agent.get_config_hash", return_value="deadbeef"),
         ):
-            result = _call_decide()
+            result = await _call_decide()
 
         assert result.action == DecisionAction.continue_
         assert result.question_text is not None
         assert len(result.question_text) > 0
 
-    def test_result_has_entropy_score(self) -> None:
+    async def test_result_has_entropy_score(self) -> None:
         with (
             patch("backend.decision.decision_agent.get_settings", return_value=_cfg()),
             patch("backend.decision.decision_agent.get_config_hash", return_value="deadbeef"),
         ):
-            result = _call_decide()
+            result = await _call_decide()
 
         assert isinstance(result.entropy_score, float)
         assert 0.0 <= result.entropy_score <= 1.0
@@ -126,7 +126,7 @@ class TestDryRunFixture:
 class TestSchemaValidation:
     """A continue response without a question field must fail validation."""
 
-    def test_continue_without_question_raises(self) -> None:
+    async def test_continue_without_question_raises(self) -> None:
         bad_fixture = json.dumps({
             "action": "continue",
             "best_cluster_id": None,
@@ -139,7 +139,7 @@ class TestSchemaValidation:
         with pytest.raises(ValidationError):
             DecisionResponse.model_validate_json(bad_fixture)
 
-    def test_recommend_with_question_raises(self) -> None:
+    async def test_recommend_with_question_raises(self) -> None:
         bad_fixture = json.dumps({
             "action": "recommend",
             "best_cluster_id": 0,
@@ -156,11 +156,11 @@ class TestSchemaValidation:
 class TestPriorQuestionsPassthrough:
     """prior_questions are accepted without error (content goes into the prompt)."""
 
-    def test_accepts_prior_questions_list(self) -> None:
+    async def test_accepts_prior_questions_list(self) -> None:
         with (
             patch("backend.decision.decision_agent.get_settings", return_value=_cfg()),
             patch("backend.decision.decision_agent.get_config_hash", return_value="deadbeef"),
         ):
-            result = _call_decide(prior_questions=["Do you want a happy ending?"])
+            result = await _call_decide(prior_questions=["Do you want a happy ending?"])
 
         assert isinstance(result, DecisionResult)

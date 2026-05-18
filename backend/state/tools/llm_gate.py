@@ -10,7 +10,7 @@ import logging
 from typing import Any
 from uuid import UUID
 
-from backend.api.types import TurnDetail
+from backend.api.types import TurnRow
 from backend.state.types import (
     StateAction,
     StateCheckResponse,
@@ -49,7 +49,7 @@ def _prompt_schema(model: type[StateCheckResponse]) -> dict:
     return {"type": "object", "properties": properties}
 
 
-def check_llm_state(
+async def check_llm_state(
     *,
     session_id: UUID,
     run_id: UUID,
@@ -57,7 +57,7 @@ def check_llm_state(
     turn_number: int,
     user_message: str,
     preference_profile: dict[str, Any] | None,
-    recent_turns: list[TurnDetail],
+    recent_turns: list[TurnRow],
     show_count: int,
     cfg: Settings,
     accumulated_cost_usd: float = 0.0,
@@ -152,7 +152,7 @@ def check_llm_state(
         },
     )
 
-    resp = llm_harness.call(
+    resp = await llm_harness.call(
         run_id=run_id,
         session_id=session_id,
         turn_id=turn_id,

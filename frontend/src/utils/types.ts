@@ -42,8 +42,8 @@ export interface ClusterSnapshotPayload {
 }
 
 export interface RecommendationPayload {
-  cluster: ClusterPublic;
-  films: MoviePublic[];
+  cluster: ClusterDto;
+  films: MovieDto[];
 }
 
 export interface AmbiguityMeta {
@@ -51,7 +51,7 @@ export interface AmbiguityMeta {
   cluster_refs: string[];
 }
 
-export interface TurnResult {
+export interface TurnDto {
   turn_id: string;
   session_id: string;
   turn_number: number;
@@ -64,13 +64,13 @@ export interface TurnResult {
   recommendation: RecommendationPayload | null;
 }
 
-export interface SessionState {
+export interface SessionDto {
   session_id: string;
   status: SessionStatus;
   max_turns: number;
   created_at: string;
   updated_at: string;
-  turns: TurnResult[];
+  turns: TurnDto[];
 }
 
 export interface SessionSummary {
@@ -88,7 +88,7 @@ export interface SoftScore {
   excluded: boolean;
 }
 
-export interface ClusterPublic {
+export interface ClusterDto {
   id: string;
   name: string;
   description: string | null;
@@ -98,7 +98,7 @@ export interface ClusterPublic {
   top_titles: number[];
 }
 
-export interface MoviePublic {
+export interface MovieDto {
   id: number;
   title: string;
   release_year: number | null;

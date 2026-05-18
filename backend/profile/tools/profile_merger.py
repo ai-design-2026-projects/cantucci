@@ -5,14 +5,14 @@ No LLM calls, no DB access.
 
 from typing import Any
 
-from backend.api.types import TurnDetail
+from backend.api.types import TurnRow
 
 
 def build_prompt_vars(
     *,
     user_message: str,
     prior_profile: dict[str, Any] | None,
-    recent_turns: list[TurnDetail],
+    recent_turns: list[TurnRow],
 ) -> dict[str, Any]:
     """Build template variables for the profile_extract_v2.j2 prompt.
 

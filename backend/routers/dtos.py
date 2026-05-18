@@ -1,9 +1,9 @@
 """
-HTTP-boundary DTOs for the frontend.
+HTTP-boundary DataTransferObjects for the frontend.
 
 Pydantic models used exclusively at the HTTP layer: request bodies, response
 payloads, and per-field metadata needed for frontend rendering.  All internal
-types (ClusterSnapshot, MovieMetadata, etc.) are separate — see backend/api/types.py.
+types (ClusterRow, MovieRow, etc.) are separate — see backend/api/types.py.
 """
 
 from datetime import datetime
@@ -13,7 +13,6 @@ from uuid import UUID
 from pydantic import BaseModel, field_validator
 
 from backend.api.types import SessionStatus, StepType
-
 
 
 class AmbiguityMeta(BaseModel):
@@ -29,28 +28,7 @@ class AmbiguityMeta(BaseModel):
     cluster_refs: list[UUID]
 
 
-class SessionSummary(BaseModel):
-    """Lightweight session descriptor for history listings.
-
-    Attributes:
-        session_id:          UUID of the session.
-        status:              Current lifecycle state.
-        created_at:          Server-set UTC timestamp of session creation.
-        updated_at:          Server-set UTC timestamp of the last state change.
-        turn_count:          Number of completed turns in this session.
-        first_user_message:  Text of the first oracle message, or None for
-                             sessions with no turns yet.
-    """
-
-    session_id: UUID
-    status: SessionStatus
-    created_at: datetime
-    updated_at: datetime
-    turn_count: int
-    first_user_message: str | None
-
-
-class TurnResult(BaseModel):
+class TurnDto(BaseModel):
     """Outcome of a single conversation turn, returned by the orchestrator.
 
     Attributes:
@@ -74,12 +52,11 @@ class TurnResult(BaseModel):
     converged: bool
     created_at: datetime
     ambiguity_meta: AmbiguityMeta | None = None
-    recommendation: "RecommendationPublic | None" = None
+    recommendation: "RecommendationDto | None" = None
 
 
-class SessionState(BaseModel):
+class SessionDto(BaseModel):
     """Full state of a session including its turn history.
-
     Attributes:
         session_id:  UUID of the session.
         status:      Current lifecycle state.
@@ -88,13 +65,12 @@ class SessionState(BaseModel):
         updated_at:  Server-set UTC timestamp of the last state change.
         turns:       Ordered list of all turns (ascending turn_number).
     """
-
     session_id: UUID
     status: SessionStatus
     max_turns: int
     created_at: datetime
     updated_at: datetime
-    turns: list[TurnResult]
+    turns: list[TurnDto]
 
 
 class TurnRequest(BaseModel):
@@ -140,7 +116,7 @@ class SoftScore(BaseModel):
     excluded: bool
 
 
-class ClusterPublic(BaseModel):
+class ClusterDto(BaseModel):
     """A single cluster as exposed to the frontend.
 
     Attributes:
@@ -162,7 +138,7 @@ class ClusterPublic(BaseModel):
     top_titles: list[int]
 
 
-class MoviePublic(BaseModel):
+class MovieDto(BaseModel):
     """Full movie metadata as exposed to the frontend.
 
     Attributes:
@@ -197,7 +173,7 @@ class MoviePublic(BaseModel):
     original_language: str | None
 
 
-class RecommendationPublic(BaseModel):
+class RecommendationDto(BaseModel):
     """Structured recommendation payload emitted on show and stop turns.
 
     Attributes:
@@ -205,11 +181,11 @@ class RecommendationPublic(BaseModel):
         films:   Top-K films in descending score order, fully enriched.
     """
 
-    cluster: ClusterPublic
-    films: list[MoviePublic]
+    cluster: ClusterDto
+    films: list[MovieDto]
 
 
-class ConvergedClusterPublic(BaseModel):
+class ConvergedClusterDto(BaseModel):
     """Payload returned by GET /sessions/{id}/converged-cluster.
 
     Attributes:
@@ -220,9 +196,9 @@ class ConvergedClusterPublic(BaseModel):
                             Orchestrator on convergence, or None.
     """
 
-    cluster: ClusterPublic
-    movies: list[MoviePublic]
+    cluster: ClusterDto
+    movies: list[MovieDto]
     preference_profile: dict[str, Any] | None
 
 
-TurnResult.model_rebuild()
+TurnDto.model_rebuild()

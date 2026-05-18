@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any
 from uuid import UUID
 
-from backend.api.types import TurnDetail
+from backend.api.types import TurnRow
 from backend.llm import llm_harness
 from backend.llm.prompts import make_prompt_loader
 from backend.profile.tools.profile_merger import build_prompt_vars
@@ -29,7 +29,7 @@ log = logging.getLogger(__name__)
 load_prompt = make_prompt_loader(Path(__file__).parent / "prompts")
 
 
-def extract(
+async def extract(
     *,
     session_id: UUID,
     run_id: UUID,
@@ -37,7 +37,7 @@ def extract(
     turn_number: int,
     user_message: str,
     prior_profile: dict[str, Any] | None,
-    recent_turns: list[TurnDetail],
+    recent_turns: list[TurnRow],
     accumulated_cost_usd: float = 0.0,
     dry_run: bool = False,
 ) -> UserProfile:
@@ -86,7 +86,7 @@ def extract(
         },
     )
 
-    resp = llm_harness.call(
+    resp = await llm_harness.call(
         run_id=run_id,
         session_id=session_id,
         turn_id=turn_id,

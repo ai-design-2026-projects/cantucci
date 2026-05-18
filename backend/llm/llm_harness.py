@@ -14,8 +14,14 @@ The OpenAI client is a module-level singleton so the underlying ``httpx``
 connection pool is reused across calls, saving TCP + TLS setup per round-trip.
 The client itself carries no per-session state — only the API key — so
 reuse is safe.
+
+The call is fully async: cancellation propagates through ``httpx`` so an
+in-flight API request is genuinely aborted when the caller's task is
+cancelled (e.g. client disconnect, orchestrator dropping a speculative
+branch). ``CancelledError`` MUST escape the retry loop unaltered.
 """
 
+import asyncio
 import json
 import logging
 import time
@@ -52,7 +58,7 @@ _TRANSIENT_ERRORS = (
 )
 
 
-def call(
+async def call(
     *,
     run_id: str | UUID,
     session_id: str | UUID,
@@ -171,7 +177,10 @@ def call(
     last_raw: str | None = None
     for attempt in range(_MAX_ATTEMPTS):
         if attempt > 0:
-            time.sleep(_backoff(attempt))
+            # asyncio.sleep is a cancellation point — if the caller's task is
+            # cancelled between attempts, CancelledError raises here and exits
+            # the retry loop cleanly. Never catch it.
+            await asyncio.sleep(_backoff(attempt))
             log.warning(
                 "llm_call retry",
                 extra={
@@ -192,7 +201,7 @@ def call(
                 kwargs["seed"] = seed
             if response_schema is not None:
                 kwargs["response_format"] = {"type": "json_object"}
-            response = _client(provider).chat.completions.create(**kwargs)
+            response = await _client(provider).chat.completions.create(**kwargs)
             latency_ms = (time.monotonic() - t0) * 1000.0
         except _TRANSIENT_ERRORS as exc:
             last_exc = exc
@@ -286,15 +295,15 @@ def _validate_response(
         raise LLMParseError(step_type=step_type, raw=content) from exc
 
 
-_clients: dict[str, openai.OpenAI] = {}
+_clients: dict[str, openai.AsyncOpenAI] = {}
 
 _PROVIDER_BASE_URLS: dict[str, str] = {
     "openrouter": "https://openrouter.ai/api/v1",
 }
 
 
-def _client(provider: str = "openai") -> openai.OpenAI:
-    """Return the shared client for *provider*, creating it on first call."""
+def _client(provider: str = "openai") -> openai.AsyncOpenAI:
+    """Return the shared async client for *provider*, creating it on first call."""
     if provider not in _clients:
         env = get_env()
         if provider == "openrouter":
@@ -302,7 +311,7 @@ def _client(provider: str = "openai") -> openai.OpenAI:
                 raise ValueError(
                     "OPENROUTER_API_KEY is not set. Add it to .env when using provider=openrouter."
                 )
-            _clients[provider] = openai.OpenAI(
+            _clients[provider] = openai.AsyncOpenAI(
                 base_url=_PROVIDER_BASE_URLS["openrouter"],
                 api_key=env.openrouter_api_key,
             )
@@ -311,7 +320,7 @@ def _client(provider: str = "openai") -> openai.OpenAI:
                 raise ValueError(
                     "OPENAI_API_KEY is not set. Add it to .env when using provider=openai."
                 )
-            _clients[provider] = openai.OpenAI(api_key=env.openai_api_key)
+            _clients[provider] = openai.AsyncOpenAI(api_key=env.openai_api_key)
     return _clients[provider]
 
 

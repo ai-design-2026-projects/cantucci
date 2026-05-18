@@ -14,7 +14,7 @@ from decimal import Decimal
 from typing import Any
 
 from backend.api.db import transaction
-from backend.api.types import ClusterSpec
+from backend.api.types import ClusterSpecification
 
 log = logging.getLogger(__name__)
 
@@ -253,7 +253,7 @@ def update_turn(
 def snapshot_clusters(
     session_id: uuid.UUID,
     turn_id: uuid.UUID,
-    clusters: list[ClusterSpec],
+    clusters: list[ClusterSpecification],
 ) -> list[uuid.UUID]:
     """Insert clusters + their assignment rows for a single turn snapshot.
 

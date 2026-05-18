@@ -5,7 +5,7 @@ import { useSessionStore } from "@/store/sessionStore";
 import { useClusterStore } from "@/store/clusterStore";
 import { useUiStore } from "@/store/uiStore";
 import { useClusterSnapshotStore } from "@/store/clusterSnapshotStore";
-import type { SessionState } from "@/utils/types";
+import type { SessionDto } from "@/utils/types";
 
 /**
  * Handlers for session lifecycle: init, reset, and create-and-navigate.
@@ -21,7 +21,7 @@ export function useSessionHandler() {
   const { reset: resetClusterSnapshot } = useClusterSnapshotStore();
 
   const { mutate: initSession, isPending: isCreating, error: createError } = useMutation<
-    SessionState,
+    SessionDto,
     Error
   >({
     mutationFn: createSession,
