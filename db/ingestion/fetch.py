@@ -1,50 +1,49 @@
-"""Download pre-built parquet artifacts from a Hugging Face Dataset repo."""
-import argparse
+"""Download a single parquet artifact from the Hugging Face Dataset repo."""
 import logging
-import os
 from pathlib import Path
 
-from huggingface_hub import snapshot_download
+from huggingface_hub import hf_hub_download
 
 from backend.settings import ARTIFACTS_DIR, get_env
 
 log = logging.getLogger(__name__)
 
 
-def fetch_artifacts(
-    repo_id: str | None = None,
+def fetch_artifact(
+    repo_id: str,
+    filename: str,
     *,
     token: str | None = None,
     artifacts_dir: Path | None = None,
 ) -> Path:
-    """Download parquet artifacts from a Hugging Face Dataset repo, returning the local path.
+    """Download a single parquet file from a HF Dataset repo and return its local path.
+
     Args:
-        - repo_id: HF dataset repo id (e.g. "user/cinepal-embeddings"). Falls back to the CINEPAL_ARTIFACTS_REPO env var.
-        - token: HF access token for private repos. Can be omitted for public repos. Falls back to HF_TOKEN env var. 
-        - artifacts_dir: Local destination directory. Defaults to data/artifacts/.
+        repo_id:        HF dataset repo id, e.g. ``"446f6e6e79/CinePal-embeddings"``.
+        filename:       Exact filename inside the repo, e.g. ``"main_20260517.parquet"``.
+                        Pinning the timestamped name here is what ties this run to a
+                        specific snapshot for the replayability contract.
+        token:          HF access token for private repos. Falls back to
+                        ``get_env().hf_token`` (sourced from ``HF_TOKEN``).
+        artifacts_dir:  Local destination directory. Defaults to ``data/artifacts/``.
+
     Returns:
-        Path to the local artifacts directory.
-    Raises:
-        ValueError: If no repo id is provided and CINEPAL_ARTIFACTS_REPO is unset.
+        Absolute path to the downloaded parquet file on disk.
     """
-    env = get_env()
-    resolved_repo = repo_id or env.cinepal_artifacts_repo
-    if not resolved_repo:
-        raise ValueError(
-            "HF repo id is required. Set CINEPAL_ARTIFACTS_REPO in .env "
-            "or pass --repo explicitly."
-        )
-    resolved_token = token or os.environ.get("HF_TOKEN") or None
+    resolved_token = token or get_env().hf_token or None
     dest = artifacts_dir or ARTIFACTS_DIR
     dest.mkdir(parents=True, exist_ok=True)
 
-    log.info("downloading artifacts", extra={"repo": resolved_repo, "dest": str(dest)})
-    snapshot_download(
-        repo_id=resolved_repo,
+    log.info(
+        "downloading artifact",
+        extra={"repo": repo_id, "file_name": filename, "dest": str(dest)},
+    )
+    local_path = hf_hub_download(
+        repo_id=repo_id,
         repo_type="dataset",
+        filename=filename,
         local_dir=str(dest),
-        allow_patterns=["*.parquet"],
         token=resolved_token,
     )
-    log.info("artifacts ready", extra={"dest": str(dest)})
-    return dest
+    log.info("artifact ready", extra={"path": local_path})
+    return Path(local_path)

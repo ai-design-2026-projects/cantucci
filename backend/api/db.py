@@ -30,8 +30,14 @@ def _get_pool() -> psycopg_pool.ConnectionPool:
     """Return the module-level connection pool, creating it on first use."""
     global _pool
     if _pool is None:
+        conninfo = get_env().database_url
+        if not conninfo:
+            raise RuntimeError(
+                "DATABASE_URL is not set. The backend API and DB-writing "
+                "ingestion paths require a Postgres connection string."
+            )
         _pool = psycopg_pool.ConnectionPool(
-            conninfo=get_env().database_url,
+            conninfo=conninfo,
             min_size=1,
             max_size=10,
             open=True,

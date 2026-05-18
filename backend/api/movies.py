@@ -29,7 +29,7 @@ def vector_search(
     ``1 - distance`` so the list is descending by relevance.
 
     Args:
-        embedding:   Query vector of dimension 384 (must match movies.embedding).
+        embedding:   Query vector of dimension 1024 (must match movies.embedding).
         k:           Maximum number of results to return.
         exclude_ids: Optional list of movie_ids to omit from the result set. The
                      filter is applied in SQL (``id <> ALL(...)``) so the LIMIT
@@ -343,7 +343,7 @@ def fetch_embeddings(movie_ids: list[int]) -> dict[int, list[float]]:
         movie_ids: TMDB integer IDs to look up.
 
     Returns:
-        Dict mapping movie_id → 384-dim embedding as a list of floats.
+        Dict mapping movie_id → 1024-dim embedding as a list of floats.
     """
     if not movie_ids:
         return {}

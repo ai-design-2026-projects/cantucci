@@ -41,10 +41,10 @@ export interface PipelineStage {
  * new checkpoint is added there, add a matching row here.
  */
 export const STAGES: Readonly<Record<ProgressStep, PipelineStage>> = {
-  understand: { id: "understand", label: "Reading your taste and sketching options…" },
-  choose:     { id: "choose",     label: "Weighing the best picks…" },
-  finalize:   { id: "finalize",   label: "Writing your reply…" },
-  wrap_up:    { id: "wrap_up",    label: "Wrapping things up…" },
+  understand: { id: "understand", label: "Reading your taste and sketching options" },
+  choose:     { id: "choose",     label: "Weighing the best picks" },
+  finalize:   { id: "finalize",   label: "Writing your reply" },
+  wrap_up:    { id: "wrap_up",    label: "Wrapping things up" },
 } as const;
 
 interface PipelineStatusLineProps {

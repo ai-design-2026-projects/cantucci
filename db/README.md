@@ -41,47 +41,73 @@ Re-running `apply` is safe — files already recorded in `schema_migrations` are
 
 ## Catalogue ingestion
 
-`python -m db.ingest` is the single entry point. It defaults to downloading pre-built artifacts from Hugging Face and ingesting the `mini` set.
-
-The embedding step (`sentence-transformers/BAAI/bge-large-en-v1.5` over ~40k movies) is slow on CPU. **The team default is to embed once on a GPU and distribute the artifacts via Hugging Face Datasets.** The full local pipeline is still available for reproducibility or when artifacts need to be regenerated.
-
-### Default path — pre-built artifacts from HF (recommended)
-
-**Prerequisites:** `CINEPAL_ARTIFACTS_REPO` set in `.env`. `HF_TOKEN` is only required for private repos.
+`python -m db.ingest` is the single entry point. It downloads the parquet files
+pinned in `configs/default.yaml` (`ingestion.hf_repo` + `ingestion.artifacts.*`)
+from Hugging Face and upserts them into Postgres.
 
 ```bash
 python -m db.apply              # apply migrations (idempotent)
-python -m db.ingest             # HF download → ingest mini (200 popular movies; dev default)
-python -m db.ingest --set main  # HF download → ingest full production set (~40k movies)
+python -m db.ingest             # ingest mini (dev default)
+python -m db.ingest --set main  # ingest full production set
+python -m db.ingest --set all   # ingest main + mini
 ```
 
-**For dev/CI use the default `mini` set.** Mini is a strict subset of main — all 200 popular movies are also present in main, so ingesting main later with `--set main` is safe (upsert) and won't duplicate or lose data.
+**Prerequisites:**
 
-### Full local pipeline — regenerate artifacts from Kaggle (slow)
+- `TMDB_API_KEY` in `.env` — only when producing a fresh snapshot (stage 1
+  below). Ingesting an existing HF snapshot does not need it.
+- `HF_TOKEN` in `.env` — only when the HF dataset repo is private.
 
-**Prerequisites:** Kaggle credentials at `~/.kaggle/kaggle.json` (or `KAGGLE_USERNAME` / `KAGGLE_KEY` env vars).
+**For dev/CI use the default `mini` set.** Mini is a strict subset of main, so
+ingesting main later with `--set main` is safe (upsert) and won't duplicate
+data.
+
+### Producing a new snapshot
+
+Two stages, run on different machines because TMDB throttles per IP and Colab's
+shared egress makes sustained scraping unreliable:
+
+**Stage 1 — local scrape** (your machine, `TMDB_API_KEY` set in env):
+
+Pulls the TMDB daily id export
+(`http://files.tmdb.org/p/exports/movie_ids_*.json.gz`), drops adult titles
+and everything below `--min-popularity` (default `0.4`), then fetches
+`/movie/{id}?append_to_response=credits,keywords` for each surviving id.
+After cleaning, rows with `vote_count < --min-vote-count` (default `5`) are
+dropped before the parquet is written.
 
 ```bash
-# Full pipeline: download → clean → embed → ingest mini into DB
-python -m db.ingest --source kaggle
-
-# Build artifacts only (no DB writes) — useful when re-publishing to HF from Colab
-python -m db.ingest --source kaggle --no-db
-
-# Re-download raw data even if already present
-python -m db.ingest --source kaggle --force-download
+python -m db.scrape --limit 500 --concurrency 5    # smoke first
+python -m db.scrape --upload                       # full run + push to HF
 ```
 
-To regenerate artifacts using a GPU, open `notebooks/embed_in_colab.ipynb` in Google Colab (Runtime → T4 GPU), run all cells, and the notebook uploads fresh artifacts to the configured HF repo.
+Writes raw JSONL to `data/local_scrape/tmdb_raw.jsonl` (resumes on restart) and
+a cleaned `snapshot_YYYYMMDD.parquet` to the same directory. With `--upload` the
+parquet is pushed to the HF dataset repo under `snapshots/`. Paste the printed
+path into `configs/default.yaml` under `ingestion.artifacts.snapshot`.
+
+**Stage 2 — Colab embedding** (Runtime → T4 GPU):
+
+1. Open `notebooks/embed_in_colab.ipynb`.
+2. Add Colab secrets: `HF_TOKEN`, optional `GITHUB_TOKEN` for private repo clone.
+3. Run all cells. The notebook downloads the snapshot pinned above, splits,
+   embeds on GPU, and uploads three timestamped parquets via
+   `db/ingestion/upload.upload_artifacts` under `embeddings/`.
+4. Paste the three printed paths into `configs/default.yaml` under
+   `ingestion.artifacts.{main,mini,eval_holdout}`; the `snapshot` path was
+   already pinned in stage 1. The new dataset is now part of `config_hash`,
+   so existing sessions remain replayable against the snapshot they were
+   created on.
 
 ### Artifact files
 
-The pipeline writes three parquet files under `data/artifacts/` (`data/` is gitignored):
+The HF dataset repo is organised into two directories:
 
-| File | Description |
+| Path-in-repo | Description |
 |---|---|
-| `main.parquet` | Full set with embeddings (~40k movies) |
-| `mini.parquet` | Top-200 popular movies — a **subset** of main; fast to load in dev/CI |
-| `eval_holdout.parquet` | Disjoint 10% slice for system evaluation (never written to the DB) |
+| `snapshots/snapshot_YYYYMMDD.parquet`         | Stage-1 cleaned catalogue (no embeddings) — pinned via `ingestion.artifacts.snapshot` |
+| `embeddings/main_YYYYMMDD.parquet`            | Stage-2 full set with embeddings — pinned via `ingestion.artifacts.main` |
+| `embeddings/mini_YYYYMMDD.parquet`            | Stage-2 strict subset of main; fast to load in dev/CI |
+| `embeddings/eval_holdout_YYYYMMDD.parquet`    | Stage-2 disjoint slice for system evaluation (never written to the DB) |
 
 Re-running ingestion is safe — all inserts are idempotent (upsert).

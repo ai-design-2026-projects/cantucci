@@ -562,6 +562,9 @@ class Orchestrator:
         if clusters:
             _emit_cluster_snapshot(clusters, progress_cb)
 
+        if clusters:
+            _emit_cluster_snapshot(clusters, progress_cb)
+
         if not clusters:
             _emit(ProgressStep.wrap_up, "start")
             try:

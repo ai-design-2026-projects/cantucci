@@ -119,13 +119,15 @@ class ClusterSnapshotPayload(BaseModel):
         name:        Human-readable cluster label.
         description: Short theme description or None.
         level:       1 = coarse, 2 = fine.
-        top_films:   Top-K films sorted by descending soft score.
+        confidence:  Mean soft-assignment score over non-excluded films in [0, 1].
+        top_films:   All non-excluded films sorted by descending soft score.
     """
 
     id: str
     name: str
     description: str | None
     level: int
+    confidence: float
     top_films: list[ClusterFilmStub]
 
 

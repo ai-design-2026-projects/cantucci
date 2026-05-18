@@ -1,4 +1,4 @@
-"""Integration-style tests for Orchestrator.run_turn wiring.
+"""Integration-style tests for Orchestrator.handle_turn wiring.
 
 All external dependencies (api, agents) are monkeypatched. No DB, no LLM,
 no Docker. Tests verify:
@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import uuid
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -42,9 +42,6 @@ def _session_id() -> uuid.UUID:
     return uuid.uuid4()
 
 
-_NEXT_MOVIE_ID: list[int] = [1]
-
-
 def _cluster(name: str = "Drama", n_assignments: int = 3) -> ClusterSnapshot:
     c = MagicMock(spec=ClusterSnapshot)
     c.id = uuid.uuid4()
@@ -52,14 +49,10 @@ def _cluster(name: str = "Drama", n_assignments: int = 3) -> ClusterSnapshot:
     c.description = "Great dramas"
     c.level = 0
     c.parent_cluster_id = None
-    assignments = []
-    for i in range(n_assignments):
-        mid = _NEXT_MOVIE_ID[0]
-        _NEXT_MOVIE_ID[0] += 1
-        assignments.append(
-            MagicMock(spec=ClusterAssignment, title=f"Film {i}", movie_id=mid, score=1.0, excluded=False)
-        )
-    c.assignments = assignments
+    c.assignments = [
+        MagicMock(spec=ClusterAssignment, title=f"Film {i}", movie_id=i + 1, score=1.0, excluded=False)
+        for i in range(n_assignments)
+    ]
     return c
 
 
@@ -157,14 +150,12 @@ class _Patches:
         self._patchers: list = []
 
     def __enter__(self):
-        def _patch(target, return_value=None, side_effect=None, *, is_async=False):
+        def _patch(target, return_value=None, side_effect=None):
             kw = {}
             if return_value is not None:
                 kw["return_value"] = return_value
             if side_effect is not None:
                 kw["side_effect"] = side_effect
-            if is_async:
-                kw["new_callable"] = AsyncMock
             p = patch(target, **kw)
             self._patchers.append(p)
             return p.start()
@@ -181,24 +172,9 @@ class _Patches:
             "backend.orchestrator.orchestrator.get_config_hash",
             return_value="deadbeef",
         )
-        # The orchestrator runs check_hard_limits (sync) before any LLM call
-        # and short-circuits on terminate. The LLM gate (check_gate) handles the
-        # rest. Route a terminate conv_decision through the hard-limits patch
-        # so test intent matches the new gate split.
-        if self._conv.action is StateAction.terminate:
-            hard_rv = self._conv
-            gate_rv: StateDecision = StateDecision(action=StateAction.proceed, reason="unused")
-        else:
-            hard_rv = StateDecision(action=StateAction.proceed, reason="ok")
-            gate_rv = self._conv
-        self.hard_limits_check = _patch(
-            "backend.orchestrator.orchestrator.state_agent.check_hard_limits",
-            return_value=hard_rv,
-        )
         self.conv_check = _patch(
-            "backend.orchestrator.orchestrator.state_agent.check_gate",
-            return_value=gate_rv,
-            is_async=True,
+            "backend.orchestrator.orchestrator.state_agent.check",
+            return_value=self._conv,
         )
         mock_rr = MagicMock(spec=RetrievalResult)
         mock_rr.reformulated_query = "mock reformulated query"
@@ -206,12 +182,44 @@ class _Patches:
         self.retrieval_retrieve_from_message = _patch(
             "backend.orchestrator.orchestrator.retrieval_agent.retrieve_from_message",
             return_value=mock_rr,
-            is_async=True,
         )
         self.retrieval_retrieve_from_profile = _patch(
             "backend.orchestrator.orchestrator.retrieval_agent.retrieve_from_profile",
             return_value=mock_rr,
-            is_async=True,
+        )
+        self.fetch_stubs = _patch(
+            "backend.orchestrator.orchestrator.api_movies.fetch_stubs",
+            side_effect=lambda ids: [
+                {
+                    "id": mid,
+                    "title": f"Film {mid}",
+                    "poster_url": None,
+                    "release_year": 2000 + mid,
+                    "vote_average": 7.0,
+                }
+                for mid in ids
+            ],
+        )
+        self.fetch_movies_public = _patch(
+            "backend.orchestrator.orchestrator.api_movies.fetch_movies_public",
+            side_effect=lambda ids: [
+                {
+                    "id": mid,
+                    "title": f"Film {mid}",
+                    "release_year": 2000 + mid,
+                    "runtime": 100.0,
+                    "vote_average": 7.0,
+                    "vote_count": 100,
+                    "bayesian_rating": 7.0,
+                    "overview": None,
+                    "poster_url": None,
+                    "genres": [],
+                    "director": None,
+                    "top_cast": [],
+                    "original_language": "en",
+                }
+                for mid in ids
+            ],
         )
         mock_sr = MagicMock()
         self.cluster_soft = _patch(
@@ -221,22 +229,18 @@ class _Patches:
         self.cluster_describe = _patch(
             "backend.orchestrator.orchestrator.cluster_agent.describe_clusters",
             return_value=self._clusters,
-            is_async=True,
         )
         self.cluster_refine = _patch(
             "backend.orchestrator.orchestrator.cluster_agent.refine",
             return_value=self._clusters,
-            is_async=True,
         )
         self.decision_decide = _patch(
             "backend.orchestrator.orchestrator.decision_agent.decide",
             return_value=self._decision,
-            is_async=True,
         )
         self.profile_extract = _patch(
             "backend.orchestrator.orchestrator.profile_agent.extract",
             return_value=self._profile,
-            is_async=True,
         )
         self.append_turn = _patch(
             "backend.orchestrator.orchestrator.api_sessions.append_turn",
@@ -253,17 +257,6 @@ class _Patches:
         self.update_profile = _patch(
             "backend.orchestrator.orchestrator.api_sessions.update_preference_profile",
         )
-        # The orchestrator emits a cluster snapshot (via fetch_stubs) and builds
-        # a recommendation DTO (via fetch_movies_public) when state proceeds to
-        # render. Patch both so wiring tests stay DB-free.
-        self.fetch_stubs = _patch(
-            "backend.orchestrator.orchestrator.api_movies.fetch_stubs",
-            return_value=[],
-        )
-        self.fetch_movies_public = _patch(
-            "backend.orchestrator.orchestrator.api_movies.fetch_movies_public",
-            return_value=[],
-        )
         return self
 
     def __exit__(self, *args):
@@ -278,19 +271,19 @@ class _Patches:
 class TestScenarioAFreshClustering:
     """When no prior ask turn, Scenario A (fresh) is used — no prior_clusters."""
 
-    async def test_cluster_called_without_prior_clusters(self) -> None:
+    def test_cluster_called_without_prior_clusters(self) -> None:
         full = _full(turns=[])
         with _Patches(full=full) as p:
             orch = Orchestrator()
-            await orch.run_turn(full.session_id, "I want something contemplative")
+            orch.handle_turn(full.session_id, "I want something contemplative")
         assert p.cluster_soft.called
         assert not p.cluster_refine.called
 
-    async def test_cluster_called_with_user_query(self) -> None:
+    def test_cluster_called_with_user_query(self) -> None:
         full = _full(turns=[_turn("show", "Here is a pick")])
         with _Patches(full=full) as p:
             orch = Orchestrator()
-            await orch.run_turn(full.session_id, "more like that")
+            orch.handle_turn(full.session_id, "more like that")
         call_kwargs = p.cluster_describe.call_args.kwargs
         assert "user_query" in call_kwargs
 
@@ -298,97 +291,72 @@ class TestScenarioAFreshClustering:
 class TestScenarioBRefinementAfterAsk:
     """When prior turn is an ask with clusters, Scenario B is used."""
 
-    async def test_cluster_called_with_prior_clusters(self) -> None:
+    def test_cluster_called_with_prior_clusters(self) -> None:
         prior_clusters = [_cluster("Drama")]
         prior = _turn("ask", "What genre?", clusters=prior_clusters)
         full = _full(turns=[prior])
         with _Patches(full=full) as p:
             orch = Orchestrator()
-            await orch.run_turn(full.session_id, "Drama please")
+            orch.handle_turn(full.session_id, "Drama please")
         assert p.cluster_refine.called
         call_kwargs = p.cluster_refine.call_args.kwargs
         assert call_kwargs.get("prior_clusters") is not None
         assert len(call_kwargs["prior_clusters"]) == 1
 
-    async def test_scenario_b_passes_system_message(self) -> None:
+    def test_scenario_b_passes_asked_question(self) -> None:
         prior = _turn("ask", "What do you feel like?", clusters=[_cluster()])
         full = _full(turns=[prior])
         with _Patches(full=full) as p:
             orch = Orchestrator()
-            await orch.run_turn(full.session_id, "Action")
+            orch.handle_turn(full.session_id, "Action")
         call_kwargs = p.cluster_refine.call_args.kwargs
-        assert call_kwargs.get("system_message") == "What do you feel like?"
-        assert call_kwargs.get("oracle_reply") == "Action"
+        assert call_kwargs.get("asked_question") == "What do you feel like?"
 
-    async def test_refine_used_when_prior_turn_is_show(self) -> None:
-        """Post-show feedback also refines — retrieval is reserved for turn 1
-        and state-driven re-retrieval."""
+    def test_scenario_a_when_prior_turn_is_show(self) -> None:
         prior = _turn("show", "Here are some dramas", clusters=[_cluster()])
         full = _full(turns=[prior])
         with _Patches(full=full) as p:
             orch = Orchestrator()
-            await orch.run_turn(full.session_id, "something different")
-        assert p.cluster_refine.called
-        assert not p.cluster_soft.called
-        assert not p.retrieval_retrieve_from_message.called
-        call_kwargs = p.cluster_refine.call_args.kwargs
-        assert call_kwargs.get("system_message") == "Here are some dramas"
-        assert call_kwargs.get("oracle_reply") == "something different"
-
-    async def test_refine_walks_past_clarify_drift_turn(self) -> None:
-        """A clarify_drift turn carries no clusters; refine must look back
-        further to the show turn before it."""
-        show_prior = _turn(
-            "show", "Here are some dramas", clusters=[_cluster("Drama")]
-        )
-        drift_turn = _turn("ask", "Did your preference change?")  # no clusters
-        full = _full(turns=[show_prior, drift_turn])
-        with _Patches(full=full) as p:
-            orch = Orchestrator()
-            await orch.run_turn(full.session_id, "No, I meant dark drama")
-        assert p.cluster_refine.called
-        assert not p.retrieval_retrieve_from_message.called
-        # The refine call must see the show turn's clusters, not the empty
-        # drift turn's.
-        call_kwargs = p.cluster_refine.call_args.kwargs
-        assert len(call_kwargs["prior_clusters"]) == 1
+            orch.handle_turn(full.session_id, "something different")
+        assert not p.cluster_refine.called
+        assert p.cluster_soft.called
 
 
 class TestProfileAgentFlow:
     """Profile agent is called after main pipeline; result is persisted."""
 
-    async def test_profile_extract_called(self) -> None:
+    def test_profile_extract_called(self) -> None:
         full = _full(turns=[])
         with _Patches(full=full) as p:
             orch = Orchestrator()
-            await orch.run_turn(full.session_id, "fun movie tonight")
+            orch.handle_turn(full.session_id, "fun movie tonight")
         assert p.profile_extract.called
 
-    async def test_profile_result_persisted(self) -> None:
+    def test_profile_result_persisted(self) -> None:
         profile = _profile()
         full = _full(turns=[])
         with _Patches(full=full, profile=profile) as p:
             orch = Orchestrator()
-            await orch.run_turn(full.session_id, "fun movie tonight")
+            orch.handle_turn(full.session_id, "fun movie tonight")
         p.update_profile.assert_called_once()
         call_args = p.update_profile.call_args
         persisted = call_args.args[1] if call_args.args else call_args.kwargs.get("preference_profile") or call_args.kwargs.get("profile_jsonb")
         assert persisted == profile.model_dump()
 
-    async def test_profile_extract_receives_prior_profile(self) -> None:
+    def test_profile_extract_receives_prior_profile(self) -> None:
         prior = {"constraints": ["no horror"], "preferences": [], "attitudes": [], "summary": ""}
         full = _full(turns=[], preference_profile=prior)
         with _Patches(full=full) as p:
             orch = Orchestrator()
-            await orch.run_turn(full.session_id, "something calm")
+            orch.handle_turn(full.session_id, "something calm")
         call_kwargs = p.profile_extract.call_args.kwargs
         assert call_kwargs["prior_profile"] == prior
 
-    async def test_first_turn_prior_profile_is_none(self) -> None:
+    def test_first_turn_prior_profile_is_none(self) -> None:
         full = _full(turns=[], preference_profile=None)
         with _Patches(full=full) as p:
             orch = Orchestrator()
-            await orch.run_turn(full.session_id, "anything good tonight")
+            orch.handle_turn(full.session_id, "anything good tonight")
         call_kwargs = p.profile_extract.call_args.kwargs
         assert call_kwargs["prior_profile"] is None
 
@@ -396,38 +364,38 @@ class TestProfileAgentFlow:
 class TestRenderIsDeterministic:
     """Render path uses no LLM — only cluster + decision data."""
 
-    async def test_recommend_step_type_is_show(self) -> None:
+    def test_recommend_step_type_is_show(self) -> None:
         cluster = _cluster()
         full = _full(turns=[])
         decision = _decision_recommend(cluster.id)
         with _Patches(full=full, clusters=[cluster], decision=decision) as p:
             orch = Orchestrator()
-            result = await orch.run_turn(full.session_id, "surprise me")
+            result = orch.handle_turn(full.session_id, "surprise me")
         assert result.step_type == StepType.show
 
-    async def test_render_reply_contains_cluster_name(self) -> None:
+    def test_render_reply_contains_cluster_name(self) -> None:
         cluster = _cluster("Epic Adventures")
         full = _full(turns=[])
         decision = _decision_recommend(cluster.id)
         with _Patches(full=full, clusters=[cluster], decision=decision):
             orch = Orchestrator()
-            result = await orch.run_turn(full.session_id, "surprise me")
+            result = orch.handle_turn(full.session_id, "surprise me")
         assert "Epic Adventures" in result.assistant_message
 
-    async def test_render_reply_contains_rationale(self) -> None:
+    def test_render_reply_contains_rationale(self) -> None:
         cluster = _cluster()
         full = _full(turns=[])
         decision = _decision_recommend(cluster.id)
         with _Patches(full=full, clusters=[cluster], decision=decision):
             orch = Orchestrator()
-            result = await orch.run_turn(full.session_id, "surprise me")
+            result = orch.handle_turn(full.session_id, "surprise me")
         assert "Great dramas" in result.assistant_message
 
 
 class TestStateShortCircuits:
     """Terminate, natural_end, and clarify_drift bypass the main pipeline."""
 
-    async def test_terminate_returns_stop_step_type(self) -> None:
+    def test_terminate_returns_stop_step_type(self) -> None:
         full = _full(turns=[])
         conv = StateDecision(
             action=StateAction.terminate,
@@ -441,14 +409,14 @@ class TestStateShortCircuits:
             ).start()
             try:
                 orch = Orchestrator()
-                result = await orch.run_turn(full.session_id, "hi")
+                result = orch.handle_turn(full.session_id, "hi")
             finally:
                 mark_abandoned.stop()
         assert result.step_type == StepType.stop
         # Profile result must NOT be persisted on termination (speculative run is discarded)
         assert not p.update_profile.called
 
-    async def test_natural_end_does_not_persist_profile(self) -> None:
+    def test_natural_end_does_not_persist_profile(self) -> None:
         full = _full(turns=[])
         conv = StateDecision(
             action=StateAction.natural_end,
@@ -459,11 +427,11 @@ class TestStateShortCircuits:
             with patch("backend.orchestrator.orchestrator.api_sessions.mark_converged"), \
                  patch("backend.orchestrator.orchestrator.api_sessions.append_turn"):
                 orch = Orchestrator()
-                result = await orch.run_turn(full.session_id, "bye")
+                result = orch.handle_turn(full.session_id, "bye")
         # Profile result must NOT be persisted on natural_end (speculative run is discarded)
         assert not p.update_profile.called
 
-    async def test_clarify_drift_does_not_snapshot_clusters(self) -> None:
+    def test_clarify_drift_does_not_snapshot_clusters(self) -> None:
         full = _full(turns=[])
         conv = StateDecision(
             action=StateAction.clarify_drift,
@@ -477,7 +445,7 @@ class TestStateShortCircuits:
             with patch("backend.orchestrator.orchestrator.emit_drift_clarification") as mock_emit:
                 mock_emit.return_value = MagicMock(step_type=StepType.ask)
                 orch = Orchestrator()
-                await orch.run_turn(full.session_id, "horror please")
+                orch.handle_turn(full.session_id, "horror please")
         # Cluster result must NOT be persisted on clarify_drift (speculative run is discarded)
         assert not p.snapshot_clusters.called
 
@@ -485,20 +453,20 @@ class TestStateShortCircuits:
 class TestDecisionAgentReceivesProfile:
     """Decision agent is called with the N-1 preference profile."""
 
-    async def test_decision_receives_prior_profile(self) -> None:
+    def test_decision_receives_prior_profile(self) -> None:
         prior = {"constraints": ["no horror"], "preferences": [], "attitudes": [], "summary": ""}
         full = _full(turns=[], preference_profile=prior)
         with _Patches(full=full) as p:
             orch = Orchestrator()
-            await orch.run_turn(full.session_id, "drama")
+            orch.handle_turn(full.session_id, "drama")
         call_kwargs = p.decision_decide.call_args.kwargs
         assert call_kwargs["preference_profile"] == prior
 
-    async def test_decision_receives_none_on_first_turn(self) -> None:
+    def test_decision_receives_none_on_first_turn(self) -> None:
         full = _full(turns=[], preference_profile=None)
         with _Patches(full=full) as p:
             orch = Orchestrator()
-            await orch.run_turn(full.session_id, "drama")
+            orch.handle_turn(full.session_id, "drama")
         call_kwargs = p.decision_decide.call_args.kwargs
         assert call_kwargs["preference_profile"] is None
 
@@ -516,14 +484,14 @@ class _Recorder:
 class TestProgressCallback:
     """Wave-level progress events fire in the expected order for every branch."""
 
-    async def test_recommend_emits_understand_choose_finalize(self) -> None:
+    def test_recommend_emits_understand_choose_finalize(self) -> None:
         cluster = _cluster()
         full = _full(turns=[])
         decision = _decision_recommend(cluster.id)
         rec = _Recorder()
         with _Patches(full=full, clusters=[cluster], decision=decision):
             orch = Orchestrator()
-            await orch.run_turn(full.session_id, "surprise me", progress_cb=rec)
+            orch.handle_turn(full.session_id, "surprise me", progress_cb=rec)
         assert rec.events == [
             ("understand", "start"),
             ("understand", "end"),
@@ -533,12 +501,12 @@ class TestProgressCallback:
             ("finalize", "end"),
         ]
 
-    async def test_continue_emits_understand_choose_finalize(self) -> None:
+    def test_continue_emits_understand_choose_finalize(self) -> None:
         full = _full(turns=[])
         rec = _Recorder()
         with _Patches(full=full):
             orch = Orchestrator()
-            await orch.run_turn(full.session_id, "tell me more", progress_cb=rec)
+            orch.handle_turn(full.session_id, "tell me more", progress_cb=rec)
         assert rec.events == [
             ("understand", "start"),
             ("understand", "end"),
@@ -548,7 +516,7 @@ class TestProgressCallback:
             ("finalize", "end"),
         ]
 
-    async def test_terminate_emits_wrap_up(self) -> None:
+    def test_terminate_emits_wrap_up(self) -> None:
         full = _full(turns=[])
         conv = StateDecision(
             action=StateAction.terminate,
@@ -560,7 +528,7 @@ class TestProgressCallback:
             with patch("backend.orchestrator.orchestrator.api_sessions.mark_abandoned"), \
                  patch("backend.orchestrator.orchestrator.api_sessions.append_turn"):
                 orch = Orchestrator()
-                await orch.run_turn(full.session_id, "hi", progress_cb=rec)
+                orch.handle_turn(full.session_id, "hi", progress_cb=rec)
         assert rec.events == [
             ("understand", "start"),
             ("understand", "end"),
@@ -568,7 +536,7 @@ class TestProgressCallback:
             ("wrap_up", "end"),
         ]
 
-    async def test_natural_end_emits_wrap_up(self) -> None:
+    def test_natural_end_emits_wrap_up(self) -> None:
         full = _full(turns=[])
         conv = StateDecision(
             action=StateAction.natural_end,
@@ -581,7 +549,7 @@ class TestProgressCallback:
                  patch("backend.orchestrator.orchestrator.api_sessions.append_turn"), \
                  patch("backend.orchestrator.orchestrator.api_sessions.write_feedback"):
                 orch = Orchestrator()
-                await orch.run_turn(full.session_id, "bye", progress_cb=rec)
+                orch.handle_turn(full.session_id, "bye", progress_cb=rec)
         assert rec.events == [
             ("understand", "start"),
             ("understand", "end"),
@@ -589,7 +557,7 @@ class TestProgressCallback:
             ("wrap_up", "end"),
         ]
 
-    async def test_clarify_drift_emits_wrap_up(self) -> None:
+    def test_clarify_drift_emits_wrap_up(self) -> None:
         full = _full(turns=[])
         conv = StateDecision(
             action=StateAction.clarify_drift,
@@ -604,7 +572,7 @@ class TestProgressCallback:
             with patch("backend.orchestrator.orchestrator.emit_drift_clarification") as mock_emit:
                 mock_emit.return_value = MagicMock(step_type=StepType.ask)
                 orch = Orchestrator()
-                await orch.run_turn(full.session_id, "horror please", progress_cb=rec)
+                orch.handle_turn(full.session_id, "horror please", progress_cb=rec)
         assert rec.events == [
             ("understand", "start"),
             ("understand", "end"),
@@ -612,7 +580,7 @@ class TestProgressCallback:
             ("wrap_up", "end"),
         ]
 
-    async def test_empty_retrieval_emits_wrap_up(self) -> None:
+    def test_empty_retrieval_emits_wrap_up(self) -> None:
         full = _full(turns=[])
         rec = _Recorder()
         with _Patches(full=full) as p:
@@ -620,7 +588,7 @@ class TestProgressCallback:
             with patch("backend.orchestrator.orchestrator.emit_early_clarification") as mock_emit:
                 mock_emit.return_value = MagicMock(step_type=StepType.ask)
                 orch = Orchestrator()
-                await orch.run_turn(full.session_id, "thing", progress_cb=rec)
+                orch.handle_turn(full.session_id, "thing", progress_cb=rec)
         assert rec.events == [
             ("understand", "start"),
             ("understand", "end"),
@@ -628,7 +596,7 @@ class TestProgressCallback:
             ("wrap_up", "end"),
         ]
 
-    async def test_callback_exception_does_not_abort_turn(self) -> None:
+    def test_callback_exception_does_not_abort_turn(self) -> None:
         """A misbehaving callback must not crash the orchestrator."""
 
         def boom(event: ProgressEvent) -> None:
@@ -639,7 +607,7 @@ class TestProgressCallback:
         decision = _decision_recommend(cluster.id)
         with _Patches(full=full, clusters=[cluster], decision=decision):
             orch = Orchestrator()
-            result = await orch.run_turn(full.session_id, "go", progress_cb=boom)
+            result = orch.handle_turn(full.session_id, "go", progress_cb=boom)
         assert result.step_type == StepType.show
 
 
@@ -653,7 +621,7 @@ class TestDriftConfirmAndDismiss:
         full = _full(turns=[drift_turn])
         return full
 
-    async def test_drift_confirmed_calls_retrieve_from_profile(self) -> None:
+    def test_drift_confirmed_calls_retrieve_from_profile(self) -> None:
         full = self._drift_full()
         conv = StateDecision(
             action=StateAction.drift_confirmed,
@@ -661,10 +629,10 @@ class TestDriftConfirmAndDismiss:
         )
         with _Patches(full=full, conv_decision=conv) as p:
             orch = Orchestrator()
-            await orch.run_turn(full.session_id, "Yes I changed my mind")
+            orch.handle_turn(full.session_id, "Yes I changed my mind")
         assert p.retrieval_retrieve_from_profile.called
 
-    async def test_drift_confirmed_uses_profile_summary_as_summary_arg(self) -> None:
+    def test_drift_confirmed_uses_profile_summary_as_summary_arg(self) -> None:
         full = self._drift_full()
         conv = StateDecision(
             action=StateAction.drift_confirmed,
@@ -678,11 +646,11 @@ class TestDriftConfirmAndDismiss:
         )
         with _Patches(full=full, conv_decision=conv, profile=profile) as p:
             orch = Orchestrator()
-            await orch.run_turn(full.session_id, "Yes I changed my mind")
+            orch.handle_turn(full.session_id, "Yes I changed my mind")
         call_kwargs = p.retrieval_retrieve_from_profile.call_args.kwargs
         assert call_kwargs.get("summary") == "Enjoys slow drama"
 
-    async def test_drift_confirmed_falls_back_to_user_message_when_no_profile_summary(self) -> None:
+    def test_drift_confirmed_falls_back_to_user_message_when_no_profile_summary(self) -> None:
         full = self._drift_full()
         full.preference_profile = None
         conv = StateDecision(
@@ -692,11 +660,11 @@ class TestDriftConfirmAndDismiss:
         profile = UserProfile(constraints=[], preferences=[], attitudes=[], summary="")
         with _Patches(full=full, conv_decision=conv, profile=profile) as p:
             orch = Orchestrator()
-            await orch.run_turn(full.session_id, "Yes I changed my mind")
+            orch.handle_turn(full.session_id, "Yes I changed my mind")
         call_kwargs = p.retrieval_retrieve_from_profile.call_args.kwargs
         assert call_kwargs.get("summary") == "Yes I changed my mind"
 
-    async def test_drift_confirmed_passes_seen_films_as_excluded_films(self) -> None:
+    def test_drift_confirmed_passes_seen_films_as_excluded_films(self) -> None:
         full = self._drift_full()
         full.preference_profile = {
             "constraints": [], "preferences": [], "attitudes": [], "summary": "Likes drama",
@@ -712,12 +680,12 @@ class TestDriftConfirmAndDismiss:
         )
         with _Patches(full=full, conv_decision=conv, profile=profile) as p:
             orch = Orchestrator()
-            await orch.run_turn(full.session_id, "Yes I changed my mind")
+            orch.handle_turn(full.session_id, "Yes I changed my mind")
         call_kwargs = p.retrieval_retrieve_from_profile.call_args.kwargs
         assert "Film X" in call_kwargs.get("excluded_films", [])
         assert "Film Y" in call_kwargs.get("excluded_films", [])
 
-    async def test_drift_dismissed_does_not_call_retrieve_from_profile(self) -> None:
+    def test_drift_dismissed_does_not_call_retrieve_from_profile(self) -> None:
         full = self._drift_full()
         conv = StateDecision(
             action=StateAction.drift_dismissed,
@@ -725,10 +693,10 @@ class TestDriftConfirmAndDismiss:
         )
         with _Patches(full=full, conv_decision=conv) as p:
             orch = Orchestrator()
-            await orch.run_turn(full.session_id, "No I meant supernatural drama")
+            orch.handle_turn(full.session_id, "No I meant supernatural drama")
         assert not p.retrieval_retrieve_from_profile.called
 
-    async def test_drift_dismissed_proceeds_to_decision_agent(self) -> None:
+    def test_drift_dismissed_proceeds_to_decision_agent(self) -> None:
         full = self._drift_full()
         conv = StateDecision(
             action=StateAction.drift_dismissed,
@@ -736,10 +704,10 @@ class TestDriftConfirmAndDismiss:
         )
         with _Patches(full=full, conv_decision=conv) as p:
             orch = Orchestrator()
-            await orch.run_turn(full.session_id, "No I meant supernatural drama")
+            orch.handle_turn(full.session_id, "No I meant supernatural drama")
         assert p.decision_decide.called
 
-    async def test_drift_confirmed_proceeds_to_decision_agent(self) -> None:
+    def test_drift_confirmed_proceeds_to_decision_agent(self) -> None:
         full = self._drift_full()
         conv = StateDecision(
             action=StateAction.drift_confirmed,
@@ -747,14 +715,14 @@ class TestDriftConfirmAndDismiss:
         )
         with _Patches(full=full, conv_decision=conv) as p:
             orch = Orchestrator()
-            await orch.run_turn(full.session_id, "Yes I changed my mind")
+            orch.handle_turn(full.session_id, "Yes I changed my mind")
         assert p.decision_decide.called
 
 
 class TestTerminalStateTolerance:
     """When state is terminal, a cluster-agent crash must NOT kill the turn."""
 
-    async def test_natural_end_survives_cluster_crash(self) -> None:
+    def test_natural_end_survives_cluster_crash(self) -> None:
         full = _full(turns=[])
         conv = StateDecision(
             action=StateAction.natural_end,
@@ -766,10 +734,10 @@ class TestTerminalStateTolerance:
             with patch("backend.orchestrator.orchestrator.api_sessions.mark_converged"), \
                  patch("backend.orchestrator.orchestrator.api_sessions.append_turn"):
                 orch = Orchestrator()
-                result = await orch.run_turn(full.session_id, "that's all, thanks")
+                result = orch.handle_turn(full.session_id, "that's all, thanks")
         assert result.step_type == StepType.stop
 
-    async def test_terminate_survives_cluster_crash(self) -> None:
+    def test_terminate_survives_cluster_crash(self) -> None:
         full = _full(turns=[])
         conv = StateDecision(
             action=StateAction.terminate,
@@ -781,10 +749,10 @@ class TestTerminalStateTolerance:
             with patch("backend.orchestrator.orchestrator.api_sessions.mark_abandoned"), \
                  patch("backend.orchestrator.orchestrator.api_sessions.append_turn"):
                 orch = Orchestrator()
-                result = await orch.run_turn(full.session_id, "done")
+                result = orch.handle_turn(full.session_id, "done")
         assert result.step_type == StepType.stop
 
-    async def test_clarify_drift_survives_profile_crash(self) -> None:
+    def test_clarify_drift_survives_profile_crash(self) -> None:
         full = _full(turns=[])
         conv = StateDecision(
             action=StateAction.clarify_drift,
@@ -799,32 +767,32 @@ class TestTerminalStateTolerance:
             with patch("backend.orchestrator.orchestrator.emit_drift_clarification") as mock_emit:
                 mock_emit.return_value = MagicMock(step_type=StepType.ask)
                 orch = Orchestrator()
-                result = await orch.run_turn(full.session_id, "horror please")
+                result = orch.handle_turn(full.session_id, "horror please")
         assert result.step_type == StepType.ask
 
 
 class TestReRetrieve:
     """re_retrieve runs a fresh chain via retrieve_from_profile with seen_films as excluded_films."""
 
-    async def test_re_retrieve_calls_retrieve_from_profile(self) -> None:
+    def test_re_retrieve_calls_retrieve_from_profile(self) -> None:
         prior_show = _turn("show", "Here are some films", clusters=[_cluster()])
         full = _full(turns=[prior_show])
         conv = StateDecision(action=StateAction.re_retrieve, reason="oracle already seen all films")
         with _Patches(full=full, conv_decision=conv) as p:
             orch = Orchestrator()
-            await orch.run_turn(full.session_id, "I've already seen all of those")
+            orch.handle_turn(full.session_id, "I've already seen all of those")
         assert p.retrieval_retrieve_from_profile.called
 
-    async def test_re_retrieve_proceeds_to_decision_agent(self) -> None:
+    def test_re_retrieve_proceeds_to_decision_agent(self) -> None:
         prior_show = _turn("show", "Here are some films", clusters=[_cluster()])
         full = _full(turns=[prior_show])
         conv = StateDecision(action=StateAction.re_retrieve, reason="oracle already seen all films")
         with _Patches(full=full, conv_decision=conv) as p:
             orch = Orchestrator()
-            await orch.run_turn(full.session_id, "I've already seen all of those")
+            orch.handle_turn(full.session_id, "I've already seen all of those")
         assert p.decision_decide.called
 
-    async def test_re_retrieve_passes_seen_films_as_excluded_films(self) -> None:
+    def test_re_retrieve_passes_seen_films_as_excluded_films(self) -> None:
         prior_show = _turn("show", "Here are some films", clusters=[_cluster()])
         full = _full(turns=[prior_show], preference_profile={
             "constraints": [],
@@ -844,7 +812,7 @@ class TestReRetrieve:
         )
         with _Patches(full=full, conv_decision=conv, profile=profile) as p:
             orch = Orchestrator()
-            await orch.run_turn(full.session_id, "I've seen them all")
+            orch.handle_turn(full.session_id, "I've seen them all")
         call_kwargs = p.retrieval_retrieve_from_profile.call_args.kwargs
         assert "Film A" in call_kwargs.get("excluded_films", [])
         assert "Film B" in call_kwargs.get("excluded_films", [])
@@ -853,20 +821,20 @@ class TestReRetrieve:
 class TestSeenFilmsAccumulation:
     """seen_films is accumulated deterministically across turns."""
 
-    async def test_recommendations_added_to_seen_films(self) -> None:
+    def test_recommendations_added_to_seen_films(self) -> None:
         cluster = _cluster("Drama", n_assignments=3)
         full = _full(turns=[])
         decision = _decision_recommend(cluster.id)
         with _Patches(full=full, clusters=[cluster], decision=decision) as p:
             orch = Orchestrator()
-            await orch.run_turn(full.session_id, "surprise me")
+            orch.handle_turn(full.session_id, "surprise me")
         p.update_profile.assert_called_once()
         call_args = p.update_profile.call_args
         persisted = call_args.args[1] if call_args.args else call_args.kwargs.get("preference_profile") or call_args.kwargs.get("profile_jsonb")
         assert "seen_films" in persisted
         assert len(persisted["seen_films"]) > 0
 
-    async def test_anchor_films_merged_into_seen(self) -> None:
+    def test_anchor_films_merged_into_seen(self) -> None:
         full = _full(turns=[], preference_profile=None)
         profile = UserProfile(
             constraints=[],
@@ -877,7 +845,7 @@ class TestSeenFilmsAccumulation:
         )
         with _Patches(full=full, profile=profile) as p:
             orch = Orchestrator()
-            await orch.run_turn(full.session_id, "something like Interstellar")
+            orch.handle_turn(full.session_id, "something like Interstellar")
         p.update_profile.assert_called_once()
         call_args = p.update_profile.call_args
         persisted = call_args.args[1] if call_args.args else call_args.kwargs.get("preference_profile") or call_args.kwargs.get("profile_jsonb")
