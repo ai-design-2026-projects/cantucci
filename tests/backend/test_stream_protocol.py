@@ -28,16 +28,16 @@ from backend.orchestrator.progress import (
     ProgressEvent,
     ProgressStep,
 )
-from backend.routers.dtos import SessionState, TurnResult
+from backend.routers.dtos import SessionDto, TurnDto
 from backend.routers.sessions import router as sessions_router
 
 
 SESSION_ID = uuid4()
 
 
-def _make_turn_result(session_id: UUID, *, message: str = "ok") -> TurnResult:
-    """Build a deterministic ``TurnResult`` for the fake to return."""
-    return TurnResult(
+def _make_turn_result(session_id: UUID, *, message: str = "ok") -> TurnDto:
+    """Build a deterministic ``TurnDto`` for the fake to return."""
+    return TurnDto(
         turn_id=uuid4(),
         session_id=session_id,
         turn_number=1,
@@ -50,10 +50,10 @@ def _make_turn_result(session_id: UUID, *, message: str = "ok") -> TurnResult:
     )
 
 
-def _make_session_state(session_id: UUID) -> SessionState:
-    """Build a minimal ``SessionState`` for the pre-stream existence check."""
+def _make_session_state(session_id: UUID) -> SessionDto:
+    """Build a minimal ``SessionDto`` for the pre-stream existence check."""
     now = datetime.now(timezone.utc)
-    return SessionState(
+    return SessionDto(
         session_id=session_id,
         status=SessionStatus.active,
         max_turns=10,
@@ -78,7 +78,7 @@ class FakeOrchestrator:
         *,
         known_session_ids: set[UUID],
         scripted_events: list[tuple[ProgressStep, str]],
-        returns: TurnResult | None = None,
+        returns: TurnDto | None = None,
         raises: Exception | None = None,
         progress_delay_s: float = 0.0,
     ) -> None:
@@ -89,7 +89,7 @@ class FakeOrchestrator:
         self.delay = progress_delay_s
         self.received_cb: list[ProgressEvent] = []
 
-    def get_session(self, session_id: UUID) -> SessionState:
+    def get_session(self, session_id: UUID) -> SessionDto:
         if session_id not in self.known:
             raise SessionNotFound(f"no such session {session_id}")
         return _make_session_state(session_id)
@@ -99,7 +99,7 @@ class FakeOrchestrator:
         session_id: UUID,
         user_message: str,
         progress_cb: ProgressCallback | None = None,
-    ) -> TurnResult:
+    ) -> TurnDto:
         for step, phase in self.scripted:
             event = ProgressEvent(step=step, phase=phase)  # type: ignore[arg-type]
             if progress_cb is not None:

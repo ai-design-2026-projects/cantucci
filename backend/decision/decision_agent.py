@@ -19,7 +19,7 @@ from backend.decision.tools import entropy_calculator, relevance_scorer
 from backend.llm import llm_harness
 from backend.llm.prompts import make_prompt_loader
 from backend.settings import get_config_hash, get_settings
-from backend.api.types import ClusterSnapshot
+from backend.api.types import ClusterRow
 from backend.decision.types import DecisionAction, DecisionResponse, DecisionResult
 
 log = logging.getLogger(__name__)
@@ -36,7 +36,7 @@ async def decide(
     turn_id: UUID,
     turn_number: int,
     user_query: str,
-    clusters: list[ClusterSnapshot],
+    clusters: list[ClusterRow],
     preference_profile: dict[str, Any] | None = None,
     accumulated_cost_usd: float = 0.0,
     prior_questions: list[str] | None = None,

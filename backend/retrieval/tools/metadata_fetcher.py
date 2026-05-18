@@ -1,12 +1,12 @@
 import logging
 
 import backend.api.movies as api_movies
-from backend.api.types import MovieMetadata
+from backend.api.types import MovieRow
 
 log = logging.getLogger(__name__)
 
 
-def fetch(movie_ids: list[int]) -> list[MovieMetadata]:
+def fetch(movie_ids: list[int]) -> list[MovieRow]:
     """
     Return enriched metadata for each film in *movie_ids*.
 
@@ -17,7 +17,7 @@ def fetch(movie_ids: list[int]) -> list[MovieMetadata]:
         movie_ids: TMDB integer IDs returned by the vector_search tool.
 
     Returns:
-        List of MovieMetadata in the same order as *movie_ids*.
+        List of MovieRow in the same order as *movie_ids*.
     """
     metadata = api_movies.fetch_metadata(movie_ids)
     log.debug("metadata_fetcher", extra={"requested": len(movie_ids), "returned": len(metadata)})

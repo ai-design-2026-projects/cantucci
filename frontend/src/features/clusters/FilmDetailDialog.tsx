@@ -3,7 +3,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useFetchMovieDetail } from "@/features/clusters/hooks/useFetchMovieDetail";
 import { useUiStore } from "@/store/uiStore";
 import { buildPosterUrl, formatRuntime, formatRating } from "@/features/clusters/utils/clusterFormatters";
-import type { MoviePublic } from "@/utils/types";
+import type { MovieDto } from "@/utils/types";
 
 /**
  * Global film detail modal.
@@ -43,7 +43,7 @@ function FilmSkeleton() {
   );
 }
 
-function FilmLayout({ film }: { film: MoviePublic }) {
+function FilmLayout({ film }: { film: MovieDto }) {
   const posterSrc = buildPosterUrl(film.poster_url);
   const subtitle = [film.release_year, formatRuntime(film.runtime)].filter(Boolean).join(" · ");
 

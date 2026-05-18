@@ -18,7 +18,7 @@ branches on it.
 
 ## Reveal data path
 
-`useFetchConvergedCluster` returns `ConvergedClusterPublic` regardless of oracle type.
+`useFetchConvergedCluster` returns `ConvergedClusterDto` regardless of oracle type.
 The reveal screen is oracle-agnostic; the harness can read convergence outcomes the
 same way the human UI does.
 

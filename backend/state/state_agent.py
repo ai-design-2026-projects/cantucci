@@ -19,7 +19,7 @@ import logging
 from typing import Any
 from uuid import UUID
 
-from backend.api.types import SessionFull, TurnDetail, StepType
+from backend.api.types import SessionRow, TurnRow, StepType
 from backend.state.tools.hard_limits import check_hard_limits as _check_hard_limits
 from backend.state.tools.llm_gate import check_llm_state
 from backend.state.types import StateDecision
@@ -31,25 +31,24 @@ log = logging.getLogger(__name__)
 check_hard_limits = _check_hard_limits
 
 
-async def check_gate(
+async def check_session_state(
     *,
     session_id: UUID,
     run_id: UUID,
     turn_id: UUID,
     turn_number: int,
     user_message: str,
-    full: SessionFull,
+    full: SessionRow,
     preference_profile: dict[str, Any] | None,
     cfg: Settings,
     accumulated_cost_usd: float = 0.0,
     recommended_last_turn: list[str] | None = None,
     seen_films: list[str] | None = None,
 ) -> StateDecision:
-    """LLM gate — detects natural end, preference drift, and re-retrieve triggers.
-
+    """LLM checker for the session state — detects natural end, 
+    preference drift, and re-retrieve triggers.
     The orchestrator must call ``check_hard_limits`` first and short-circuit
-    when that gate trips. ``check_gate`` always issues an LLM call.
-
+    when that gate trips. ``check_session_state`` always issues an LLM call.
     Args:
         session_id:           UUID of the target session.
         run_id:               UUID of the parent run.
@@ -63,7 +62,6 @@ async def check_gate(
         accumulated_cost_usd: Running USD cost for the current turn (cost guard).
         recommended_last_turn: Titles shown in the most recent recommendation turn.
         seen_films:           Accumulated seen-film titles across the session.
-
     Returns:
         ``StateDecision`` with action one of:
           * ``proceed``         — normal pipeline should run.
@@ -78,7 +76,7 @@ async def check_gate(
         CostLimitExceeded: If the session budget is exhausted.
     """
     show_count = sum(1 for t in full.turns if t.step_type == StepType.show.value)
-    recent_turns: list[TurnDetail] = full.turns[-2:]
+    recent_turns: list[TurnRow] = full.turns[-2:]
 
     prev = full.turns[-1] if full.turns else None
     in_drift_clarification_state = prev is not None and any(

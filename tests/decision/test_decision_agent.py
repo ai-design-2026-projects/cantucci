@@ -17,7 +17,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from backend.api.types import ClusterAssignment, ClusterSnapshot
+from backend.api.types import ClusterAssignment, ClusterRow
 from backend.decision import decision_agent
 from backend.decision.types import DecisionAction, DecisionResult
 
@@ -26,8 +26,8 @@ from backend.decision.types import DecisionAction, DecisionResult
 # Builders
 # ---------------------------------------------------------------------------
 
-def _cluster(name: str = "Drama", n: int = 3) -> ClusterSnapshot:
-    c = MagicMock(spec=ClusterSnapshot)
+def _cluster(name: str = "Drama", n: int = 3) -> ClusterRow:
+    c = MagicMock(spec=ClusterRow)
     c.id = uuid.uuid4()
     c.name = name
     c.description = "Intense dramas"
@@ -52,7 +52,7 @@ def _cfg() -> MagicMock:
     return cfg
 
 
-async def _call_decide(clusters: list[ClusterSnapshot] | None = None, **kwargs: Any) -> DecisionResult:
+async def _call_decide(clusters: list[ClusterRow] | None = None, **kwargs: Any) -> DecisionResult:
     """Call decide() with all required fields mocked."""
     return await decision_agent.decide(
         session_id=uuid.uuid4(),

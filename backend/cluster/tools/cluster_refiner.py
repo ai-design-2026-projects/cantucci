@@ -2,7 +2,7 @@ import logging
 from pathlib import Path
 from uuid import UUID, uuid4
 
-from backend.api.types import ClusterAssignment, ClusterSnapshot
+from backend.api.types import ClusterAssignment, ClusterRow
 from backend.cluster.types import ClusterRefineResponse
 from backend.llm import llm_harness
 from backend.llm.prompts import make_prompt_loader
@@ -24,7 +24,7 @@ _OVERVIEW_SNIPPET_LIMIT = 240
 
 async def refine(
     *,
-    prior_clusters: list[ClusterSnapshot],
+    prior_clusters: list[ClusterRow],
     user_query: str,
     system_message: str,
     oracle_reply: str,
@@ -33,12 +33,12 @@ async def refine(
     turn_id: UUID,
     accumulated_cost_usd: float = 0.0,
     dry_run: bool = False,
-) -> list[ClusterSnapshot]:
+) -> list[ClusterRow]:
     """
     Refine *prior_clusters* given the oracle's latest reply in a single LLM call.
 
     Args:
-        prior_clusters:       The most recent turn's ``ClusterSnapshot`` list
+        prior_clusters:       The most recent turn's ``ClusterRow`` list
                               that the orchestrator wants to evolve. The union
                               of their assignments forms the pool of films the
                               refiner may keep, move, or drop.
@@ -56,7 +56,7 @@ async def refine(
         dry_run:              If ``True``, skip the live LLM and use the fixture.
 
     Returns:
-        Refined ``list[ClusterSnapshot]``. New UUIDs are minted for every
+        Refined ``list[ClusterRow]``. New UUIDs are minted for every
         cluster because refinement can split/merge prior clusters; reusing
         prior IDs would misrepresent identity.
 
@@ -172,7 +172,7 @@ async def refine(
         )
         raise LLMParseError(step_type=_STEP_TYPE, raw=response.content)
 
-    snapshots: list[ClusterSnapshot] = []
+    snapshots: list[ClusterRow] = []
     kept_ids: set[int] = set()
     for c in parsed.clusters:
         assignments = [
@@ -187,7 +187,7 @@ async def refine(
         for a in assignments:
             kept_ids.add(a.movie_id)
         snapshots.append(
-            ClusterSnapshot(
+            ClusterRow(
                 id=uuid4(),
                 name=c.name,
                 description=c.description,

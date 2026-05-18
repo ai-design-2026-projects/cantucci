@@ -19,7 +19,7 @@ import logging
 from uuid import UUID
 
 from backend.api import movies as api_movies
-from backend.api.types import MovieMetadata
+from backend.api.types import MovieRow
 from backend.api.types import MovieHit
 from backend.retrieval.tools import metadata_fetcher, query_reformulator, vector_search
 from backend.retrieval.types import RetrievalResult
@@ -39,7 +39,7 @@ def _finalize(
     turn_id: UUID,
 ) -> RetrievalResult:
     """Fetch metadata for *hits*, sort, warn on shortfall, and return a ``RetrievalResult``."""
-    metas: list[MovieMetadata] = metadata_fetcher.fetch([h.movie_id for h in hits])
+    metas: list[MovieRow] = metadata_fetcher.fetch([h.movie_id for h in hits])
     log.debug(
         "metadata fetched",
         extra={

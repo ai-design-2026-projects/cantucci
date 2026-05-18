@@ -22,7 +22,7 @@ interface RecommendationMessageProps {
  * - Scrollable strip of remaining films.
  * - "View all N films" button opening a full-list Dialog.
  *
- * @param recommendation - Structured cluster + films payload from TurnResult.
+ * @param recommendation - Structured cluster + films payload from TurnDto.
  */
 export function RecommendationMessage({ recommendation }: RecommendationMessageProps) {
   const { openFilmDetail } = useUiStore();

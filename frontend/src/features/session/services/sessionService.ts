@@ -1,13 +1,13 @@
 import { get, post } from "@/clients/apiClient";
-import type { SessionState } from "@/utils/types";
+import type { SessionDto } from "@/utils/types";
 
 /**
  * Create a new recommendation session on the backend.
  *
- * @returns The newly created SessionState with session_id.
+ * @returns The newly created SessionDto with session_id.
  */
-export function createSession(): Promise<SessionState> {
-  return post<SessionState>("/sessions", {});
+export function createSession(): Promise<SessionDto> {
+  return post<SessionDto>("/sessions", {});
 }
 
 /**
@@ -17,10 +17,10 @@ export function createSession(): Promise<SessionState> {
  * deployed yet (e.g. ``recommendation`` defaults to ``null``).
  *
  * @param sessionId - UUID of the session to retrieve.
- * @returns The SessionState with all turns in ascending order.
+ * @returns The SessionDto with all turns in ascending order.
  */
-export async function fetchSession(sessionId: string): Promise<SessionState> {
-  const data = await get<SessionState>(`/sessions/${sessionId}`);
+export async function fetchSession(sessionId: string): Promise<SessionDto> {
+  const data = await get<SessionDto>(`/sessions/${sessionId}`);
   return {
     ...data,
     turns: data.turns.map((turn) => ({

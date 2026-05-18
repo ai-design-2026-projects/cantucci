@@ -47,7 +47,7 @@ from typing import Literal, Protocol, Union
 
 from pydantic import BaseModel, Field
 
-from backend.routers.dtos import TurnResult
+from backend.routers.dtos import TurnDto
 
 
 class ProgressStep(str, Enum):
@@ -58,20 +58,20 @@ class ProgressStep(str, Enum):
     concurrently or lie about ordering. Each value here wraps one logical
     block the user perceives as a single activity:
 
-    * ``understand`` — Wave 1, parallel: state + profile + refine (if
+    * ``UNDERSTAND`` — Wave 1, parallel: state + profile + refine (if
                        applicable). Retrieval runs serially after state check
                        on fresh turns.
-    * ``choose``     — Wave 2, serial: decision (now generates the
+    * ``CHOOSE``     — Wave 2, serial: decision (now generates the
       clarifying question itself; ambiguity merged in per PR #61).
-    * ``finalize``   — Reply rendering and final persistence.
-    * ``wrap_up``    — Early-exit paths (hard limit, natural end, drift,
+    * ``FINALIZE``   — Reply rendering and final persistence.
+    * ``WRAP_UP``    — Early-exit paths (hard limit, natural end, drift,
       empty retrieval) that skip the rest of the pipeline.
     """
 
-    understand = "understand"
-    choose = "choose"
-    finalize = "finalize"
-    wrap_up = "wrap_up"
+    UNDERSTAND = "understand"
+    CHOOSE = "choose"
+    FINALIZE = "finalize"
+    WRAP_UP = "wrap_up"
 
 
 ProgressPhase = Literal["start", "end"]
@@ -154,11 +154,11 @@ class ResultEvent(BaseModel):
 
     Attributes:
         type: Always ``"result"`` for discrimination.
-        data: The same ``TurnResult`` shape the legacy JSON endpoint returned.
+        data: The same ``TurnDto`` shape the legacy JSON endpoint returned.
     """
 
     type: Literal["result"] = "result"
-    data: TurnResult
+    data: TurnDto
 
 
 class ErrorEvent(BaseModel):

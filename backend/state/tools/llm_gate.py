@@ -10,7 +10,7 @@ import logging
 from typing import Any
 from uuid import UUID
 
-from backend.api.types import TurnDetail
+from backend.api.types import TurnRow
 from backend.state.types import (
     StateAction,
     StateCheckResponse,
@@ -57,7 +57,7 @@ async def check_llm_state(
     turn_number: int,
     user_message: str,
     preference_profile: dict[str, Any] | None,
-    recent_turns: list[TurnDetail],
+    recent_turns: list[TurnRow],
     show_count: int,
     cfg: Settings,
     accumulated_cost_usd: float = 0.0,

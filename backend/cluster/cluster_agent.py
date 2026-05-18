@@ -4,7 +4,7 @@ Two paths, both driven explicitly by the Orchestrator:
 
 Fresh path (Scenario A):
   1. ``soft_cluster``:      fetch embeddings + HDBSCAN → ``SoftClusterResult`` (no LLM).
-  2. ``describe_clusters``: LLM-name each cluster → ``list[ClusterSnapshot]``.
+  2. ``describe_clusters``: LLM-name each cluster → ``list[ClusterRow]``.
 
 Refinement path (Scenario B):
   ``refine``: thin wrapper over ``cluster_refiner.refine``.
@@ -25,7 +25,7 @@ from backend.cluster.tools import (
     embedding_fetcher,
     soft_cluster_engine,
 )
-from backend.api.types import ClusterAssignment, ClusterSnapshot
+from backend.api.types import ClusterAssignment, ClusterRow
 from backend.retrieval.types import RetrievalResult
 from backend.settings import get_settings
 
@@ -155,7 +155,7 @@ async def describe_clusters(
     turn_id: UUID,
     accumulated_cost_usd: float = 0.0,
     dry_run: bool = False,
-) -> list[ClusterSnapshot]:
+) -> list[ClusterRow]:
     """LLM-name each cluster and build ClusterSnapshots with soft assignments.
 
     Args:
@@ -169,7 +169,7 @@ async def describe_clusters(
         dry_run:              If ``True``, skip live LLM calls.
 
     Returns:
-        List of named ``ClusterSnapshot`` objects with soft assignments.
+        List of named ``ClusterRow`` objects with soft assignments.
 
     Raises:
         LLMParseError:     If the describer LLM call returns malformed JSON.
@@ -198,7 +198,7 @@ async def describe_clusters(
         dry_run=dry_run,
     )
 
-    snapshots: list[ClusterSnapshot] = []
+    snapshots: list[ClusterRow] = []
     for ci, (name, description) in enumerate(labels):
         scores = soft_result.membership[:, ci]
         assignments = [
@@ -213,7 +213,7 @@ async def describe_clusters(
             if scores[i] >= threshold
         ]
         snapshots.append(
-            ClusterSnapshot(
+            ClusterRow(
                 id=uuid4(),
                 name=name,
                 description=description,
@@ -232,7 +232,7 @@ async def describe_clusters(
         },
     )
     log.debug(
-        "final ClusterSnapshot list",
+        "final ClusterRow list",
         extra={
             "session_id": str(session_id),
             "turn_id": str(turn_id),
@@ -245,7 +245,7 @@ async def describe_clusters(
 
 async def refine(
     *,
-    prior_clusters: list[ClusterSnapshot],
+    prior_clusters: list[ClusterRow],
     user_query: str,
     system_message: str,
     oracle_reply: str,
@@ -254,7 +254,7 @@ async def refine(
     turn_id: UUID,
     accumulated_cost_usd: float = 0.0,
     dry_run: bool = False,
-) -> list[ClusterSnapshot]:
+) -> list[ClusterRow]:
     """Refine prior clusters in light of the oracle's latest reply.
 
     Wrapper over ``cluster_refiner.refine``. The orchestrator fires this on
@@ -274,7 +274,7 @@ async def refine(
         dry_run:              If ``True``, skip live LLM calls.
 
     Returns:
-        Refined ``list[ClusterSnapshot]`` with new UUIDs.
+        Refined ``list[ClusterRow]`` with new UUIDs.
 
     Raises:
         LLMParseError:     If the harness exhausts its retry budget.

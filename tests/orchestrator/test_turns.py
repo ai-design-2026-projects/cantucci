@@ -1,4 +1,4 @@
-"""Unit tests for the canned turn emitters in orchestrator/tools/turns.py.
+"""Unit tests for the canned turn emitters in orchestrator/terminal_paths.py.
 
 No DB, no Docker, no LLM. api_sessions calls are patched.
 """
@@ -6,12 +6,15 @@ No DB, no Docker, no LLM. api_sessions calls are patched.
 from __future__ import annotations
 
 import uuid
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
 from backend.api.types import StepType
-from backend.orchestrator.tools.turns import emit_drift_clarification, emit_early_clarification
+from backend.orchestrator.terminal_paths import (
+    emit_drift_clarification,
+    emit_early_clarification,
+)
 from backend.state.types import StateAction, StateDecision
 
 
@@ -31,8 +34,8 @@ def patched_sessions(monkeypatch: pytest.MonkeyPatch):
     """Patch both api_sessions helpers and return mocks."""
     append = MagicMock()
     write = MagicMock()
-    monkeypatch.setattr("backend.orchestrator.tools.turns.api_sessions.append_turn", append)
-    monkeypatch.setattr("backend.orchestrator.tools.turns.api_sessions.write_feedback", write)
+    monkeypatch.setattr("backend.orchestrator.terminal_paths.api_sessions.append_turn", append)
+    monkeypatch.setattr("backend.orchestrator.terminal_paths.api_sessions.write_feedback", write)
     return append, write
 
 

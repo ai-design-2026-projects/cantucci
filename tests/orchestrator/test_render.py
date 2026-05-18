@@ -7,12 +7,12 @@ from __future__ import annotations
 
 from uuid import uuid4
 
-from backend.api.types import ClusterAssignment, ClusterSnapshot
-from backend.orchestrator.tools.render import render_recommendation
+from backend.api.types import ClusterAssignment, ClusterRow
+from backend.orchestrator.presentation import render_recommendation
 
 
-def _cluster(assignments: list[ClusterAssignment]) -> ClusterSnapshot:
-    return ClusterSnapshot(
+def _cluster(assignments: list[ClusterAssignment]) -> ClusterRow:
+    return ClusterRow(
         id=uuid4(),
         name="Needle drops and neon",
         description="Stylish, music-forward picks.",

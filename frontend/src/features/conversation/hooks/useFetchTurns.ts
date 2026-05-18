@@ -1,5 +1,5 @@
 import { useFetchSession } from "@/features/session/hooks/useFetchSession";
-import type { TurnResult } from "@/utils/types";
+import type { TurnDto } from "@/utils/types";
 
 /**
  * Return the ordered turn list for the active session.
@@ -8,9 +8,9 @@ import type { TurnResult } from "@/utils/types";
  * as the session state — no duplicated server state.
  *
  * @param sessionId - Active session UUID, or null to return an empty list.
- * @returns Array of TurnResult in ascending turn_number order.
+ * @returns Array of TurnDto in ascending turn_number order.
  */
-export function useFetchTurns(sessionId: string | null): TurnResult[] {
+export function useFetchTurns(sessionId: string | null): TurnDto[] {
   const { data } = useFetchSession(sessionId);
   return (
     data?.turns.map((turn) => ({

@@ -8,12 +8,12 @@ import {
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useUiStore } from "@/store/uiStore";
 import { formatRating } from "@/features/clusters/utils/clusterFormatters";
-import type { MoviePublic } from "@/utils/types";
+import type { MovieDto } from "@/utils/types";
 
 interface RecommendationFilmsDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  films: MoviePublic[];
+  films: MovieDto[];
   clusterName: string;
 }
 

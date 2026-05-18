@@ -20,11 +20,11 @@ import pytest
 
 from backend.api.types import (
     ClusterAssignment,
-    ClusterSnapshot,
-    SessionFull,
+    ClusterRow,
+    SessionRow,
     SessionStatus,
     StepType,
-    TurnDetail,
+    TurnRow,
 )
 from backend.retrieval.types import RetrievalResult
 from backend.state.types import StateAction, StateDecision
@@ -42,8 +42,8 @@ def _session_id() -> uuid.UUID:
     return uuid.uuid4()
 
 
-def _cluster(name: str = "Drama", n_assignments: int = 3) -> ClusterSnapshot:
-    c = MagicMock(spec=ClusterSnapshot)
+def _cluster(name: str = "Drama", n_assignments: int = 3) -> ClusterRow:
+    c = MagicMock(spec=ClusterRow)
     c.id = uuid.uuid4()
     c.name = name
     c.description = "Great dramas"
@@ -57,7 +57,7 @@ def _cluster(name: str = "Drama", n_assignments: int = 3) -> ClusterSnapshot:
 
 
 def _turn(step_type: str = "ask", assistant_message: str = "What genre?", clusters=None) -> MagicMock:
-    t = MagicMock(spec=TurnDetail)
+    t = MagicMock(spec=TurnRow)
     t.step_type = step_type
     t.assistant_message = assistant_message
     t.user_message = "hi"
@@ -69,7 +69,7 @@ def _full(
     turns: list | None = None,
     preference_profile: dict[str, Any] | None = None,
 ) -> MagicMock:
-    f = MagicMock(spec=SessionFull)
+    f = MagicMock(spec=SessionRow)
     f.session_id = uuid.uuid4()
     f.run_id = uuid.uuid4()
     f.turns = turns or []
@@ -135,7 +135,7 @@ class _Patches:
         *,
         full: MagicMock,
         conv_decision: StateDecision | None = None,
-        clusters: list[ClusterSnapshot] | None = None,
+        clusters: list[ClusterRow] | None = None,
         decision: DecisionResult | None = None,
         profile: UserProfile | None = None,
         cfg: MagicMock | None = None,
@@ -161,11 +161,11 @@ class _Patches:
             return p.start()
 
         self.get_session_full = _patch(
-            "backend.orchestrator.orchestrator.api_retrieval.get_session_full",
+            "backend.api.retrieval.get_session_full",
             return_value=self._full,
         )
         self.get_settings = _patch(
-            "backend.orchestrator.orchestrator.get_settings",
+            "backend.orchestrator.turn_runner.get_settings",
             return_value=self._cfg,
         )
         self.get_config_hash = _patch(
@@ -173,22 +173,22 @@ class _Patches:
             return_value="deadbeef",
         )
         self.conv_check = _patch(
-            "backend.orchestrator.orchestrator.state_agent.check",
+            "backend.state.state_agent.check",
             return_value=self._conv,
         )
         mock_rr = MagicMock(spec=RetrievalResult)
         mock_rr.reformulated_query = "mock reformulated query"
         mock_rr.candidates = []
         self.retrieval_retrieve_from_message = _patch(
-            "backend.orchestrator.orchestrator.retrieval_agent.retrieve_from_message",
+            "backend.retrieval.agent.retrieve_from_message",
             return_value=mock_rr,
         )
         self.retrieval_retrieve_from_profile = _patch(
-            "backend.orchestrator.orchestrator.retrieval_agent.retrieve_from_profile",
+            "backend.retrieval.agent.retrieve_from_profile",
             return_value=mock_rr,
         )
         self.fetch_stubs = _patch(
-            "backend.orchestrator.orchestrator.api_movies.fetch_stubs",
+            "backend.api.movies.fetch_stubs",
             side_effect=lambda ids: [
                 {
                     "id": mid,
@@ -200,8 +200,8 @@ class _Patches:
                 for mid in ids
             ],
         )
-        self.fetch_movies_public = _patch(
-            "backend.orchestrator.orchestrator.api_movies.fetch_movies_public",
+        self.fetch_movies_dto = _patch(
+            "backend.api.movies.fetch_movies_dto",
             side_effect=lambda ids: [
                 {
                     "id": mid,
@@ -223,39 +223,39 @@ class _Patches:
         )
         mock_sr = MagicMock()
         self.cluster_soft = _patch(
-            "backend.orchestrator.orchestrator.cluster_agent.soft_cluster",
+            "backend.cluster.cluster_agent.soft_cluster",
             return_value=mock_sr,
         )
         self.cluster_describe = _patch(
-            "backend.orchestrator.orchestrator.cluster_agent.describe_clusters",
+            "backend.cluster.cluster_agent.describe_clusters",
             return_value=self._clusters,
         )
         self.cluster_refine = _patch(
-            "backend.orchestrator.orchestrator.cluster_agent.refine",
+            "backend.cluster.cluster_agent.refine",
             return_value=self._clusters,
         )
         self.decision_decide = _patch(
-            "backend.orchestrator.orchestrator.decision_agent.decide",
+            "backend.decision.decision_agent.decide",
             return_value=self._decision,
         )
         self.profile_extract = _patch(
-            "backend.orchestrator.orchestrator.profile_agent.extract",
+            "backend.profile.profile_agent.extract",
             return_value=self._profile,
         )
         self.append_turn = _patch(
-            "backend.orchestrator.orchestrator.api_sessions.append_turn",
+            "backend.api.sessions.append_turn",
         )
         self.update_turn = _patch(
-            "backend.orchestrator.orchestrator.api_sessions.update_turn",
+            "backend.api.sessions.update_turn",
         )
         self.snapshot_clusters = _patch(
-            "backend.orchestrator.orchestrator.api_sessions.snapshot_clusters",
+            "backend.api.sessions.snapshot_clusters",
         )
         self.write_feedback = _patch(
-            "backend.orchestrator.orchestrator.api_sessions.write_feedback",
+            "backend.api.sessions.write_feedback",
         )
         self.update_profile = _patch(
-            "backend.orchestrator.orchestrator.api_sessions.update_preference_profile",
+            "backend.api.sessions.update_preference_profile",
         )
         return self
 
@@ -405,7 +405,7 @@ class TestStateShortCircuits:
         with _Patches(full=full, conv_decision=conv) as p:
             # Terminate path calls append_turn + mark_abandoned — mock those
             mark_abandoned = patch(
-                "backend.orchestrator.orchestrator.api_sessions.mark_abandoned"
+                "backend.api.sessions.mark_abandoned"
             ).start()
             try:
                 orch = Orchestrator()
@@ -424,8 +424,8 @@ class TestStateShortCircuits:
             reply="Goodbye!",
         )
         with _Patches(full=full, conv_decision=conv) as p:
-            with patch("backend.orchestrator.orchestrator.api_sessions.mark_converged"), \
-                 patch("backend.orchestrator.orchestrator.api_sessions.append_turn"):
+            with patch("backend.api.sessions.mark_converged"), \
+                 patch("backend.api.sessions.append_turn"):
                 orch = Orchestrator()
                 result = orch.handle_turn(full.session_id, "bye")
         # Profile result must NOT be persisted on natural_end (speculative run is discarded)
@@ -442,7 +442,7 @@ class TestStateShortCircuits:
             current_statement="horror please",
         )
         with _Patches(full=full, conv_decision=conv) as p:
-            with patch("backend.orchestrator.orchestrator.emit_drift_clarification") as mock_emit:
+            with patch("backend.orchestrator.terminal_paths.emit_drift_clarification") as mock_emit:
                 mock_emit.return_value = MagicMock(step_type=StepType.ask)
                 orch = Orchestrator()
                 orch.handle_turn(full.session_id, "horror please")
@@ -525,8 +525,8 @@ class TestProgressCallback:
         )
         rec = _Recorder()
         with _Patches(full=full, conv_decision=conv):
-            with patch("backend.orchestrator.orchestrator.api_sessions.mark_abandoned"), \
-                 patch("backend.orchestrator.orchestrator.api_sessions.append_turn"):
+            with patch("backend.api.sessions.mark_abandoned"), \
+                 patch("backend.api.sessions.append_turn"):
                 orch = Orchestrator()
                 orch.handle_turn(full.session_id, "hi", progress_cb=rec)
         assert rec.events == [
@@ -545,9 +545,9 @@ class TestProgressCallback:
         )
         rec = _Recorder()
         with _Patches(full=full, conv_decision=conv):
-            with patch("backend.orchestrator.orchestrator.api_sessions.mark_converged"), \
-                 patch("backend.orchestrator.orchestrator.api_sessions.append_turn"), \
-                 patch("backend.orchestrator.orchestrator.api_sessions.write_feedback"):
+            with patch("backend.api.sessions.mark_converged"), \
+                 patch("backend.api.sessions.append_turn"), \
+                 patch("backend.api.sessions.write_feedback"):
                 orch = Orchestrator()
                 orch.handle_turn(full.session_id, "bye", progress_cb=rec)
         assert rec.events == [
@@ -569,7 +569,7 @@ class TestProgressCallback:
         )
         rec = _Recorder()
         with _Patches(full=full, conv_decision=conv):
-            with patch("backend.orchestrator.orchestrator.emit_drift_clarification") as mock_emit:
+            with patch("backend.orchestrator.terminal_paths.emit_drift_clarification") as mock_emit:
                 mock_emit.return_value = MagicMock(step_type=StepType.ask)
                 orch = Orchestrator()
                 orch.handle_turn(full.session_id, "horror please", progress_cb=rec)
@@ -585,7 +585,7 @@ class TestProgressCallback:
         rec = _Recorder()
         with _Patches(full=full) as p:
             p.cluster_soft.return_value = None
-            with patch("backend.orchestrator.orchestrator.emit_early_clarification") as mock_emit:
+            with patch("backend.orchestrator.terminal_paths.emit_early_clarification") as mock_emit:
                 mock_emit.return_value = MagicMock(step_type=StepType.ask)
                 orch = Orchestrator()
                 orch.handle_turn(full.session_id, "thing", progress_cb=rec)
@@ -731,8 +731,8 @@ class TestTerminalStateTolerance:
         )
         with _Patches(full=full, conv_decision=conv) as p:
             p.cluster_soft.side_effect = RuntimeError("retrieval reformulation failed")
-            with patch("backend.orchestrator.orchestrator.api_sessions.mark_converged"), \
-                 patch("backend.orchestrator.orchestrator.api_sessions.append_turn"):
+            with patch("backend.api.sessions.mark_converged"), \
+                 patch("backend.api.sessions.append_turn"):
                 orch = Orchestrator()
                 result = orch.handle_turn(full.session_id, "that's all, thanks")
         assert result.step_type == StepType.stop
@@ -746,8 +746,8 @@ class TestTerminalStateTolerance:
         )
         with _Patches(full=full, conv_decision=conv) as p:
             p.cluster_soft.side_effect = RuntimeError("retrieval reformulation failed")
-            with patch("backend.orchestrator.orchestrator.api_sessions.mark_abandoned"), \
-                 patch("backend.orchestrator.orchestrator.api_sessions.append_turn"):
+            with patch("backend.api.sessions.mark_abandoned"), \
+                 patch("backend.api.sessions.append_turn"):
                 orch = Orchestrator()
                 result = orch.handle_turn(full.session_id, "done")
         assert result.step_type == StepType.stop
@@ -764,7 +764,7 @@ class TestTerminalStateTolerance:
         )
         with _Patches(full=full, conv_decision=conv) as p:
             p.profile_extract.side_effect = RuntimeError("profile agent crashed")
-            with patch("backend.orchestrator.orchestrator.emit_drift_clarification") as mock_emit:
+            with patch("backend.orchestrator.terminal_paths.emit_drift_clarification") as mock_emit:
                 mock_emit.return_value = MagicMock(step_type=StepType.ask)
                 orch = Orchestrator()
                 result = orch.handle_turn(full.session_id, "horror please")

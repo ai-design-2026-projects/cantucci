@@ -70,7 +70,7 @@ def test_create_session_persists_row(client: TestClient) -> None:
 
 
 def test_full_turn_runs_end_to_end(client: TestClient) -> None:
-    """POST /turns streams NDJSON ending in a well-formed TurnResult event."""
+    """POST /turns streams NDJSON ending in a well-formed TurnDto event."""
     session = client.post("/sessions").json()
     session_id = session["session_id"]
 

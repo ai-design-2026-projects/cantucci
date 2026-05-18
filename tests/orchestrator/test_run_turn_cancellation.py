@@ -23,10 +23,10 @@ import pytest
 
 from backend.api.types import (
     ClusterAssignment,
-    ClusterSnapshot,
-    SessionFull,
+    ClusterRow,
+    SessionRow,
     StepType,
-    TurnDetail,
+    TurnRow,
 )
 from backend.retrieval.types import RetrievalResult
 from backend.state.types import StateAction, StateDecision
@@ -42,8 +42,8 @@ from backend.orchestrator.orchestrator import Orchestrator
 _NEXT_MOVIE_ID: list[int] = [10_000]
 
 
-def _cluster(name: str = "Drama", n: int = 3) -> ClusterSnapshot:
-    c = MagicMock(spec=ClusterSnapshot)
+def _cluster(name: str = "Drama", n: int = 3) -> ClusterRow:
+    c = MagicMock(spec=ClusterRow)
     c.id = uuid.uuid4()
     c.name = name
     c.description = "x"
@@ -61,7 +61,7 @@ def _cluster(name: str = "Drama", n: int = 3) -> ClusterSnapshot:
 
 
 def _turn(step_type: str = "ask", assistant: str = "?", clusters=None) -> MagicMock:
-    t = MagicMock(spec=TurnDetail)
+    t = MagicMock(spec=TurnRow)
     t.step_type = step_type
     t.assistant_message = assistant
     t.user_message = "x"
@@ -70,7 +70,7 @@ def _turn(step_type: str = "ask", assistant: str = "?", clusters=None) -> MagicM
 
 
 def _full(turns: list | None = None, prior_profile: dict[str, Any] | None = None) -> MagicMock:
-    f = MagicMock(spec=SessionFull)
+    f = MagicMock(spec=SessionRow)
     f.session_id = uuid.uuid4()
     f.run_id = uuid.uuid4()
     f.turns = turns or []
@@ -145,11 +145,11 @@ class _GraphPatches:
 
         # Make the orchestrator DB-free.
         self.get_session_full = _p(
-            "backend.orchestrator.orchestrator.api_retrieval.get_session_full",
+            "backend.api.retrieval.get_session_full",
             return_value=self._full,
         )
         self.get_settings = _p(
-            "backend.orchestrator.orchestrator.get_settings",
+            "backend.orchestrator.turn_runner.get_settings",
             return_value=self._cfg,
         )
         self.get_config_hash = _p(
@@ -157,69 +157,69 @@ class _GraphPatches:
             return_value="deadbeef",
         )
         self.hard_limits = _p(
-            "backend.orchestrator.orchestrator.state_agent.check_hard_limits",
+            "backend.state.state_agent.check_hard_limits",
             return_value=StateDecision(action=StateAction.proceed, reason="ok"),
         )
         self.check_gate = _p(
-            "backend.orchestrator.orchestrator.state_agent.check_gate",
+            "backend.state.state_agent.check_gate",
             return_value=_proceed(),
             is_async=True,
         )
         self.retrieve_from_message = _p(
-            "backend.orchestrator.orchestrator.retrieval_agent.retrieve_from_message",
+            "backend.retrieval.agent.retrieve_from_message",
             return_value=_mock_rr(),
             is_async=True,
         )
         self.retrieve_from_profile = _p(
-            "backend.orchestrator.orchestrator.retrieval_agent.retrieve_from_profile",
+            "backend.retrieval.agent.retrieve_from_profile",
             return_value=_mock_rr(),
             is_async=True,
         )
         self.soft_cluster = _p(
-            "backend.orchestrator.orchestrator.cluster_agent.soft_cluster",
+            "backend.cluster.cluster_agent.soft_cluster",
             return_value=MagicMock(),
         )
         self.describe_clusters = _p(
-            "backend.orchestrator.orchestrator.cluster_agent.describe_clusters",
+            "backend.cluster.cluster_agent.describe_clusters",
             return_value=[_cluster()],
             is_async=True,
         )
         self.refine = _p(
-            "backend.orchestrator.orchestrator.cluster_agent.refine",
+            "backend.cluster.cluster_agent.refine",
             return_value=[_cluster()],
             is_async=True,
         )
         self.decide = _p(
-            "backend.orchestrator.orchestrator.decision_agent.decide",
+            "backend.decision.decision_agent.decide",
             return_value=_decision_continue(),
             is_async=True,
         )
         self.profile_extract = _p(
-            "backend.orchestrator.orchestrator.profile_agent.extract",
+            "backend.profile.profile_agent.extract",
             return_value=_profile_dto(),
             is_async=True,
         )
-        self.append_turn = _p("backend.orchestrator.orchestrator.api_sessions.append_turn")
-        self.update_turn = _p("backend.orchestrator.orchestrator.api_sessions.update_turn")
+        self.append_turn = _p("backend.api.sessions.append_turn")
+        self.update_turn = _p("backend.api.sessions.update_turn")
         self.snapshot_clusters = _p(
-            "backend.orchestrator.orchestrator.api_sessions.snapshot_clusters"
+            "backend.api.sessions.snapshot_clusters"
         )
-        self.write_feedback = _p("backend.orchestrator.orchestrator.api_sessions.write_feedback")
+        self.write_feedback = _p("backend.api.sessions.write_feedback")
         self.update_profile = _p(
-            "backend.orchestrator.orchestrator.api_sessions.update_preference_profile"
+            "backend.api.sessions.update_preference_profile"
         )
         self.mark_abandoned = _p(
-            "backend.orchestrator.orchestrator.api_sessions.mark_abandoned"
+            "backend.api.sessions.mark_abandoned"
         )
         self.mark_converged = _p(
-            "backend.orchestrator.orchestrator.api_sessions.mark_converged"
+            "backend.api.sessions.mark_converged"
         )
         self.fetch_stubs = _p(
-            "backend.orchestrator.orchestrator.api_movies.fetch_stubs",
+            "backend.api.movies.fetch_stubs",
             return_value=[],
         )
-        self.fetch_movies_public = _p(
-            "backend.orchestrator.orchestrator.api_movies.fetch_movies_public",
+        self.fetch_movies_dto = _p(
+            "backend.api.movies.fetch_movies_dto",
             return_value=[],
         )
         return self

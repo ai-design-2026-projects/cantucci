@@ -19,14 +19,14 @@ from fastapi.responses import StreamingResponse
 
 from backend.exceptions import SessionNotFound
 from backend.orchestrator.orchestrator import Orchestrator
-from backend.orchestrator.progress import (
+from backend.orchestrator.utils.progress import (
     ClusterSnapshotEvent,
     ErrorEvent,
     ProgressEvent,
     ResultEvent,
     StreamEvent,
 )
-from backend.routers.dtos import SessionState, TurnRequest
+from backend.routers.dtos import SessionDto, TurnRequest
 
 log = logging.getLogger(__name__)
 
@@ -49,11 +49,11 @@ def _orchestrator(request: Request) -> Orchestrator:
     return request.app.state.orchestrator  # type: ignore[return-value]
 
 
-@router.post("", response_model=SessionState, status_code=201)
-def create_session(orchestrator: Orchestrator = Depends(_orchestrator)) -> SessionState:
+@router.post("", response_model=SessionDto, status_code=201)
+def create_session(orchestrator: Orchestrator = Depends(_orchestrator)) -> SessionDto:
     """Create a new recommendation session.
 
-    Returns an initial ``SessionState`` with status=active and an empty turn
+    Returns an initial ``SessionDto`` with status=active and an empty turn
     list. The session_id in the response is used as the path parameter for
     subsequent turn requests.
 
@@ -61,7 +61,7 @@ def create_session(orchestrator: Orchestrator = Depends(_orchestrator)) -> Sessi
         orchestrator: Injected via ``_orchestrator`` dependency.
 
     Returns:
-        The newly created ``SessionState`` (HTTP 201).
+        The newly created ``SessionDto`` (HTTP 201).
     """
     log.debug("POST /sessions request received")
     state = orchestrator.create_session()
@@ -181,7 +181,7 @@ async def add_turn(
 
     - ``{"type": "progress", "step": ..., "phase": "start"|"end", "ts": ...}``
       emitted at each orchestrator step boundary.
-    - ``{"type": "result", "data": <TurnResult>}`` emitted once when the turn
+    - ``{"type": "result", "data": <TurnDto>}`` emitted once when the turn
       completes successfully. Always the terminal line on success.
     - ``{"type": "error", "code": ..., "message": ...}`` emitted once if the
       turn raises after streaming has started. Always the terminal line on
@@ -224,11 +224,11 @@ async def add_turn(
     )
 
 
-@router.get("/{session_id}", response_model=SessionState)
+@router.get("/{session_id}", response_model=SessionDto)
 def get_session(
     session_id: UUID,
     orchestrator: Orchestrator = Depends(_orchestrator),
-) -> SessionState:
+) -> SessionDto:
     """Retrieve full session state including all turns in turn_number order.
 
     Args:
@@ -236,7 +236,7 @@ def get_session(
         orchestrator: Injected via ``_orchestrator`` dependency.
 
     Returns:
-        The ``SessionState`` with all turns (HTTP 200).
+        The ``SessionDto`` with all turns (HTTP 200).
 
     Raises:
         HTTPException(404): If *session_id* does not identify a live session.
