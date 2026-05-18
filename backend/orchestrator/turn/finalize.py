@@ -22,7 +22,7 @@ from backend.decision import decision_agent
 from backend.decision.types import DecisionAction, DecisionResult
 from backend.orchestrator.turn.context import TurnContext
 from backend.orchestrator.utils import history, presentation
-from backend.orchestrator.utils.progress import ProgressPhase, ProgressStep, make_progress_event
+from backend.orchestrator.turn.progress import ProgressPhase, ProgressStep, make_progress_event
 from backend.profile.types import UserProfile
 from backend.routers.dtos import RecommendationDto, TurnDto
 

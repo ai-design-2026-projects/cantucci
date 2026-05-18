@@ -14,14 +14,15 @@ from uuid import UUID
 from backend.orchestrator.turn import finalize as finalize_mod
 from backend.orchestrator.turn.context import TurnContext
 from backend.orchestrator.turn.tasks import TurnTasks
-from backend.orchestrator.utils import presentation, terminal_paths
-from backend.orchestrator.utils.progress import (
+from backend.orchestrator.turn import terminal_paths
+from backend.orchestrator.turn.progress import (
     NullProgressCallback,
     ProgressCallback,
     ProgressPhase,
     ProgressStep,
     make_progress_event,
 )
+from backend.orchestrator.utils import presentation
 from backend.routers.dtos import TurnDto
 from backend.state import state_agent
 from backend.state.types import StateAction, StateDecision

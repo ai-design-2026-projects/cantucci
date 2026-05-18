@@ -18,7 +18,7 @@ from uuid import UUID, uuid4
 
 from backend.api.types import SessionRow, TurnRow
 from backend.orchestrator.utils import history
-from backend.orchestrator.utils.progress import NullProgressCallback, ProgressCallback
+from backend.orchestrator.turn.progress import NullProgressCallback, ProgressCallback
 from backend.settings import Settings, get_settings
 
 log = logging.getLogger(__name__)

@@ -27,8 +27,8 @@ from backend.api.types import SessionRow
 from backend.orchestrator.turn.context import TurnContext
 from backend.orchestrator.turn.runner import TurnRunner
 from backend.orchestrator.turn.tasks import TurnTasks
-from backend.orchestrator.utils.progress import ProgressEvent
-from backend.orchestrator.utils.speculative import SpeculativeBranch
+from backend.orchestrator.turn.progress import ProgressEvent
+from backend.orchestrator.turn.speculative import SpeculativeBranch
 from backend.state.types import StateAction, StateDecision
 
 

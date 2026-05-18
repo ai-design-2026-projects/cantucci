@@ -6,7 +6,7 @@ router can stay focused on their respective responsibilities of turn flow.
 import logging
 import backend.api.movies as api_movies
 from backend.api.types import ClusterRow, SessionRow, SessionStatus, StepType
-from backend.orchestrator.utils.progress import (
+from backend.orchestrator.turn.progress import (
     ClusterFilmStub,
     ClusterSnapshotEvent,
     ClusterSnapshotPayload,

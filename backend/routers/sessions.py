@@ -19,7 +19,7 @@ from fastapi.responses import StreamingResponse
 
 from backend.exceptions import SessionNotFound
 from backend.orchestrator.orchestrator import Orchestrator
-from backend.orchestrator.utils.progress import (
+from backend.orchestrator.turn.progress import (
     ClusterSnapshotEvent,
     ErrorEvent,
     ProgressEvent,

@@ -23,7 +23,7 @@ from fastapi.testclient import TestClient
 
 from backend.api.types import SessionStatus, StepType
 from backend.exceptions import SessionNotFound
-from backend.orchestrator.utils.progress import (
+from backend.orchestrator.turn.progress import (
     ProgressCallback,
     ProgressEvent,
     ProgressStep,

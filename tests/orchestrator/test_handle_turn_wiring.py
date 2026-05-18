@@ -31,7 +31,7 @@ from backend.state.types import StateAction, StateDecision
 from backend.decision.types import DecisionAction, DecisionResult
 from backend.profile.types import UserProfile
 from backend.orchestrator.orchestrator import Orchestrator
-from backend.orchestrator.progress import ProgressEvent, ProgressStep
+from backend.orchestrator.turn.progress import ProgressEvent, ProgressStep
 
 
 # ---------------------------------------------------------------------------

@@ -21,13 +21,13 @@ import logging
 import backend.retrieval.agent as retrieval_agent
 from backend.api.types import ClusterRow
 from backend.orchestrator.turn.context import TurnContext
-from backend.orchestrator.utils.speculative import (
+from backend.orchestrator.turn.speculative import (
     SpeculativeBranch,
-    cancel_and_drain,
     cluster_from_retrieval,
-    discard_speculative,
-    spawn as _spawn_speculative,
+    spawn_refine,
+    spawn_retrieve_msg,
 )
+from backend.orchestrator.turn.task_drain import cancel_and_drain, discard_speculative
 from backend.profile import profile_agent
 from backend.profile.types import UserProfile
 from backend.state import state_agent
@@ -84,11 +84,16 @@ class TurnTasks:
             ),
             name="profile_extract",
         )
-        # Speculative clustering: do a best-effort retrieval + clustering to have results ready in case 
-        # the state gate says "proceed" or "drift_dismissed". 
-        # The kind of speculative branch (proceed vs drift) is tracked to know 
+        # Speculative clustering: do a best-effort retrieval + clustering to have results ready in case
+        # the state gate says "proceed" or "drift_dismissed".
+        # The kind of speculative branch (proceed vs drift) is tracked to know
         # whether we can use the speculative clusters as-is or need to re-retrieve from the profile.
-        self.speculative_kind, self.speculative = _spawn_speculative(ctx=ctx)
+        if ctx.prior_clustered is not None:
+            self.speculative = spawn_refine(ctx, ctx.prior_clustered)
+            self.speculative_kind = SpeculativeBranch.REFINE
+        else:
+            self.speculative = spawn_retrieve_msg(ctx)
+            self.speculative_kind = SpeculativeBranch.RETRIEVE_MSG
 
     async def await_state(self) -> StateDecision:
         """Await the state gate; cancel siblings before re-raising on failure."""
