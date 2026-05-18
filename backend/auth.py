@@ -3,6 +3,7 @@
 Public surface:
     hash_password / verify_password  — bcrypt helpers
     encode_token / decode_token      — JWT sign / verify (PyJWT)
+    set_auth_cookie                  — attach the HttpOnly JWT cookie to a response
     get_current_user                 — FastAPI dependency; returns User | None
     require_admin                    — FastAPI dependency; raises 403 if not admin
 
@@ -18,7 +19,7 @@ from typing import Annotated
 
 import bcrypt
 import jwt
-from fastapi import Depends, Header, HTTPException, Request
+from fastapi import Depends, Header, HTTPException, Request, Response
 from pydantic import BaseModel
 
 from backend.api import users as api_users
@@ -85,6 +86,25 @@ def encode_token(user_id: uuid.UUID) -> str:
     return jwt.encode({"sub": str(user_id), "exp": exp}, secret, algorithm="HS256")
 
 
+def set_auth_cookie(response: Response, token: str) -> None:
+    """Attach the JWT as an HttpOnly cookie to ``response``.
+
+    Args:
+        response: FastAPI response object to attach the cookie to.
+        token:    Signed JWT string (from ``encode_token``).
+    """
+    env = get_env()
+    response.set_cookie(
+        key="auth_token",
+        value=token,
+        httponly=True,
+        secure=True,
+        samesite="lax",
+        max_age=env.jwt_ttl_seconds,
+        path="/",
+    )
+
+
 def decode_token(token: str, *, client_ip: str = "") -> uuid.UUID:
     """Verify a JWT and return the ``user_id`` from its ``sub`` claim.
 
@@ -111,37 +131,59 @@ def decode_token(token: str, *, client_ip: str = "") -> uuid.UUID:
         raise HTTPException(status_code=401, detail="Invalid token.")
 
 
+def _token_from_request(request: Request, authorization: str | None) -> str | None:
+    """Extract a raw JWT from the cookie (preferred) or the Authorization header.
+
+    Args:
+        request:       FastAPI request carrying cookies.
+        authorization: Value of the ``Authorization`` header, if present.
+
+    Returns:
+        Raw JWT string, or ``None`` if neither source has a token.
+
+    Raises:
+        HTTPException(401): If an Authorization header is present but malformed.
+    """
+    if cookie := request.cookies.get("auth_token"):
+        return cookie
+
+    if authorization is None:
+        return None
+
+    if not authorization.startswith("Bearer "):
+        client_ip = request.client.host if request.client else ""
+        _auth_log.warning("token_invalid", extra={"token_tail": "", "client_ip": client_ip, "outcome": "malformed_header"})
+        raise HTTPException(status_code=401, detail="Authorization header must be 'Bearer <token>'.")
+
+    return authorization.removeprefix("Bearer ")
+
+
 def get_current_user(
     request: Request,
     authorization: Annotated[str | None, Header()] = None,
 ) -> User | None:
-    """FastAPI dependency — resolve the bearer token to a User, or return None.
+    """FastAPI dependency — resolve the cookie or bearer token to a User, or return None.
 
-    Anonymous requests (no ``Authorization`` header) return ``None``.
+    Prefers the ``auth_token`` HttpOnly cookie; falls back to the
+    ``Authorization: Bearer <token>`` header for non-browser clients.
+    Anonymous requests (no token anywhere) return ``None``.
     Requests with a malformed or expired token raise 401 immediately.
 
     Args:
         request:       FastAPI request (injected by the DI framework).
-        authorization: Value of the ``Authorization`` header, if present. This should be in the format ``Bearer <token>``.
+        authorization: Value of the ``Authorization`` header, if present.
 
     Returns:
         Authenticated ``User`` or ``None`` for anonymous callers.
 
     Raises:
-        HTTPException(401): If the header is present but the token is invalid.
+        HTTPException(401): If a token is present but invalid or expired.
     """
-    # If there's no Authorization header, we just return None (anonymous). 
-    # It means that no token was provided, so we don't even attempt to decode anything or log an auth event
-    if authorization is None:
+    token = _token_from_request(request, authorization)
+    if token is None:
         return None
 
     client_ip = request.client.host if request.client else ""
-
-    if not authorization.startswith("Bearer "):
-        _auth_log.warning("token_invalid", extra={"token_tail": "", "client_ip": client_ip, "outcome": "malformed_header"})
-        raise HTTPException(status_code=401, detail="Authorization header must be 'Bearer <token>'.")
-
-    token = authorization.removeprefix("Bearer ")
     user_id = decode_token(token, client_ip=client_ip)
 
     row = api_users.get_user_by_id(user_id)

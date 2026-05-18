@@ -1,7 +1,6 @@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useSessionStore } from "@/store/sessionStore";
-import { ThemeToggle } from "@/components/ThemeToggle";
 import { ClusterSnapshotSheet } from "@/features/clusters/ClusterSnapshotSheet";
 import { formatOracleType, formatTurnLabel } from "./utils/sessionFormatters";
 
@@ -17,13 +16,16 @@ interface SessionHeaderProps {
 }
 
 /**
- * Top navigation bar showing session progress and oracle type.
+ * Secondary navigation bar showing session-specific progress and controls.
+ *
+ * Positioned below the AppShell header at top-[52px]. Contains turn progress,
+ * oracle type, cluster snapshot sheet, and the new-session button.
  *
  * @param turnCount - Current number of completed turns.
  * @param maxTurns - Session turn budget.
  * @param isTerminal - Whether the session has ended.
  * @param onRestart - Callback for starting a new session.
- * @returns Header bar with title, progress badge, oracle badge, and restart button.
+ * @returns Session toolbar fixed below the app header.
  */
 export function SessionHeader({
   turnCount,
@@ -34,11 +36,7 @@ export function SessionHeader({
   const { oracleType } = useSessionStore();
 
   return (
-    <header className="fixed top-0 left-0 right-0 z-40 flex items-center gap-3 px-6 h-[52px] bg-background/85 border-b border-border-subtle backdrop-blur-[12px] [-webkit-backdrop-filter:blur(12px)]">
-      <span className="font-display text-lg text-primary tracking-tight shrink-0">
-        Cinepal
-      </span>
-
+    <header className="fixed top-[52px] left-0 right-0 z-40 flex items-center gap-3 px-6 h-[44px] bg-background/85 border-b border-border-subtle backdrop-blur-[12px] [-webkit-backdrop-filter:blur(12px)]">
       <div className="flex items-center gap-2">
         {isTerminal ? (
           <Badge variant="gold">Ended</Badge>
@@ -52,7 +50,6 @@ export function SessionHeader({
 
       <div className="ml-auto flex items-center gap-2">
         <ClusterSnapshotSheet />
-        <ThemeToggle />
         <Button variant="ghost" size="sm" onClick={onRestart}>
           New Session
         </Button>
