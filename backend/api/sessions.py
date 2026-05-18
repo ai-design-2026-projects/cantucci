@@ -8,6 +8,8 @@ writes to these tables.
 
 import logging
 import uuid
+from dataclasses import dataclass
+from datetime import datetime
 from decimal import Decimal
 from typing import Any
 
@@ -15,6 +17,106 @@ from backend.api.db import transaction
 from backend.api.types import ClusterSpec
 
 log = logging.getLogger(__name__)
+
+
+@dataclass
+class SessionSummaryRow:
+    """Lightweight projection of a session row for history listings.
+
+    Attributes:
+        session_id: Session UUID.
+        status:     Lifecycle state (active | converged | abandoned).
+        created_at: UTC timestamp of session creation.
+        updated_at: UTC timestamp of the last state change.
+        turn_count: Number of completed turns in this session.
+    """
+
+    session_id: uuid.UUID
+    status: str
+    created_at: datetime
+    updated_at: datetime
+    turn_count: int
+
+
+def list_sessions_by_user(user_id: uuid.UUID) -> list[SessionSummaryRow]:
+    """Return all sessions owned by user_id, ordered newest-first by updated_at.
+
+    Sessions with user_id = NULL (anonymous) are never returned.
+    turn_count is computed via LEFT JOIN in a single round-trip.
+
+    Args:
+        user_id: UUID of the authenticated user.
+
+    Returns:
+        List of SessionSummaryRow, ordered by updated_at DESC.
+    """
+    with transaction() as conn:
+        rows = conn.execute(
+            """
+            SELECT s.id, s.status, s.created_at, s.updated_at, COUNT(t.id)
+            FROM sessions s
+            LEFT JOIN turns t ON t.session_id = s.id
+            WHERE s.user_id = %s
+            GROUP BY s.id
+            ORDER BY s.updated_at DESC
+            """,
+            (user_id,),
+        ).fetchall()
+
+    return [
+        SessionSummaryRow(
+            session_id=r[0],
+            status=r[1],
+            created_at=r[2],
+            updated_at=r[3],
+            turn_count=r[4],
+        )
+        for r in rows
+    ]
+
+
+def delete_session(session_id: uuid.UUID, user_id: uuid.UUID) -> bool:
+    """Delete a session row if it exists and is owned by user_id.
+
+    Uses a single DELETE ... WHERE id = %s AND user_id = %s RETURNING id
+    so authorization and deletion are atomic. Returns False when the row
+    does not exist OR is owned by a different user — the caller should not
+    distinguish between these two cases (404 in both, to avoid disclosing
+    session existence to unauthorized callers).
+
+    The FK cascade defined in migrations/006_sessions.sql removes all child
+    rows atomically: turns, clusters, cluster_assignments, oracle_feedback.
+    The parent runs row is NOT deleted (sessions reference runs, not the
+    other way around).
+
+    Active-session race: if a turn is in flight when this delete commits,
+    the in-flight turn's next DB write will raise ForeignKeyViolation. That
+    exception propagates through the orchestrator's existing broad-except in
+    routers/sessions.py:_turn_event_stream, surfacing as an ErrorEvent on
+    the NDJSON stream for the in-flight client. No orphan rows result.
+
+    Args:
+        session_id: UUID of the session to delete.
+        user_id:    UUID of the requesting user; must match sessions.user_id.
+
+    Returns:
+        True if the row was deleted, False if not found or not owned.
+    """
+    with transaction() as conn:
+        row = conn.execute(
+            "DELETE FROM sessions WHERE id = %s AND user_id = %s RETURNING id",
+            (session_id, user_id),
+        ).fetchone()
+
+    deleted = row is not None
+    if deleted:
+        log.info("deleted session %s user=%s", session_id, user_id)
+    else:
+        log.debug(
+            "delete_session no-op session=%s user=%s (not found or not owned)",
+            session_id, user_id,
+        )
+    return deleted
 
 
 def create_session(
