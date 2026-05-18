@@ -4,6 +4,25 @@ import { cn } from "@/lib/utils";
 import type { ProgressStep } from "@/features/conversation/services/turnService";
 
 /**
+ * Three dots that fade in and out in sequence, indicating activity.
+ */
+function AnimatedDots() {
+  return (
+    <motion.span className="inline-flex ml-0.5" aria-hidden>
+      {[0, 1, 2].map((i) => (
+        <motion.span
+          key={i}
+          animate={{ opacity: [0.2, 1, 0.2] }}
+          transition={{ duration: 1.2, repeat: Infinity, delay: i * 0.25, ease: "easeInOut" }}
+        >
+          .
+        </motion.span>
+      ))}
+    </motion.span>
+  );
+}
+
+/**
  * A pipeline stage shown to the oracle during a turn wait.
  *
  * Keyed by the backend ``ProgressStep`` so the UI advances when real progress
@@ -22,10 +41,10 @@ export interface PipelineStage {
  * new checkpoint is added there, add a matching row here.
  */
 export const STAGES: Readonly<Record<ProgressStep, PipelineStage>> = {
-  understand: { id: "understand", label: "Reading your taste and sketching options…" },
-  choose:     { id: "choose",     label: "Weighing the best picks…" },
-  finalize:   { id: "finalize",   label: "Writing your reply…" },
-  wrap_up:    { id: "wrap_up",    label: "Wrapping things up…" },
+  understand: { id: "understand", label: "Reading your taste and sketching options" },
+  choose:     { id: "choose",     label: "Weighing the best picks" },
+  finalize:   { id: "finalize",   label: "Writing your reply" },
+  wrap_up:    { id: "wrap_up",    label: "Wrapping things up" },
 } as const;
 
 interface PipelineStatusLineProps {
@@ -78,6 +97,7 @@ export function PipelineStatusLine({ step, className }: PipelineStatusLineProps 
             className="inline-block"
           >
             {stage.label}
+            <AnimatedDots />
           </motion.span>
         )}
       </AnimatePresence>

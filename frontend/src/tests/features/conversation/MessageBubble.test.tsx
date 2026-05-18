@@ -14,6 +14,7 @@ function makeTurn(overrides: Partial<TurnResult> = {}): TurnResult {
     converged: false,
     created_at: new Date("2026-05-16T12:00:00Z").toISOString(),
     ambiguity_meta: null,
+    recommendation: null,
     ...overrides,
   };
 }

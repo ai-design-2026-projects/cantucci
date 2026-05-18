@@ -1,8 +1,7 @@
 import { motion } from "framer-motion";
-import { Button } from "@/components/Button";
+import { Button } from "@/components/ui/button";
 import type { AmbiguityMeta } from "@/utils/types";
 import { normaliseAmbiguityChoices } from "./utils/messageFormatters";
-import styles from "./styles/Conversation.module.css";
 
 interface AmbiguityChoiceProps {
   /** Metadata from the ask-type TurnResult. */
@@ -25,7 +24,7 @@ export function AmbiguityChoice({ meta, onChoose }: AmbiguityChoiceProps) {
   const choices = normaliseAmbiguityChoices(meta);
 
   return (
-    <div className={styles.choiceRow}>
+    <div className="flex flex-col gap-2 self-end w-full max-w-[360px] mt-1">
       {choices.map((label, i) => (
         <motion.div
           key={label}
@@ -33,7 +32,7 @@ export function AmbiguityChoice({ meta, onChoose }: AmbiguityChoiceProps) {
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: i * 0.08, duration: 0.2 }}
         >
-          <Button variant="choice" onClick={() => onChoose(label)}>
+          <Button variant="choice" className="w-full" onClick={() => onChoose(label)}>
             {label}
           </Button>
         </motion.div>

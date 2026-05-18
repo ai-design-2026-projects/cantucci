@@ -18,6 +18,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from uuid import UUID, uuid4
 
+import backend.api.movies as api_movies
 import backend.api.retrieval as api_retrieval
 import backend.api.runs as api_runs
 import backend.api.sessions as api_sessions
@@ -30,8 +31,18 @@ from backend.api.types import ClusterSnapshot, SessionStatus, StepType, TurnDeta
 from backend.state.types import StateAction, StateDecision
 from backend.decision.types import DecisionAction
 from backend.exceptions import SessionNotFound
-from backend.routers.dtos import SessionState, TurnResult
+from backend.routers.dtos import (
+    ClusterPublic,
+    MoviePublic,
+    RecommendationPublic,
+    SessionState,
+    SoftScore,
+    TurnResult,
+)
 from backend.orchestrator.progress import (
+    ClusterFilmStub,
+    ClusterSnapshotEvent,
+    ClusterSnapshotPayload,
     NullProgressCallback,
     ProgressCallback,
     ProgressPhase,
@@ -50,9 +61,148 @@ from backend.settings import get_config_hash, get_config_snapshot, get_settings
 log = logging.getLogger(__name__)
 
 
+def _pick_best_cluster(clusters: list[ClusterSnapshot]) -> ClusterSnapshot:
+    """Return the cluster with the highest mean non-excluded assignment score.
+
+    Used to reconstruct which cluster was recommended on a show turn when the
+    best_cluster_id is not stored separately.
+
+    Args:
+        clusters: Non-empty list of ClusterSnapshot objects.
+
+    Returns:
+        The cluster whose mean active score is highest.
+    """
+    def mean_score(c: ClusterSnapshot) -> float:
+        active = [a.score for a in c.assignments if not a.excluded]
+        return sum(active) / len(active) if active else 0.0
+
+    return max(clusters, key=mean_score)
+
+
+def _make_recommendation_public(
+    cluster: ClusterSnapshot,
+    top_ids: list[int],
+    movie_data: dict[int, dict],
+) -> RecommendationPublic:
+    """Assemble a RecommendationPublic from pre-fetched movie data.
+
+    Args:
+        cluster:    The cluster to include in the payload.
+        top_ids:    Ordered list of movie_ids (descending score) to include.
+        movie_data: Dict mapping movie_id → MoviePublic-shaped dict.
+
+    Returns:
+        A ``RecommendationPublic`` DTO.
+    """
+    films = [MoviePublic(**movie_data[mid]) for mid in top_ids if mid in movie_data]
+    cluster_pub = ClusterPublic(
+        id=cluster.id,
+        name=cluster.name,
+        description=cluster.description,
+        level=cluster.level,
+        parent_cluster_id=cluster.parent_cluster_id,
+        soft_scores=[
+            SoftScore(movie_id=a.movie_id, score=a.score, excluded=a.excluded)
+            for a in cluster.assignments
+        ],
+        top_titles=top_ids,
+    )
+    return RecommendationPublic(cluster=cluster_pub, films=films)
+
+
+def _build_recommendation(
+    cluster: ClusterSnapshot,
+    top_k: int,
+) -> RecommendationPublic:
+    """Build a RecommendationPublic from a live ClusterSnapshot via a DB fetch.
+
+    Args:
+        cluster: The cluster to recommend.
+        top_k:   Maximum number of top-scoring films to include.
+
+    Returns:
+        A ``RecommendationPublic`` DTO with fully enriched movie data.
+    """
+    top_assignments = sorted(
+        [a for a in cluster.assignments if not a.excluded],
+        key=lambda a: a.score,
+        reverse=True,
+    )[:top_k]
+    top_ids = [a.movie_id for a in top_assignments]
+    movie_dicts = api_movies.fetch_movies_public(top_ids)
+    movie_data = {m["id"]: m for m in movie_dicts}
+    return _make_recommendation_public(cluster, top_ids, movie_data)
+
+
 def _prior_clusters_from_turn(turn: TurnDetail) -> list[ClusterSnapshot]:
     """Return the ClusterSnapshots stored on a prior turn."""
     return list(turn.clusters)
+
+
+_TOP_K_FILMS = 6
+
+
+def _emit_cluster_snapshot(
+    clusters: list[ClusterSnapshot],
+    progress_cb: ProgressCallback,
+) -> None:
+    """Enrich clusters with poster/rating stubs and emit a ClusterSnapshotEvent.
+
+    Gathers the top-K non-excluded movie ids from each cluster, fetches
+    lightweight stubs from the DB in one batch, then fires the event via
+    *progress_cb* so the router can stream it to the frontend.
+
+    Args:
+        clusters:    List of ClusterSnapshot objects produced by clustering.
+        progress_cb: The turn's streaming callback.
+    """
+    all_ids: list[int] = []
+    cluster_tops: list[list[int]] = []
+    for c in clusters:
+        top = sorted(
+            [a for a in c.assignments if not a.excluded],
+            key=lambda a: a.score,
+            reverse=True,
+        )[:_TOP_K_FILMS]
+        ids = [a.movie_id for a in top]
+        cluster_tops.append(ids)
+        all_ids.extend(ids)
+
+    unique_ids = list(dict.fromkeys(all_ids))
+    stubs_by_id: dict[int, dict] = {
+        s["id"]: s for s in api_movies.fetch_stubs(unique_ids)
+    }
+
+    payloads: list[ClusterSnapshotPayload] = []
+    for c, ids in zip(clusters, cluster_tops):
+        active_scores = [a.score for a in c.assignments if not a.excluded]
+        top_films = [
+            ClusterFilmStub(
+                id=mid,
+                title=stubs_by_id[mid]["title"],
+                poster_url=stubs_by_id[mid]["poster_url"],
+                release_year=stubs_by_id[mid]["release_year"],
+                vote_average=stubs_by_id[mid]["vote_average"],
+            )
+            for mid in ids
+            if mid in stubs_by_id
+        ]
+        payloads.append(
+            ClusterSnapshotPayload(
+                id=str(c.id),
+                name=c.name,
+                description=c.description,
+                level=c.level,
+                confidence=sum(active_scores) / len(active_scores) if active_scores else 0.0,
+                top_films=top_films,
+            )
+        )
+
+    try:
+        progress_cb(ClusterSnapshotEvent(clusters=payloads))
+    except Exception:
+        log.warning("cluster snapshot event dropped", exc_info=True)
 
 
 class Orchestrator:
@@ -300,6 +450,16 @@ class Orchestrator:
                     )
         _emit(ProgressStep.understand, "end")
 
+        last_show_rec: RecommendationPublic | None = None
+        if conv.action in (StateAction.terminate, StateAction.natural_end):
+            for prior_t in reversed(full.turns):
+                if prior_t.step_type == StepType.show.value and prior_t.clusters:
+                    last_show_rec = _build_recommendation(
+                        _pick_best_cluster(prior_t.clusters),
+                        cfg.session.recommendation_top_k,
+                    )
+                    break
+
         if conv.action is StateAction.terminate:
             _emit(ProgressStep.wrap_up, "start")
             try:
@@ -309,6 +469,7 @@ class Orchestrator:
                     turn_number=turn_number,
                     user_message=user_message,
                     decision=conv,
+                    recommendation=last_show_rec,
                 )
             finally:
                 _emit(ProgressStep.wrap_up, "end")
@@ -323,6 +484,7 @@ class Orchestrator:
                     user_message=user_message,
                     decision=conv,
                     preference_profile=prior_profile or {},
+                    recommendation=last_show_rec,
                 )
             finally:
                 _emit(ProgressStep.wrap_up, "end")
@@ -433,6 +595,9 @@ class Orchestrator:
                 turn_number=turn_number,
             )
 
+        if clusters:
+            _emit_cluster_snapshot(clusters, progress_cb)
+
         if not clusters:
             _emit(ProgressStep.wrap_up, "start")
             try:
@@ -493,6 +658,7 @@ class Orchestrator:
         reply: str
         step_type: StepType
         converged: bool
+        recommendation: RecommendationPublic | None = None
 
         if decision.action == DecisionAction.continue_:
             reply = decision.question_text or ""
@@ -521,6 +687,7 @@ class Orchestrator:
             )
             converged = False
             step_type = StepType.show
+            recommendation = _build_recommendation(best_cluster, cfg.session.recommendation_top_k)
 
         log.debug(
             "state verdict",
@@ -585,6 +752,7 @@ class Orchestrator:
             step_type=step_type,
             converged=converged,
             created_at=now,
+            recommendation=recommendation,
         )
 
     def _cluster_from_retrieval(
@@ -639,6 +807,7 @@ class Orchestrator:
         turn_number: int,
         user_message: str,
         decision: StateDecision,
+        recommendation: RecommendationPublic | None = None,
     ) -> TurnResult:
         """Persist and return a terminal turn when a hard limit is reached.
 
@@ -646,11 +815,12 @@ class Orchestrator:
         No LLM call is made.
 
         Args:
-            session_id:   UUID of the target session.
-            turn_id:      Pre-allocated turn UUID.
-            turn_number:  1-based index for this turn.
-            user_message: Oracle's message that triggered the limit check.
-            decision:     StateDecision from check_hard_limits.
+            session_id:     UUID of the target session.
+            turn_id:        Pre-allocated turn UUID.
+            turn_number:    1-based index for this turn.
+            user_message:   Oracle's message that triggered the limit check.
+            decision:       StateDecision from check_hard_limits.
+            recommendation: Last show turn's recommendation, if any.
 
         Returns:
             A TurnResult with step_type=stop, converged=False.
@@ -694,6 +864,7 @@ class Orchestrator:
             step_type=step_type,
             converged=False,
             created_at=now,
+            recommendation=recommendation,
         )
 
     def _natural_end_turn(
@@ -705,6 +876,7 @@ class Orchestrator:
         user_message: str,
         decision: StateDecision,
         preference_profile: dict,
+        recommendation: RecommendationPublic | None = None,
     ) -> TurnResult:
         """Persist and return a natural-end turn detected by the LLM gate.
 
@@ -718,6 +890,7 @@ class Orchestrator:
             user_message:      Oracle's message that the gate classified as natural end.
             decision:          StateDecision from the state agent.
             preference_profile: N-1 profile to persist with the converged session.
+            recommendation:    Last show turn's recommendation, if any.
 
         Returns:
             A TurnResult with step_type=stop, converged=True.
@@ -761,6 +934,7 @@ class Orchestrator:
             step_type=step_type,
             converged=True,
             created_at=now,
+            recommendation=recommendation,
         )
 
     def get_session(self, session_id: UUID) -> SessionState:
@@ -780,19 +954,60 @@ class Orchestrator:
         except ValueError as exc:
             raise SessionNotFound(session_id) from exc
 
-        turns = [
-            TurnResult(
-                turn_id=t.id,
-                session_id=session_id,
-                turn_number=t.turn_number,
-                user_message=t.user_message,
-                assistant_message=t.assistant_message or "",
-                step_type=StepType(t.step_type) if t.step_type else StepType.show,
-                converged=t.converged,
-                created_at=t.created_at,
+        cfg = get_settings()
+
+        # Pre-compute the best cluster + top-movie-ids for every show turn so we
+        # can batch all movie fetches into a single DB call.
+        show_turn_info: dict[UUID, tuple[ClusterSnapshot, list[int]]] = {}
+        for t in full.turns:
+            if t.step_type == StepType.show.value and t.clusters:
+                best = _pick_best_cluster(t.clusters)
+                top_ids = [
+                    a.movie_id
+                    for a in sorted(
+                        [a for a in best.assignments if not a.excluded],
+                        key=lambda a: a.score,
+                        reverse=True,
+                    )[: cfg.session.recommendation_top_k]
+                ]
+                show_turn_info[t.id] = (best, top_ids)
+
+        # Batch-fetch all movie metadata needed across all show turns
+        all_ids = list(
+            dict.fromkeys(mid for _, (_, ids) in show_turn_info.items() for mid in ids)
+        )
+        movie_data: dict[int, dict] = (
+            {m["id"]: m for m in api_movies.fetch_movies_public(all_ids)}
+            if all_ids
+            else {}
+        )
+
+        # Build turns, hydrating recommendation for show and stop steps
+        last_show_recommendation: RecommendationPublic | None = None
+        turns: list[TurnResult] = []
+        for t in full.turns:
+            recommendation: RecommendationPublic | None = None
+            step = StepType(t.step_type) if t.step_type else StepType.show
+            if step == StepType.show and t.id in show_turn_info:
+                best, top_ids = show_turn_info[t.id]
+                recommendation = _make_recommendation_public(best, top_ids, movie_data)
+                last_show_recommendation = recommendation
+            elif step == StepType.stop:
+                recommendation = last_show_recommendation
+
+            turns.append(
+                TurnResult(
+                    turn_id=t.id,
+                    session_id=session_id,
+                    turn_number=t.turn_number,
+                    user_message=t.user_message,
+                    assistant_message=t.assistant_message or "",
+                    step_type=step,
+                    converged=t.converged,
+                    created_at=t.created_at,
+                    recommendation=recommendation,
+                )
             )
-            for t in full.turns
-        ]
 
         return SessionState(
             session_id=full.session_id,

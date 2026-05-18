@@ -2,9 +2,10 @@ import { motion } from "framer-motion";
 import { StreamingText } from "@/components/StreamingText";
 import { AmbiguityChoice } from "./AmbiguityChoice";
 import { WaitingBubbleContent } from "./WaitingBubbleContent";
+import { RecommendationMessage } from "./RecommendationMessage";
 import { formatTimestamp } from "./utils/messageFormatters";
 import type { TurnResult } from "@/utils/types";
-import styles from "./styles/Conversation.module.css";
+import { cn } from "@/lib/utils";
 
 interface MessageBubbleProps {
   /** The turn to render. */
@@ -29,26 +30,36 @@ interface MessageBubbleProps {
 export function MessageBubble({ turn, isLast, onChoose }: MessageBubbleProps) {
   const showChoices = isLast && turn.step_type === "ask" && turn.ambiguity_meta !== null;
   const isWaiting = isLast && !turn.assistant_message;
+  const hasRecommendation = turn.recommendation !== null;
   const showAssistantBubble = Boolean(turn.assistant_message) || isWaiting;
 
   return (
-    <div className={styles.turnGroup}>
-      {/* Oracle bubble */}
+    <div className="flex flex-col gap-2">
       <motion.div
-        className={`${styles.bubble} ${styles.oracle}`}
+        className="self-start max-w-[80%] bg-bg-elevated border border-border-subtle text-foreground rounded-lg rounded-bl-sm px-3.5 py-2.5 text-[0.9375rem] leading-[1.55]"
         initial={{ opacity: 0, x: -16 }}
         animate={{ opacity: 1, x: 0 }}
         transition={{ duration: 0.25 }}
       >
-        <p className={styles.bubbleText}>{turn.user_message}</p>
-        <span className={styles.bubbleTime}>{formatTimestamp(turn.created_at)}</span>
+        <p className="whitespace-pre-wrap break-words">{turn.user_message}</p>
+        <span className="block text-[0.6875rem] text-muted-foreground mt-1">
+          {formatTimestamp(turn.created_at)}
+        </span>
       </motion.div>
 
-      {/* Assistant bubble — shows the LLM-wait mask while assistant_message is empty
-          on the latest turn, then swaps to the real reply once it arrives. */}
-      {showAssistantBubble && (
+      {hasRecommendation && !isWaiting && (
+        <div className="self-end w-full max-w-[92%]">
+          <RecommendationMessage recommendation={turn.recommendation!} />
+        </div>
+      )}
+
+      {!hasRecommendation && showAssistantBubble && (
         <motion.div
-          className={`${styles.bubble} ${styles.assistant}`}
+          className={cn(
+            "self-end bg-bg-surface border border-border text-foreground rounded-lg rounded-br-sm px-3.5 py-2.5 text-[0.9375rem] leading-[1.55]",
+            "max-w-[80%] min-w-[280px] min-h-[88px]",
+            isWaiting && "flex flex-col justify-center"
+          )}
           initial={{ opacity: 0, x: 16 }}
           animate={{ opacity: 1, x: 0 }}
           transition={{ duration: 0.25, delay: 0.05 }}
@@ -57,14 +68,15 @@ export function MessageBubble({ turn, isLast, onChoose }: MessageBubbleProps) {
             <WaitingBubbleContent />
           ) : (
             <>
-              <StreamingText text={turn.assistant_message} className={styles.bubbleText} />
-              <span className={styles.bubbleTime}>{formatTimestamp(turn.created_at)}</span>
+              <StreamingText text={turn.assistant_message} className="whitespace-pre-wrap break-words" />
+              <span className="block text-[0.6875rem] text-muted-foreground mt-1">
+                {formatTimestamp(turn.created_at)}
+              </span>
             </>
           )}
         </motion.div>
       )}
 
-      {/* Ambiguity choice buttons */}
       {showChoices && (
         <AmbiguityChoice meta={turn.ambiguity_meta!} onChoose={onChoose} />
       )}

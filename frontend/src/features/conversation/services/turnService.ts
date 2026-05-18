@@ -1,4 +1,4 @@
-import type { TurnResult } from "@/utils/types";
+import type { ClusterSnapshotPayload, TurnResult } from "@/utils/types";
 
 /**
  * One wave-level checkpoint the backend can report progress on.
@@ -36,12 +36,21 @@ export interface ErrorEvent {
   message: string;
 }
 
-export type StreamEvent = ProgressEvent | ResultEvent | ErrorEvent;
+/** Live cluster snapshot emitted after clustering completes within a turn. */
+export interface ClusterSnapshotEvent {
+  type: "clusters";
+  clusters: ClusterSnapshotPayload[];
+  ts: string;
+}
+
+export type StreamEvent = ProgressEvent | ResultEvent | ErrorEvent | ClusterSnapshotEvent;
 
 /** Handlers invoked as NDJSON lines arrive from the backend. */
 export interface StreamTurnHandlers {
   /** Called for each ``progress`` event. */
   onProgress?: (event: ProgressEvent) => void;
+  /** Called when a cluster snapshot event arrives mid-turn. */
+  onClusters?: (event: ClusterSnapshotEvent) => void;
 }
 
 /**
@@ -105,6 +114,8 @@ export async function streamTurn(
         const event = JSON.parse(line) as StreamEvent;
         if (event.type === "progress") {
           handlers.onProgress?.(event);
+        } else if (event.type === "clusters") {
+          handlers.onClusters?.(event);
         } else if (event.type === "result") {
           terminal = event.data;
         } else {
@@ -121,6 +132,8 @@ export async function streamTurn(
     const event = JSON.parse(tail) as StreamEvent;
     if (event.type === "progress") {
       handlers.onProgress?.(event);
+    } else if (event.type === "clusters") {
+      handlers.onClusters?.(event);
     } else if (event.type === "result") {
       terminal = event.data;
     } else {

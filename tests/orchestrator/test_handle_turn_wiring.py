@@ -50,7 +50,7 @@ def _cluster(name: str = "Drama", n_assignments: int = 3) -> ClusterSnapshot:
     c.level = 0
     c.parent_cluster_id = None
     c.assignments = [
-        MagicMock(spec=ClusterAssignment, title=f"Film {i}", movie_id=uuid.uuid4(), score=1.0, excluded=False)
+        MagicMock(spec=ClusterAssignment, title=f"Film {i}", movie_id=i + 1, score=1.0, excluded=False)
         for i in range(n_assignments)
     ]
     return c
@@ -186,6 +186,40 @@ class _Patches:
         self.retrieval_retrieve_from_profile = _patch(
             "backend.orchestrator.orchestrator.retrieval_agent.retrieve_from_profile",
             return_value=mock_rr,
+        )
+        self.fetch_stubs = _patch(
+            "backend.orchestrator.orchestrator.api_movies.fetch_stubs",
+            side_effect=lambda ids: [
+                {
+                    "id": mid,
+                    "title": f"Film {mid}",
+                    "poster_url": None,
+                    "release_year": 2000 + mid,
+                    "vote_average": 7.0,
+                }
+                for mid in ids
+            ],
+        )
+        self.fetch_movies_public = _patch(
+            "backend.orchestrator.orchestrator.api_movies.fetch_movies_public",
+            side_effect=lambda ids: [
+                {
+                    "id": mid,
+                    "title": f"Film {mid}",
+                    "release_year": 2000 + mid,
+                    "runtime": 100.0,
+                    "vote_average": 7.0,
+                    "vote_count": 100,
+                    "bayesian_rating": 7.0,
+                    "overview": None,
+                    "poster_url": None,
+                    "genres": [],
+                    "director": None,
+                    "top_cast": [],
+                    "original_language": "en",
+                }
+                for mid in ids
+            ],
         )
         mock_sr = MagicMock()
         self.cluster_soft = _patch(

@@ -82,6 +82,62 @@ class ProgressEvent(BaseModel):
     ts: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
+class ClusterFilmStub(BaseModel):
+    """Lightweight film metadata carried in a cluster snapshot event.
+
+    Attributes:
+        id:            TMDB movie id.
+        title:         English release title.
+        poster_url:    Full TMDB poster URL or None.
+        release_year:  4-digit release year or None.
+        vote_average:  TMDB mean rating 0–10 or None.
+    """
+
+    id: int
+    title: str
+    poster_url: str | None
+    release_year: int | None
+    vote_average: float | None
+
+
+class ClusterSnapshotPayload(BaseModel):
+    """One cluster as it appears in a mid-turn snapshot event.
+
+    Attributes:
+        id:          Cluster UUID (string form).
+        name:        Human-readable cluster label.
+        description: Short theme description or None.
+        level:       1 = coarse, 2 = fine.
+        confidence:  Mean soft-assignment score over non-excluded films in [0, 1].
+        top_films:   All non-excluded films sorted by descending soft score.
+    """
+
+    id: str
+    name: str
+    description: str | None
+    level: int
+    confidence: float
+    top_films: list[ClusterFilmStub]
+
+
+class ClusterSnapshotEvent(BaseModel):
+    """Mid-turn event carrying the live cluster snapshot after clustering.
+
+    Emitted once per turn, after Wave 1 clustering completes, so the frontend
+    can update the Cluster Snapshot panel in real time while the decision
+    agent is still running.
+
+    Attributes:
+        type:     Always ``"clusters"`` for discrimination.
+        clusters: List of cluster payloads, ordered by cluster level then name.
+        ts:       Server-set UTC timestamp.
+    """
+
+    type: Literal["clusters"] = "clusters"
+    clusters: list[ClusterSnapshotPayload]
+    ts: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
 class ResultEvent(BaseModel):
     """Terminal event carrying the full turn payload.
 
@@ -112,12 +168,12 @@ class ErrorEvent(BaseModel):
     message: str
 
 
-StreamEvent = Union[ProgressEvent, ResultEvent, ErrorEvent]
+StreamEvent = Union[ProgressEvent, ClusterSnapshotEvent, ResultEvent, ErrorEvent]
 """Discriminated union of everything that can appear on the wire."""
 
 
 class ProgressCallback(Protocol):
-    """Callable the orchestrator invokes at each step boundary.
+    """Callable the orchestrator invokes at step boundaries and after clustering.
 
     Implementations must be thread-safe: ``handle_turn`` may be running in a
     worker thread while the FastAPI event loop consumes events on another.
@@ -125,8 +181,8 @@ class ProgressCallback(Protocol):
     defensively, but propagating exceptions would still pollute logs.
     """
 
-    def __call__(self, event: ProgressEvent) -> None:
-        """Record a step boundary. Must not block on I/O and must not raise."""
+    def __call__(self, event: ProgressEvent | ClusterSnapshotEvent) -> None:
+        """Record a step boundary or cluster snapshot. Must not block or raise."""
         ...
 
 
@@ -138,7 +194,7 @@ class NullProgressCallback:
     build a real callback.
     """
 
-    def __call__(self, event: ProgressEvent) -> None:
+    def __call__(self, event: ProgressEvent | ClusterSnapshotEvent) -> None:
         """Discard the event."""
         return None
 
@@ -157,6 +213,9 @@ def make_progress_event(step: ProgressStep, phase: ProgressPhase) -> ProgressEve
 
 
 __all__ = [
+    "ClusterFilmStub",
+    "ClusterSnapshotEvent",
+    "ClusterSnapshotPayload",
     "ErrorEvent",
     "NullProgressCallback",
     "ProgressCallback",

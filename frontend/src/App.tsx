@@ -2,7 +2,7 @@ import { useEffect } from "react";
 import { SessionPage } from "@/features/session/SessionPage";
 import { useSessionHandler } from "@/features/session/hooks/useSessionHandler";
 import { useSessionStore } from "@/store/sessionStore";
-import { Spinner } from "@/components/Spinner";
+import { Loader2 } from "lucide-react";
 
 /**
  * Application root.
@@ -23,16 +23,8 @@ export function App() {
 
   if (isCreating || !sessionId) {
     return (
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          height: "100dvh",
-          background: "var(--bg-base)",
-        }}
-      >
-        <Spinner size={40} />
+      <div className="flex items-center justify-center h-dvh bg-background">
+        <Loader2 className="h-10 w-10 animate-spin text-muted-foreground" />
       </div>
     );
   }

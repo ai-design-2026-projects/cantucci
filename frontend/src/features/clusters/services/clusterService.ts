@@ -1,15 +1,5 @@
 import { get } from "@/clients/apiClient";
-import type { ConvergedClusterPublic, MoviePublic } from "@/utils/types";
-
-/**
- * Fetch the converged cluster and its enriched movie list.
- *
- * @param sessionId - UUID of a converged session.
- * @returns ConvergedClusterPublic with cluster, movies, and preference_profile.
- */
-export function fetchConvergedCluster(sessionId: string): Promise<ConvergedClusterPublic> {
-  return get<ConvergedClusterPublic>(`/sessions/${sessionId}/converged-cluster`);
-}
+import type { MoviePublic } from "@/utils/types";
 
 /**
  * Fetch full metadata for a single movie.

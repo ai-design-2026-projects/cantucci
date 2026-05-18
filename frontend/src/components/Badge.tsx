@@ -1,25 +1,5 @@
-import type { ReactNode } from "react";
-import styles from "../styles/Badge.module.css";
-
-type BadgeVariant = "default" | "gold" | "blue" | "dim";
-
-interface BadgeProps {
-  children: ReactNode;
-  /** Visual variant. Defaults to "default". */
-  variant?: BadgeVariant;
-}
-
 /**
- * Small inline label badge.
- *
- * @param variant - Colour variant: "default", "gold", "blue", "dim".
- * @param children - Badge text content.
- * @returns A styled span badge.
+ * Re-exports the shadcn Badge primitive.
+ * Kept as a barrel so existing import paths (@/components/Badge) work unchanged.
  */
-export function Badge({ children, variant = "default" }: BadgeProps) {
-  return (
-    <span className={[styles.badge, styles[variant]].join(" ")}>
-      {children}
-    </span>
-  );
-}
+export { Badge, badgeVariants, type BadgeProps } from "@/components/ui/badge";

@@ -23,9 +23,3 @@
   animation: scrim-sweep 0.9s cubic-bezier(0.76, 0, 0.24, 1) forwards;
 }
 
-/* Spinner pulse */
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
-}

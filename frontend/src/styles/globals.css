@@ -1,37 +1,86 @@
+/* Light theme — default (dark class overrides to dark palette) */
 :root {
-  --bg-base: #0a0a0b;
-  --bg-surface: #111113;
-  --bg-elevated: #18181b;
-  --bg-overlay: #1f1f23;
+  /* shadcn HSL tokens */
+  --background: 36 15% 97%;
+  --foreground: 240 5% 10%;
+  --card: 36 20% 93%;
+  --card-foreground: 240 5% 10%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 240 5% 10%;
+  --primary: 36 52% 46%;
+  --primary-foreground: 36 15% 97%;
+  --secondary: 36 20% 88%;
+  --secondary-foreground: 240 5% 10%;
+  --muted: 240 5% 92%;
+  --muted-foreground: 240 5% 40%;
+  --accent: 36 52% 46%;
+  --accent-foreground: 36 15% 97%;
+  --destructive: 0 84% 55%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 36 20% 84%;
+  --input: 36 20% 88%;
+  --ring: 36 52% 46%;
 
-  --border-subtle: rgba(255, 255, 255, 0.06);
-  --border-default: rgba(255, 255, 255, 0.1);
-  --border-strong: rgba(255, 255, 255, 0.18);
-
-  --text-primary: #f2f2f3;
-  --text-secondary: #a1a1aa;
-  --text-tertiary: #52525b;
-
-  --accent-gold: #c9a96e;
-  --accent-gold-dim: #8a6d42;
-  --accent-blue: #4f8ef7;
-  --accent-blue-dim: #2a4a8a;
+  /* Legacy hex tokens (used by CSS Modules during migration) */
+  --bg-base: #f8f7f4;
+  --bg-surface: #f0ece4;
+  --bg-elevated: #e8e2d8;
+  --bg-overlay: #dfd9ce;
+  --border-subtle: rgba(0, 0, 0, 0.06);
+  --border-default: rgba(0, 0, 0, 0.12);
+  --border-strong: rgba(0, 0, 0, 0.20);
+  --text-primary: #1a1a1c;
+  --text-secondary: #4a4a52;
+  --text-tertiary: #888895;
+  --accent-gold: #b58828;
+  --accent-gold-dim: #7a5a1a;
+  --accent-blue: #2562d4;
+  --accent-blue-dim: #1a3e8f;
 
   --radius-sm: 4px;
   --radius-md: 8px;
   --radius-lg: 14px;
   --radius-xl: 20px;
-
   --font-sans: "Inter", system-ui, -apple-system, sans-serif;
   --font-display: "DM Serif Display", Georgia, serif;
 }
 
-*,
-*::before,
-*::after {
-  box-sizing: border-box;
-  margin: 0;
-  padding: 0;
+/* Dark theme */
+.dark {
+  --background: 240 5% 4%;
+  --foreground: 240 4% 95%;
+  --card: 240 5% 7%;
+  --card-foreground: 240 4% 95%;
+  --popover: 240 4% 11%;
+  --popover-foreground: 240 4% 95%;
+  --primary: 36 46% 61%;
+  --primary-foreground: 240 5% 4%;
+  --secondary: 240 4% 11%;
+  --secondary-foreground: 240 4% 95%;
+  --muted: 240 5% 13%;
+  --muted-foreground: 240 4% 65%;
+  --accent: 36 46% 61%;
+  --accent-foreground: 240 5% 4%;
+  --destructive: 0 84% 60%;
+  --destructive-foreground: 240 4% 95%;
+  --border: 240 4% 15%;
+  --input: 240 4% 11%;
+  --ring: 36 46% 61%;
+
+  --bg-base: #0a0a0b;
+  --bg-surface: #111113;
+  --bg-elevated: #18181b;
+  --bg-overlay: #1f1f23;
+  --border-subtle: rgba(255, 255, 255, 0.06);
+  --border-default: rgba(255, 255, 255, 0.1);
+  --border-strong: rgba(255, 255, 255, 0.18);
+  --text-primary: #f2f2f3;
+  --text-secondary: #a1a1aa;
+  --text-tertiary: #52525b;
+  --accent-gold: #c9a96e;
+  --accent-gold-dim: #8a6d42;
+  --accent-blue: #4f8ef7;
+  --accent-blue-dim: #2a4a8a;
 }
 
 html {
