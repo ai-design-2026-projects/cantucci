@@ -1,5 +1,5 @@
-import { get, post } from "@/clients/apiClient";
-import type { SessionState } from "@/utils/types";
+import { del, get, post } from "@/clients/apiClient";
+import type { SessionState, SessionSummary } from "@/utils/types";
 
 /**
  * Create a new recommendation session on the backend.
@@ -7,7 +7,7 @@ import type { SessionState } from "@/utils/types";
  * @returns The newly created SessionState with session_id.
  */
 export function createSession(): Promise<SessionState> {
-  return post<SessionState>("/sessions", {});
+  return post<SessionState>("/sessions/create", {});
 }
 
 /**
@@ -20,7 +20,7 @@ export function createSession(): Promise<SessionState> {
  * @returns The SessionState with all turns in ascending order.
  */
 export async function fetchSession(sessionId: string): Promise<SessionState> {
-  const data = await get<SessionState>(`/sessions/${sessionId}`);
+  const data = await get<SessionState>(`/sessions/get/${sessionId}`);
   return {
     ...data,
     turns: data.turns.map((turn) => ({
@@ -28,4 +28,22 @@ export async function fetchSession(sessionId: string): Promise<SessionState> {
       recommendation: turn.recommendation ?? null,
     })),
   };
+}
+
+/**
+ * List all sessions owned by the authenticated user, newest first.
+ *
+ * @returns Array of SessionSummary objects ordered by updated_at DESC.
+ */
+export function listSessions(): Promise<SessionSummary[]> {
+  return get<SessionSummary[]>("/sessions/list");
+}
+
+/**
+ * Delete a session by ID. The caller must own the session.
+ *
+ * @param sessionId - UUID of the session to delete.
+ */
+export function deleteSession(sessionId: string): Promise<void> {
+  return del<void>(`/sessions/delete/${sessionId}`);
 }

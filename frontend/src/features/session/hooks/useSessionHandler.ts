@@ -1,4 +1,5 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useNavigate } from "react-router-dom";
 import { createSession } from "@/features/session/services/sessionService";
 import { useSessionStore } from "@/store/sessionStore";
 import { useClusterStore } from "@/store/clusterStore";
@@ -7,13 +8,14 @@ import { useClusterSnapshotStore } from "@/store/clusterSnapshotStore";
 import type { SessionState } from "@/utils/types";
 
 /**
- * Handlers for session lifecycle: init, reset.
+ * Handlers for session lifecycle: init, reset, and create-and-navigate.
  *
- * @returns Object with ``initSession`` mutation handler and its loading/error state.
+ * @returns Object with ``initSession`` and ``createAndNavigate`` handlers plus their loading/error state.
  */
 export function useSessionHandler() {
   const queryClient = useQueryClient();
-  const { setSessionId, reset: resetSession } = useSessionStore();
+  const navigate = useNavigate();
+  const { sessionId, setSessionId, reset: resetSession } = useSessionStore();
   const { reset: resetCluster } = useClusterStore();
   const { reset: resetUi } = useUiStore();
   const { reset: resetClusterSnapshot } = useClusterSnapshotStore();
@@ -29,19 +31,36 @@ export function useSessionHandler() {
     },
   });
 
+  const { mutate: createAndNavigate, isPending: isCreatingNav } = useMutation<
+    SessionState,
+    Error
+  >({
+    mutationFn: createSession,
+    onSuccess: (data) => {
+      setSessionId(data.session_id);
+      queryClient.setQueryData(["session", data.session_id], data);
+      queryClient.invalidateQueries({ queryKey: ["sessions", "list"] });
+      navigate(`/sessions/${data.session_id}`);
+    },
+  });
+
   /**
-   * Tear down the current session and bootstrap a new one.
+   * Tear down the current session state and bootstrap a new anonymous session.
    *
-   * Clears all Zustand stores and the query cache, then calls initSession.
+   * Used only for the anonymous (index route) flow. Clears session-specific
+   * query data without wiping the sidebar's sessions-list cache.
    */
   function restartSession() {
+    const oldId = sessionId;
     resetSession();
     resetCluster();
     resetUi();
     resetClusterSnapshot();
-    queryClient.clear();
+    if (oldId) {
+      queryClient.removeQueries({ queryKey: ["session", oldId] });
+    }
     initSession();
   }
 
-  return { initSession, restartSession, isCreating, createError };
+  return { initSession, createAndNavigate, restartSession, isCreating: isCreating || isCreatingNav, createError };
 }

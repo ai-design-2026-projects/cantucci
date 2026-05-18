@@ -1,3 +1,5 @@
+import { useEffect } from "react";
+import { useParams } from "react-router-dom";
 import { SessionHeader } from "./SessionHeader";
 import { ConversationPanel } from "@/features/conversation/ConversationPanel";
 import { FilmDetailDialog } from "@/features/clusters/FilmDetailDialog";
@@ -10,22 +12,38 @@ import { useUiStore } from "@/store/uiStore";
 /**
  * Root page for an active session.
  *
- * Composes the header and conversation panel. Terminal state (converged/abandoned)
- * is surfaced via the StopOverlay in Phase 3; for now the Composer is gated.
+ * Reads the session ID from the URL param (:sessionId) when rendered under
+ * /sessions/:sessionId, or falls back to the Zustand store for the anonymous
+ * landing session at /.
  *
  * @returns The full session page layout.
  */
 export function SessionPage() {
-  const { sessionId } = useSessionStore();
-  const { data: session } = useFetchSession(sessionId);
-  const { restartSession } = useSessionHandler();
+  const { sessionId: urlSessionId } = useParams<{ sessionId: string }>();
+  const { sessionId: storeSessionId, setSessionId } = useSessionStore();
+  const { restartSession, createAndNavigate } = useSessionHandler();
   const { stopOverlayDismissed, reopenStopOverlay } = useUiStore();
+
+  const sessionId = urlSessionId ?? storeSessionId;
+
+  useEffect(() => {
+    if (urlSessionId && urlSessionId !== storeSessionId) {
+      setSessionId(urlSessionId);
+    }
+  }, [urlSessionId, storeSessionId, setSessionId]);
+
+  const { data: session } = useFetchSession(sessionId ?? null);
 
   const turnCount = session?.turns.length ?? 0;
   const maxTurns = session?.max_turns ?? 20;
   const isTerminal =
     session?.status === "converged" || session?.status === "abandoned";
   const hasStopTurn = session?.turns.some((t) => t.step_type === "stop") ?? false;
+
+  const isUrlSession = urlSessionId !== undefined;
+  const onNewSession = isUrlSession
+    ? () => createAndNavigate()
+    : restartSession;
 
   if (!sessionId) return null;
 
@@ -35,13 +53,13 @@ export function SessionPage() {
         turnCount={turnCount}
         maxTurns={maxTurns}
         isTerminal={isTerminal}
-        onRestart={restartSession}
+        onRestart={isUrlSession ? undefined : restartSession}
       />
       <div className="flex-1 flex flex-col max-w-2xl w-full mx-auto px-4">
         <ConversationPanel sessionId={sessionId} isTerminal={isTerminal} />
       </div>
       <FilmDetailDialog />
-      <StopOverlay session={session} onRestart={restartSession} />
+      <StopOverlay session={session} onRestart={onNewSession} />
       {hasStopTurn && stopOverlayDismissed && (
         <div className="fixed bottom-6 right-6 z-40">
           <button

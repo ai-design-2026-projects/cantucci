@@ -9,12 +9,14 @@ Invariants enforced here:
 
 import asyncio
 import logging
+from dataclasses import asdict
 from typing import AsyncIterator
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
+import backend.api.sessions as api_sessions
 from backend.auth import User, get_current_user
 from backend.exceptions import SessionNotFound
 from backend.orchestrator.orchestrator import Orchestrator
@@ -25,7 +27,7 @@ from backend.orchestrator.progress import (
     ResultEvent,
     StreamEvent,
 )
-from backend.routers.dtos import SessionState, TurnRequest
+from backend.routers.dtos import SessionState, SessionSummary, TurnRequest
 
 log = logging.getLogger(__name__)
 
@@ -48,7 +50,7 @@ def _orchestrator(request: Request) -> Orchestrator:
     return request.app.state.orchestrator  # type: ignore[return-value]
 
 
-@router.post("", response_model=SessionState, status_code=201)
+@router.post("/create", response_model=SessionState, status_code=201)
 def create_session(
     orchestrator: Orchestrator = Depends(_orchestrator),
     user: User | None = Depends(get_current_user),
@@ -218,7 +220,29 @@ async def add_turn(
     )
 
 
-@router.get("/{session_id}", response_model=SessionState)
+@router.get("/list", response_model=list[SessionSummary])
+def list_sessions(
+    user: User | None = Depends(get_current_user),
+) -> list[SessionSummary]:
+    """List all sessions owned by the authenticated user, newest first.
+
+    Args:
+        user: Resolved by ``get_current_user``; None for anonymous callers.
+
+    Returns:
+        Ordered list of ``SessionSummary`` objects (HTTP 200).
+
+    Raises:
+        HTTPException(401): If the request is anonymous.
+    """
+    if user is None:
+        raise HTTPException(status_code=401, detail="Authentication required.")
+    rows = api_sessions.list_sessions_by_user(user.id)
+    log.debug("GET /sessions user=%s n=%d", user.id, len(rows))
+    return [SessionSummary(**asdict(r)) for r in rows]
+
+
+@router.get("/get/{session_id}", response_model=SessionState)
 def get_session(
     session_id: UUID,
     orchestrator: Orchestrator = Depends(_orchestrator),
@@ -249,3 +273,37 @@ def get_session(
         extra={"session_id": str(session_id), "n_turns": len(state.turns)},
     )
     return state
+
+
+@router.delete("/delete/{session_id}", status_code=204)
+def delete_session(
+    session_id: UUID,
+    user: User | None = Depends(get_current_user),
+) -> None:
+    """Delete a session and all its child data.
+
+    Only the owning user can delete a session. Both "not found" and "owned by
+    someone else" return 404 to avoid disclosing session existence to
+    unauthorized callers.
+
+    Active sessions are deletable. If a turn is in flight when the delete
+    commits, the in-flight turn will receive a ForeignKeyViolation on its next
+    DB write, which surfaces as an ErrorEvent on its NDJSON stream.
+
+    Args:
+        session_id: UUID of the session to delete (path parameter).
+        user:       Resolved by ``get_current_user``; None for anonymous callers.
+
+    Returns:
+        HTTP 204 No Content on success.
+
+    Raises:
+        HTTPException(401): If the request is anonymous.
+        HTTPException(404): If the session does not exist or is not owned by the caller.
+    """
+    if user is None:
+        raise HTTPException(status_code=401, detail="Authentication required.")
+    deleted = api_sessions.delete_session(session_id, user.id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Session not found.")
+    log.debug("DELETE /sessions/{id} user=%s session=%s", user.id, session_id)

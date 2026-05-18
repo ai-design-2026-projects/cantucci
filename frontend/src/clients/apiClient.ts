@@ -122,3 +122,13 @@ export function get<T>(url: string, isBootstrap = false): Promise<T> {
 export function post<T>(url: string, body: unknown): Promise<T> {
   return request<T>(url, { method: "POST", body: JSON.stringify(body) });
 }
+
+/**
+ * DELETE helper — issues a DELETE request and returns the parsed response (or void for 204).
+ *
+ * @param url - Relative endpoint path.
+ * @returns Parsed response body, or undefined for 204 No Content.
+ */
+export function del<T>(url: string): Promise<T> {
+  return request<T>(url, { method: "DELETE" });
+}
