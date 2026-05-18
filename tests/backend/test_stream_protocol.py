@@ -23,7 +23,7 @@ from fastapi.testclient import TestClient
 
 from backend.api.types import SessionStatus, StepType
 from backend.exceptions import SessionNotFound
-from backend.orchestrator.progress import (
+from backend.orchestrator.utils.progress import (
     ProgressCallback,
     ProgressEvent,
     ProgressStep,
@@ -152,12 +152,12 @@ def test_success_stream_emits_progress_then_result(known_session_id: UUID) -> No
     fake = FakeOrchestrator(
         known_session_ids={known_session_id},
         scripted_events=[
-            (ProgressStep.understand, "start"),
-            (ProgressStep.understand, "end"),
-            (ProgressStep.choose, "start"),
-            (ProgressStep.choose, "end"),
-            (ProgressStep.finalize, "start"),
-            (ProgressStep.finalize, "end"),
+            (ProgressStep.UNDERSTAND, "start"),
+            (ProgressStep.UNDERSTAND, "end"),
+            (ProgressStep.CHOOSE, "start"),
+            (ProgressStep.CHOOSE, "end"),
+            (ProgressStep.FINALIZE, "start"),
+            (ProgressStep.FINALIZE, "end"),
         ],
         returns=_make_turn_result(known_session_id),
         progress_delay_s=0.001,
@@ -193,10 +193,10 @@ def test_early_exit_emits_wrap_up_after_understand(known_session_id: UUID) -> No
     fake = FakeOrchestrator(
         known_session_ids={known_session_id},
         scripted_events=[
-            (ProgressStep.understand, "start"),
-            (ProgressStep.understand, "end"),
-            (ProgressStep.wrap_up, "start"),
-            (ProgressStep.wrap_up, "end"),
+            (ProgressStep.UNDERSTAND, "start"),
+            (ProgressStep.UNDERSTAND, "end"),
+            (ProgressStep.WRAP_UP, "start"),
+            (ProgressStep.WRAP_UP, "end"),
         ],
         returns=_make_turn_result(known_session_id, message="wrapped"),
     )
@@ -217,7 +217,7 @@ def test_every_line_is_valid_json(known_session_id: UUID) -> None:
     """No partial frames, no trailing garbage — strict NDJSON."""
     fake = FakeOrchestrator(
         known_session_ids={known_session_id},
-        scripted_events=[(ProgressStep.understand, "start"), (ProgressStep.understand, "end")],
+        scripted_events=[(ProgressStep.UNDERSTAND, "start"), (ProgressStep.UNDERSTAND, "end")],
         returns=_make_turn_result(known_session_id),
     )
     response = TestClient(_app_with(fake)).post(
@@ -248,7 +248,7 @@ def test_error_event_replaces_result_when_worker_raises(known_session_id: UUID) 
     """A mid-turn raise becomes a terminal error event, HTTP stays 200."""
     fake = FakeOrchestrator(
         known_session_ids={known_session_id},
-        scripted_events=[(ProgressStep.understand, "start")],
+        scripted_events=[(ProgressStep.UNDERSTAND, "start")],
         raises=RuntimeError("understand crashed"),
     )
     status, _, events = _stream_post(TestClient(_app_with(fake)), known_session_id)

@@ -62,6 +62,8 @@ def _cluster(name: str = "Drama", n: int = 3) -> ClusterRow:
 
 def _turn(step_type: str = "ask", assistant: str = "?", clusters=None) -> MagicMock:
     t = MagicMock(spec=TurnRow)
+    t.id = uuid.uuid4()
+    t.turn_number = 1
     t.step_type = step_type
     t.assistant_message = assistant
     t.user_message = "x"
@@ -149,7 +151,7 @@ class _GraphPatches:
             return_value=self._full,
         )
         self.get_settings = _p(
-            "backend.orchestrator.turn_runner.get_settings",
+            "backend.orchestrator.turn.context.get_settings",
             return_value=self._cfg,
         )
         self.get_config_hash = _p(
@@ -161,7 +163,7 @@ class _GraphPatches:
             return_value=StateDecision(action=StateAction.proceed, reason="ok"),
         )
         self.check_gate = _p(
-            "backend.state.state_agent.check_gate",
+            "backend.state.state_agent.check_session_state",
             return_value=_proceed(),
             is_async=True,
         )

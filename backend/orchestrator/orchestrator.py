@@ -24,7 +24,7 @@ from backend.api.types import SessionStatus
 from backend.exceptions import SessionNotFound
 from backend.orchestrator.utils import presentation
 from backend.orchestrator.utils.progress import NullProgressCallback, ProgressCallback
-from backend.orchestrator.utils.turn_runner import TurnRunner
+from backend.orchestrator.turn import TurnRunner
 from backend.routers.dtos import SessionDto, TurnDto
 from backend.settings import get_config_hash, get_config_snapshot, get_settings
 

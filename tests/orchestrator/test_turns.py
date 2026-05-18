@@ -11,7 +11,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from backend.api.types import StepType
-from backend.orchestrator.terminal_paths import (
+from backend.orchestrator.utils.terminal_paths import (
     emit_drift_clarification,
     emit_early_clarification,
 )
@@ -34,8 +34,8 @@ def patched_sessions(monkeypatch: pytest.MonkeyPatch):
     """Patch both api_sessions helpers and return mocks."""
     append = MagicMock()
     write = MagicMock()
-    monkeypatch.setattr("backend.orchestrator.terminal_paths.api_sessions.append_turn", append)
-    monkeypatch.setattr("backend.orchestrator.terminal_paths.api_sessions.write_feedback", write)
+    monkeypatch.setattr("backend.orchestrator.utils.terminal_paths.api_sessions.append_turn", append)
+    monkeypatch.setattr("backend.orchestrator.utils.terminal_paths.api_sessions.write_feedback", write)
     return append, write
 
 

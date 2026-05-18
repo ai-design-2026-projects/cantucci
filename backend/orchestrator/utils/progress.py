@@ -1,63 +1,22 @@
-"""Progress event protocol for streaming turn execution.
-
+"""
+Progress event protocol for streaming turn execution.
 Defines the contract the orchestrator uses to notify HTTP-layer callers of
 step boundaries while ``run_turn`` drives an async task graph. The
 orchestrator invokes a ``ProgressCallback`` at the start and end of each
 step; the router translates those callbacks into NDJSON lines on the wire,
 which the live-state frontend (``PipelineStatusLine``) renders as the
 current stage.
-
-This module owns the callback shape and the event payloads, so the router
-never reaches into orchestrator internals to invent event types.
-
-Parallel components
--------------------
-The ``understand`` step wraps the parallel front of the per-turn task
-graph. After a synchronous hard-limit check, the orchestrator schedules
-the following as concurrent ``asyncio.Task``s:
-
-* ``state_agent.check_gate``  — LLM drift / end / re-retrieve gate.
-* ``profile_agent.extract``   — preference-profile extraction.
-* one speculative branch — ``cluster_agent.refine`` whenever the session
-  already has clusters from a prior turn (whether the prior assistant
-  message was an ``ask`` or a ``show``), OR
-  ``retrieval_agent.retrieve_from_message → cluster_agent.describe_clusters``
-  on the truly-first clustered turn of the session.
-
-Retrieval is reserved for three precise moments: the first clustered
-turn of a session, ``drift_confirmed`` (cancel speculative, then
-``retrieve_from_profile``), and ``re_retrieve`` (same, with seen films
-excluded). Every other turn evolves the cluster set in place via
-refinement. The state gate runs concurrently with the speculative
-branch; cancellation propagates as ``asyncio.CancelledError`` through
-the async LLM harness, closing the in-flight ``httpx`` connection
-whenever the gate's verdict invalidates the speculation.
-
-The ``choose`` step wraps the post-gate decision, which is a single
-serial call to ``decision_agent.decide`` (ambiguity was merged into the
-decision agent in PR #61, so there is no longer a second parallel sibling
-here).
 """
-
-from __future__ import annotations
-
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Literal, Protocol, Union
-
 from pydantic import BaseModel, Field
-
 from backend.routers.dtos import TurnDto
 
 
 class ProgressStep(str, Enum):
-    """The wave-level checkpoints a streaming client may observe.
-
-    Orchestrator v2 runs Wave 1 as three agents in parallel and Wave 2 as a
-    single serial agent, so per-agent boundaries would either fire
-    concurrently or lie about ordering. Each value here wraps one logical
-    block the user perceives as a single activity:
-
+    """
+    The wave-level checkpoints a streaming client may observe.
     * ``UNDERSTAND`` — Wave 1, parallel: state + profile + refine (if
                        applicable). Retrieval runs serially after state check
                        on fresh turns.
@@ -67,7 +26,6 @@ class ProgressStep(str, Enum):
     * ``WRAP_UP``    — Early-exit paths (hard limit, natural end, drift,
       empty retrieval) that skip the rest of the pipeline.
     """
-
     UNDERSTAND = "understand"
     CHOOSE = "choose"
     FINALIZE = "finalize"
@@ -78,7 +36,8 @@ ProgressPhase = Literal["start", "end"]
 
 
 class ProgressEvent(BaseModel):
-    """One step boundary in a turn.
+    """
+    One step boundary in a turn.
 
     Attributes:
         type: Always ``"progress"`` so frontend can discriminate the union.
@@ -86,7 +45,6 @@ class ProgressEvent(BaseModel):
         phase: ``"start"`` when the step begins, ``"end"`` when it returns.
         ts:   Server-set UTC timestamp of the boundary.
     """
-
     type: Literal["progress"] = "progress"
     step: ProgressStep
     phase: ProgressPhase
@@ -94,8 +52,8 @@ class ProgressEvent(BaseModel):
 
 
 class ClusterFilmStub(BaseModel):
-    """Lightweight film metadata carried in a cluster snapshot event.
-
+    """
+    Lightweight film metadata carried in a cluster snapshot event.
     Attributes:
         id:            TMDB movie id.
         title:         English release title.
@@ -103,7 +61,6 @@ class ClusterFilmStub(BaseModel):
         release_year:  4-digit release year or None.
         vote_average:  TMDB mean rating 0–10 or None.
     """
-
     id: int
     title: str
     poster_url: str | None
@@ -112,8 +69,8 @@ class ClusterFilmStub(BaseModel):
 
 
 class ClusterSnapshotPayload(BaseModel):
-    """One cluster as it appears in a mid-turn snapshot event.
-
+    """
+    One cluster as it appears in a mid-turn snapshot event.
     Attributes:
         id:          Cluster UUID (string form).
         name:        Human-readable cluster label.
@@ -122,7 +79,6 @@ class ClusterSnapshotPayload(BaseModel):
         confidence:  Mean soft-assignment score over non-excluded films in [0, 1].
         top_films:   All non-excluded films sorted by descending soft score.
     """
-
     id: str
     name: str
     description: str | None
@@ -132,12 +88,11 @@ class ClusterSnapshotPayload(BaseModel):
 
 
 class ClusterSnapshotEvent(BaseModel):
-    """Mid-turn event carrying the live cluster snapshot after clustering.
-
+    """
+    Mid-turn event carrying the live cluster snapshot after clustering.
     Emitted once per turn, after Wave 1 clustering completes, so the frontend
     can update the Cluster Snapshot panel in real time while the decision
     agent is still running.
-
     Attributes:
         type:     Always ``"clusters"`` for discrimination.
         clusters: List of cluster payloads, ordered by cluster level then name.
@@ -150,30 +105,27 @@ class ClusterSnapshotEvent(BaseModel):
 
 
 class ResultEvent(BaseModel):
-    """Terminal event carrying the full turn payload.
-
+    """
+    Terminal event carrying the full turn payload.
     Attributes:
         type: Always ``"result"`` for discrimination.
         data: The same ``TurnDto`` shape the legacy JSON endpoint returned.
     """
-
     type: Literal["result"] = "result"
     data: TurnDto
 
 
 class ErrorEvent(BaseModel):
-    """Terminal event emitted when the worker thread raises.
-
+    """
+    Terminal event emitted when the worker thread raises.
     HTTP status is already 200 by the time we know about the failure (headers
     are flushed before the orchestrator runs), so the frontend learns about
     errors by seeing this line instead of a ``result`` line.
-
     Attributes:
         type:    Always ``"error"`` for discrimination.
         code:    Short machine-readable code (e.g. exception class name).
         message: Human-readable failure reason; safe to surface in the UI.
     """
-
     type: Literal["error"] = "error"
     code: str
     message: str

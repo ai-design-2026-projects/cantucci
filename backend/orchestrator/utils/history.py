@@ -24,10 +24,8 @@ def last_clustered_turn(turns: list[TurnRow]) -> TurnRow | None:
 
 def prior_questions(turns: list[TurnRow]) -> list[str]:
     """Collect all prior clarifying-question texts in turn order.
-
     Args:
         turns: Prior turns in ascending turn_number order.
-
     Returns:
         List of assistant messages from ask-type turns.
     """
@@ -40,13 +38,10 @@ def prior_questions(turns: list[TurnRow]) -> list[str]:
 
 def recommended_titles_from_last_show(full: SessionRow) -> list[str]:
     """Titles included in the most recent show-turn's recommendation.
-
     Used by the state gate (``recommended_last_turn`` kwarg) so the LLM can
     detect "I've already seen these" replies and route to re_retrieve.
-
     Args:
         full: Loaded session state.
-
     Returns:
         Ordered list of film titles from the latest show turn, or [] if the
         last turn was not a show turn or no turns exist yet.
@@ -62,7 +57,6 @@ def recommended_titles_from_last_show(full: SessionRow) -> list[str]:
             if not a.excluded and a.title:
                 titles.append(a.title)
     return titles
-
 
 __all__ = [
     "last_clustered_turn",

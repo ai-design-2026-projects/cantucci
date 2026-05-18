@@ -1,18 +1,9 @@
-"""Recommendation rendering and DTO assembly for the orchestrator.
-
-Two responsibilities, both purely presentational:
-
-* Build the markdown reply shown to the oracle on a recommend turn
-  (``render_recommendation`` — no LLM call; entirely deterministic).
-* Assemble ``RecommendationDto`` DTOs for HTTP responses, including the
-  batched mid-turn ``ClusterSnapshotEvent`` that streams to the frontend.
-
-Everything here is sync. The orchestrator hops into a thread when calling
-DB-fetching helpers from the async path.
 """
-
+Recommendation rendering and DTO assembly for the orchestrator. All the 
+enrichment and formatting logic lives here so the orchestrator and 
+router can stay focused on their respective responsibilities of turn flow.
+"""
 import logging
-
 import backend.api.movies as api_movies
 from backend.api.types import ClusterRow, SessionRow, SessionStatus, StepType
 from backend.orchestrator.utils.progress import (
@@ -33,18 +24,14 @@ from backend.settings import Settings
 
 log = logging.getLogger(__name__)
 
-_TOP_K_FILMS = 6
-
 
 def pick_best_cluster(clusters: list[ClusterRow]) -> ClusterRow:
-    """Return the cluster with the highest mean non-excluded assignment score.
-
+    """
+    Return the cluster with the highest mean non-excluded assignment score.
     Used to reconstruct which cluster was recommended on a show turn when the
     best_cluster_id is not stored separately.
-
     Args:
         clusters: Non-empty list of ClusterRow objects.
-
     Returns:
         The cluster whose mean active score is highest.
     """
@@ -60,17 +47,16 @@ def make_recommendation_dto(
     top_ids: list[int],
     movie_data: dict[int, dict],
 ) -> RecommendationDto:
-    """Assemble a RecommendationDto from pre-fetched movie data.
-
+    """
+    Assemble a RecommendationDto from pre-fetched movie data.
     Args:
         cluster:    The cluster to include in the payload.
         top_ids:    Ordered list of movie_ids (descending score) to include.
         movie_data: Dict mapping movie_id → MovieDto-shaped dict.
-
     Returns:
         A ``RecommendationDto`` DTO.
     """
-    films = [MovieDto(**movie_data[mid]) for mid in top_ids if mid in movie_data]
+    films = [MovieDto(**movie_data[movie_id]) for movie_id in top_ids if movie_id in movie_data]
     cluster_pub = ClusterDto(
         id=cluster.id,
         name=cluster.name,
@@ -90,8 +76,8 @@ def build_recommendation(
     cluster: ClusterRow,
     top_k: int,
 ) -> RecommendationDto:
-    """Build a RecommendationDto from a live ClusterRow via a DB fetch.
-
+    """
+    Build a RecommendationDto from a live ClusterRow via a DB fetch.
     Args:
         cluster: The cluster to recommend.
         top_k:   Maximum number of top-scoring films to include.
@@ -111,8 +97,8 @@ def build_recommendation(
 
 
 def last_show_recommendation(full, top_k: int) -> RecommendationDto | None:
-    """Return the last show-turn's recommendation, if any.
-
+    """
+    Return the last show-turn's recommendation, if any.
     Used by terminal paths (terminate, natural_end) to surface the most
     recent recommendation alongside the stop turn.
     """
@@ -180,7 +166,7 @@ def emit_cluster_snapshot(
             [a for a in c.assignments if not a.excluded],
             key=lambda a: a.score,
             reverse=True,
-        )[:_TOP_K_FILMS]
+        )
         ids = [a.movie_id for a in top]
         cluster_tops.append(ids)
         all_ids.extend(ids)

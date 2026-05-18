@@ -1,10 +1,12 @@
-"""Speculative branch primitives used by the orchestrator.
+"""
+Speculative branch primitives used by the orchestrator.
 
 Each turn's UNDERSTAND phase runs three ``asyncio`` tasks in parallel:
 the state gate, profile extraction, and one speculative clustering
-branch. This module owns the speculative side — which branch to launch,
-how to chain retrieval and clustering inside it, and how to drain it
-once the state gate verdict either consumes or invalidates it.
+branch. This module owns the pure speculative primitives — which branch
+to launch, how to chain retrieval and clustering inside it, and how to
+drain it. The verdict-driven dispatch (consume vs cancel vs re-retrieve)
+lives in ``backend.orchestrator.turn.tasks.TurnTasks.resolve_clusters``.
 
 Two drain helpers, deliberately different:
 
@@ -32,24 +34,22 @@ import backend.retrieval.agent as retrieval_agent
 from backend.api.types import ClusterRow
 from backend.cluster import cluster_agent
 from backend.retrieval.types import RetrievalResult
-from backend.state.types import StateAction, StateDecision
 
 if TYPE_CHECKING:
-    from backend.orchestrator.utils.turn_runner import TurnRunner
+    from backend.orchestrator.turn.context import TurnContext
 
 log = logging.getLogger(__name__)
 
 
 class SpeculativeBranch(str, Enum):
-    """Which branch the orchestrator speculatively launched alongside the state gate.
-
+    """
+    Which branch the orchestrator speculatively launched alongside the state gate.
     Attributes:
         REFINE:       Refinement turn — ``cluster_agent.refine`` was launched.
         RETRIEVE_MSG: Fresh turn — ``retrieval_agent.retrieve_from_message``
                       → ``cluster_agent.describe_clusters`` was launched.
         NONE:         No speculative branch was launched for this turn.
     """
-
     REFINE = "refine"
     RETRIEVE_MSG = "retrieve_msg"
     NONE = "none"
@@ -61,7 +61,6 @@ async def cancel_and_drain(task: asyncio.Task | None) -> None:
     Re-raises any other exception the task surfaced, so we never silently
     discard a real failure on the speculative branch. Returning early when
     *task* is None or already done keeps callers' control flow flat.
-
     Args:
         task: An ``asyncio.Task`` to cancel, or None.
     """
@@ -74,7 +73,6 @@ async def cancel_and_drain(task: asyncio.Task | None) -> None:
 
 async def discard_speculative(task: asyncio.Task | None, name: str) -> None:
     """Cancel *task* and swallow any exception with a discard warning.
-
     Used on terminal state paths (natural_end, clarify_drift) where a
     speculative branch's result is no longer needed and its failure must
     not propagate. ``CancelledError`` is swallowed silently; other
@@ -95,36 +93,39 @@ async def discard_speculative(task: asyncio.Task | None, name: str) -> None:
         )
 
 
-def spawn(*, runner: TurnRunner) -> tuple[SpeculativeBranch, asyncio.Task | None]:
-    """Spawn the one speculative branch appropriate for *runner*'s turn.
-
-    Whenever the session already has clusters from a prior turn we
-    speculatively refine them in light of the oracle's reply. Only the
-    truly-first clustered turn of a session (and any session whose earlier
-    retrievals returned nothing) takes the fresh-retrieval path via
-    ``retrieve_from_message → soft_cluster → describe_clusters``.
-    State-invalidated speculative work is cancelled once the gate resolves;
-    the still-running branch is consumed otherwise.
-
+def spawn(*, ctx: "TurnContext") -> tuple[SpeculativeBranch, asyncio.Task | None]:
+    """
+    Spawn the one speculative branch appropriate for *ctx*'s turn. We can
+    distinguish two cases:
+    
+    1. Refinement: if the prior turn clustered something, we launch a
+       refinement branch to update those clusters in light of the new
+       message. This is faster and more likely to yield results than a
+       fresh retrieval, so it's our optimistic "proceed" branch.
+    
+    2. Fresh retrieval: if the prior turn had no clusters, we launch a
+       full retrieval+clustering pass on the new message, since there's no
+       existing clustered state to refine. This is the "re-retrieve" branch
+       we fall back to when the state gate detects drift but the user seems
+       to have dismissed it.
     Args:
-        runner: The active TurnRunner — provides session/turn ids,
-                cfg, and ``prior_clustered``.
-
+        ctx: Frozen per-turn snapshot — provides session/turn ids,
+             cfg, and ``prior_clustered``.
     Returns:
         Tuple of (branch kind, task). On the refinement branch the task
         is always returned; on the retrieve path it is also always
         returned (never None in current code).
     """
-    if runner.prior_clustered is not None:
+    if ctx.prior_clustered is not None:
         spec_t = asyncio.create_task(
             cluster_agent.refine(
-                prior_clusters=list(runner.prior_clustered.clusters),
-                user_query=runner.user_message,
-                system_message=runner.prior_clustered.assistant_message or "",
-                oracle_reply=runner.user_message,
-                session_id=runner.session_id,
-                run_id=runner.full_session.run_id,
-                turn_id=runner.turn_id,
+                prior_clusters=list(ctx.prior_clustered.clusters),
+                user_query=ctx.user_message,
+                system_message=ctx.prior_clustered.assistant_message or "",
+                oracle_reply=ctx.user_message,
+                session_id=ctx.session_id,
+                run_id=ctx.full_session.run_id,
+                turn_id=ctx.turn_id,
             ),
             name="refine_speculative",
         )
@@ -132,12 +133,12 @@ def spawn(*, runner: TurnRunner) -> tuple[SpeculativeBranch, asyncio.Task | None
 
     spec_t = asyncio.create_task(
         retrieve_msg_then_cluster(
-            user_query=runner.user_message,
-            cfg=runner.cfg,
-            session_id=runner.session_id,
-            run_id=runner.full_session.run_id,
-            turn_id=runner.turn_id,
-            turn_number=runner.turn_number,
+            user_query=ctx.user_message,
+            cfg=ctx.cfg,
+            session_id=ctx.session_id,
+            run_id=ctx.full_session.run_id,
+            turn_id=ctx.turn_id,
+            turn_number=ctx.turn_number,
         ),
         name="retrieve_msg_speculative",
     )
@@ -214,79 +215,11 @@ async def cluster_from_retrieval(
     )
 
 
-async def resolve_clusters(
-    *,
-    state: StateDecision,
-    runner: TurnRunner,
-    new_profile,
-) -> list[ClusterRow]:
-    """Convert the state verdict into the final cluster list for *runner*'s turn.
-
-    Either consumes the speculative branch (proceed / drift_dismissed) or
-    cancels it and spawns a profile-driven re-retrieval (drift_confirmed,
-    re_retrieve). All ``state.action`` dispatch lives here so the rest of
-    ``TurnRunner.run`` stays a straight line.
-
-    Args:
-        state:       The state agent's verdict for this turn.
-        runner:      The active TurnRunner.
-        new_profile: Freshly extracted profile (needed for re-retrieval).
-
-    Returns:
-        The cluster list to feed into the decision agent. Empty list means
-        retrieval / clustering produced no candidates and the orchestrator
-        should route to the empty-clusters bypass.
-    """
-    if state.action in (StateAction.drift_confirmed, StateAction.re_retrieve):
-        await cancel_and_drain(runner.speculative_task)
-        summary = new_profile.summary or runner.user_message
-        excluded = list(dict.fromkeys(runner.prior_seen + new_profile.anchor_films))
-        log.info(
-            "re-retrieving from profile summary",
-            extra={
-                "session_id": str(runner.session_id),
-                "turn_id": str(runner.turn_id),
-                "state_action": state.action.value,
-                "using_profile_summary": bool(new_profile.summary),
-                "n_excluded_films": len(excluded),
-            },
-        )
-        rr = await retrieval_agent.retrieve_from_profile(
-            summary=summary,
-            excluded_films=excluded,
-            k=runner.cfg.retrieval.top_k,
-            session_id=runner.session_id,
-            run_id=runner.full_session.run_id,
-            turn_id=runner.turn_id,
-        )
-        return await cluster_from_retrieval(
-            rr,
-            user_query=summary,
-            cfg=runner.cfg,
-            session_id=runner.session_id,
-            run_id=runner.full_session.run_id,
-            turn_id=runner.turn_id,
-            turn_number=runner.turn_number,
-        )
-
-    if state.action is StateAction.drift_dismissed:
-        log.info(
-            "drift dismissed — using speculative result",
-            extra={"session_id": str(runner.session_id), "turn_id": str(runner.turn_id)},
-        )
-
-    # proceed / drift_dismissed: consume the speculative branch.
-    if runner.speculative_task is None:
-        return []
-    return await runner.speculative_task
-
-
 __all__ = [
     "SpeculativeBranch",
     "cancel_and_drain",
     "cluster_from_retrieval",
     "discard_speculative",
-    "resolve_clusters",
     "retrieve_msg_then_cluster",
     "spawn",
 ]
