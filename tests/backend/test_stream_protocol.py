@@ -11,8 +11,8 @@ session-scoped ``client`` fixture used by the smoke tests.
 
 from __future__ import annotations
 
+import asyncio
 import json
-import time
 from datetime import datetime, timezone
 from typing import Any, Iterator
 from uuid import UUID, uuid4
@@ -94,7 +94,7 @@ class FakeOrchestrator:
             raise SessionNotFound(f"no such session {session_id}")
         return _make_session_state(session_id)
 
-    def handle_turn(
+    async def run_turn(
         self,
         session_id: UUID,
         user_message: str,
@@ -106,7 +106,10 @@ class FakeOrchestrator:
                 progress_cb(event)
                 self.received_cb.append(event)
             if self.delay:
-                time.sleep(self.delay)
+                # Hand control back to the event loop so the streaming consumer
+                # can drain events between scripted steps — proves the queue
+                # genuinely interleaves with the worker.
+                await asyncio.sleep(self.delay)
         if self.raises is not None:
             raise self.raises
         assert self.returns is not None

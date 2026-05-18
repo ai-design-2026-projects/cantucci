@@ -49,7 +49,7 @@ def _prompt_schema(model: type[StateCheckResponse]) -> dict:
     return {"type": "object", "properties": properties}
 
 
-def check_llm_state(
+async def check_llm_state(
     *,
     session_id: UUID,
     run_id: UUID,
@@ -152,7 +152,7 @@ def check_llm_state(
         },
     )
 
-    resp = llm_harness.call(
+    resp = await llm_harness.call(
         run_id=run_id,
         session_id=session_id,
         turn_id=turn_id,

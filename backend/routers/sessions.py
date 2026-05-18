@@ -10,6 +10,7 @@ Invariants enforced here:
 
 import asyncio
 import logging
+from contextlib import suppress
 from typing import AsyncIterator
 from uuid import UUID
 
@@ -82,16 +83,17 @@ async def _turn_event_stream(
     session_id: UUID,
     user_message: str,
 ) -> AsyncIterator[str]:
-    """Run a turn in a worker thread and yield NDJSON lines as events arrive.
+    """Drive ``run_turn`` on the event loop and yield NDJSON lines as events arrive.
 
     Wiring:
-      - An ``asyncio.Queue`` carries events from the worker thread to the
-        async generator running on the event loop.
-      - ``progress_cb`` is a thread-safe shim: the orchestrator (sync, on a
-        thread) calls it; we marshal each event onto the event loop via
-        ``loop.call_soon_threadsafe`` so the queue is only touched from the
-        loop thread.
+      - The orchestrator runs on the event loop, so ``progress_cb`` is just
+        ``queue.put_nowait``. No cross-thread hop, no ``call_soon_threadsafe``.
       - A sentinel object signals "worker is done" so the generator can exit.
+      - When the client disconnects, FastAPI cancels this generator; the
+        ``finally`` block cancels the worker task. ``CancelledError``
+        propagates into every speculative LLM call via the async harness,
+        aborting the in-flight ``httpx`` requests instead of letting them
+        complete and bill us.
 
     Failures inside the worker become a single trailing ``ErrorEvent``; the
     HTTP status is already 200 by the time we get here (headers flushed when
@@ -109,25 +111,25 @@ async def _turn_event_stream(
     """
     queue: asyncio.Queue[StreamEvent | object] = asyncio.Queue()
     done = object()
-    loop = asyncio.get_running_loop()
 
     def progress_cb(event: ProgressEvent | ClusterSnapshotEvent) -> None:
-        """Thread-safe hop from the worker thread onto the event loop."""
-        try:
-            loop.call_soon_threadsafe(queue.put_nowait, event)
-        except RuntimeError:
-            # Loop is closed; client disconnected. Drop the event silently.
-            log.debug("progress event dropped after loop closure")
+        """Push a progress event onto the stream queue. Runs on the event loop."""
+        queue.put_nowait(event)
 
     async def _run_worker() -> None:
         try:
-            result = await asyncio.to_thread(
-                orchestrator.handle_turn,
+            result = await orchestrator.run_turn(
                 session_id,
                 user_message,
                 progress_cb=progress_cb,
             )
             await queue.put(ResultEvent(data=result))
+        except asyncio.CancelledError:
+            # Client disconnected: cancellation has already cascaded into every
+            # in-flight LLM call. There is nobody to read a terminal event, so
+            # just unblock the consumer and let the task end cancelled.
+            await queue.put(done)
+            raise
         except SessionNotFound as exc:
             # Pre-check below normally catches this; race conditions land here.
             log.warning("session vanished mid-turn", extra={"session_id": str(session_id)})
@@ -140,6 +142,8 @@ async def _turn_event_stream(
             )
             await queue.put(ErrorEvent(code=type(exc).__name__, message=str(exc)))
         finally:
+            # Always unblock the consumer. Two ``done`` sentinels are harmless;
+            # the consumer breaks on the first one.
             await queue.put(done)
 
     worker = asyncio.create_task(_run_worker())
@@ -152,10 +156,16 @@ async def _turn_event_stream(
             assert isinstance(event, (ProgressEvent, ClusterSnapshotEvent, ResultEvent, ErrorEvent))
             yield _serialize(event)
     finally:
-        # Worker always completes (it puts ``done`` in its finally clause); the
-        # await guarantees the task is not garbage-collected mid-flight and
-        # surfaces any unexpected raise that escaped the broad handler.
-        await worker
+        # Client disconnect or stream completion: cancel any still-running
+        # worker so its CancelledError cascades into in-flight LLM calls.
+        if not worker.done():
+            worker.cancel()
+            with suppress(asyncio.CancelledError):
+                await worker
+        else:
+            # Already finished — surface any unexpected raise that escaped
+            # the broad handler.
+            await worker
 
 
 @router.post("/{session_id}/turns")

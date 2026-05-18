@@ -22,7 +22,7 @@ _STEP_TYPE = "cluster_refine"
 _OVERVIEW_SNIPPET_LIMIT = 240
 
 
-def refine(
+async def refine(
     *,
     prior_clusters: list[ClusterSnapshot],
     user_query: str,
@@ -128,7 +128,7 @@ def refine(
         {"role": "user", "content": user_answer},
     ]
 
-    response = llm_harness.call(
+    response = await llm_harness.call(
         run_id=run_id,
         session_id=session_id,
         turn_id=turn_id,

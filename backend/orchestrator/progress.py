@@ -1,31 +1,38 @@
 """Progress event protocol for streaming turn execution.
 
 Defines the contract the orchestrator uses to notify HTTP-layer callers of
-wave boundaries while ``handle_turn`` runs synchronously. The orchestrator
-invokes a ``ProgressCallback`` at the start and end of each wave; the
-router translates those callbacks into NDJSON lines on the wire, which the
-live-state frontend (``PipelineStatusLine``) renders as the current stage.
+step boundaries while ``run_turn`` drives an async task graph. The
+orchestrator invokes a ``ProgressCallback`` at the start and end of each
+step; the router translates those callbacks into NDJSON lines on the wire,
+which the live-state frontend (``PipelineStatusLine``) renders as the
+current stage.
 
 This module owns the callback shape and the event payloads, so the router
 never reaches into orchestrator internals to invent event types.
 
 Parallel components
 -------------------
-The ``understand`` step wraps Wave 1, in which up to three agents run
-concurrently on a ``ThreadPoolExecutor(max_workers=3)``:
+The ``understand`` step wraps the parallel front of the per-turn task
+graph. After a synchronous hard-limit check, the orchestrator schedules
+the following as concurrent ``asyncio.Task``s:
 
-* ``state_agent.check``       — hard-limit and LLM drift/end/re-retrieve gate.
+* ``state_agent.check_gate``  — LLM drift / end / re-retrieve gate.
 * ``profile_agent.extract``   — preference-profile extraction.
-* ``cluster_agent.refine``    — refinement turns only (speculative).
+* one speculative branch — ``cluster_agent.refine`` (refinement turns) OR
+  ``retrieval_agent.retrieve_from_message → cluster_agent.describe_clusters``
+  (fresh turns).
 
-Retrieval is intentionally absent from Wave 1. On fresh turns it runs
-serially after state_agent returns a non-terminal action, so terminal
-paths (terminate, natural_end, clarify_drift) and retrieval_override
-reruns never pay for a wasted retrieval call.
+Retrieval no longer waits for the state gate: by speculating on the most
+likely path and cancelling the branch as soon as the gate returns a
+verdict that invalidates it, the orchestrator overlaps the gate's LLM
+round-trip with retrieval + cluster work. Cancellation propagates as
+``asyncio.CancelledError`` through the async LLM harness, closing the
+in-flight ``httpx`` connection.
 
-The ``choose`` step wraps Wave 2, which is a single serial call to
-``decision_agent.decide`` (ambiguity was merged into the decision agent
-in PR #61, so there is no longer a second parallel sibling here).
+The ``choose`` step wraps the post-gate decision, which is a single
+serial call to ``decision_agent.decide`` (ambiguity was merged into the
+decision agent in PR #61, so there is no longer a second parallel sibling
+here).
 """
 
 from __future__ import annotations
@@ -173,9 +180,8 @@ StreamEvent = Union[ProgressEvent, ClusterSnapshotEvent, ResultEvent, ErrorEvent
 class ProgressCallback(Protocol):
     """Callable the orchestrator invokes at step boundaries and after clustering.
 
-    Implementations must be thread-safe: ``handle_turn`` may be running in a
-    worker thread while the FastAPI event loop consumes events on another.
-    Implementations must not raise — the orchestrator wraps each invocation
+    Invoked on the event loop thread (``run_turn`` is async). Implementations
+    must not block or raise — the orchestrator wraps each invocation
     defensively, but propagating exceptions would still pollute logs.
     """
 
@@ -187,7 +193,7 @@ class ProgressCallback(Protocol):
 class NullProgressCallback:
     """No-op default used when no streaming client is attached.
 
-    Lets ``handle_turn`` keep an unconditional callback invocation in its body
+    Lets ``run_turn`` keep an unconditional callback invocation in its body
     without forcing every caller (tests, eval scripts, future batch jobs) to
     build a real callback.
     """

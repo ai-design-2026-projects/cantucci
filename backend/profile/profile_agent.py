@@ -29,7 +29,7 @@ log = logging.getLogger(__name__)
 load_prompt = make_prompt_loader(Path(__file__).parent / "prompts")
 
 
-def extract(
+async def extract(
     *,
     session_id: UUID,
     run_id: UUID,
@@ -86,7 +86,7 @@ def extract(
         },
     )
 
-    resp = llm_harness.call(
+    resp = await llm_harness.call(
         run_id=run_id,
         session_id=session_id,
         turn_id=turn_id,

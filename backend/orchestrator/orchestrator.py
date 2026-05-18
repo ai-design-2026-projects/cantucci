@@ -2,18 +2,22 @@
 
 No in-memory session state: all persistence flows through ``backend.api``.
 
-Turn flow:
-  Oracle → Orchestrator → Wave 1 (parallel: State + Profile + Refine if
-  applicable) → if non-terminal: Retrieval + Cluster (fresh path, serial) or
-  Refine result (refinement path) → Decision Agent → Orchestrator writes turn /
-  clusters / feedback / profile.
+Each turn is structured as an explicit ``asyncio`` task graph:
+
+* A sync hard-limit gate short-circuits the turn before any LLM call.
+* State gate, profile extraction, and a speculative branch (refinement or
+  retrieval-from-message → cluster_describe) are scheduled in parallel.
+* Once the state gate returns, the branch is either consumed, cancelled,
+  or replaced — cancellation propagates as ``asyncio.CancelledError`` and
+  reaches the in-flight ``httpx`` connection inside the async LLM harness,
+  so abandoned LLM calls are aborted rather than silently completed.
 
 The Orchestrator is the sole writer to the DB. All sub-agents are read-only.
 Private decision logic lives in ``backend/orchestrator/tools/``.
 """
 
+import asyncio
 import logging
-from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from decimal import Decimal
 from uuid import UUID, uuid4
@@ -31,6 +35,7 @@ from backend.api.types import ClusterSnapshot, SessionStatus, StepType, TurnDeta
 from backend.state.types import StateAction, StateDecision
 from backend.decision.types import DecisionAction
 from backend.exceptions import SessionNotFound
+from backend.retrieval.types import RetrievalResult
 from backend.routers.dtos import (
     ClusterPublic,
     MoviePublic,
@@ -49,6 +54,7 @@ from backend.orchestrator.progress import (
     ProgressStep,
     make_progress_event,
 )
+from backend.orchestrator.task_graph import SpeculativeBranch, cancel_and_drain
 from backend.orchestrator.tools.feedback import classify_feedback
 from backend.orchestrator.tools.policy import (
     cluster_snapshot_to_spec,
@@ -140,6 +146,21 @@ def _prior_clusters_from_turn(turn: TurnDetail) -> list[ClusterSnapshot]:
     return list(turn.clusters)
 
 
+def _last_show_recommendation(
+    full,
+    top_k: int,
+) -> RecommendationPublic | None:
+    """Return the last show-turn's recommendation, if any.
+
+    Used by terminal paths (terminate, natural_end) to surface the most
+    recent recommendation alongside the stop turn.
+    """
+    for prior_t in reversed(full.turns):
+        if prior_t.step_type == StepType.show.value and prior_t.clusters:
+            return _build_recommendation(_pick_best_cluster(prior_t.clusters), top_k)
+    return None
+
+
 _TOP_K_FILMS = 6
 
 
@@ -203,6 +224,29 @@ def _emit_cluster_snapshot(
         log.warning("cluster snapshot event dropped", exc_info=True)
 
 
+async def _drain_speculative(task: asyncio.Task | None, name: str) -> None:
+    """Cancel *task* and swallow any exception with a discard warning.
+
+    Used on terminal state paths (terminate, natural_end, clarify_drift)
+    where a speculative branch's result is no longer needed and its failure
+    must not propagate. ``CancelledError`` is swallowed silently; other
+    exceptions are logged once as ``WARNING`` and then suppressed.
+    """
+    if task is None:
+        return
+    if not task.done():
+        task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
+    except Exception as exc:  # noqa: BLE001 — discarded result; logged.
+        log.warning(
+            "speculative agent failed (discarded — state terminal)",
+            extra={"agent": name, "error": str(exc)},
+        )
+
+
 class Orchestrator:
     """LLM-backed orchestrator. No in-memory session state; all persistence in DB.
 
@@ -255,34 +299,32 @@ class Orchestrator:
             turns=[],
         )
 
-    def handle_turn(
+    async def run_turn(
         self,
         session_id: UUID,
         user_message: str,
         *,
         progress_cb: ProgressCallback = NullProgressCallback(),
     ) -> TurnResult:
-        """Orchestrate one conversational turn and persist all resulting state.
+        """Orchestrate one conversational turn as an async task graph.
 
-        Full flow:
-          1. Load session state from DB.
-          2. Wave 1 (parallel): State Agent + Profile Agent + Refine (if
-             refinement turn). Retrieval runs serially AFTER state check on
-             fresh turns, so wasted retrieval calls are avoided on terminal paths.
-          3. If state is terminal, discard speculative results and return early.
-          4. Fresh path (after state check): retrieve → soft_cluster → describe_clusters.
-             Refinement path: resolve the parallel refine future.
-          5. Decision Agent: decides action and generates question when continuing.
-          6. Persist turn, clusters, feedback, and updated profile.
+        Flow:
+          1. Hard-limit gate (sync) — short-circuits before any LLM work.
+          2. Spawn ``state_gate``, ``profile_extract``, and one speculative
+             branch (refinement OR retrieval-from-message → cluster_describe)
+             as concurrent ``asyncio.Task``s.
+          3. Resolve the state-gate verdict and cancel / replace the
+             speculative branch as needed. Cancellation cascades into the
+             in-flight LLM call via the async harness.
+          4. Run the decision agent on the resolved clusters + N profile.
+          5. Persist turn, clusters, feedback, and updated profile.
 
         Args:
             session_id:   UUID of the target session.
             user_message: The oracle's message for this turn.
-            progress_cb:  Invoked at the start and end of each wave so the
-                          router can stream ``ProgressEvent`` lines to the
-                          live-state frontend. Defaults to ``NullProgressCallback``
-                          so non-streaming callers (tests, eval scripts) are
-                          unaffected. Must be thread-safe and must not raise.
+            progress_cb:  Invoked at the start and end of each progress step
+                          so the router can stream events to the frontend.
+                          Called on the event loop thread; must not block or raise.
 
         Returns:
             A ``TurnResult`` describing the outcome of this turn.
@@ -292,6 +334,8 @@ class Orchestrator:
             CostLimitExceeded: If the session budget is exhausted.
             LLMParseError:     If any agent LLM call returns malformed JSON.
         """
+        turn_id = uuid4()
+
         def _emit(step: ProgressStep, phase: ProgressPhase) -> None:
             try:
                 progress_cb(make_progress_event(step, phase))
@@ -307,9 +351,8 @@ class Orchestrator:
                     },
                 )
 
-        full = api_retrieval.get_session_full(session_id)
+        full = await asyncio.to_thread(api_retrieval.get_session_full, session_id)
 
-        turn_id = uuid4()
         turn_number = len(full.turns) + 1
         cfg = get_settings()
 
@@ -343,11 +386,6 @@ class Orchestrator:
                 extra={"session_id": str(session_id), "turn_number": turn_number},
             )
 
-        # Wave 1: state + profile (always) + refine (refinement turns only).
-        # Retrieval is intentionally absent from this pool — it runs serially after
-        # state check clears, so terminal actions (terminate, natural_end,
-        # clarify_drift) and retrieval_override reruns never pay for a wasted
-        # retrieval call.
         prior_seen: list[str] = list(prior_profile.get("seen_films", [])) if prior_profile else []
         recommended_last_turn: list[str] = []
         if full.turns:
@@ -358,10 +396,37 @@ class Orchestrator:
                         if not a.excluded and a.title:
                             recommended_last_turn.append(a.title)
 
+        # 1. Hard-limit gate. Synchronous; trips before any LLM work.
+        hard = state_agent.check_hard_limits(turn_number=turn_number, full=full, cfg=cfg)
+        if hard.action is StateAction.terminate:
+            _emit(ProgressStep.understand, "start")
+            _emit(ProgressStep.understand, "end")
+            last_show_rec = await asyncio.to_thread(
+                _last_show_recommendation, full, cfg.session.recommendation_top_k,
+            )
+            _emit(ProgressStep.wrap_up, "start")
+            try:
+                return await asyncio.to_thread(
+                    self._terminate_turn,
+                    session_id=session_id,
+                    turn_id=turn_id,
+                    turn_number=turn_number,
+                    user_message=user_message,
+                    decision=hard,
+                    recommendation=last_show_rec,
+                )
+            finally:
+                _emit(ProgressStep.wrap_up, "end")
+
+        # 2. Spawn the task graph for the turn. The LLM state gate runs in
+        # parallel with profile extraction and one speculative branch so that
+        # the speculative work is already in-flight by the time the gate
+        # resolves. On turn 1, retrieval is already racing with the state
+        # gate — no wasted wait.
         _emit(ProgressStep.understand, "start")
-        with ThreadPoolExecutor(max_workers=3) as pool:
-            f_conv = pool.submit(
-                state_agent.check,
+
+        state_t = asyncio.create_task(
+            state_agent.check_gate(
                 session_id=session_id,
                 run_id=full.run_id,
                 turn_id=turn_id,
@@ -372,9 +437,11 @@ class Orchestrator:
                 cfg=cfg,
                 recommended_last_turn=recommended_last_turn,
                 seen_films=prior_seen,
-            )
-            f_profile = pool.submit(
-                profile_agent.extract,
+            ),
+            name="state_gate",
+        )
+        profile_t = asyncio.create_task(
+            profile_agent.extract(
                 session_id=session_id,
                 run_id=full.run_id,
                 turn_id=turn_id,
@@ -382,216 +449,97 @@ class Orchestrator:
                 user_message=user_message,
                 prior_profile=prior_profile,
                 recent_turns=recent_turns,
-            )
-            f_refine = (
-                pool.submit(
-                    cluster_agent.refine,
-                    prior_clusters=_prior_clusters_from_turn(prior_turn),
-                    user_query=user_message,
-                    asked_question=prior_turn.assistant_message or "",
-                    user_answer=user_message,
-                    session_id=session_id,
-                    run_id=full.run_id,
-                    turn_id=turn_id,
-                )
-                if is_refinement
-                else None
-            )
-            conv = f_conv.result()
+            ),
+            name="profile_extract",
+        )
 
-            _terminal = conv.action in (
-                StateAction.terminate,
-                StateAction.natural_end,
-                StateAction.clarify_drift,
+        spec_kind, spec_t = self._spawn_speculative(
+            is_refinement=is_refinement,
+            prior_turn=prior_turn,
+            user_message=user_message,
+            cfg=cfg,
+            session_id=session_id,
+            run_id=full.run_id,
+            turn_id=turn_id,
+            turn_number=turn_number,
+        )
+
+        try:
+            state = await state_t
+        except BaseException:
+            # State gate failed (including cancellation). Drop everything we
+            # spawned so the LLM calls behind those tasks are aborted before
+            # we re-raise to the caller.
+            await cancel_and_drain(profile_t)
+            await cancel_and_drain(spec_t)
+            raise
+
+        # 3. Branch on the state verdict. LLM-detected terminal verdicts
+        # discard the speculative branch and the profile result (the
+        # docstring for clarify_drift in the LLM gate says no profile
+        # update is persisted on these turns).
+        if state.action is StateAction.natural_end:
+            await _drain_speculative(spec_t, spec_kind.value)
+            await _drain_speculative(profile_t, "profile")
+            _emit(ProgressStep.understand, "end")
+            last_show_rec = await asyncio.to_thread(
+                _last_show_recommendation, full, cfg.session.recommendation_top_k,
             )
-            if _terminal:
-                for _f, _name in ((f_refine, "refine"), (f_profile, "profile")):
-                    if _f is None:
-                        continue
-                    try:
-                        _f.result()
-                    except Exception as _exc:
-                        log.warning(
-                            "speculative agent failed (discarded — state terminal)",
-                            extra={
-                                "agent": _name,
-                                "session_id": str(session_id),
-                                "error": str(_exc),
-                            },
-                        )
-                clusters = []
-                new_profile = prior_profile
-            else:
-                new_profile = f_profile.result()
-                if is_refinement:
-                    clusters = f_refine.result()
-                elif conv.action in (StateAction.drift_confirmed, StateAction.re_retrieve) or conv.retrieval_override:
-                    # drift_confirmed and retrieval_override each replace clusters via
-                    # their own retrieval call below — skip the initial retrieval.
-                    clusters = []
-                else:
-                    rr = retrieval_agent.retrieve_from_message(
-                        user_query=user_message,
-                        k=cfg.retrieval.top_k,
-                        session_id=session_id,
-                        run_id=full.run_id,
-                        turn_id=turn_id,
-                    )
-                    clusters = self._cluster_from_retrieval(
-                        rr,
-                        user_query=user_message,
-                        cfg=cfg,
-                        session_id=session_id,
-                        full=full,
-                        turn_id=turn_id,
-                        turn_number=turn_number,
-                    )
-        _emit(ProgressStep.understand, "end")
-
-        last_show_rec: RecommendationPublic | None = None
-        if conv.action in (StateAction.terminate, StateAction.natural_end):
-            for prior_t in reversed(full.turns):
-                if prior_t.step_type == StepType.show.value and prior_t.clusters:
-                    last_show_rec = _build_recommendation(
-                        _pick_best_cluster(prior_t.clusters),
-                        cfg.session.recommendation_top_k,
-                    )
-                    break
-
-        if conv.action is StateAction.terminate:
             _emit(ProgressStep.wrap_up, "start")
             try:
-                return self._terminate_turn(
+                return await asyncio.to_thread(
+                    self._natural_end_turn,
                     session_id=session_id,
                     turn_id=turn_id,
                     turn_number=turn_number,
                     user_message=user_message,
-                    decision=conv,
-                    recommendation=last_show_rec,
-                )
-            finally:
-                _emit(ProgressStep.wrap_up, "end")
-
-        if conv.action is StateAction.natural_end:
-            _emit(ProgressStep.wrap_up, "start")
-            try:
-                return self._natural_end_turn(
-                    session_id=session_id,
-                    turn_id=turn_id,
-                    turn_number=turn_number,
-                    user_message=user_message,
-                    decision=conv,
+                    decision=state,
                     preference_profile=prior_profile or {},
                     recommendation=last_show_rec,
                 )
             finally:
                 _emit(ProgressStep.wrap_up, "end")
 
-        if conv.action is StateAction.clarify_drift:
+        if state.action is StateAction.clarify_drift:
+            await _drain_speculative(spec_t, spec_kind.value)
+            await _drain_speculative(profile_t, "profile")
+            _emit(ProgressStep.understand, "end")
             _emit(ProgressStep.wrap_up, "start")
             try:
-                return emit_drift_clarification(
+                return await asyncio.to_thread(
+                    emit_drift_clarification,
                     session_id=session_id,
                     turn_id=turn_id,
                     turn_number=turn_number,
                     user_message=user_message,
-                    decision=conv,
+                    decision=state,
                 )
             finally:
                 _emit(ProgressStep.wrap_up, "end")
 
-        if conv.action is StateAction.drift_confirmed:
-            drift_summary = new_profile.summary or user_message
-            drift_excluded = list(dict.fromkeys(prior_seen + new_profile.anchor_films))
-            log.info(
-                "drift confirmed — re-retrieving from profile summary",
-                extra={
-                    "session_id": str(session_id),
-                    "turn_id": str(turn_id),
-                    "using_profile_summary": bool(new_profile.summary),
-                    "n_excluded_films": len(drift_excluded),
-                },
-            )
-            rr = retrieval_agent.retrieve_from_profile(
-                summary=drift_summary,
-                excluded_films=drift_excluded,
-                k=cfg.retrieval.top_k,
-                session_id=session_id,
-                run_id=full.run_id,
-                turn_id=turn_id,
-            )
-            clusters = self._cluster_from_retrieval(
-                rr,
-                user_query=drift_summary,
-                cfg=cfg,
-                session_id=session_id,
-                full=full,
-                turn_id=turn_id,
-                turn_number=turn_number,
-            )
+        # 4. Non-terminal path. Profile is needed for cluster re-retrieval
+        # (drift_confirmed / re_retrieve) and for persistence.
+        try:
+            new_profile = await profile_t
+        except BaseException:
+            await cancel_and_drain(spec_t)
+            raise
 
-        if conv.action is StateAction.re_retrieve:
-            re_summary = new_profile.summary or user_message
-            re_excluded = list(dict.fromkeys(prior_seen + new_profile.anchor_films))
-            log.info(
-                "re_retrieve — fresh chain from profile with seen-films excluded",
-                extra={
-                    "session_id": str(session_id),
-                    "turn_id": str(turn_id),
-                    "n_excluded_films": len(re_excluded),
-                },
-            )
-            rr = retrieval_agent.retrieve_from_profile(
-                summary=re_summary,
-                excluded_films=re_excluded,
-                k=cfg.retrieval.top_k,
-                session_id=session_id,
-                run_id=full.run_id,
-                turn_id=turn_id,
-            )
-            clusters = self._cluster_from_retrieval(
-                rr,
-                user_query=re_summary,
-                cfg=cfg,
-                session_id=session_id,
-                full=full,
-                turn_id=turn_id,
-                turn_number=turn_number,
-            )
+        clusters = await self._resolve_clusters(
+            state=state,
+            spec_kind=spec_kind,
+            spec_t=spec_t,
+            new_profile=new_profile,
+            prior_seen=prior_seen,
+            user_message=user_message,
+            cfg=cfg,
+            session_id=session_id,
+            full=full,
+            turn_id=turn_id,
+            turn_number=turn_number,
+        )
 
-        if conv.action is StateAction.drift_dismissed:
-            log.info(
-                "drift dismissed — using current-turn retrieval",
-                extra={"session_id": str(session_id), "turn_id": str(turn_id)},
-            )
-
-        # State ↔ Cluster reconciliation: if state supplies a
-        # retrieval override, the speculative cluster result is stale — rerun.
-        if conv.retrieval_override:
-            log.warning(
-                "cluster rerun: state supplied retrieval override",
-                extra={
-                    "session_id": str(session_id),
-                    "turn_id": str(turn_id),
-                    "override_query": conv.retrieval_override,
-                },
-            )
-            rr = retrieval_agent.retrieve_from_message(
-                user_query=conv.retrieval_override,
-                k=cfg.retrieval.top_k,
-                session_id=session_id,
-                run_id=full.run_id,
-                turn_id=turn_id,
-            )
-            clusters = self._cluster_from_retrieval(
-                rr,
-                user_query=conv.retrieval_override,
-                cfg=cfg,
-                session_id=session_id,
-                full=full,
-                turn_id=turn_id,
-                turn_number=turn_number,
-            )
+        _emit(ProgressStep.understand, "end")
 
         if clusters:
             _emit_cluster_snapshot(clusters, progress_cb)
@@ -599,7 +547,8 @@ class Orchestrator:
         if not clusters:
             _emit(ProgressStep.wrap_up, "start")
             try:
-                return emit_early_clarification(
+                return await asyncio.to_thread(
+                    emit_early_clarification,
                     session_id=session_id,
                     turn_id=turn_id,
                     turn_number=turn_number,
@@ -608,7 +557,8 @@ class Orchestrator:
             finally:
                 _emit(ProgressStep.wrap_up, "end")
 
-        api_sessions.append_turn(
+        await asyncio.to_thread(
+            api_sessions.append_turn,
             session_id=session_id,
             turn_number=turn_number,
             user_message=user_message,
@@ -618,8 +568,11 @@ class Orchestrator:
             turn_id=turn_id,
         )
 
-        api_sessions.snapshot_clusters(
-            session_id, turn_id, [cluster_snapshot_to_spec(c) for c in clusters]
+        await asyncio.to_thread(
+            api_sessions.snapshot_clusters,
+            session_id,
+            turn_id,
+            [cluster_snapshot_to_spec(c) for c in clusters],
         )
 
         log.debug(
@@ -632,7 +585,7 @@ class Orchestrator:
         )
 
         _emit(ProgressStep.choose, "start")
-        decision = decision_agent.decide(
+        decision = await decision_agent.decide(
             session_id=session_id,
             run_id=full.run_id,
             turn_id=turn_id,
@@ -685,7 +638,9 @@ class Orchestrator:
             )
             converged = False
             step_type = StepType.show
-            recommendation = _build_recommendation(best_cluster, cfg.session.recommendation_top_k)
+            recommendation = await asyncio.to_thread(
+                _build_recommendation, best_cluster, cfg.session.recommendation_top_k,
+            )
 
         log.debug(
             "state verdict",
@@ -699,7 +654,8 @@ class Orchestrator:
         _emit(ProgressStep.choose, "end")
 
         _emit(ProgressStep.finalize, "start")
-        api_sessions.update_turn(
+        await asyncio.to_thread(
+            api_sessions.update_turn,
             turn_id=turn_id,
             assistant_message=reply,
             step_type=step_type.value,
@@ -707,7 +663,8 @@ class Orchestrator:
         )
 
         fb_level, fb_type, fb_target_id = classify_feedback(full.turns, user_message, decision)
-        api_sessions.write_feedback(
+        await asyncio.to_thread(
+            api_sessions.write_feedback,
             session_id=session_id,
             turn_id=turn_id,
             feedback_level=fb_level,
@@ -719,7 +676,9 @@ class Orchestrator:
         new_profile.seen_films = list(
             dict.fromkeys(prior_seen + new_profile.anchor_films + new_profile.seen_films)
         )
-        api_sessions.update_preference_profile(session_id, new_profile.model_dump())
+        await asyncio.to_thread(
+            api_sessions.update_preference_profile, session_id, new_profile.model_dump(),
+        )
         _emit(ProgressStep.finalize, "end")
 
         log.debug(
@@ -753,34 +712,124 @@ class Orchestrator:
             recommendation=recommendation,
         )
 
-    def _cluster_from_retrieval(
+    def _spawn_speculative(
         self,
-        rr,
+        *,
+        is_refinement: bool,
+        prior_turn: TurnDetail | None,
+        user_message: str,
+        cfg,
+        session_id: UUID,
+        run_id: UUID,
+        turn_id: UUID,
+        turn_number: int,
+    ) -> tuple[SpeculativeBranch, asyncio.Task | None]:
+        """Spawn the one speculative branch appropriate for the upcoming turn.
+
+        On refinement turns we speculatively call ``cluster_agent.refine``;
+        on fresh turns we speculatively chain retrieval-from-message through
+        cluster_describe. State-invalidated speculative work is cancelled
+        once the gate resolves; the still-running branch is consumed.
+
+        Returns:
+            A pair ``(spec_kind, task)`` where ``task`` is None only when
+            the branch could not be configured (refinement with no prior
+            clusters — should not happen given ``is_refinement`` guard).
+        """
+        if is_refinement and prior_turn is not None:
+            spec_t = asyncio.create_task(
+                cluster_agent.refine(
+                    prior_clusters=_prior_clusters_from_turn(prior_turn),
+                    user_query=user_message,
+                    asked_question=prior_turn.assistant_message or "",
+                    user_answer=user_message,
+                    session_id=session_id,
+                    run_id=run_id,
+                    turn_id=turn_id,
+                ),
+                name="refine_speculative",
+            )
+            return SpeculativeBranch.REFINE, spec_t
+
+        spec_t = asyncio.create_task(
+            self._retrieve_msg_then_cluster(
+                user_query=user_message,
+                cfg=cfg,
+                session_id=session_id,
+                run_id=run_id,
+                turn_id=turn_id,
+                turn_number=turn_number,
+            ),
+            name="retrieve_msg_speculative",
+        )
+        return SpeculativeBranch.RETRIEVE_MSG, spec_t
+
+    async def _retrieve_msg_then_cluster(
+        self,
         *,
         user_query: str,
         cfg,
         session_id: UUID,
-        full,
+        run_id: UUID,
+        turn_id: UUID,
+        turn_number: int,
+    ) -> list[ClusterSnapshot]:
+        """Speculative chain: retrieve_from_message → soft_cluster → describe.
+
+        Wrapped as a single task so the orchestrator can cancel the whole
+        chain in one call when state invalidates the speculative branch.
+        Cancellation between retrieval and clustering, or mid-LLM-describe,
+        all propagate via ``CancelledError``.
+        """
+        rr = await retrieval_agent.retrieve_from_message(
+            user_query=user_query,
+            k=cfg.retrieval.top_k,
+            session_id=session_id,
+            run_id=run_id,
+            turn_id=turn_id,
+        )
+        return await self._cluster_from_retrieval(
+            rr,
+            user_query=user_query,
+            cfg=cfg,
+            session_id=session_id,
+            run_id=run_id,
+            turn_id=turn_id,
+            turn_number=turn_number,
+        )
+
+    async def _cluster_from_retrieval(
+        self,
+        rr: RetrievalResult,
+        *,
+        user_query: str,
+        cfg,
+        session_id: UUID,
+        run_id: UUID,
         turn_id: UUID,
         turn_number: int,
     ) -> list[ClusterSnapshot]:
         """Run HDBSCAN → LLM describe over an already-fetched ``RetrievalResult``.
 
+        ``soft_cluster`` is sync and CPU-bound (HDBSCAN + embedding fetch);
+        we hop into a thread so the event loop stays free for in-flight LLM
+        calls on other turns.
+
         Args:
-            rr:           ``RetrievalResult`` produced by one of the retrieve_from_* functions.
-            user_query:   The original query string (raw message or profile summary), passed
-                          to ``describe_clusters`` for context.
-            cfg:          Loaded settings for the current turn.
-            session_id:   UUID of the current session.
-            full:         Full session state loaded from DB.
-            turn_id:      UUID of the current turn.
-            turn_number:  1-based turn index within the session.
+            rr:          ``RetrievalResult`` produced by retrieve_from_*.
+            user_query:  Query string used for the describer LLM call.
+            cfg:         Loaded settings for the current turn.
+            session_id:  UUID of the current session.
+            run_id:      UUID of the parent run.
+            turn_id:     UUID of the current turn.
+            turn_number: 1-based turn index within the session.
 
         Returns:
             List of named ``ClusterSnapshot`` objects, or an empty list when
             retrieval yields no candidates or HDBSCAN classifies all as noise.
         """
-        sr = cluster_agent.soft_cluster(
+        sr = await asyncio.to_thread(
+            cluster_agent.soft_cluster,
             retrieval_result=rr,
             session_id=session_id,
             turn_id=turn_id,
@@ -788,14 +837,106 @@ class Orchestrator:
         )
         if sr is None:
             return []
-        return cluster_agent.describe_clusters(
+        return await cluster_agent.describe_clusters(
             soft_result=sr,
             user_query=user_query,
             reformulated_query=rr.reformulated_query,
             session_id=session_id,
-            run_id=full.run_id,
+            run_id=run_id,
             turn_id=turn_id,
         )
+
+    async def _resolve_clusters(
+        self,
+        *,
+        state: StateDecision,
+        spec_kind: SpeculativeBranch,
+        spec_t: asyncio.Task | None,
+        new_profile,
+        prior_seen: list[str],
+        user_message: str,
+        cfg,
+        session_id: UUID,
+        full,
+        turn_id: UUID,
+        turn_number: int,
+    ) -> list[ClusterSnapshot]:
+        """Convert the state verdict into the final cluster list for this turn.
+
+        Either consumes the speculative branch (proceed / drift_dismissed) or
+        cancels it and spawns the replacement (drift_confirmed, re_retrieve,
+        retrieval_override). All ``state.action`` dispatch lives here so the
+        rest of ``run_turn`` stays a straight line.
+        """
+        if state.action in (StateAction.drift_confirmed, StateAction.re_retrieve):
+            await cancel_and_drain(spec_t)
+            summary = new_profile.summary or user_message
+            excluded = list(dict.fromkeys(prior_seen + new_profile.anchor_films))
+            log.info(
+                "re-retrieving from profile summary",
+                extra={
+                    "session_id": str(session_id),
+                    "turn_id": str(turn_id),
+                    "state_action": state.action.value,
+                    "using_profile_summary": bool(new_profile.summary),
+                    "n_excluded_films": len(excluded),
+                },
+            )
+            rr = await retrieval_agent.retrieve_from_profile(
+                summary=summary,
+                excluded_films=excluded,
+                k=cfg.retrieval.top_k,
+                session_id=session_id,
+                run_id=full.run_id,
+                turn_id=turn_id,
+            )
+            return await self._cluster_from_retrieval(
+                rr,
+                user_query=summary,
+                cfg=cfg,
+                session_id=session_id,
+                run_id=full.run_id,
+                turn_id=turn_id,
+                turn_number=turn_number,
+            )
+
+        if state.retrieval_override:
+            await cancel_and_drain(spec_t)
+            log.warning(
+                "cluster rerun: state supplied retrieval override",
+                extra={
+                    "session_id": str(session_id),
+                    "turn_id": str(turn_id),
+                    "override_query": state.retrieval_override,
+                },
+            )
+            rr = await retrieval_agent.retrieve_from_message(
+                user_query=state.retrieval_override,
+                k=cfg.retrieval.top_k,
+                session_id=session_id,
+                run_id=full.run_id,
+                turn_id=turn_id,
+            )
+            return await self._cluster_from_retrieval(
+                rr,
+                user_query=state.retrieval_override,
+                cfg=cfg,
+                session_id=session_id,
+                run_id=full.run_id,
+                turn_id=turn_id,
+                turn_number=turn_number,
+            )
+
+        if state.action is StateAction.drift_dismissed:
+            log.info(
+                "drift dismissed — using speculative retrieval",
+                extra={"session_id": str(session_id), "turn_id": str(turn_id)},
+            )
+
+        # proceed / drift_dismissed: consume the speculative branch.
+        if spec_t is None:
+            return []
+        return await spec_t
 
     def _terminate_turn(
         self,

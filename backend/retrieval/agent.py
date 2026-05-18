@@ -86,7 +86,7 @@ def _finalize(
     )
 
 
-def retrieve_from_message(
+async def retrieve_from_message(
     *,
     user_query: str,
     k: int,
@@ -139,7 +139,7 @@ def retrieve_from_message(
         },
     )
 
-    reformulated = query_reformulator.from_message(
+    reformulated = await query_reformulator.from_message(
         user_query=user_query,
         session_id=session_id,
         run_id=run_id,
@@ -203,7 +203,7 @@ def retrieve_from_message(
     )
 
 
-def retrieve_from_profile(
+async def retrieve_from_profile(
     *,
     summary: str,
     excluded_films: list[str],
@@ -261,7 +261,7 @@ def retrieve_from_profile(
         },
     )
 
-    reformulated = query_reformulator.from_profile(
+    reformulated = await query_reformulator.from_profile(
         summary=summary,
         session_id=session_id,
         run_id=run_id,

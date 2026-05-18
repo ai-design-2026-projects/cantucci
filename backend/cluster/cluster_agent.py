@@ -145,7 +145,7 @@ def soft_cluster(
     )
 
 
-def describe_clusters(
+async def describe_clusters(
     *,
     soft_result: SoftClusterResult,
     user_query: str,
@@ -187,7 +187,7 @@ def describe_clusters(
         },
     )
 
-    labels = cluster_describer.describe(
+    labels = await cluster_describer.describe(
         clusters_payload=soft_result.clusters_payload,
         user_query=user_query,
         reformulated_query=reformulated_query,
@@ -243,7 +243,7 @@ def describe_clusters(
     return snapshots
 
 
-def refine(
+async def refine(
     *,
     prior_clusters: list[ClusterSnapshot],
     user_query: str,
@@ -275,7 +275,7 @@ def refine(
         LLMParseError:     If the harness exhausts its retry budget.
         CostLimitExceeded: If the session budget is exhausted.
     """
-    return cluster_refiner.refine(
+    return await cluster_refiner.refine(
         prior_clusters=prior_clusters,
         user_query=user_query,
         asked_question=asked_question,

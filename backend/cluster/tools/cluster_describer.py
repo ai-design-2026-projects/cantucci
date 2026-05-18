@@ -29,7 +29,7 @@ load_prompt = make_prompt_loader(Path(__file__).parent.parent / "prompts" / "des
 _STEP_TYPE = "cluster_describe"
 
 
-def describe(
+async def describe(
     *,
     clusters_payload: list[dict],
     user_query: str,
@@ -83,7 +83,7 @@ def describe(
         {"role": "user", "content": user_query},
     ]
 
-    response = llm_harness.call(
+    response = await llm_harness.call(
         run_id=run_id,
         session_id=session_id,
         turn_id=turn_id,

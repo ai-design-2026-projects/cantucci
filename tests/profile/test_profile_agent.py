@@ -37,7 +37,14 @@ def _llm_response(parsed: UserProfile) -> LLMResponse:
     )
 
 
-def _call(**overrides):
+def _async_return(value):
+    """Wrap *value* in an async callable suitable for monkeypatching ``llm_harness.call``."""
+    async def _fn(**_kw):
+        return value
+    return _fn
+
+
+async def _call(**overrides):
     kwargs = dict(
         session_id=uuid.uuid4(),
         run_id=uuid.uuid4(),
@@ -48,116 +55,116 @@ def _call(**overrides):
         recent_turns=[],
     )
     kwargs.update(overrides)
-    return extract(**kwargs)
+    return await extract(**kwargs)
 
 
 class TestHappyPath:
     """Profile agent returns a validated UserProfile from the LLM response."""
 
-    def test_returns_user_profile(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    async def test_returns_user_profile(self, monkeypatch: pytest.MonkeyPatch) -> None:
         profile = _profile()
         monkeypatch.setattr(
             "backend.profile.profile_agent.llm_harness.call",
-            lambda **_kw: _llm_response(profile),
+            _async_return(_llm_response(profile)),
         )
-        result = _call()
+        result = await _call()
         assert isinstance(result, UserProfile)
 
-    def test_constraints_forwarded(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    async def test_constraints_forwarded(self, monkeypatch: pytest.MonkeyPatch) -> None:
         profile = _profile(constraints=["no sci-fi", "English only"])
         monkeypatch.setattr(
             "backend.profile.profile_agent.llm_harness.call",
-            lambda **_kw: _llm_response(profile),
+            _async_return(_llm_response(profile)),
         )
-        result = _call()
+        result = await _call()
         assert result.constraints == ["no sci-fi", "English only"]
 
-    def test_preferences_forwarded(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    async def test_preferences_forwarded(self, monkeypatch: pytest.MonkeyPatch) -> None:
         profile = _profile(preferences=["ensemble casts", "70s aesthetics"])
         monkeypatch.setattr(
             "backend.profile.profile_agent.llm_harness.call",
-            lambda **_kw: _llm_response(profile),
+            _async_return(_llm_response(profile)),
         )
-        result = _call()
+        result = await _call()
         assert result.preferences == ["ensemble casts", "70s aesthetics"]
 
-    def test_attitudes_forwarded(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    async def test_attitudes_forwarded(self, monkeypatch: pytest.MonkeyPatch) -> None:
         profile = _profile(attitudes=["decisive"])
         monkeypatch.setattr(
             "backend.profile.profile_agent.llm_harness.call",
-            lambda **_kw: _llm_response(profile),
+            _async_return(_llm_response(profile)),
         )
-        result = _call()
+        result = await _call()
         assert result.attitudes == ["decisive"]
 
-    def test_summary_forwarded(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    async def test_summary_forwarded(self, monkeypatch: pytest.MonkeyPatch) -> None:
         summary = "Wants slow, quiet dramas. Hates horror."
         profile = _profile(summary=summary)
         monkeypatch.setattr(
             "backend.profile.profile_agent.llm_harness.call",
-            lambda **_kw: _llm_response(profile),
+            _async_return(_llm_response(profile)),
         )
-        result = _call()
+        result = await _call()
         assert result.summary == summary
 
 
 class TestFirstTurnNoPriorProfile:
     """extract() accepts prior_profile=None on the first turn."""
 
-    def test_none_prior_profile_accepted(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    async def test_none_prior_profile_accepted(self, monkeypatch: pytest.MonkeyPatch) -> None:
         profile = _profile(constraints=[], preferences=[], attitudes=[], summary="")
         monkeypatch.setattr(
             "backend.profile.profile_agent.llm_harness.call",
-            lambda **_kw: _llm_response(profile),
+            _async_return(_llm_response(profile)),
         )
-        result = _call(prior_profile=None)
+        result = await _call(prior_profile=None)
         assert isinstance(result, UserProfile)
 
-    def test_first_turn_can_produce_non_empty_profile(
+    async def test_first_turn_can_produce_non_empty_profile(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         profile = _profile(constraints=["no horror"])
         monkeypatch.setattr(
             "backend.profile.profile_agent.llm_harness.call",
-            lambda **_kw: _llm_response(profile),
+            _async_return(_llm_response(profile)),
         )
-        result = _call(prior_profile=None)
+        result = await _call(prior_profile=None)
         assert "no horror" in result.constraints
 
 
 class TestHarnessCallArgs:
     """The harness is called with the expected step_type and schema."""
 
-    def test_step_type_is_profile_extract(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    async def test_step_type_is_profile_extract(self, monkeypatch: pytest.MonkeyPatch) -> None:
         captured: dict = {}
 
-        def fake_call(**kw):
+        async def fake_call(**kw):
             captured.update(kw)
             return _llm_response(_profile())
 
         monkeypatch.setattr("backend.profile.profile_agent.llm_harness.call", fake_call)
-        _call()
+        await _call()
         assert captured["step_type"] == "profile_extract"
 
-    def test_response_schema_is_user_profile(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    async def test_response_schema_is_user_profile(self, monkeypatch: pytest.MonkeyPatch) -> None:
         captured: dict = {}
 
-        def fake_call(**kw):
+        async def fake_call(**kw):
             captured.update(kw)
             return _llm_response(_profile())
 
         monkeypatch.setattr("backend.profile.profile_agent.llm_harness.call", fake_call)
-        _call()
+        await _call()
         assert captured["response_schema"] is UserProfile
 
 
 class TestDryRunFixture:
     """The dry-run fixture for profile_extract validates against UserProfile schema."""
 
-    def test_dry_run_returns_user_profile(self) -> None:
+    async def test_dry_run_returns_user_profile(self) -> None:
         from backend.llm import llm_harness
 
-        result = llm_harness.call(
+        result = await llm_harness.call(
             run_id=uuid.uuid4(),
             session_id=uuid.uuid4(),
             turn_id=uuid.uuid4(),

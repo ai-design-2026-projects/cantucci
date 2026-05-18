@@ -1,13 +1,16 @@
-"""State Agent — evaluates both hard limits and LLM drift/end/re-retrieve gate.
+"""State Agent — exposes both hard-limit and LLM drift/end/re-retrieve gates.
 
-Splits out of the orchestrator so state logic has its own module,
-prompt, types, and test surface. The orchestrator calls ``check()`` at the
-top of every turn, before retrieval or clustering, and short-circuits when
-the action is not ``proceed``.
+Splits the two gates into separate entry points so the orchestrator can run
+them in the order that fits the async task graph:
+
+* ``check_hard_limits`` is sync and pure-Python; the orchestrator calls it
+  first, before spawning any LLM work, and short-circuits when it trips.
+* ``check_gate`` is async and wraps the single LLM call; the orchestrator
+  schedules it as one node in the per-turn task graph alongside profile
+  extraction and (speculatively) retrieval or cluster refinement.
 
 The gate consumes the N-1 preference profile (already on the session row);
-the Profile Agent runs AFTER the turn pipeline and updates the profile for
-the next turn.
+the Profile Agent runs concurrently and updates the profile for the next turn.
 
 No DB writes — the orchestrator owns all persistence.
 """
@@ -16,16 +19,19 @@ import logging
 from typing import Any
 from uuid import UUID
 
-from backend.api.types import SessionFull, StepType, TurnDetail
-from backend.state.tools.hard_limits import check_hard_limits
+from backend.api.types import SessionFull, TurnDetail, StepType
+from backend.state.tools.hard_limits import check_hard_limits as _check_hard_limits
 from backend.state.tools.llm_gate import check_llm_state
-from backend.state.types import StateAction, StateDecision
+from backend.state.types import StateDecision
 from backend.settings import Settings
 
 log = logging.getLogger(__name__)
 
+# Re-export so callers have a single ``state_agent`` surface.
+check_hard_limits = _check_hard_limits
 
-def check(
+
+async def check_gate(
     *,
     session_id: UUID,
     run_id: UUID,
@@ -39,15 +45,10 @@ def check(
     recommended_last_turn: list[str] | None = None,
     seen_films: list[str] | None = None,
 ) -> StateDecision:
-    """Evaluate all state gates for the current turn.
+    """LLM gate — detects natural end, preference drift, and re-retrieve triggers.
 
-    Runs in two layers:
-      1. Hard-limit gate (pure Python, no LLM): terminates the session when
-         max_turns or max_recommendations is exceeded.
-      2. LLM gate: detects natural conversation end, preference drift, and
-         re-retrieve triggers.
-
-    The LLM gate is skipped when the hard-limit gate trips.
+    The orchestrator must call ``check_hard_limits`` first and short-circuit
+    when that gate trips. ``check_gate`` always issues an LLM call.
 
     Args:
         session_id:           UUID of the target session.
@@ -65,20 +66,17 @@ def check(
 
     Returns:
         ``StateDecision`` with action one of:
-          * ``proceed``       — normal pipeline should run.
-          * ``terminate``     — hard limit hit; write stop turn, mark abandoned.
-          * ``natural_end``   — oracle wrapped up; mark converged.
-          * ``clarify_drift`` — contradiction detected; emit clarification.
-          * ``re_retrieve``   — oracle signals all recommended films already seen.
+          * ``proceed``         — normal pipeline should run.
+          * ``natural_end``     — oracle wrapped up; mark converged.
+          * ``clarify_drift``   — contradiction detected; emit clarification.
+          * ``drift_confirmed`` — oracle confirmed a preference change.
+          * ``drift_dismissed`` — oracle explained away the contradiction.
+          * ``re_retrieve``     — oracle signals all recommended films seen.
 
     Raises:
         LLMParseError:     If all LLM retry attempts return malformed JSON.
         CostLimitExceeded: If the session budget is exhausted.
     """
-    hard = check_hard_limits(turn_number=turn_number, full=full, cfg=cfg)
-    if hard.action is StateAction.terminate:
-        return hard
-
     show_count = sum(1 for t in full.turns if t.step_type == StepType.show.value)
     recent_turns: list[TurnDetail] = full.turns[-2:]
 
@@ -88,7 +86,7 @@ def check(
         for f in full.feedback
     )
 
-    return check_llm_state(
+    return await check_llm_state(
         session_id=session_id,
         run_id=run_id,
         turn_id=turn_id,

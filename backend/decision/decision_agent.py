@@ -29,7 +29,7 @@ load_prompt = make_prompt_loader(Path(__file__).parent / "prompts")
 _MOVIES_PER_CLUSTER = 5
 
 
-def decide(
+async def decide(
     *,
     session_id: UUID,
     run_id: UUID,
@@ -147,7 +147,7 @@ def decide(
         {"role": "user", "content": user_query},
     ]
 
-    response = llm_harness.call(
+    response = await llm_harness.call(
         run_id=run_id,
         session_id=session_id,
         turn_id=turn_id,
