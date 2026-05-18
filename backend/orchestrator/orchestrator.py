@@ -176,6 +176,7 @@ def _emit_cluster_snapshot(
 
     payloads: list[ClusterSnapshotPayload] = []
     for c, ids in zip(clusters, cluster_tops):
+        active_scores = [a.score for a in c.assignments if not a.excluded]
         top_films = [
             ClusterFilmStub(
                 id=mid,
@@ -193,6 +194,7 @@ def _emit_cluster_snapshot(
                 name=c.name,
                 description=c.description,
                 level=c.level,
+                confidence=sum(active_scores) / len(active_scores) if active_scores else 0.0,
                 top_films=top_films,
             )
         )
