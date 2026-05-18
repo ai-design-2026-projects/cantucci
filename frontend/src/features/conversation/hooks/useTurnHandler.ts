@@ -86,6 +86,7 @@ export function useTurnHandler() {
       setCurrentStep(null);
       setRefining(false);
       queryClient.invalidateQueries({ queryKey: ["session", sessionId] });
+      queryClient.invalidateQueries({ queryKey: ["sessions", "list"] });
     },
   });
 

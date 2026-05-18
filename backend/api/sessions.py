@@ -24,11 +24,13 @@ class SessionSummaryRow:
     """Lightweight projection of a session row for history listings.
 
     Attributes:
-        session_id: Session UUID.
-        status:     Lifecycle state (active | converged | abandoned).
-        created_at: UTC timestamp of session creation.
-        updated_at: UTC timestamp of the last state change.
-        turn_count: Number of completed turns in this session.
+        session_id:         Session UUID.
+        status:             Lifecycle state (active | converged | abandoned).
+        created_at:         UTC timestamp of session creation.
+        updated_at:         UTC timestamp of the last state change.
+        turn_count:         Number of completed turns in this session.
+        first_user_message: Text of the first oracle message, or None for
+                            sessions with no turns yet.
     """
 
     session_id: uuid.UUID
@@ -36,6 +38,7 @@ class SessionSummaryRow:
     created_at: datetime
     updated_at: datetime
     turn_count: int
+    first_user_message: str | None
 
 
 def list_sessions_by_user(user_id: uuid.UUID) -> list[SessionSummaryRow]:
@@ -53,7 +56,11 @@ def list_sessions_by_user(user_id: uuid.UUID) -> list[SessionSummaryRow]:
     with transaction() as conn:
         rows = conn.execute(
             """
-            SELECT s.id, s.status, s.created_at, s.updated_at, COUNT(t.id)
+            SELECT s.id, s.status, s.created_at, s.updated_at, COUNT(t.id),
+                   (SELECT user_message FROM turns
+                    WHERE session_id = s.id
+                    ORDER BY turn_number ASC
+                    LIMIT 1) AS first_user_message
             FROM sessions s
             LEFT JOIN turns t ON t.session_id = s.id
             WHERE s.user_id = %s
@@ -70,6 +77,7 @@ def list_sessions_by_user(user_id: uuid.UUID) -> list[SessionSummaryRow]:
             created_at=r[2],
             updated_at=r[3],
             turn_count=r[4],
+            first_user_message=r[5],
         )
         for r in rows
     ]

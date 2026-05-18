@@ -73,6 +73,15 @@ export interface SessionState {
   turns: TurnResult[];
 }
 
+export interface SessionSummary {
+  session_id: string;
+  status: SessionStatus;
+  created_at: string;
+  updated_at: string;
+  turn_count: number;
+  first_user_message: string | null;
+}
+
 export interface SoftScore {
   movie_id: number;
   score: number;

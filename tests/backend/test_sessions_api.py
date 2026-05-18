@@ -80,6 +80,18 @@ def test_list_sessions_by_user_turn_count(mini_catalogue: int) -> None:
     rows = api_sessions.list_sessions_by_user(user_id)
     assert len(rows) == 1
     assert rows[0].turn_count == 2
+    assert rows[0].first_user_message == "msg1"
+
+
+def test_list_sessions_by_user_first_message_is_none_for_empty_session(mini_catalogue: int) -> None:
+    """first_user_message is None when the session has no turns yet."""
+    run_id = _make_run()
+    user_id = _make_user()
+    _make_session(run_id, user_id)
+
+    rows = api_sessions.list_sessions_by_user(user_id)
+    assert len(rows) == 1
+    assert rows[0].first_user_message is None
 
 
 def test_list_sessions_by_user_orders_by_updated_at_desc(mini_catalogue: int) -> None:

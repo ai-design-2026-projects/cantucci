@@ -33,11 +33,13 @@ class SessionSummary(BaseModel):
     """Lightweight session descriptor for history listings.
 
     Attributes:
-        session_id: UUID of the session.
-        status:     Current lifecycle state.
-        created_at: Server-set UTC timestamp of session creation.
-        updated_at: Server-set UTC timestamp of the last state change.
-        turn_count: Number of completed turns in this session.
+        session_id:          UUID of the session.
+        status:              Current lifecycle state.
+        created_at:          Server-set UTC timestamp of session creation.
+        updated_at:          Server-set UTC timestamp of the last state change.
+        turn_count:          Number of completed turns in this session.
+        first_user_message:  Text of the first oracle message, or None for
+                             sessions with no turns yet.
     """
 
     session_id: UUID
@@ -45,6 +47,7 @@ class SessionSummary(BaseModel):
     created_at: datetime
     updated_at: datetime
     turn_count: int
+    first_user_message: str | None
 
 
 class TurnResult(BaseModel):

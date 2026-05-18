@@ -33,13 +33,14 @@ def _app(user: User | None = _FAKE_USER) -> FastAPI:
     return app
 
 
-def _summary(session_id: UUID | None = None) -> SessionSummaryRow:
+def _summary(session_id: UUID | None = None, first_user_message: str | None = None) -> SessionSummaryRow:
     return SessionSummaryRow(
         session_id=session_id or uuid4(),
         status="active",
         created_at=_NOW,
         updated_at=_NOW,
         turn_count=3,
+        first_user_message=first_user_message,
     )
 
 
@@ -59,7 +60,8 @@ def test_list_sessions_returns_empty_list(monkeypatch: pytest.MonkeyPatch) -> No
 
 
 def test_list_sessions_returns_all_summaries(monkeypatch: pytest.MonkeyPatch) -> None:
-    s1, s2 = _summary(), _summary()
+    s1 = _summary(first_user_message="Hello there")
+    s2 = _summary(first_user_message=None)
     monkeypatch.setattr(api_sessions_module, "list_sessions_by_user", lambda uid: [s1, s2])
     response = TestClient(_app()).get("/sessions/list")
     assert response.status_code == 200
@@ -68,6 +70,8 @@ def test_list_sessions_returns_all_summaries(monkeypatch: pytest.MonkeyPatch) ->
     assert data[0]["session_id"] == str(s1.session_id)
     assert data[1]["session_id"] == str(s2.session_id)
     assert data[0]["turn_count"] == 3
+    assert data[0]["first_user_message"] == "Hello there"
+    assert data[1]["first_user_message"] is None
 
 
 def test_list_sessions_passes_authenticated_user_id(monkeypatch: pytest.MonkeyPatch) -> None:
