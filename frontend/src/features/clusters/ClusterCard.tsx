@@ -1,5 +1,6 @@
 import { TooltipProvider, Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { useUiStore } from "@/store/uiStore";
+import { ConfidenceBar } from "@/components/ConfidenceBar";
 import { buildPosterUrl, clusterColor } from "@/features/clusters/utils/clusterFormatters";
 import type { ClusterSnapshotPayload } from "@/utils/types";
 
@@ -43,15 +44,19 @@ export function ClusterCard({ cluster, isRefining }: ClusterCardProps) {
           {cluster.name}
         </h4>
         {cluster.description && (
-          <p className="mt-0.5 text-xs text-muted-foreground leading-relaxed line-clamp-2">
+          <p className="mt-0.5 text-xs text-muted-foreground leading-relaxed">
             {cluster.description}
           </p>
         )}
 
+        <div className="mt-2">
+          <ConfidenceBar score={cluster.confidence} label={`${cluster.name} confidence`} />
+        </div>
+
         {cluster.top_films.length > 0 && (
           <TooltipProvider delayDuration={300}>
-            <div className="mt-3 flex gap-1.5">
-              {cluster.top_films.slice(0, 6).map((film) => (
+            <div className="mt-3 flex gap-1.5 overflow-x-auto pb-1 -mx-1 px-1">
+              {cluster.top_films.map((film) => (
                 <Tooltip key={film.id}>
                   <TooltipTrigger asChild>
                     <button

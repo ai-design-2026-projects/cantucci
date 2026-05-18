@@ -21,15 +21,15 @@ describe("ConfidenceBar", () => {
     expect(bar).toHaveAttribute("aria-valuenow", "0");
   });
 
-  it("uses provided label as aria-label", () => {
+  it("uses provided label as aria-label with pct and tier appended", () => {
     render(<ConfidenceBar score={0.5} label="Drama score" />);
     const bar = screen.getByRole("progressbar");
-    expect(bar).toHaveAttribute("aria-label", "Drama score");
+    expect(bar).toHaveAttribute("aria-label", "Drama score: 50% — Med");
   });
 
-  it("falls back to a default aria-label based on pct when no label provided", () => {
+  it("falls back to a default aria-label with pct and tier when no label provided", () => {
     render(<ConfidenceBar score={0.4} />);
     const bar = screen.getByRole("progressbar");
-    expect(bar).toHaveAttribute("aria-label", "40% confidence");
+    expect(bar).toHaveAttribute("aria-label", "40% confidence — Med");
   });
 });

@@ -19,6 +19,7 @@ export interface ClusterSnapshotPayload {
   name: string;
   description: string | null;
   level: number;
+  confidence: number;
   top_films: ClusterFilmStub[];
 }
 
