@@ -168,7 +168,6 @@ class SessionSummary:
     seed: int
     config_hash: str
     model_version: str
-    persona_id: str | None
     status: str
     turn_count: int
     converged_at_turn: int | None
@@ -205,7 +204,6 @@ class SessionFull:
     seed: int
     config_hash: str
     model_version: str
-    persona_id: str | None
     status: str
     preference_profile: dict[str, Any] | None
     turns: list[TurnDetail]

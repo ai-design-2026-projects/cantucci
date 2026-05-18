@@ -1,6 +1,6 @@
 -- Session tables: written at runtime by the conversational loop.
 -- See docs/specifications/architecture/data_schema.md §Session tables.
--- Extended beyond the spec: run_id, seed, config_hash, model_version, persona_id,
+-- Extended beyond the spec: run_id, seed, config_hash, model_version,
 -- cost_limit_usd added to sessions for reproducibility (see CLAUDE.md §Data and state).
 
 CREATE TABLE sessions (
@@ -13,8 +13,8 @@ CREATE TABLE sessions (
     -- config_hash (see migration 002).
     config_hash        VARCHAR(8)   NOT NULL,
     model_version      TEXT         NOT NULL,
-    -- NULL for human oracles; set to persona identifier for LLM-simulated oracles
-    persona_id         TEXT,
+    -- NULL for anonymous sessions; set to the owning user's UUID for authenticated sessions
+    user_id            UUID         REFERENCES users(id) ON DELETE SET NULL,
     created_at         TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
     updated_at         TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
     -- active | converged | abandoned
@@ -26,6 +26,7 @@ CREATE TABLE sessions (
 );
 
 CREATE INDEX ON sessions (run_id);
+CREATE INDEX ON sessions (user_id);
 
 CREATE TABLE turns (
     id                UUID        PRIMARY KEY DEFAULT gen_random_uuid(),

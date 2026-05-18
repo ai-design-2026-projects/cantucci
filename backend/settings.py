@@ -271,6 +271,8 @@ class EnvSettings(BaseSettings):
     )
 
     database_url: str = ""
+    auth_secret: str
+    jwt_ttl_seconds: int = 7 * 24 * 3600
     openai_api_key: str = ""
     openrouter_api_key: str = ""
     hf_token: str = ""
