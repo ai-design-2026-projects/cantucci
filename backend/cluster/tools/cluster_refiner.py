@@ -26,8 +26,8 @@ async def refine(
     *,
     prior_clusters: list[ClusterSnapshot],
     user_query: str,
-    asked_question: str,
-    user_answer: str,
+    system_message: str,
+    oracle_reply: str,
     session_id: UUID,
     run_id: UUID,
     turn_id: UUID,
@@ -35,16 +35,20 @@ async def refine(
     dry_run: bool = False,
 ) -> list[ClusterSnapshot]:
     """
-    Refine *prior_clusters* given the clarifying Q&A in a single LLM call.
+    Refine *prior_clusters* given the oracle's latest reply in a single LLM call.
+
     Args:
-        prior_clusters:       The previous turn's ``ClusterSnapshot`` list.
-                              The union of their assignments forms the pool of
-                              films the refiner may keep, move, or drop.
+        prior_clusters:       The most recent turn's ``ClusterSnapshot`` list
+                              that the orchestrator wants to evolve. The union
+                              of their assignments forms the pool of films the
+                              refiner may keep, move, or drop.
         user_query:           The oracle's original session-level query.
-        asked_question:       The clarifying question the system asked on the
-                              previous turn. Required (the refinement path
-                              only fires when both Q and A are present).
-        user_answer:          The oracle's reply to *asked_question*.
+        system_message:       The system's last assistant message — a
+                              clarifying question (after an ``ask`` turn) or
+                              the rendered recommendation (after a ``show``
+                              turn). Pass an empty string only when no prior
+                              system message exists for this session.
+        oracle_reply:         The oracle's reply to *system_message*.
         session_id:           UUID of the current session.
         run_id:               UUID of the parent run.
         turn_id:              UUID of the current turn.
@@ -116,8 +120,8 @@ async def refine(
         "cluster_refine_v2",
         {
             "user_query": user_query,
-            "asked_question": asked_question,
-            "user_answer": user_answer,
+            "system_message": system_message,
+            "oracle_reply": oracle_reply,
             "prior_clusters": prior_payload,
             "allowed_films": allowed_films,
         },
@@ -125,7 +129,7 @@ async def refine(
 
     messages: list[dict[str, str]] = [
         {"role": "system", "content": system_text},
-        {"role": "user", "content": user_answer},
+        {"role": "user", "content": oracle_reply},
     ]
 
     response = await llm_harness.call(

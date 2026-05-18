@@ -247,21 +247,26 @@ async def refine(
     *,
     prior_clusters: list[ClusterSnapshot],
     user_query: str,
-    asked_question: str,
-    user_answer: str,
+    system_message: str,
+    oracle_reply: str,
     session_id: UUID,
     run_id: UUID,
     turn_id: UUID,
     accumulated_cost_usd: float = 0.0,
     dry_run: bool = False,
 ) -> list[ClusterSnapshot]:
-    """Refine prior clusters given a clarifying Q&A. Wrapper over cluster_refiner.
+    """Refine prior clusters in light of the oracle's latest reply.
+
+    Wrapper over ``cluster_refiner.refine``. The orchestrator fires this on
+    every turn that already has a clustered prior turn — whether the prior
+    assistant message was a clarifying ``ask`` or a ``show`` recommendation.
 
     Args:
-        prior_clusters:       The previous turn's ``ClusterSnapshot`` list.
+        prior_clusters:       The most recent clustered turn's snapshots.
         user_query:           The oracle's original session-level query.
-        asked_question:       The clarifying question asked on the previous turn.
-        user_answer:          The oracle's reply to asked_question.
+        system_message:       The system's last assistant message (question
+                              or rendered recommendation).
+        oracle_reply:         The oracle's reply to *system_message*.
         session_id:           UUID of the current session.
         run_id:               UUID of the parent run.
         turn_id:              UUID of the current turn.
@@ -278,8 +283,8 @@ async def refine(
     return await cluster_refiner.refine(
         prior_clusters=prior_clusters,
         user_query=user_query,
-        asked_question=asked_question,
-        user_answer=user_answer,
+        system_message=system_message,
+        oracle_reply=oracle_reply,
         session_id=session_id,
         run_id=run_id,
         turn_id=turn_id,

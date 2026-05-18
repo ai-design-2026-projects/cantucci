@@ -146,6 +146,21 @@ def _prior_clusters_from_turn(turn: TurnDetail) -> list[ClusterSnapshot]:
     return list(turn.clusters)
 
 
+def _last_clustered_turn(turns: list[TurnDetail]) -> TurnDetail | None:
+    """Most recent turn that persisted a non-empty cluster set, or None.
+
+    Walks the history in reverse so a clarify_drift turn (which carries no
+    clusters) does not block refinement from reaching the show turn that
+    came before it. Returns None only on the truly-first clustered turn of
+    a session — that is the single point at which retrieval is allowed to
+    rebuild the cluster set from scratch.
+    """
+    for t in reversed(turns):
+        if t.clusters:
+            return t
+    return None
+
+
 def _last_show_recommendation(
     full,
     top_k: int,
@@ -373,17 +388,21 @@ class Orchestrator:
             },
         )
 
-        prior_turn = full.turns[-1] if full.turns else None
-        is_refinement = (
-            prior_turn is not None
-            and prior_turn.step_type == StepType.ask.value
-            and prior_turn.clusters
-        )
-
-        if is_refinement:
+        # Refinement fires whenever the session already has a cluster set we
+        # can evolve, regardless of whether the prior assistant message was an
+        # ``ask`` (clarifying question) or a ``show`` (recommendation). The
+        # only fresh-retrieval path is the very first clustered turn of the
+        # session; state-driven re-retrieval (drift_confirmed / re_retrieve)
+        # is handled later in _resolve_clusters.
+        prior_clustered = _last_clustered_turn(full.turns)
+        if prior_clustered is not None:
             log.info(
-                "refinement after ask",
-                extra={"session_id": str(session_id), "turn_number": turn_number},
+                "refining prior clusters",
+                extra={
+                    "session_id": str(session_id),
+                    "turn_number": turn_number,
+                    "prior_clustered_turn_id": str(prior_clustered.id),
+                },
             )
 
         prior_seen: list[str] = list(prior_profile.get("seen_films", [])) if prior_profile else []
@@ -454,8 +473,7 @@ class Orchestrator:
         )
 
         spec_kind, spec_t = self._spawn_speculative(
-            is_refinement=is_refinement,
-            prior_turn=prior_turn,
+            prior_clustered=prior_clustered,
             user_message=user_message,
             cfg=cfg,
             session_id=session_id,
@@ -715,8 +733,7 @@ class Orchestrator:
     def _spawn_speculative(
         self,
         *,
-        is_refinement: bool,
-        prior_turn: TurnDetail | None,
+        prior_clustered: TurnDetail | None,
         user_message: str,
         cfg,
         session_id: UUID,
@@ -726,23 +743,21 @@ class Orchestrator:
     ) -> tuple[SpeculativeBranch, asyncio.Task | None]:
         """Spawn the one speculative branch appropriate for the upcoming turn.
 
-        On refinement turns we speculatively call ``cluster_agent.refine``;
-        on fresh turns we speculatively chain retrieval-from-message through
-        cluster_describe. State-invalidated speculative work is cancelled
-        once the gate resolves; the still-running branch is consumed.
-
-        Returns:
-            A pair ``(spec_kind, task)`` where ``task`` is None only when
-            the branch could not be configured (refinement with no prior
-            clusters — should not happen given ``is_refinement`` guard).
+        Whenever the session already has clusters from a prior turn we
+        speculatively refine them in light of the oracle's reply. Only the
+        truly-first clustered turn of a session (and any session whose
+        earlier retrievals returned nothing) takes the fresh-retrieval path
+        via ``retrieve_from_message → soft_cluster → describe_clusters``.
+        State-invalidated speculative work is cancelled once the gate
+        resolves; the still-running branch is consumed otherwise.
         """
-        if is_refinement and prior_turn is not None:
+        if prior_clustered is not None:
             spec_t = asyncio.create_task(
                 cluster_agent.refine(
-                    prior_clusters=_prior_clusters_from_turn(prior_turn),
+                    prior_clusters=_prior_clusters_from_turn(prior_clustered),
                     user_query=user_message,
-                    asked_question=prior_turn.assistant_message or "",
-                    user_answer=user_message,
+                    system_message=prior_clustered.assistant_message or "",
+                    oracle_reply=user_message,
                     session_id=session_id,
                     run_id=run_id,
                     turn_id=turn_id,
@@ -864,9 +879,9 @@ class Orchestrator:
         """Convert the state verdict into the final cluster list for this turn.
 
         Either consumes the speculative branch (proceed / drift_dismissed) or
-        cancels it and spawns the replacement (drift_confirmed, re_retrieve,
-        retrieval_override). All ``state.action`` dispatch lives here so the
-        rest of ``run_turn`` stays a straight line.
+        cancels it and spawns a profile-driven re-retrieval (drift_confirmed,
+        re_retrieve). All ``state.action`` dispatch lives here so the rest of
+        ``run_turn`` stays a straight line.
         """
         if state.action in (StateAction.drift_confirmed, StateAction.re_retrieve):
             await cancel_and_drain(spec_t)
@@ -900,36 +915,9 @@ class Orchestrator:
                 turn_number=turn_number,
             )
 
-        if state.retrieval_override:
-            await cancel_and_drain(spec_t)
-            log.warning(
-                "cluster rerun: state supplied retrieval override",
-                extra={
-                    "session_id": str(session_id),
-                    "turn_id": str(turn_id),
-                    "override_query": state.retrieval_override,
-                },
-            )
-            rr = await retrieval_agent.retrieve_from_message(
-                user_query=state.retrieval_override,
-                k=cfg.retrieval.top_k,
-                session_id=session_id,
-                run_id=full.run_id,
-                turn_id=turn_id,
-            )
-            return await self._cluster_from_retrieval(
-                rr,
-                user_query=state.retrieval_override,
-                cfg=cfg,
-                session_id=session_id,
-                run_id=full.run_id,
-                turn_id=turn_id,
-                turn_number=turn_number,
-            )
-
         if state.action is StateAction.drift_dismissed:
             log.info(
-                "drift dismissed — using speculative retrieval",
+                "drift dismissed — using speculative result",
                 extra={"session_id": str(session_id), "turn_id": str(turn_id)},
             )
 

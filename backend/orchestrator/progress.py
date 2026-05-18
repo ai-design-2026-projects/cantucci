@@ -18,16 +18,20 @@ the following as concurrent ``asyncio.Task``s:
 
 * ``state_agent.check_gate``  — LLM drift / end / re-retrieve gate.
 * ``profile_agent.extract``   — preference-profile extraction.
-* one speculative branch — ``cluster_agent.refine`` (refinement turns) OR
+* one speculative branch — ``cluster_agent.refine`` whenever the session
+  already has clusters from a prior turn (whether the prior assistant
+  message was an ``ask`` or a ``show``), OR
   ``retrieval_agent.retrieve_from_message → cluster_agent.describe_clusters``
-  (fresh turns).
+  on the truly-first clustered turn of the session.
 
-Retrieval no longer waits for the state gate: by speculating on the most
-likely path and cancelling the branch as soon as the gate returns a
-verdict that invalidates it, the orchestrator overlaps the gate's LLM
-round-trip with retrieval + cluster work. Cancellation propagates as
-``asyncio.CancelledError`` through the async LLM harness, closing the
-in-flight ``httpx`` connection.
+Retrieval is reserved for three precise moments: the first clustered
+turn of a session, ``drift_confirmed`` (cancel speculative, then
+``retrieve_from_profile``), and ``re_retrieve`` (same, with seen films
+excluded). Every other turn evolves the cluster set in place via
+refinement. The state gate runs concurrently with the speculative
+branch; cancellation propagates as ``asyncio.CancelledError`` through
+the async LLM harness, closing the in-flight ``httpx`` connection
+whenever the gate's verdict invalidates the speculation.
 
 The ``choose`` step wraps the post-gate decision, which is a single
 serial call to ``decision_agent.decide`` (ambiguity was merged into the

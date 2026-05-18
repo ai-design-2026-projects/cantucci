@@ -267,25 +267,28 @@ async def test_turn_one_speculative_retrieval_runs_concurrently_with_state_gate(
         assert p.check_gate.called
 
 
-async def test_drift_confirmed_cancels_speculative_retrieval() -> None:
-    """drift_confirmed must cancel the in-flight speculative retrieval task."""
+async def test_drift_confirmed_cancels_speculative_branch() -> None:
+    """drift_confirmed must cancel the in-flight speculative branch.
+
+    With clusters on the prior show turn the speculative branch is now
+    ``cluster_agent.refine`` — that is what must observe ``CancelledError``
+    when the state gate returns ``drift_confirmed``.
+    """
     prior_show = _turn("show", "here", clusters=[_cluster()])
     full = _full(turns=[prior_show])
 
     with _GraphPatches(full) as p:
-        # Speculative retrieve_from_message blocks indefinitely so cancellation
-        # is the only path that lets the turn finish.
         cancel_seen = asyncio.Event()
 
-        async def _slow_retrieve(*args, **kwargs):
+        async def _slow_refine(*args, **kwargs):
             try:
                 await asyncio.sleep(60)
             except asyncio.CancelledError:
                 cancel_seen.set()
                 raise
-            return _mock_rr()
+            return [_cluster()]
 
-        p.retrieve_from_message.side_effect = _slow_retrieve
+        p.refine.side_effect = _slow_refine
         p.check_gate.return_value = StateDecision(
             action=StateAction.drift_confirmed, reason="changed"
         )
@@ -296,8 +299,9 @@ async def test_drift_confirmed_cancels_speculative_retrieval() -> None:
             timeout=2.0,
         )
 
-        assert cancel_seen.is_set(), "speculative retrieve_from_message was not cancelled"
+        assert cancel_seen.is_set(), "speculative refine was not cancelled"
         assert p.retrieve_from_profile.called, "drift_confirmed must call retrieve_from_profile"
+        assert not p.retrieve_from_message.called
 
 
 async def test_refine_path_does_not_call_retrieve_from_message() -> None:

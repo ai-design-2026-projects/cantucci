@@ -310,23 +310,48 @@ class TestScenarioBRefinementAfterAsk:
         assert call_kwargs.get("prior_clusters") is not None
         assert len(call_kwargs["prior_clusters"]) == 1
 
-    async def test_scenario_b_passes_asked_question(self) -> None:
+    async def test_scenario_b_passes_system_message(self) -> None:
         prior = _turn("ask", "What do you feel like?", clusters=[_cluster()])
         full = _full(turns=[prior])
         with _Patches(full=full) as p:
             orch = Orchestrator()
             await orch.run_turn(full.session_id, "Action")
         call_kwargs = p.cluster_refine.call_args.kwargs
-        assert call_kwargs.get("asked_question") == "What do you feel like?"
+        assert call_kwargs.get("system_message") == "What do you feel like?"
+        assert call_kwargs.get("oracle_reply") == "Action"
 
-    async def test_scenario_a_when_prior_turn_is_show(self) -> None:
+    async def test_refine_used_when_prior_turn_is_show(self) -> None:
+        """Post-show feedback also refines — retrieval is reserved for turn 1
+        and state-driven re-retrieval."""
         prior = _turn("show", "Here are some dramas", clusters=[_cluster()])
         full = _full(turns=[prior])
         with _Patches(full=full) as p:
             orch = Orchestrator()
             await orch.run_turn(full.session_id, "something different")
-        assert not p.cluster_refine.called
-        assert p.cluster_soft.called
+        assert p.cluster_refine.called
+        assert not p.cluster_soft.called
+        assert not p.retrieval_retrieve_from_message.called
+        call_kwargs = p.cluster_refine.call_args.kwargs
+        assert call_kwargs.get("system_message") == "Here are some dramas"
+        assert call_kwargs.get("oracle_reply") == "something different"
+
+    async def test_refine_walks_past_clarify_drift_turn(self) -> None:
+        """A clarify_drift turn carries no clusters; refine must look back
+        further to the show turn before it."""
+        show_prior = _turn(
+            "show", "Here are some dramas", clusters=[_cluster("Drama")]
+        )
+        drift_turn = _turn("ask", "Did your preference change?")  # no clusters
+        full = _full(turns=[show_prior, drift_turn])
+        with _Patches(full=full) as p:
+            orch = Orchestrator()
+            await orch.run_turn(full.session_id, "No, I meant dark drama")
+        assert p.cluster_refine.called
+        assert not p.retrieval_retrieve_from_message.called
+        # The refine call must see the show turn's clusters, not the empty
+        # drift turn's.
+        call_kwargs = p.cluster_refine.call_args.kwargs
+        assert len(call_kwargs["prior_clusters"]) == 1
 
 
 class TestProfileAgentFlow:
