@@ -6,16 +6,16 @@ For each completed eval session the judge:
    ``session_metrics`` row.
 2. Scores three subjective dimensions (1–5) using dedicated versioned prompt
    templates, then writes a ``judge_scores`` row per dimension.
+    
+    Subjective dimensions:
+    - clustering_coherence: How coherent and well-defined is the converged cluster?
+    - question_quality:     How effective and targeted were the clarifying questions?
+    - profile_fidelity:     How well does the final recommendation match the persona's taste?
 
-Subjective dimensions:
-- clustering_coherence: How coherent and well-defined is the converged cluster?
-- question_quality:     How effective and targeted were the clarifying questions?
-- profile_fidelity:     How well does the final recommendation match the persona's taste?
-
-Each dimension uses a dedicated versioned prompt template.  The judge_prompt_hash
-stored in judge_scores is the SHA-256 of the *rendered* prompt (not the template),
-so different persona descriptions produce different hashes and all scoring variations
-are auditable.
+    Each dimension uses a dedicated versioned prompt template.  The judge_prompt_hash
+    stored in judge_scores is the SHA-256 of the *rendered* prompt (not the template),
+    so different persona descriptions produce different hashes and all scoring variations
+    are auditable.
 
 The judge sees:
 - The neutral ground-truth description (NOT gt_movie_ids).
@@ -39,7 +39,6 @@ from backend.llm.prompts import make_prompt_loader
 from backend.routers.dtos import SessionDto, TurnDto
 from eval.shared.ground_truths import GroundTruth
 from eval.shared.llm_gateway import LLMGateway
-from eval.shared.personas import PersonaProfile
 from eval.judge.metrics import cognitive_load, ndcg_at_k, precision_at_k, recall_at_k
 
 log = logging.getLogger(__name__)
@@ -64,7 +63,6 @@ class Judge:
     Computes objective metrics, writes session_metrics, runs the LLM judge
     for three subjective dimensions, and writes judge_scores.  One instance
     is shared across all sessions in a run.
-
     Attributes:
         _llm:         LLM gateway instance for judge calls.
         _prompts_dir: Path to ``eval/judge/prompts/``.
@@ -119,7 +117,7 @@ class Judge:
         loads = [cognitive_load(t) for t in session.turns]
         avg_cognitive_load = sum(loads) / len(loads) if loads else None
 
-        final_turn = _find_last_turn_with_recommendation(session)
+        final_turn = session.last_turn_with_recommendation()
         recommended_ids = (
             [f.id for f in final_turn.recommendation.films]
             if final_turn and final_turn.recommendation
@@ -152,8 +150,7 @@ class Judge:
             f"{r_at_k:.3f}" if r_at_k is not None else "None",
             f"{n_at_k:.3f}" if n_at_k is not None else "None",
         )
-
-        converged_turn = _find_converged_turn(session)
+        converged_turn = session.converged_turn()
         if converged_turn is None:
             log.info(
                 "judge: skipping llm scoring for abandoned session session_id=%s", session.session_id
@@ -168,7 +165,7 @@ class Judge:
             cluster_description = converged_turn.recommendation.cluster.description or ""
             film_titles = [f.title for f in converged_turn.recommendation.films]
 
-        transcript = _build_transcript(session)
+        transcript = session.transcript()
 
         for dimension in _DIMENSIONS:
             await self._score_dimension(
@@ -194,8 +191,8 @@ class Judge:
         transcript: str,
         run_id: str | UUID,
     ) -> None:
-        """Score one dimension and write a ``judge_scores`` row.
-
+        """
+        Score one dimension and write a ``judge_scores`` row.
         Args:
             dimension:           One of the three scoring dimensions.
             session:             Full session DTO.
@@ -217,9 +214,7 @@ class Judge:
                 "transcript": transcript,
             },
         )
-
         full_prompt_hash = hashlib.sha256(rendered.encode()).hexdigest()
-
         reply = await self._llm.call(
             messages=[
                 {"role": "system", "content": "You are an expert movie recommendation system evaluator. Output only valid JSON."},
@@ -250,49 +245,3 @@ class Judge:
         )
 
 
-def _find_converged_turn(session: SessionDto) -> TurnDto | None:
-    """Return the turn where convergence was declared, or ``None``.
-
-    Args:
-        session: Full session DTO with all turns.
-
-    Returns:
-        The ``TurnDto`` with ``converged=True``, or ``None`` if none exist.
-    """
-    for turn in reversed(session.turns):
-        if turn.converged:
-            return turn
-    return None
-
-
-def _find_last_turn_with_recommendation(session: SessionDto) -> TurnDto | None:
-    """Return the last turn carrying a non-None recommendation, or ``None``.
-
-    Args:
-        session: Full session DTO.
-
-    Returns:
-        ``TurnDto`` with a recommendation, or ``None``.
-    """
-    for turn in reversed(session.turns):
-        if turn.recommendation is not None:
-            return turn
-    return None
-
-
-def _build_transcript(session: SessionDto) -> str:
-    """Build a plain-text turn-by-turn transcript.
-
-    Args:
-        session: Full session DTO.
-
-    Returns:
-        Multi-line string with alternating Oracle / CinePal lines.
-    """
-    lines: list[str] = []
-    for turn in session.turns:
-        lines.append(f"[Turn {turn.turn_number}]")
-        lines.append(f"Oracle: {turn.user_message}")
-        lines.append(f"CinePal: {turn.assistant_message}")
-        lines.append("")
-    return "\n".join(lines)
