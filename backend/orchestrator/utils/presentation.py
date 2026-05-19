@@ -34,11 +34,7 @@ def _cluster_to_dto(cluster: ClusterRow) -> ClusterDto:
     Returns:
         A ClusterDto ready for serialization.
     """
-    active = sorted(
-        [a for a in cluster.assignments if not a.excluded],
-        key=lambda a: a.score,
-        reverse=True,
-    )
+    ordered = sorted(cluster.assignments, key=lambda a: (a.excluded, -a.score))
     return ClusterDto(
         id=cluster.id,
         name=cluster.name,
@@ -49,7 +45,7 @@ def _cluster_to_dto(cluster: ClusterRow) -> ClusterDto:
             SoftScore(movie_id=a.movie_id, score=a.score, excluded=a.excluded)
             for a in cluster.assignments
         ],
-        top_titles=[a.movie_id for a in active[:5]],
+        top_titles=[a.movie_id for a in ordered],
     )
 
 
@@ -174,16 +170,9 @@ def emit_cluster_snapshot(
         progress_cb: The turn's streaming callback.
     """
     all_ids: list[int] = []
-    cluster_tops: list[list[int]] = []
     for c in clusters:
-        top = sorted(
-            [a for a in c.assignments if not a.excluded],
-            key=lambda a: a.score,
-            reverse=True,
-        )
-        ids = [a.movie_id for a in top]
-        cluster_tops.append(ids)
-        all_ids.extend(ids)
+        ordered = sorted(c.assignments, key=lambda a: (a.excluded, -a.score))
+        all_ids.extend(a.movie_id for a in ordered)
 
     unique_ids = list(dict.fromkeys(all_ids))
     stubs_by_id: dict[int, dict] = {
@@ -191,17 +180,18 @@ def emit_cluster_snapshot(
     }
 
     payloads: list[ClusterSnapshotPayload] = []
-    for c, ids in zip(clusters, cluster_tops):
-        top_films = [
+    for c in clusters:
+        ordered = sorted(c.assignments, key=lambda a: (a.excluded, -a.score))
+        films = [
             ClusterFilmStub(
-                id=mid,
-                title=stubs_by_id[mid]["title"],
-                poster_url=stubs_by_id[mid]["poster_url"],
-                release_year=stubs_by_id[mid]["release_year"],
-                vote_average=stubs_by_id[mid]["vote_average"],
+                id=a.movie_id,
+                title=stubs_by_id[a.movie_id]["title"],
+                poster_url=stubs_by_id[a.movie_id]["poster_url"],
+                release_year=stubs_by_id[a.movie_id]["release_year"],
+                vote_average=stubs_by_id[a.movie_id]["vote_average"],
             )
-            for mid in ids
-            if mid in stubs_by_id
+            for a in ordered
+            if a.movie_id in stubs_by_id
         ]
         active_scores = [a.score for a in c.assignments if not a.excluded]
         confidence = sum(active_scores) / len(active_scores) if active_scores else 0.0
@@ -212,7 +202,7 @@ def emit_cluster_snapshot(
                 description=c.description,
                 level=c.level,
                 confidence=confidence,
-                top_films=top_films,
+                films=films,
             )
         )
 

@@ -1,5 +1,6 @@
 import { AnimatePresence, motion } from "framer-motion";
-import { useUiStore } from "@/store/uiStore";
+import { useSessionStore } from "@/store/sessionStore";
+import { useSessionFlight } from "@/store/turnFlightStore";
 import { cn } from "@/lib/utils";
 import type { ProgressStep } from "@/features/conversation/services/turnService";
 
@@ -41,10 +42,14 @@ export interface PipelineStage {
  * new checkpoint is added there, add a matching row here.
  */
 export const STAGES: Readonly<Record<ProgressStep, PipelineStage>> = {
-  understand: { id: "understand", label: "Reading your taste and sketching options" },
-  choose:     { id: "choose",     label: "Weighing the best picks" },
-  finalize:   { id: "finalize",   label: "Writing your reply" },
-  wrap_up:    { id: "wrap_up",    label: "Wrapping things up" },
+  understand:  { id: "understand",  label: "Reading your taste and sketching options" },
+  retrieving:  { id: "retrieving",  label: "Searching the catalogue" },
+  clustering:  { id: "clustering",  label: "Grouping films" },
+  choose:      { id: "choose",      label: "Weighing the best picks" },
+  deciding:    { id: "deciding",    label: "Thinking about what to ask" },
+  composing:   { id: "composing",   label: "Writing your reply" },
+  finalize:    { id: "finalize",    label: "Putting it all together" },
+  wrap_up:     { id: "wrap_up",     label: "Wrapping things up" },
 } as const;
 
 interface PipelineStatusLineProps {
@@ -75,8 +80,9 @@ interface PipelineStatusLineProps {
  * @returns A status line element.
  */
 export function PipelineStatusLine({ step, className }: PipelineStatusLineProps = {}) {
-  const storeStep = useUiStore((s) => s.currentStep);
-  const active = step !== undefined ? step : storeStep;
+  const { sessionId } = useSessionStore();
+  const flight = useSessionFlight(sessionId);
+  const active = step !== undefined ? step : flight.lastStep;
   const stage = active ? STAGES[active] : null;
 
   return (

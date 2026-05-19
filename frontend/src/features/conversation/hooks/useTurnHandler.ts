@@ -3,6 +3,7 @@ import { streamTurn } from "@/features/conversation/services/turnService";
 import { useSessionStore } from "@/store/sessionStore";
 import { useUiStore } from "@/store/uiStore";
 import { useClusterSnapshotStore } from "@/store/clusterSnapshotStore";
+import { useTurnFlightStore } from "@/store/turnFlightStore";
 import type { SessionDto, TurnDto } from "@/utils/types";
 
 interface PostTurnParams {
@@ -29,6 +30,7 @@ export function useTurnHandler() {
   const { incrementTurn } = useSessionStore();
   const { setCurrentStep } = useUiStore();
   const { setSnapshot, setRefining } = useClusterSnapshotStore();
+  const { markStarted, markStep, markFinished } = useTurnFlightStore();
 
   const { mutate: submitTurn, isPending, error } = useMutation<
     TurnDto,
@@ -43,6 +45,7 @@ export function useTurnHandler() {
           // an empty state between steps.
           if (event.phase === "start") {
             setCurrentStep(event.step);
+            markStep(sessionId, event.step);
           }
         },
         onClusters: (event) => {
@@ -52,6 +55,7 @@ export function useTurnHandler() {
     onMutate: async ({ sessionId, userMessage }) => {
       await queryClient.cancelQueries({ queryKey: ["session", sessionId] });
       setCurrentStep(null);
+      markStarted(sessionId);
 
       const previous = queryClient.getQueryData<SessionDto>(["session", sessionId]);
       if (previous) {
@@ -80,10 +84,12 @@ export function useTurnHandler() {
         queryClient.setQueryData(["session", sessionId], ctx.previous);
       }
       setCurrentStep(null);
+      markFinished(sessionId);
     },
     onSuccess: (_result, { sessionId }) => {
       incrementTurn();
       setCurrentStep(null);
+      markFinished(sessionId);
       setRefining(false);
       queryClient.invalidateQueries({ queryKey: ["session", sessionId] });
       queryClient.invalidateQueries({ queryKey: ["sessions", "list"] });

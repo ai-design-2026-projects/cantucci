@@ -73,6 +73,7 @@ class TurnRunner:
         
         # If we pass the hard limit check, emit UNDERSTAND event and spawn the tasks.
         self._emit(ProgressStep.UNDERSTAND, "start")
+        self._emit(ProgressStep.RETRIEVING, "start")
         self.tasks.spawn()
         state = await self.tasks.await_state()
 
@@ -84,12 +85,14 @@ class TurnRunner:
         if state.action is StateAction.clarify_drift:
             await self.tasks.discard_all()
             return await self._drift(state)
-        
+
         # Otherwise, we proceed to await the profile and clusters
         new_profile = await self.tasks.await_profile()
+        self._emit(ProgressStep.RETRIEVING, "end")
+        self._emit(ProgressStep.CLUSTERING, "start")
         clusters = await self.tasks.resolve_clusters(state, new_profile)
+        self._emit(ProgressStep.CLUSTERING, "end")
         self._emit(ProgressStep.UNDERSTAND, "end")
-
 
         if not clusters:
             return await self._empty_clusters()

@@ -128,3 +128,11 @@ img {
   outline: 2px solid var(--accent-gold);
   outline-offset: 2px;
 }
+
+.cluster-film-scroll {
+  /* width:0 + min-width:100% breaks the max-content chain that the Radix
+     ScrollArea display:table wrapper propagates upward, preventing cards
+     from expanding to fit all film posters. */
+  width: 0;
+  min-width: 100%;
+}

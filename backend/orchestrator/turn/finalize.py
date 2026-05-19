@@ -48,14 +48,18 @@ async def finalize(
     await _persist_placeholder_turn(ctx, clusters)
 
     _emit(ctx, ProgressStep.CHOOSE, "start")
+    _emit(ctx, ProgressStep.DECIDING, "start")
     decision = await _run_decision(ctx, clusters)
+    _emit(ctx, ProgressStep.DECIDING, "end")
 
+    _emit(ctx, ProgressStep.COMPOSING, "start")
     if decision.action == DecisionAction.continue_:
         reply, step_type, recommendation = _build_ask(decision)
     else:
         reply, step_type, recommendation = await _build_show(
             ctx, clusters, decision, new_profile,
         )
+    _emit(ctx, ProgressStep.COMPOSING, "end")
     _emit(ctx, ProgressStep.CHOOSE, "end")
 
     _emit(ctx, ProgressStep.FINALIZE, "start")

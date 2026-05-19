@@ -3,10 +3,11 @@ import type { ClusterDto, ClusterFilmStub, ClusterSnapshotPayload } from "@/util
 
 /**
  * Convert persisted ClusterDto[] into ClusterSnapshotPayload[] by fetching
- * movie metadata for each top_titles entry in parallel.
+ * movie metadata for each assignment in soft_scores.
  *
- * confidence is set to 0 — the confidence bar is hidden for settled snapshots,
- * so this value is never rendered.
+ * Ordering mirrors the live snapshot: non-excluded films first (score desc),
+ * then excluded. Using soft_scores ensures all films are present even for
+ * sessions saved before the top_titles cap was removed.
  *
  * @param clusters - Persisted cluster data from SessionDto.cluster_snapshot.
  * @returns Hydrated snapshot payloads ready for the ClusterSnapshotStore.
@@ -16,9 +17,14 @@ export async function hydrateClusterSnapshot(
 ): Promise<ClusterSnapshotPayload[]> {
   return Promise.all(
     clusters.map(async (cluster) => {
+      const ordered = [...cluster.soft_scores].sort((a, b) => {
+        if (a.excluded !== b.excluded) return a.excluded ? 1 : -1;
+        return b.score - a.score;
+      });
+
       const films = await Promise.all(
-        cluster.top_titles.map((id) =>
-          fetchMovie(id).then(
+        ordered.map((s) =>
+          fetchMovie(s.movie_id).then(
             (movie): ClusterFilmStub => ({
               id: movie.id,
               title: movie.title,
@@ -29,6 +35,7 @@ export async function hydrateClusterSnapshot(
           ),
         ),
       );
+
       const activeScores = cluster.soft_scores
         .filter((s) => !s.excluded)
         .map((s) => s.score);
@@ -43,7 +50,7 @@ export async function hydrateClusterSnapshot(
         description: cluster.description,
         level: cluster.level,
         confidence,
-        top_films: films,
+        films,
       };
     }),
   );
