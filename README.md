@@ -16,7 +16,42 @@ An AI system that clusters a movie catalogue by *conversing* with a human oracle
 
 ---
 
-## Quick start
+## Quick start — Docker (recommended)
+
+Requires Docker and Docker Compose. Pulls versioned images from GitHub Container Registry — no local build needed.
+
+```bash
+# 1. Copy and fill the environment file
+cp .env.example .env
+# Required: AUTH_SECRET, and one LLM key (OPENAI_API_KEY or OPENROUTER_API_KEY).
+# Generate AUTH_SECRET with: openssl rand -hex 32
+# Optional: set CINEPAL_VERSION=vX.Y.Z to pin a release (defaults to latest).
+
+# 2. Start all services (Postgres + backend + frontend)
+docker compose up -d
+
+# 3. Load the catalogue — one-time, takes a few minutes
+docker compose run --rm backend python -m db.ingest
+
+# UI at http://localhost — Swagger at http://localhost:8000/docs
+```
+
+On subsequent starts: `docker compose up -d` (migrations are re-applied automatically on each backend start; `db.ingest` only needs to run once unless you switch datasets).
+
+To stop: `docker compose down` (data is preserved in the `cinepal-pgdata` volume).
+
+### Releases
+
+Every `v*` tag on `main` produces two versioned images via the CD pipeline (`.github/workflows/release.yml`):
+
+- `ghcr.io/ai-design-2026-projects/cinepal-backend:vX.Y.Z`
+- `ghcr.io/ai-design-2026-projects/cinepal-frontend:vX.Y.Z`
+
+Both are also tagged `latest`. Pin a release in `.env` with `CINEPAL_VERSION=vX.Y.Z`.
+
+---
+
+## Quick start — from source (for contributors)
 
 ```bash
 # 1. Environment

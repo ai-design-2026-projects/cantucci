@@ -71,6 +71,20 @@ uvicorn backend.app:app --reload
 
 Swagger UI: <http://127.0.0.1:8000/docs>
 
+### Running via Docker
+
+The published image applies migrations automatically on startup, then launches uvicorn.
+
+```bash
+# Pull and run against an existing Postgres instance
+docker run --env-file .env \
+  -e DATABASE_URL=postgresql://cinepal:cinepal@<pg-host>:5432/cinepal \
+  -p 8000:8000 \
+  ghcr.io/ai-design-2026-projects/cinepal-backend:latest
+```
+
+For the full stack (backend + frontend + Postgres together) use `docker compose up` from the repo root — see the root `README.md`.
+
 ### Tests
 
 ```bash
