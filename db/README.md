@@ -5,7 +5,11 @@
 ## Connecting to psql
 To connect to the Postgres instance running in Docker, use:
 ```bash
+# Source install (standalone container named cinepal-pg)
 docker exec -it cinepal-pg psql -U cinepal
+
+# Docker Compose install
+docker compose exec db psql -U cinepal -d cinepal
 ```
 
 ---
@@ -14,6 +18,9 @@ docker exec -it cinepal-pg psql -U cinepal
 
 Migrations are plain SQL files in `db/migrations/`, applied in lexicographic order by `db/apply.py`.
 
+**Docker Compose install:** migrations are applied automatically each time the backend container starts — no manual step needed.
+
+**Source install:**
 ```bash
 export DATABASE_URL=postgresql://cinepal:cinepal@localhost:4321/cinepal
 python -m db.apply
@@ -45,6 +52,13 @@ Re-running `apply` is safe — files already recorded in `schema_migrations` are
 pinned in `configs/default.yaml` (`ingestion.hf_repo` + `ingestion.artifacts.*`)
 from Hugging Face and upserts them into Postgres.
 
+**Docker Compose install** — run ingestion once after the stack is up:
+```bash
+docker compose run --rm backend python -m db.ingest             # mini (dev default)
+docker compose run --rm backend python -m db.ingest --set main  # full production set
+```
+
+**Source install:**
 ```bash
 python -m db.apply              # apply migrations (idempotent)
 python -m db.ingest             # ingest mini (dev default)
