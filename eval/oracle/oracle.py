@@ -25,8 +25,8 @@ from pydantic import BaseModel
 
 from backend.llm.prompts import make_prompt_loader
 from backend.routers.dtos import ClusterDto, TurnDto
-from eval.oracle.behavior import BehaviorRng
-from eval.oracle.memory import OracleMemory
+from eval.oracle.utils.behavior import BehaviorRng
+from eval.oracle.utils.memory import OracleMemory
 from eval.shared.ground_truths import OracleGroundTruthView
 from eval.shared.llm_gateway import LLMGateway
 from eval.shared.personas import PersonaProfile
