@@ -1,11 +1,12 @@
 """
-Recommendation rendering and DTO assembly for the orchestrator. All the 
-enrichment and formatting logic lives here so the orchestrator and 
+Recommendation rendering and DTO assembly for the orchestrator. All the
+enrichment and formatting logic lives here so the orchestrator and
 router can stay focused on their respective responsibilities of turn flow.
 """
 import logging
 import backend.api.movies as api_movies
 from backend.api.types import ClusterRow, SessionRow, SessionStatus, StepType
+from backend.api.sessions import SessionListRow
 from backend.orchestrator.turn.progress import (
     ClusterFilmStub,
     ClusterSnapshotEvent,
@@ -23,6 +24,34 @@ from backend.routers.dtos import (
 from backend.settings import Settings
 
 log = logging.getLogger(__name__)
+
+
+def _cluster_to_dto(cluster: ClusterRow) -> ClusterDto:
+    """Convert an internal ClusterRow to a ClusterDto for HTTP responses.
+
+    Args:
+        cluster: Internal cluster dataclass from the api/ layer.
+
+    Returns:
+        A ClusterDto ready for serialization.
+    """
+    active = sorted(
+        [a for a in cluster.assignments if not a.excluded],
+        key=lambda a: a.score,
+        reverse=True,
+    )
+    return ClusterDto(
+        id=cluster.id,
+        name=cluster.name,
+        description=cluster.description,
+        level=cluster.level,
+        parent_cluster_id=cluster.parent_cluster_id,
+        soft_scores=[
+            SoftScore(movie_id=a.movie_id, score=a.score, excluded=a.excluded)
+            for a in cluster.assignments
+        ],
+        top_titles=[a.movie_id for a in active[:5]],
+    )
 
 
 def pick_best_cluster(clusters: list[ClusterRow]) -> ClusterRow:
@@ -57,18 +86,8 @@ def make_recommendation_dto(
         A ``RecommendationDto`` DTO.
     """
     films = [MovieDto(**movie_data[movie_id]) for movie_id in top_ids if movie_id in movie_data]
-    cluster_pub = ClusterDto(
-        id=cluster.id,
-        name=cluster.name,
-        description=cluster.description,
-        level=cluster.level,
-        parent_cluster_id=cluster.parent_cluster_id,
-        soft_scores=[
-            SoftScore(movie_id=a.movie_id, score=a.score, excluded=a.excluded)
-            for a in cluster.assignments
-        ],
-        top_titles=top_ids,
-    )
+    cluster_pub = _cluster_to_dto(cluster)
+    cluster_pub = cluster_pub.model_copy(update={"top_titles": top_ids})
     return RecommendationDto(cluster=cluster_pub, films=films)
 
 
@@ -96,13 +115,12 @@ def build_recommendation(
     return make_recommendation_dto(cluster, top_ids, movie_data)
 
 
-def last_show_recommendation(full, top_k: int) -> RecommendationDto | None:
+def last_show_recommendation(full: SessionRow, top_k: int) -> RecommendationDto | None:
     """
     Return the last show-turn's recommendation, if any.
     Used by terminal paths (terminate, natural_end) to surface the most
     recent recommendation alongside the stop turn.
     """
-    from backend.api.types import StepType  # local: avoid pulling at module-import time
     for prior_t in reversed(full.turns):
         if prior_t.step_type == StepType.show.value and prior_t.clusters:
             return build_recommendation(pick_best_cluster(prior_t.clusters), top_k)
@@ -209,27 +227,21 @@ def emit_cluster_snapshot(
 
 
 def assemble_session_dto(full: SessionRow, cfg: Settings) -> SessionDto:
-    """Project a ``SessionRow`` into the HTTP ``SessionDto`` DTO.
+    """Project a ``SessionRow`` into the HTTP ``SessionDto``.
 
-    Internal experimental fields (run_id, seed, config_hash, model_version,
-    persona_id, preference_profile, feedback, metrics, judge_scores) are
-    dropped. Every show turn is hydrated with a ``RecommendationDto``
-    built from the turn's best cluster and the top-K non-excluded films;
-    stop turns inherit the most recent show turn's recommendation; ask
-    turns carry no recommendation.
-
-    All movie-metadata fetches across the whole session are batched into a
-    single DB call.
+    Every show turn is hydrated with a ``RecommendationDto`` built from the
+    turn's best cluster and the top-K non-excluded films; stop turns inherit
+    the most recent show turn's recommendation; ask turns carry no
+    recommendation. All movie-metadata fetches are batched into a single DB
+    call.
 
     Args:
-        full: Full read-side snapshot loaded by ``api_retrieval.get_session_full``.
+        full: Full internal session snapshot from ``api_retrieval.get_session_full``.
         cfg:  Active settings (used for ``cfg.session.recommendation_top_k``).
 
     Returns:
         A ``SessionDto`` ready to serialize to the HTTP client.
     """
-    # Pre-compute the best cluster + top-movie-ids for every show turn so we
-    # can batch all movie fetches into a single DB call.
     show_turn_info: dict = {}
     for t in full.turns:
         if t.step_type == StepType.show.value and t.clusters:
@@ -253,8 +265,7 @@ def assemble_session_dto(full: SessionRow, cfg: Settings) -> SessionDto:
         else {}
     )
 
-    # Build turns, hydrating recommendation for show and stop steps
-    last_show_recommendation: RecommendationDto | None = None
+    last_rec: RecommendationDto | None = None
     turns: list[TurnDto] = []
     for t in full.turns:
         recommendation: RecommendationDto | None = None
@@ -262,9 +273,9 @@ def assemble_session_dto(full: SessionRow, cfg: Settings) -> SessionDto:
         if step == StepType.show and t.id in show_turn_info:
             best, top_ids = show_turn_info[t.id]
             recommendation = make_recommendation_dto(best, top_ids, movie_data)
-            last_show_recommendation = recommendation
+            last_rec = recommendation
         elif step == StepType.stop:
-            recommendation = last_show_recommendation
+            recommendation = last_rec
 
         turns.append(
             TurnDto(
@@ -280,13 +291,44 @@ def assemble_session_dto(full: SessionRow, cfg: Settings) -> SessionDto:
             )
         )
 
+    turn_count = len(full.turns)
+    first_user_message = full.turns[0].user_message if full.turns else None
+
     return SessionDto(
         session_id=full.session_id,
         status=SessionStatus(full.status),
         max_turns=full.max_turns,
         created_at=full.created_at,
         updated_at=full.updated_at,
+        turn_count=turn_count,
+        first_user_message=first_user_message,
+        cluster_snapshot=[_cluster_to_dto(c) for c in full.cluster_snapshot],
         turns=turns,
+    )
+
+
+def row_to_session_dto(row: SessionListRow) -> SessionDto:
+    """Convert a ``SessionListRow`` (history listing) to a ``SessionDto``.
+
+    Produces a ``SessionDto`` with ``turns=[]`` and ``cluster_snapshot``
+    projected from the row's raw ClusterRow objects.
+
+    Args:
+        row: Lightweight session row from ``api_sessions.list_sessions_by_user``.
+
+    Returns:
+        A ``SessionDto`` with no turn detail (turns=[]).
+    """
+    return SessionDto(
+        session_id=row.session_id,
+        status=SessionStatus(row.status),
+        max_turns=0,
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+        turn_count=row.turn_count,
+        first_user_message=row.first_user_message,
+        cluster_snapshot=[_cluster_to_dto(c) for c in row.cluster_snapshot],
+        turns=[],
     )
 
 
@@ -298,4 +340,5 @@ __all__ = [
     "make_recommendation_dto",
     "pick_best_cluster",
     "render_recommendation",
+    "row_to_session_dto",
 ]

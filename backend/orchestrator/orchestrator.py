@@ -36,8 +36,8 @@ class Orchestrator:
     sessions; per-turn state lives in a fresh ``TurnRunner`` per call.
     """
 
-    def create_session(self, user_id: UUID | None = None) -> SessionState:
-        """Create a run + session row and return the initial SessionState.
+    def create_session(self, user_id: UUID | None = None) -> SessionDto:
+        """Create a run + session row and return the initial SessionDto.
 
         Loads the default config for model, seed, and session parameters.
 

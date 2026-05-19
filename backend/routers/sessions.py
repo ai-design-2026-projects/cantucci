@@ -9,7 +9,7 @@ Invariants enforced here:
 
 import asyncio
 import logging
-from dataclasses import asdict
+from contextlib import suppress
 from typing import AsyncIterator
 from uuid import UUID
 
@@ -20,6 +20,7 @@ import backend.api.sessions as api_sessions
 from backend.auth import User, get_current_user
 from backend.exceptions import SessionNotFound
 from backend.orchestrator.orchestrator import Orchestrator
+from backend.orchestrator.utils import presentation
 from backend.orchestrator.turn.progress import (
     ClusterSnapshotEvent,
     ErrorEvent,
@@ -50,8 +51,32 @@ def _orchestrator(request: Request) -> Orchestrator:
     return request.app.state.orchestrator  # type: ignore[return-value]
 
 
+@router.get("/list", response_model=list[SessionDto])
+def list_sessions(
+    user: User | None = Depends(get_current_user),
+) -> list[SessionDto]:
+    """List all sessions owned by the authenticated user, newest first.
+
+    Args:
+        user: Resolved by ``get_current_user``; None for anonymous.
+
+    Returns:
+        List of ``SessionDto`` (turns=[]) ordered by updated_at DESC (HTTP 200).
+
+    Raises:
+        HTTPException(401): If the request is anonymous.
+    """
+    if user is None:
+        raise HTTPException(status_code=401, detail="Authentication required.")
+    rows = api_sessions.list_sessions_by_user(user.id)
+    return [presentation.row_to_session_dto(r) for r in rows]
+
+
 @router.post("", response_model=SessionDto, status_code=201)
-def create_session(orchestrator: Orchestrator = Depends(_orchestrator)) -> SessionDto:
+def create_session(
+    user: User | None = Depends(get_current_user),
+    orchestrator: Orchestrator = Depends(_orchestrator),
+) -> SessionDto:
     """Create a new recommendation session.
 
     Returns an initial ``SessionDto`` with status=active and an empty turn
@@ -59,8 +84,8 @@ def create_session(orchestrator: Orchestrator = Depends(_orchestrator)) -> Sessi
     subsequent turn requests.
 
     Args:
-        orchestrator: Injected via ``_orchestrator`` dependency.
         user:         Resolved by ``get_current_user``; None for anonymous.
+        orchestrator: Injected via ``_orchestrator`` dependency.
 
     Returns:
         The newly created ``SessionDto`` (HTTP 201).

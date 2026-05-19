@@ -19,8 +19,8 @@ from backend.api.types import (
     JudgeScoreRow,
     RunAggregate,
     RunResults,
-    SessionRow,
     SessionMetricsRow,
+    SessionRow,
     SessionSummaryRow,
     TurnRow,
 )
@@ -315,9 +315,16 @@ def get_session_full(session_id: uuid.UUID) -> SessionRow:
 
     judge_scores = [
         JudgeScoreRow(id=r[0], dimension=r[1], score=r[2],
-                   rationale=r[3], judge_model=r[4], judge_prompt_hash=r[5])
+                      rationale=r[3], judge_model=r[4], judge_prompt_hash=r[5])
         for r in judge_rows
     ]
+
+    # Derive cluster_snapshot: clusters from the most recent clustered turn.
+    cluster_snapshot: list[ClusterRow] = []
+    for t in reversed(turns):
+        if t.clusters:
+            cluster_snapshot = t.clusters
+            break
 
     log.debug(
         "get_session_full session=%s turns=%d clusters=%d",
@@ -335,6 +342,7 @@ def get_session_full(session_id: uuid.UUID) -> SessionRow:
         updated_at=sess_row[8],
         max_turns=sess_row[9],
         turns=turns,
+        cluster_snapshot=cluster_snapshot,
         feedback=feedback,
         metrics=metrics,
         judge_scores=judge_scores,

@@ -13,8 +13,8 @@ log = logging.getLogger(__name__)
 router = APIRouter(prefix="/movies", tags=["movies"])
 
 
-@router.get("/get_movie/{movie_id}", response_model=MoviePublic)
-def get_movie(movie_id: int) -> MoviePublic:
+@router.get("/get_movie/{movie_id}", response_model=MovieDto)
+def get_movie(movie_id: int) -> MovieDto:
     """Return full metadata for a single movie from the catalogue.
 
     Args:

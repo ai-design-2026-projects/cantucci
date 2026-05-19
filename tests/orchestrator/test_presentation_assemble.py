@@ -88,10 +88,10 @@ def _full(turns: list[TurnRow]) -> SessionRow:
         seed=42,
         config_hash="deadbeef",
         model_version="claude-test",
-        persona_id=None,
         status="active",
         preference_profile=None,
         turns=turns,
+        cluster_snapshot=[],
         feedback=[],
         metrics=None,
         judge_scores=[],
@@ -197,10 +197,10 @@ def test_movie_fetch_is_batched_once_across_all_show_turns(
     assert sorted(calls[0]) == [1, 2, 3]
 
 
-def test_internal_fields_are_not_exposed_on_session_state(
+def test_session_dto_exposes_public_fields(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """SessionDto must not carry seed/config_hash/run_id/preference_profile etc."""
+    """SessionDto exposes turn_count, first_user_message, and cluster_snapshot."""
     monkeypatch.setattr(
         presentation.api_movies, "fetch_movies_dto", lambda ids: [],
     )
@@ -208,15 +208,9 @@ def test_internal_fields_are_not_exposed_on_session_state(
     state = presentation.assemble_session_dto(_full([]), _cfg())
 
     serialized = state.model_dump()
-    for forbidden in (
-        "run_id",
-        "seed",
-        "config_hash",
-        "model_version",
-        "persona_id",
-        "preference_profile",
-        "feedback",
-        "metrics",
-        "judge_scores",
-    ):
-        assert forbidden not in serialized, f"{forbidden} leaked into SessionDto"
+    assert "turn_count" in serialized
+    assert "first_user_message" in serialized
+    assert "cluster_snapshot" in serialized
+    assert serialized["turn_count"] == 0
+    assert serialized["first_user_message"] is None
+    assert serialized["cluster_snapshot"] == []

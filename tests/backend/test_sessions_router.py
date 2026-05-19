@@ -16,7 +16,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 import backend.api.sessions as api_sessions_module
-from backend.api.sessions import SessionSummaryRow
+from backend.api.sessions import SessionListRow
 from backend.auth import User, get_current_user
 from backend.routers.sessions import router as sessions_router
 
@@ -33,9 +33,13 @@ def _app(user: User | None = _FAKE_USER) -> FastAPI:
     return app
 
 
-def _summary(session_id: UUID | None = None, first_user_message: str | None = None) -> SessionSummaryRow:
-    return SessionSummaryRow(
+def _summary(session_id: UUID | None = None, first_user_message: str | None = None) -> SessionListRow:
+    return SessionListRow(
         session_id=session_id or uuid4(),
+        run_id=uuid4(),
+        seed=42,
+        config_hash="deadbeef",
+        model_version="test-model",
         status="active",
         created_at=_NOW,
         updated_at=_NOW,
@@ -78,7 +82,7 @@ def test_list_sessions_passes_authenticated_user_id(monkeypatch: pytest.MonkeyPa
     """The endpoint forwards the JWT user_id, not an arbitrary query param."""
     received: list[uuid.UUID] = []
 
-    def fake_list(uid: uuid.UUID) -> list[SessionSummaryRow]:
+    def fake_list(uid: uuid.UUID) -> list[SessionListRow]:
         received.append(uid)
         return []
 
