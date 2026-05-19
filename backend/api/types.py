@@ -92,12 +92,16 @@ class SessionMetricsRow:
     total_input_tokens: int
     total_output_tokens: int
     total_cost_usd: Decimal
+    precision_at_k: float | None = None
+    recall_at_k: float | None = None
+    ndcg_at_k: float | None = None
 
 
 @dataclass
 class JudgeScoreRow:
     """LLM-as-judge score for a single evaluation dimension."""
     id: uuid.UUID
+    session_id: uuid.UUID
     dimension: str
     score: int
     rationale: str | None
@@ -151,42 +155,6 @@ class FeedbackRow:
     feedback_type: str
     target_id: str | None
     content: str
-
-
-@dataclass
-class SessionSummaryRow:
-    """Lightweight session overview used in run-level aggregates."""
-
-    session_id: uuid.UUID
-    run_id: uuid.UUID
-    seed: int
-    config_hash: str
-    model_version: str
-    status: str
-    turn_count: int
-    converged_at_turn: int | None
-    metrics: SessionMetricsRow | None
-    judge_scores: list[JudgeScoreRow]
-
-
-@dataclass
-class RunAggregate:
-    """Computed statistics across all sessions in a run."""
-
-    n_sessions: int
-    convergence_rate: float
-    mean_turns_to_convergence: float | None
-    mean_cognitive_load: float | None
-    mean_judge: dict[str, float]
-
-
-@dataclass
-class RunResults:
-    """Full results for a run: all session summaries plus aggregate stats."""
-
-    run_id: uuid.UUID
-    sessions: list[SessionSummaryRow]
-    aggregate: RunAggregate
 
 
 @dataclass
@@ -247,3 +215,5 @@ class Run(BaseModel):
     model_version: str
     status: str
     notes: str | None
+    started_at: datetime | None = None
+    ended_at: datetime | None = None
