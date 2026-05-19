@@ -24,6 +24,9 @@ def upsert_session_metrics(
     total_input_tokens: int = 0,
     total_output_tokens: int = 0,
     total_cost_usd: Decimal = Decimal("0"),
+    precision_at_k: float | None = None,
+    recall_at_k: float | None = None,
+    ndcg_at_k: float | None = None,
 ) -> None:
     """Insert or update the session_metrics row for a session.
 
@@ -40,6 +43,9 @@ def upsert_session_metrics(
         total_input_tokens: Sum of input tokens across all LLM calls in the session.
         total_output_tokens: Sum of output tokens across all LLM calls.
         total_cost_usd: Estimated API cost for the session.
+        precision_at_k: Precision@K of the final recommendation vs ground-truth film set.
+        recall_at_k: Recall@K of the final recommendation vs ground-truth film set.
+        ndcg_at_k: NDCG@K of the final recommendation vs ground-truth film set.
     """
     with transaction() as conn:
         conn.execute(
@@ -47,8 +53,9 @@ def upsert_session_metrics(
             INSERT INTO session_metrics
                 (session_id, converged, turns_to_convergence, avg_cognitive_load,
                  explicit_acceptance, drift_events, total_input_tokens,
-                 total_output_tokens, total_cost_usd, computed_at)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
+                 total_output_tokens, total_cost_usd, computed_at,
+                 precision_at_k, recall_at_k, ndcg_at_k)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), %s, %s, %s)
             ON CONFLICT (session_id) DO UPDATE SET
                 converged              = EXCLUDED.converged,
                 turns_to_convergence   = EXCLUDED.turns_to_convergence,
@@ -58,12 +65,16 @@ def upsert_session_metrics(
                 total_input_tokens     = EXCLUDED.total_input_tokens,
                 total_output_tokens    = EXCLUDED.total_output_tokens,
                 total_cost_usd         = EXCLUDED.total_cost_usd,
-                computed_at            = NOW()
+                computed_at            = NOW(),
+                precision_at_k         = EXCLUDED.precision_at_k,
+                recall_at_k            = EXCLUDED.recall_at_k,
+                ndcg_at_k              = EXCLUDED.ndcg_at_k
             """,
             (
                 session_id, converged, turns_to_convergence, avg_cognitive_load,
                 explicit_acceptance, drift_events, total_input_tokens,
                 total_output_tokens, total_cost_usd,
+                precision_at_k, recall_at_k, ndcg_at_k,
             ),
         )
     log.debug("upserted session_metrics for session %s", session_id)

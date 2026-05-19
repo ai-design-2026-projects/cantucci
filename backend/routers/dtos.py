@@ -84,6 +84,42 @@ class SessionDto(BaseModel):
     cluster_snapshot: list["ClusterDto"] = []
     turns: list[TurnDto] = []
 
+    def converged_turn(self) -> "TurnDto | None":
+        """Return the turn where convergence was declared, or None.
+
+        Returns:
+            The ``TurnDto`` with ``converged=True``, or ``None`` if none exist.
+        """
+        for turn in reversed(self.turns):
+            if turn.converged:
+                return turn
+        return None
+
+    def last_turn_with_recommendation(self) -> "TurnDto | None":
+        """Return the last turn carrying a non-None recommendation, or None.
+
+        Returns:
+            ``TurnDto`` with a recommendation, or ``None``.
+        """
+        for turn in reversed(self.turns):
+            if turn.recommendation is not None:
+                return turn
+        return None
+
+    def transcript(self) -> str:
+        """Build a plain-text turn-by-turn transcript.
+
+        Returns:
+            Multi-line string with alternating Oracle / CinePal lines.
+        """
+        lines: list[str] = []
+        for turn in self.turns:
+            lines.append(f"[Turn {turn.turn_number}]")
+            lines.append(f"Oracle: {turn.user_message}")
+            lines.append(f"CinePal: {turn.assistant_message}")
+            lines.append("")
+        return "\n".join(lines)
+
 
 class TurnRequest(BaseModel):
     """HTTP request body for POST /sessions/{session_id}/turns.

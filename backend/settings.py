@@ -222,6 +222,70 @@ class IngestionConfig(BaseModel):
     artifacts: IngestionArtifacts
 
 
+class EvalModelConfig(BaseModel):
+    """LLM model parameters for an eval component (oracle or judge).
+
+    Attributes:
+        name:       Model identifier string.
+        provider:   API provider — ``"openai"`` or ``"openrouter"``.
+        seed:       RNG seed for reproducible completions.
+        max_tokens: Maximum completion tokens per call.
+    """
+
+    name: str
+    provider: str = "openrouter"
+    seed: int
+    max_tokens: int
+
+
+class EvalOracleConfig(BaseModel):
+    """Oracle-agent parameters for automated eval sessions.
+
+    Attributes:
+        model:           LLM model to drive the Oracle.
+        cost_limit_usd:  Total USD ceiling for Oracle spend in one eval run.
+    """
+
+    model: EvalModelConfig
+    cost_limit_usd: float
+
+
+class EvalJudgeConfig(BaseModel):
+    """LLM-judge parameters for post-session scoring.
+
+    Attributes:
+        model:          LLM model to drive the judge.
+        cost_limit_usd: Total USD ceiling for judge spend in one eval run.
+    """
+
+    model: EvalModelConfig
+    cost_limit_usd: float
+
+
+class EvalMetricsConfig(BaseModel):
+    """Objective metric parameters.
+
+    Attributes:
+        k: Rank cutoff for precision@K, recall@K, and NDCG@K.
+    """
+
+    k: int = 5
+
+
+class EvalConfig(BaseModel):
+    """Top-level eval configuration block.
+
+    Attributes:
+        oracle:  Oracle-agent model and budget.
+        judge:   LLM-judge model and budget.
+        metrics: Objective metric parameters.
+    """
+
+    oracle: EvalOracleConfig
+    judge: EvalJudgeConfig
+    metrics: EvalMetricsConfig = EvalMetricsConfig()
+
+
 class Settings(BaseModel):
     """Full typed configuration loaded from a YAML config file.
 
@@ -233,6 +297,7 @@ class Settings(BaseModel):
         representation: Embedding model configuration.
         clustering:     HDBSCAN parameters.
         ingestion:      HF artifact source (repo + per-split filenames).
+        eval:           Eval pipeline parameters (oracle, judge, metrics).
     """
 
     models: ModelTiers
@@ -242,6 +307,7 @@ class Settings(BaseModel):
     representation: RepresentationConfig
     clustering: ClusteringConfig
     ingestion: IngestionConfig
+    eval: EvalConfig | None = None
 
 class EnvSettings(BaseSettings):
     """Typed environment settings loaded from the environment and ``.env`` file.
@@ -303,6 +369,18 @@ def prompts_dir(agent: str) -> Path:
         ``Path`` to ``backend/<agent>/prompts/``.
     """
     return BACKEND_DIR / agent / "prompts"
+
+
+def eval_prompts_dir(component: str) -> Path:
+    """Return the prompts directory for an eval component.
+
+    Args:
+        component: Eval sub-package name — ``"oracle"`` or ``"judge"``.
+
+    Returns:
+        ``Path`` to ``eval/<component>/prompts/`` under the project root.
+    """
+    return PROJECT_ROOT / "eval" / component / "prompts"
 
 
 

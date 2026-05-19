@@ -205,6 +205,8 @@ def create_session(
     max_turns: int = 15,
     cost_limit_usd: Decimal | None = None,
     user_id: uuid.UUID | None = None,
+    persona_id: str | None = None,
+    ground_truth_id: str | None = None,
 ) -> uuid.UUID:
     """Insert a new session row and return its UUID.
 
@@ -216,6 +218,8 @@ def create_session(
         max_turns: Hard turn budget for this session.
         cost_limit_usd: Optional cost hard-stop (raises CostLimitExceeded when hit).
         user_id: Authenticated user who owns this session; None for anonymous.
+        persona_id: Kebab-case slug of the eval persona; None for live sessions.
+        ground_truth_id: Kebab-case slug of the eval ground truth; None for live sessions.
 
     Returns:
         UUID of the newly created session.
@@ -225,12 +229,12 @@ def create_session(
             """
             INSERT INTO sessions
                 (run_id, seed, config_hash, model_version, max_turns,
-                 cost_limit_usd, user_id)
-            VALUES (%s, %s, %s, %s, %s, %s, %s)
+                 cost_limit_usd, user_id, persona_id, ground_truth_id)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
             RETURNING id
             """,
             (run_id, seed, config_hash, model_version,
-             max_turns, cost_limit_usd, user_id),
+             max_turns, cost_limit_usd, user_id, persona_id, ground_truth_id),
         ).fetchone()
 
     session_id: uuid.UUID = row[0]
