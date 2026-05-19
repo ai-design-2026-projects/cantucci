@@ -32,6 +32,7 @@ session:
 
 retrieval:
   top_k: 50
+  ivfflat_probes: 10
 
 split:
   mini_size: 200

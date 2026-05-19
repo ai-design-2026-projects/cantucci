@@ -47,6 +47,12 @@ retrieval:
   # Maximum number of candidate films fetched from pgvector per turn.
   # Larger values improve recall but slow down HDBSCAN and increase token counts.
   top_k: 50
+  # Number of IVFFlat lists probed per vector_search query. The index is built
+  # with lists = 100 (db/migrations/003_catalogue.sql); pgvector's default is 1,
+  # which limits recall to ~1% of the catalogue. Rule of thumb: sqrt(lists) = 10
+  # for ~99% recall. Applied via SET LOCAL ivfflat.probes in
+  # backend/api/movies.py:vector_search.
+  ivfflat_probes: 10
 
 split:
   # Number of rows retained in the mini subset (strict subset of main).
