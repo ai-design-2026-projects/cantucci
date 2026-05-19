@@ -16,6 +16,7 @@ export default defineConfig({
       "/sessions": "http://127.0.0.1:8000",
       "/movies": "http://127.0.0.1:8000",
       "/auth": "http://127.0.0.1:8000",
+      "/eval": "http://127.0.0.1:8000",
     },
   },
   test: {

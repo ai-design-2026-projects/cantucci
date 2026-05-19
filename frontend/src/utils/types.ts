@@ -92,6 +92,92 @@ export interface ClusterDto {
   top_titles: number[];
 }
 
+// ── Eval Lab types (mirrors backend/routers/dtos.py eval DTOs) ──────────────
+
+export interface MetricCI {
+  value: number;
+  ci_lo: number;
+  ci_hi: number;
+  n: number;
+}
+
+export interface MetricBundle {
+  precision_at_k: MetricCI;
+  recall_at_k: MetricCI;
+  ndcg_at_k: MetricCI;
+  turns_to_convergence: MetricCI;
+  avg_cognitive_load: MetricCI;
+  total_cost_usd: MetricCI;
+  drift_events: MetricCI;
+  converged_rate: MetricCI;
+  explicit_acceptance_rate: MetricCI;
+  judge_clustering_coherence: MetricCI;
+  judge_question_quality: MetricCI;
+  judge_profile_fidelity: MetricCI;
+}
+
+export type RunStatus = "running" | "completed" | "aborted";
+export type RunCondition =
+  | "baseline"
+  | "uncertainty"
+  | "random"
+  | "boundary"
+  | "popularity"
+  | "component_test"
+  | "human";
+
+export interface RunSummary {
+  id: string;
+  name: string;
+  condition: RunCondition;
+  status: RunStatus;
+  started_at: string | null;
+  ended_at: string | null;
+  n_sessions: number;
+}
+
+export interface RunDetail {
+  id: string;
+  name: string;
+  condition: RunCondition;
+  config_hash: string;
+  seed: number;
+  model_version: string;
+  status: RunStatus;
+  notes: string | null;
+  started_at: string | null;
+  ended_at: string | null;
+  n_sessions: number;
+  aggregate: MetricBundle;
+  config_snapshot?: Record<string, unknown>;
+}
+
+export interface EvalSessionRow {
+  session_id: string;
+  persona_id: string | null;
+  ground_truth_id: string | null;
+  converged: boolean;
+  explicit_acceptance: boolean;
+  turns_to_convergence: number | null;
+  avg_cognitive_load: number | null;
+  total_cost_usd: number;
+  drift_events: number;
+  precision_at_k: number | null;
+  recall_at_k: number | null;
+  ndcg_at_k: number | null;
+  judge_clustering_coherence: number | null;
+  judge_question_quality: number | null;
+  judge_profile_fidelity: number | null;
+}
+
+export interface RunFilters {
+  name: string;
+  condition: RunCondition | "";
+  status: RunStatus | "";
+  dateFrom: string;
+  dateTo: string;
+}
+
 export interface MovieDto {
   id: number;
   title: string;

@@ -4,6 +4,11 @@ import { Spinner } from "@/components/Spinner";
 import { logout } from "@/features/auth/services/authService";
 import { useAuthStore } from "@/store/authStore";
 
+interface AuthControlsProps {
+  /** When true, the "Admin" link is hidden (used when already on the admin route). */
+  hideAdminLink?: boolean;
+}
+
 /**
  * Header widget that renders auth state controls.
  *
@@ -11,7 +16,7 @@ import { useAuthStore } from "@/store/authStore";
  * - Loading: spinner while the bootstrap /auth/me call resolves.
  * - Authenticated: user email, logout button, and (for admins) admin panel button.
  */
-export function AuthControls() {
+export function AuthControls({ hideAdminLink = false }: AuthControlsProps) {
   const { user, status } = useAuthStore();
 
   if (status === "idle" || status === "loading") {
@@ -40,9 +45,9 @@ export function AuthControls() {
       <span className="text-xs text-muted-foreground hidden sm:inline truncate max-w-[160px]">
         {user.email}
       </span>
-      {user.role === "admin" && (
+      {user.role === "admin" && !hideAdminLink && (
         <Button variant="ghost" size="sm" asChild>
-          <Link to="/admin">Admin</Link>
+          <Link to="/admin">Eval Lab</Link>
         </Button>
       )}
       <Button variant="ghost" size="sm" onClick={() => void handleLogout()}>
