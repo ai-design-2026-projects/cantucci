@@ -113,8 +113,12 @@ class RetrievalConfig(BaseModel):
     """Vector-search parameters.
     Attributes:
         top_k: Maximum number of candidate films to retrieve per turn.
+        ivfflat_probes: Number of IVFFlat lists probed per vector_search query.
+                        The index is built with lists = 100; values >= 100 give
+                        exact search. Applied via SET LOCAL ivfflat.probes.
     """
     top_k: int
+    ivfflat_probes: int
 
 
 class SplitConfig(BaseModel):

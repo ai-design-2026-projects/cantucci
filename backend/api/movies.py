@@ -13,6 +13,7 @@ import numpy as np
 
 from backend.api.db import transaction
 from backend.api.types import MovieHit, MovieRow
+from backend.settings import get_settings
 
 log = logging.getLogger(__name__)
 
@@ -51,7 +52,10 @@ def vector_search(
     else:
         vec = list(embedding)
 
+    probes = get_settings().retrieval.ivfflat_probes
+
     with transaction() as conn:
+        conn.execute(f"SET LOCAL ivfflat.probes = {int(probes)}")
         if exclude_ids:
             rows = conn.execute(
                 """
@@ -82,6 +86,7 @@ def vector_search(
             "returned": len(hits),
             "top_score": hits[0].score if hits else None,
             "n_excluded": len(exclude_ids) if exclude_ids else 0,
+            "ivfflat_probes": probes,
         },
     )
     return hits
