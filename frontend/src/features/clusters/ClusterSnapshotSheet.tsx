@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { LayoutGrid } from "lucide-react";
 import { motion, LayoutGroup } from "framer-motion";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
@@ -19,8 +18,7 @@ import { useClusterSnapshotStore } from "@/store/clusterSnapshotStore";
  * backend emits a new snapshot mid-turn.
  */
 export function ClusterSnapshotSheet() {
-  const [open, setOpen] = useState(false);
-  const { clusters, isRefining } = useClusterSnapshotStore();
+  const { clusters, isRefining, open, setOpen } = useClusterSnapshotStore();
   const count = clusters.length;
 
   return (

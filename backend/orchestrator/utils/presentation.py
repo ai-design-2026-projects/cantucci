@@ -21,7 +21,6 @@ from backend.routers.dtos import (
     SoftScore,
     TurnDto,
 )
-from backend.settings import Settings
 
 log = logging.getLogger(__name__)
 
@@ -93,13 +92,11 @@ def make_recommendation_dto(
 
 def build_recommendation(
     cluster: ClusterRow,
-    top_k: int,
 ) -> RecommendationDto:
     """
     Build a RecommendationDto from a live ClusterRow via a DB fetch.
     Args:
         cluster: The cluster to recommend.
-        top_k:   Maximum number of top-scoring films to include.
 
     Returns:
         A ``RecommendationDto`` DTO with fully enriched movie data.
@@ -108,14 +105,14 @@ def build_recommendation(
         [a for a in cluster.assignments if not a.excluded],
         key=lambda a: a.score,
         reverse=True,
-    )[:top_k]
+    )
     top_ids = [a.movie_id for a in top_assignments]
     movie_dicts = api_movies.fetch_movies_dto(top_ids)
     movie_data = {m["id"]: m for m in movie_dicts}
     return make_recommendation_dto(cluster, top_ids, movie_data)
 
 
-def last_show_recommendation(full: SessionRow, top_k: int) -> RecommendationDto | None:
+def last_show_recommendation(full: SessionRow) -> RecommendationDto | None:
     """
     Return the last show-turn's recommendation, if any.
     Used by terminal paths (terminate, natural_end) to surface the most
@@ -123,16 +120,15 @@ def last_show_recommendation(full: SessionRow, top_k: int) -> RecommendationDto 
     """
     for prior_t in reversed(full.turns):
         if prior_t.step_type == StepType.show.value and prior_t.clusters:
-            return build_recommendation(pick_best_cluster(prior_t.clusters), top_k)
+            return build_recommendation(pick_best_cluster(prior_t.clusters))
     return None
 
 
-def render_recommendation(*, best_cluster: ClusterRow, top_k: int) -> str:
+def render_recommendation(*, best_cluster: ClusterRow) -> str:
     """Format a recommendation reply from the best cluster.
 
     Args:
         best_cluster: The cluster the Decision Agent chose to recommend.
-        top_k:        Maximum number of top-scoring films to list.
 
     Returns:
         A markdown-formatted reply string ready to show the oracle.
@@ -141,7 +137,7 @@ def render_recommendation(*, best_cluster: ClusterRow, top_k: int) -> str:
         [a for a in best_cluster.assignments if not a.excluded],
         key=lambda a: a.score,
         reverse=True,
-    )[:top_k]
+    )
 
     film_lines = "\n".join(
         f"- {a.title or str(a.movie_id)}" for a in top_assignments
@@ -226,18 +222,17 @@ def emit_cluster_snapshot(
         log.warning("cluster snapshot event dropped", exc_info=True)
 
 
-def assemble_session_dto(full: SessionRow, cfg: Settings) -> SessionDto:
+def assemble_session_dto(full: SessionRow) -> SessionDto:
     """Project a ``SessionRow`` into the HTTP ``SessionDto``.
 
     Every show turn is hydrated with a ``RecommendationDto`` built from the
-    turn's best cluster and the top-K non-excluded films; stop turns inherit
-    the most recent show turn's recommendation; ask turns carry no
-    recommendation. All movie-metadata fetches are batched into a single DB
-    call.
+    turn's best cluster and all non-excluded films sorted by descending score;
+    stop turns inherit the most recent show turn's recommendation; ask turns
+    carry no recommendation. All movie-metadata fetches are batched into a
+    single DB call.
 
     Args:
         full: Full internal session snapshot from ``api_retrieval.get_session_full``.
-        cfg:  Active settings (used for ``cfg.session.recommendation_top_k``).
 
     Returns:
         A ``SessionDto`` ready to serialize to the HTTP client.
@@ -252,7 +247,7 @@ def assemble_session_dto(full: SessionRow, cfg: Settings) -> SessionDto:
                     [a for a in best.assignments if not a.excluded],
                     key=lambda a: a.score,
                     reverse=True,
-                )[: cfg.session.recommendation_top_k]
+                )
             ]
             show_turn_info[t.id] = (best, top_ids)
 

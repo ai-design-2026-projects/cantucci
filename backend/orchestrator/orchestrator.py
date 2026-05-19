@@ -177,4 +177,4 @@ class Orchestrator:
             full_session = api_retrieval.get_session_full(session_id)
         except ValueError as exc:
             raise SessionNotFound(session_id) from exc
-        return presentation.assemble_session_dto(full_session, get_settings())
+        return presentation.assemble_session_dto(full_session)

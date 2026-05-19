@@ -1,4 +1,5 @@
 import { TooltipProvider, Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
+import { motion } from "framer-motion";
 import { useUiStore } from "@/store/uiStore";
 import { ConfidenceBar } from "@/components/ConfidenceBar";
 import { buildPosterUrl, clusterColor } from "@/features/clusters/utils/clusterFormatters";
@@ -51,6 +52,15 @@ export function ClusterCard({ cluster, isRefining }: ClusterCardProps) {
 
         <div className="mt-2">
           <ConfidenceBar score={cluster.confidence} label={`${cluster.name} confidence`} />
+          {!isRefining && (
+            <motion.div
+              className="mt-1 h-px rounded-full bg-border/60"
+              initial={{ opacity: 0, scaleX: 0 }}
+              animate={{ opacity: 1, scaleX: 1 }}
+              transition={{ duration: 0.5, ease: "easeOut" }}
+              style={{ originX: 0 }}
+            />
+          )}
         </div>
 
         {cluster.top_films.length > 0 && (

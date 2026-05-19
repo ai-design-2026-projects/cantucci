@@ -1,4 +1,4 @@
-import { get, post } from "@/clients/apiClient";
+import { del, get, post } from "@/clients/apiClient";
 import type { SessionDto } from "@/utils/types";
 
 /**
@@ -33,10 +33,10 @@ export async function fetchSession(sessionId: string): Promise<SessionDto> {
 /**
  * List all sessions owned by the authenticated user, newest first.
  *
- * @returns Array of SessionSummary objects ordered by updated_at DESC.
+ * @returns Array of SessionDto objects ordered by updated_at DESC, with turns=[].
  */
-export function listSessions(): Promise<SessionSummary[]> {
-  return get<SessionSummary[]>("/sessions/list");
+export function listSessions(): Promise<SessionDto[]> {
+  return get<SessionDto[]>("/sessions/list");
 }
 
 /**
