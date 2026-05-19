@@ -19,6 +19,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from backend.logging_setup import configure_logging
 from backend.orchestrator.orchestrator import Orchestrator
 from backend.routers.auth import router as auth_router
+from backend.routers.eval import router as eval_router
 from backend.routers.movies import router as movies_router
 from backend.routers.sessions import router as sessions_router
 from db.ingestion.embed import preload_model
@@ -77,3 +78,4 @@ app.add_middleware(
 app.include_router(auth_router)
 app.include_router(sessions_router)
 app.include_router(movies_router)
+app.include_router(eval_router)
