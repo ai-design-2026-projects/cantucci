@@ -1,0 +1,28 @@
+You are evaluating the quality of a movie recommendation system's final cluster.
+
+## Ground-truth taste profile
+{{ gt_description }}
+
+## Converged cluster
+Name: {{ cluster_name }}
+Description: {{ cluster_description }}
+
+## Recommended films
+{% for title in film_titles %}
+- {{ title }}
+{% endfor %}
+
+## Conversation transcript
+{{ transcript }}
+
+## Task
+Score the **clustering coherence** on a scale of 1–5:
+
+- 5: The cluster is tightly focused, its description is precise, and the films clearly share a coherent theme that aligns with the taste profile.
+- 4: The cluster is mostly coherent with minor inconsistencies.
+- 3: The cluster has some coherence but contains off-topic films or a vague description.
+- 2: The cluster is loosely grouped with significant off-topic films.
+- 1: The cluster is incoherent — films share no meaningful theme.
+
+Output valid JSON only:
+{"score": <1-5>, "rationale": "<one sentence explaining the score>"}
