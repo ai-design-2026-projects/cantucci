@@ -11,6 +11,7 @@ An AI system that clusters a movie catalogue by *conversing* with a human oracle
 
 - [`backend/README.md`](backend/README.md) — FastAPI service, endpoints, env vars, logging helper.
 - [`db/README.md`](db/README.md) — Postgres migrations and catalogue ingestion.
+- [`eval/README.md`](eval/README.md) — Offline evaluation harness: Oracle user-simulator, judge, runner.
 - [`frontend/README.md`](frontend/README.md) — React + Vite UI.
 
 ---
@@ -72,6 +73,7 @@ CONFIG_PATH=configs/test.yaml pytest tests/
 backend/    FastAPI service, agents, LLM harness, DB access layer
 configs/    YAML experimental-condition configs (model, clustering, …)
 db/         Migrations + catalogue ingestion pipeline
+eval/       Offline evaluation harness — Oracle simulator, judge, runner
 frontend/   React + Vite UI
 notebooks/  Colab GPU embedding notebook
 tests/      Smoke tests (real Postgres via testcontainers; dry_run LLM via fixtures)

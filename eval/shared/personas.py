@@ -1,4 +1,5 @@
-"""Persona-profile spec loader.
+"""
+Persona-profile spec loader.
 
 A persona profile is a humanoid behavioral overlay applied on top of any
 ground truth.  It controls communication style and conversational dials
