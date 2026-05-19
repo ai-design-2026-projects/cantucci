@@ -16,18 +16,34 @@ from backend.routers.dtos import TurnDto
 
 class ProgressStep(str, Enum):
     """
-    The wave-level checkpoints a streaming client may observe.
-    * ``UNDERSTAND`` — Wave 1, parallel: state + profile + refine (if
-                       applicable). Retrieval runs serially after state check
-                       on fresh turns.
-    * ``CHOOSE``     — Wave 2, serial: decision (now generates the
-      clarifying question itself; ambiguity merged in per PR #61).
-    * ``FINALIZE``   — Reply rendering and final persistence.
-    * ``WRAP_UP``    — Early-exit paths (hard limit, natural end, drift,
-      empty retrieval) that skip the rest of the pipeline.
+    Pipeline checkpoints a streaming client may observe, from coarse wave-level
+    to fine sub-step. Coarse values (UNDERSTAND, CHOOSE, FINALIZE, WRAP_UP) are
+    kept for back-compat; fine-grained values are emitted in addition so clients
+    can display a more specific status label.
+
+    Wave-level:
+    * ``UNDERSTAND`` — Wave 1: parallel state gate + profile + retrieval +
+                       clustering. Sub-steps RETRIEVING and CLUSTERING fire
+                       within this wave.
+    * ``CHOOSE``     — Wave 2: decision agent selects ask or show. Sub-steps
+                       DECIDING and COMPOSING fire within this wave.
+    * ``FINALIZE``   — Reply persistence and profile update.
+    * ``WRAP_UP``    — Early-exit paths (hard limit, natural end, drift, empty
+                       retrieval) that bypass the main pipeline.
+
+    Fine-grained sub-steps (fired in addition to the wave event):
+    * ``RETRIEVING`` — Vector search running inside UNDERSTAND.
+    * ``CLUSTERING`` — Cluster refinement running inside UNDERSTAND, after
+                       retrieval results are ready.
+    * ``DECIDING``   — Decision agent running inside CHOOSE.
+    * ``COMPOSING``  — Reply text being built inside CHOOSE.
     """
     UNDERSTAND = "understand"
+    RETRIEVING = "retrieving"
+    CLUSTERING = "clustering"
     CHOOSE = "choose"
+    DECIDING = "deciding"
+    COMPOSING = "composing"
     FINALIZE = "finalize"
     WRAP_UP = "wrap_up"
 
@@ -77,14 +93,15 @@ class ClusterSnapshotPayload(BaseModel):
         description: Short theme description or None.
         level:       1 = coarse, 2 = fine.
         confidence:  Mean soft-assignment score over non-excluded films in [0, 1].
-        top_films:   All non-excluded films sorted by descending soft score.
+        films:       All assigned films: non-excluded first (score desc), then
+                     excluded. Matches the ordering used in ClusterDto.top_titles.
     """
     id: str
     name: str
     description: str | None
     level: int
     confidence: float
-    top_films: list[ClusterFilmStub]
+    films: list[ClusterFilmStub]
 
 
 class ClusterSnapshotEvent(BaseModel):

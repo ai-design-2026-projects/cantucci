@@ -2,9 +2,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useAuthStore } from "@/store/authStore";
 import { useUiStore } from "@/store/uiStore";
-import { useSessionStore } from "@/store/sessionStore";
 import { ClusterSnapshotSheet } from "@/features/clusters/ClusterSnapshotSheet";
-import { formatOracleType, formatTurnLabel } from "./utils/sessionFormatters";
+import { formatTurnLabel } from "./utils/sessionFormatters";
 import { cn } from "@/lib/utils";
 
 const SIDEBAR_WIDTH = 260;
@@ -41,7 +40,6 @@ export function SessionHeader({
   isTerminal,
   onRestart,
 }: SessionHeaderProps) {
-  const { oracleType } = useSessionStore();
   const { status } = useAuthStore();
   const { sidebarOpen } = useUiStore();
 
@@ -63,7 +61,6 @@ export function SessionHeader({
             {formatTurnLabel(turnCount)} / {maxTurns}
           </Badge>
         )}
-        <Badge variant="secondary">{formatOracleType(oracleType)}</Badge>
       </div>
 
       <div className="ml-auto flex items-center gap-2">

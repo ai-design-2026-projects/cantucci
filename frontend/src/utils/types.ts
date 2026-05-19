@@ -38,7 +38,7 @@ export interface ClusterSnapshotPayload {
   description: string | null;
   level: number;
   confidence: number;
-  top_films: ClusterFilmStub[];
+  films: ClusterFilmStub[];
 }
 
 export interface RecommendationPayload {

@@ -40,7 +40,7 @@ export function ClusterSnapshotSheet() {
       </Button>
 
       <Sheet open={open} onOpenChange={setOpen}>
-        <SheetContent side="right" className="w-full sm:max-w-md flex flex-col p-0">
+        <SheetContent side="right" className="w-full sm:max-w-xl flex flex-col p-0">
           <SheetHeader className="px-5 pt-5 pb-3 border-b border-border">
             <SheetTitle>Clusters</SheetTitle>
             <SheetDescription>
@@ -66,6 +66,7 @@ export function ClusterSnapshotSheet() {
                       animate={{ opacity: 1, y: 0 }}
                       exit={{ opacity: 0, y: -8 }}
                       transition={{ duration: 0.25 }}
+                      className="min-w-0"
                     >
                       <ClusterCard cluster={cluster} isRefining={isRefining} />
                     </motion.div>

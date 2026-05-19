@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { SessionPage } from "@/features/session/SessionPage";
+import { EmptySessionsScreen } from "@/features/session/EmptySessionsScreen";
 import { useSessionHandler } from "@/features/session/hooks/useSessionHandler";
 import { listSessions } from "@/features/session/services/sessionService";
 import { useSessionStore } from "@/store/sessionStore";
@@ -11,17 +12,18 @@ import { Loader2 } from "lucide-react";
 /**
  * Application root (index route at /).
  *
- * Two code paths:
+ * Three code paths:
  * - Anonymous: auto-creates a single ephemeral session and renders it inline.
- * - Authenticated: waits for the session list to load, then navigates to the
- *   most recent session (or creates a new one if the list is empty).
+ * - Authenticated, has sessions: navigates to the most recent session.
+ * - Authenticated, no sessions: renders ``EmptySessionsScreen`` so the user
+ *   consciously starts their first chat.
  *
- * @returns The bootstrapped session page, a redirect, or a centered spinner.
+ * @returns The bootstrapped session page, a redirect, the empty state, or a spinner.
  */
 export function App() {
   const { sessionId } = useSessionStore();
   const { status } = useAuthStore();
-  const { initSession, createAndNavigate, isCreating } = useSessionHandler();
+  const { initSession, isCreating } = useSessionHandler();
   const navigate = useNavigate();
 
   const bootstrapDone = status === "authenticated" || status === "anonymous";
@@ -44,15 +46,13 @@ export function App() {
 
     if (sessions && sessions.length > 0) {
       navigate(`/sessions/${sessions[0].session_id}`, { replace: true });
-    } else if (!isCreating) {
-      createAndNavigate();
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bootstrapDone, status, listLoading, sessions]);
 
   const isWaiting =
     !bootstrapDone ||
-    (status === "authenticated" && (listLoading || isCreating)) ||
+    (status === "authenticated" && listLoading) ||
     (status === "anonymous" && (isCreating || !sessionId));
 
   if (isWaiting) {
@@ -61,6 +61,10 @@ export function App() {
         <Loader2 className="h-10 w-10 animate-spin text-muted-foreground" />
       </div>
     );
+  }
+
+  if (status === "authenticated" && sessions && sessions.length === 0) {
+    return <EmptySessionsScreen />;
   }
 
   if (status === "authenticated") {

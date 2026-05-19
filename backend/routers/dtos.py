@@ -173,7 +173,7 @@ class ClusterDto(BaseModel):
         level:             1 = coarse, 2 = fine.
         parent_cluster_id: UUID of the parent coarse cluster, or None.
         soft_scores:       Per-movie soft assignment scores.
-        top_titles:        Movie ids sorted by descending score (top ~5).
+        top_titles:        All assigned film ids: non-excluded first (score desc), then excluded.
     """
 
     id: UUID

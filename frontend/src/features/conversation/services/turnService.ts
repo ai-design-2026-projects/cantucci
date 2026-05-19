@@ -8,7 +8,11 @@ import type { ClusterSnapshotPayload, TurnDto } from "@/utils/types";
  */
 export type ProgressStep =
   | "understand"
+  | "retrieving"
+  | "clustering"
   | "choose"
+  | "deciding"
+  | "composing"
   | "finalize"
   | "wrap_up";
 

@@ -37,7 +37,7 @@ export function ConfidenceBar({ score, label }: ConfidenceBarProps) {
   return (
     <div className="flex items-center gap-2">
       <div
-        className="relative h-2 flex-1 overflow-hidden rounded-full bg-muted"
+        className="relative h-2 w-72 shrink-0 rounded-full bg-muted"
         role="progressbar"
         aria-valuenow={pct}
         aria-valuemin={0}
