@@ -401,4 +401,11 @@ def ingest(df: pd.DataFrame, embeddings: np.ndarray) -> None:
             _upsert_movie_countries(cur, df)
         # conn.__exit__ commits on success, rolls back on exception
 
+    # The ivfflat index is created during migration on an empty table, so its
+    # centroids are degenerate until rebuilt over the actual data. REINDEX must
+    # run outside the ingest transaction and with autocommit because it takes an
+    # exclusive lock that conflicts with an open transaction on the same table.
+    with psycopg.connect(url, autocommit=True) as conn:
+        conn.execute("REINDEX TABLE movies")
+
     log.info("ingest complete", extra={"movies": len(df)})
