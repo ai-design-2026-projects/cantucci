@@ -39,6 +39,18 @@ npm run test
 npm run build
 ```
 
+### Running via Docker
+
+The published frontend image is nginx serving the pre-built Vite bundle. It proxies `/sessions`, `/movies`, and `/auth` to a `backend` host on port 8000, so it is designed to run alongside the backend container (e.g. via `docker compose`).
+
+```bash
+# Intended usage — the backend service must be reachable as hostname "backend"
+docker compose up -d   # from the repo root
+# UI at http://localhost
+```
+
+The nginx proxy configuration is in `frontend/nginx.conf`. SPA routes (e.g. `/session/123`) fall back to `index.html` automatically.
+
 ---
 
 ## Repository Structure
