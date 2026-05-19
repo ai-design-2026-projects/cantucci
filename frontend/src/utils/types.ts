@@ -70,16 +70,10 @@ export interface SessionDto {
   max_turns: number;
   created_at: string;
   updated_at: string;
-  turns: TurnDto[];
-}
-
-export interface SessionSummary {
-  session_id: string;
-  status: SessionStatus;
-  created_at: string;
-  updated_at: string;
   turn_count: number;
   first_user_message: string | null;
+  cluster_snapshot: ClusterDto[];
+  turns: TurnDto[];
 }
 
 export interface SoftScore {

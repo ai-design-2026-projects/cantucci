@@ -111,3 +111,25 @@ The HF dataset repo is organised into two directories:
 | `embeddings/eval_holdout_YYYYMMDD.parquet`    | Stage-2 disjoint slice for system evaluation (never written to the DB) |
 
 Re-running ingestion is safe — all inserts are idempotent (upsert).
+
+---
+
+## Creating users
+
+A small helper script provisions a user row in the database. Roles must
+already exist in the `roles` table (seeded by migration `006`).
+
+Usage example (creates an admin):
+
+```bash
+# ensure `DATABASE_URL` points at your Postgres instance
+export DATABASE_URL=postgresql://cinepal:cinepal@localhost:4321/cinepal
+
+python -m db.create_user \
+  --email admin@example.com \
+  --password s3cr3t \
+  --role admin
+```
+
+The script validates the email/password and prints the new user id on
+success. See `db/create_user.py` for more details.

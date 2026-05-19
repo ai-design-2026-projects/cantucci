@@ -17,6 +17,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from uuid import UUID
 
+import backend.api.movies as api_movies
 import backend.api.retrieval as api_retrieval
 import backend.api.runs as api_runs
 import backend.api.sessions as api_sessions
@@ -25,7 +26,7 @@ from backend.exceptions import SessionNotFound
 from backend.orchestrator.utils import presentation
 from backend.orchestrator.turn.progress import NullProgressCallback, ProgressCallback
 from backend.orchestrator.turn import TurnRunner
-from backend.routers.dtos import SessionDto, TurnDto
+from backend.routers.dtos import MovieDto, SessionDto, TurnDto
 from backend.settings import get_config_hash, get_config_snapshot, get_settings
 
 log = logging.getLogger(__name__)
@@ -36,8 +37,8 @@ class Orchestrator:
     sessions; per-turn state lives in a fresh ``TurnRunner`` per call.
     """
 
-    def create_session(self, user_id: UUID | None = None) -> SessionState:
-        """Create a run + session row and return the initial SessionState.
+    def create_session(self, user_id: UUID | None = None) -> SessionDto:
+        """Create a run + session row and return the initial SessionDto.
 
         Loads the default config for model, seed, and session parameters.
 
@@ -119,6 +120,50 @@ class Orchestrator:
         )
         return await runner.run()
 
+    def list_sessions(self, user_id: UUID) -> list[SessionDto]:
+        """Return all sessions owned by user_id, newest first.
+
+        Args:
+            user_id: UUID of the authenticated user.
+
+        Returns:
+            List of ``SessionDto`` with ``turns=[]``, ordered by updated_at DESC.
+        """
+        rows = api_sessions.list_sessions_by_user(user_id)
+        return [presentation.row_to_session_dto(r) for r in rows]
+
+    def delete_session(self, session_id: UUID, user_id: UUID) -> bool:
+        """Delete a session if it exists and is owned by user_id.
+
+        Args:
+            session_id: UUID of the session to delete.
+            user_id:    UUID of the requesting user.
+
+        Returns:
+            True if deleted, False if not found or not owned by user_id.
+        """
+        deleted = api_sessions.delete_session(session_id, user_id)
+        if deleted:
+            log.info(
+                "session deleted",
+                extra={"session_id": str(session_id), "user_id": str(user_id)},
+            )
+        return deleted
+
+    def get_movie(self, movie_id: int) -> MovieDto | None:
+        """Return a single movie by TMDB id, or None if not in the catalogue.
+
+        Args:
+            movie_id: TMDB integer id.
+
+        Returns:
+            A ``MovieDto`` or ``None`` when the id is unknown.
+        """
+        rows = api_movies.fetch_movies_dto([movie_id])
+        if not rows:
+            return None
+        return MovieDto(**rows[0])
+
     def get_session(self, session_id: UUID) -> SessionDto:
         """Return full session state including all turns from the DB.
         Args:
@@ -132,4 +177,4 @@ class Orchestrator:
             full_session = api_retrieval.get_session_full(session_id)
         except ValueError as exc:
             raise SessionNotFound(session_id) from exc
-        return presentation.assemble_session_dto(full_session, get_settings())
+        return presentation.assemble_session_dto(full_session)

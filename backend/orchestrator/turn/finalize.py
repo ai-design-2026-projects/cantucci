@@ -169,7 +169,6 @@ async def _build_show(
     )
     reply = presentation.render_recommendation(
         best_cluster=best_cluster,
-        top_k=ctx.cfg.session.recommendation_top_k,
     )
     rendered_titles = [
         a.title
@@ -177,7 +176,7 @@ async def _build_show(
             [a for a in best_cluster.assignments if not a.excluded],
             key=lambda a: a.score,
             reverse=True,
-        )[: ctx.cfg.session.recommendation_top_k]
+        )
         if a.title
     ]
     new_profile.seen_films = list(
@@ -186,7 +185,6 @@ async def _build_show(
     recommendation = await asyncio.to_thread(
         presentation.build_recommendation,
         best_cluster,
-        ctx.cfg.session.recommendation_top_k,
     )
     return reply, StepType.show, recommendation
 

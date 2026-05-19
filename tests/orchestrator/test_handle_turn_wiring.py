@@ -12,6 +12,7 @@ no Docker. Tests verify:
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -57,7 +58,8 @@ def _cluster(name: str = "Drama", n_assignments: int = 3) -> ClusterRow:
 
 
 def _turn(step_type: str = "ask", assistant_message: str = "What genre?", clusters=None) -> MagicMock:
-    t = MagicMock(spec=TurnRow)
+    t = MagicMock()
+    t.id = uuid.uuid4()
     t.step_type = step_type
     t.assistant_message = assistant_message
     t.user_message = "hi"
@@ -165,7 +167,7 @@ class _Patches:
             return_value=self._full,
         )
         self.get_settings = _patch(
-            "backend.orchestrator.turn_runner.get_settings",
+            "backend.orchestrator.turn.context.get_settings",
             return_value=self._cfg,
         )
         self.get_config_hash = _patch(
@@ -173,7 +175,7 @@ class _Patches:
             return_value="deadbeef",
         )
         self.conv_check = _patch(
-            "backend.state.state_agent.check",
+            "backend.state.state_agent.check_session_state",
             return_value=self._conv,
         )
         mock_rr = MagicMock(spec=RetrievalResult)
@@ -275,7 +277,7 @@ class TestScenarioAFreshClustering:
         full = _full(turns=[])
         with _Patches(full=full) as p:
             orch = Orchestrator()
-            orch.handle_turn(full.session_id, "I want something contemplative")
+            asyncio.run(orch.run_turn(full.session_id, "I want something contemplative"))
         assert p.cluster_soft.called
         assert not p.cluster_refine.called
 
@@ -283,13 +285,13 @@ class TestScenarioAFreshClustering:
         full = _full(turns=[_turn("show", "Here is a pick")])
         with _Patches(full=full) as p:
             orch = Orchestrator()
-            orch.handle_turn(full.session_id, "more like that")
+            asyncio.run(orch.run_turn(full.session_id, "more like that"))
         call_kwargs = p.cluster_describe.call_args.kwargs
         assert "user_query" in call_kwargs
 
 
 class TestScenarioBRefinementAfterAsk:
-    """When prior turn is an ask with clusters, Scenario B is used."""
+    """When the prior turn already carried clusters, Scenario B is used."""
 
     def test_cluster_called_with_prior_clusters(self) -> None:
         prior_clusters = [_cluster("Drama")]
@@ -297,7 +299,7 @@ class TestScenarioBRefinementAfterAsk:
         full = _full(turns=[prior])
         with _Patches(full=full) as p:
             orch = Orchestrator()
-            orch.handle_turn(full.session_id, "Drama please")
+            asyncio.run(orch.run_turn(full.session_id, "Drama please"))
         assert p.cluster_refine.called
         call_kwargs = p.cluster_refine.call_args.kwargs
         assert call_kwargs.get("prior_clusters") is not None
@@ -308,18 +310,20 @@ class TestScenarioBRefinementAfterAsk:
         full = _full(turns=[prior])
         with _Patches(full=full) as p:
             orch = Orchestrator()
-            orch.handle_turn(full.session_id, "Action")
+            asyncio.run(orch.run_turn(full.session_id, "Action"))
         call_kwargs = p.cluster_refine.call_args.kwargs
-        assert call_kwargs.get("asked_question") == "What do you feel like?"
+        assert call_kwargs.get("system_message") == "What do you feel like?"
 
-    def test_scenario_a_when_prior_turn_is_show(self) -> None:
+    def test_scenario_b_when_prior_turn_is_show(self) -> None:
         prior = _turn("show", "Here are some dramas", clusters=[_cluster()])
         full = _full(turns=[prior])
         with _Patches(full=full) as p:
             orch = Orchestrator()
-            orch.handle_turn(full.session_id, "something different")
-        assert not p.cluster_refine.called
-        assert p.cluster_soft.called
+            asyncio.run(orch.run_turn(full.session_id, "something different"))
+        assert p.cluster_refine.called
+        call_kwargs = p.cluster_refine.call_args.kwargs
+        assert call_kwargs.get("prior_clusters") is not None
+        assert len(call_kwargs["prior_clusters"]) == 1
 
 
 class TestProfileAgentFlow:
@@ -329,7 +333,7 @@ class TestProfileAgentFlow:
         full = _full(turns=[])
         with _Patches(full=full) as p:
             orch = Orchestrator()
-            orch.handle_turn(full.session_id, "fun movie tonight")
+            asyncio.run(orch.run_turn(full.session_id, "fun movie tonight"))
         assert p.profile_extract.called
 
     def test_profile_result_persisted(self) -> None:
@@ -337,7 +341,7 @@ class TestProfileAgentFlow:
         full = _full(turns=[])
         with _Patches(full=full, profile=profile) as p:
             orch = Orchestrator()
-            orch.handle_turn(full.session_id, "fun movie tonight")
+            asyncio.run(orch.run_turn(full.session_id, "fun movie tonight"))
         p.update_profile.assert_called_once()
         call_args = p.update_profile.call_args
         persisted = call_args.args[1] if call_args.args else call_args.kwargs.get("preference_profile") or call_args.kwargs.get("profile_jsonb")
@@ -348,7 +352,7 @@ class TestProfileAgentFlow:
         full = _full(turns=[], preference_profile=prior)
         with _Patches(full=full) as p:
             orch = Orchestrator()
-            orch.handle_turn(full.session_id, "something calm")
+            asyncio.run(orch.run_turn(full.session_id, "something calm"))
         call_kwargs = p.profile_extract.call_args.kwargs
         assert call_kwargs["prior_profile"] == prior
 
@@ -356,7 +360,7 @@ class TestProfileAgentFlow:
         full = _full(turns=[], preference_profile=None)
         with _Patches(full=full) as p:
             orch = Orchestrator()
-            orch.handle_turn(full.session_id, "anything good tonight")
+            asyncio.run(orch.run_turn(full.session_id, "anything good tonight"))
         call_kwargs = p.profile_extract.call_args.kwargs
         assert call_kwargs["prior_profile"] is None
 
@@ -370,7 +374,7 @@ class TestRenderIsDeterministic:
         decision = _decision_recommend(cluster.id)
         with _Patches(full=full, clusters=[cluster], decision=decision) as p:
             orch = Orchestrator()
-            result = orch.handle_turn(full.session_id, "surprise me")
+            result = asyncio.run(orch.run_turn(full.session_id, "surprise me"))
         assert result.step_type == StepType.show
 
     def test_render_reply_contains_cluster_name(self) -> None:
@@ -379,7 +383,7 @@ class TestRenderIsDeterministic:
         decision = _decision_recommend(cluster.id)
         with _Patches(full=full, clusters=[cluster], decision=decision):
             orch = Orchestrator()
-            result = orch.handle_turn(full.session_id, "surprise me")
+            result = asyncio.run(orch.run_turn(full.session_id, "surprise me"))
         assert "Epic Adventures" in result.assistant_message
 
     def test_render_reply_contains_rationale(self) -> None:
@@ -388,7 +392,7 @@ class TestRenderIsDeterministic:
         decision = _decision_recommend(cluster.id)
         with _Patches(full=full, clusters=[cluster], decision=decision):
             orch = Orchestrator()
-            result = orch.handle_turn(full.session_id, "surprise me")
+            result = asyncio.run(orch.run_turn(full.session_id, "surprise me"))
         assert "Great dramas" in result.assistant_message
 
 
@@ -397,23 +401,18 @@ class TestStateShortCircuits:
 
     def test_terminate_returns_stop_step_type(self) -> None:
         full = _full(turns=[])
-        conv = StateDecision(
+        terminate = StateDecision(
             action=StateAction.terminate,
             reason="max_turns exceeded",
             reply="Session over.",
         )
-        with _Patches(full=full, conv_decision=conv) as p:
-            # Terminate path calls append_turn + mark_abandoned — mock those
-            mark_abandoned = patch(
-                "backend.api.sessions.mark_abandoned"
-            ).start()
-            try:
+        with _Patches(full=full) as p:
+            with patch("backend.state.state_agent.check_hard_limits", return_value=terminate), \
+                 patch("backend.api.sessions.mark_abandoned"), \
+                 patch("backend.api.sessions.append_turn"):
                 orch = Orchestrator()
-                result = orch.handle_turn(full.session_id, "hi")
-            finally:
-                mark_abandoned.stop()
+                result = asyncio.run(orch.run_turn(full.session_id, "hi"))
         assert result.step_type == StepType.stop
-        # Profile result must NOT be persisted on termination (speculative run is discarded)
         assert not p.update_profile.called
 
     def test_natural_end_does_not_persist_profile(self) -> None:
@@ -427,7 +426,7 @@ class TestStateShortCircuits:
             with patch("backend.api.sessions.mark_converged"), \
                  patch("backend.api.sessions.append_turn"):
                 orch = Orchestrator()
-                result = orch.handle_turn(full.session_id, "bye")
+                result = asyncio.run(orch.run_turn(full.session_id, "bye"))
         # Profile result must NOT be persisted on natural_end (speculative run is discarded)
         assert not p.update_profile.called
 
@@ -442,10 +441,10 @@ class TestStateShortCircuits:
             current_statement="horror please",
         )
         with _Patches(full=full, conv_decision=conv) as p:
-            with patch("backend.orchestrator.terminal_paths.emit_drift_clarification") as mock_emit:
+            with patch("backend.orchestrator.turn.terminal_paths.emit_drift_clarification") as mock_emit:
                 mock_emit.return_value = MagicMock(step_type=StepType.ask)
                 orch = Orchestrator()
-                orch.handle_turn(full.session_id, "horror please")
+                asyncio.run(orch.run_turn(full.session_id, "horror please"))
         # Cluster result must NOT be persisted on clarify_drift (speculative run is discarded)
         assert not p.snapshot_clusters.called
 
@@ -458,7 +457,7 @@ class TestDecisionAgentReceivesProfile:
         full = _full(turns=[], preference_profile=prior)
         with _Patches(full=full) as p:
             orch = Orchestrator()
-            orch.handle_turn(full.session_id, "drama")
+            asyncio.run(orch.run_turn(full.session_id, "drama"))
         call_kwargs = p.decision_decide.call_args.kwargs
         assert call_kwargs["preference_profile"] == prior
 
@@ -466,7 +465,7 @@ class TestDecisionAgentReceivesProfile:
         full = _full(turns=[], preference_profile=None)
         with _Patches(full=full) as p:
             orch = Orchestrator()
-            orch.handle_turn(full.session_id, "drama")
+            asyncio.run(orch.run_turn(full.session_id, "drama"))
         call_kwargs = p.decision_decide.call_args.kwargs
         assert call_kwargs["preference_profile"] is None
 
@@ -491,7 +490,7 @@ class TestProgressCallback:
         rec = _Recorder()
         with _Patches(full=full, clusters=[cluster], decision=decision):
             orch = Orchestrator()
-            orch.handle_turn(full.session_id, "surprise me", progress_cb=rec)
+            asyncio.run(orch.run_turn(full.session_id, "surprise me", progress_cb=rec))
         assert rec.events == [
             ("understand", "start"),
             ("understand", "end"),
@@ -506,7 +505,7 @@ class TestProgressCallback:
         rec = _Recorder()
         with _Patches(full=full):
             orch = Orchestrator()
-            orch.handle_turn(full.session_id, "tell me more", progress_cb=rec)
+            asyncio.run(orch.run_turn(full.session_id, "tell me more", progress_cb=rec))
         assert rec.events == [
             ("understand", "start"),
             ("understand", "end"),
@@ -517,21 +516,21 @@ class TestProgressCallback:
         ]
 
     def test_terminate_emits_wrap_up(self) -> None:
+        """Hard-limit terminate fires before tasks spawn, so only wrap_up events."""
         full = _full(turns=[])
-        conv = StateDecision(
+        terminate = StateDecision(
             action=StateAction.terminate,
             reason="max_turns exceeded",
             reply="Session over.",
         )
         rec = _Recorder()
-        with _Patches(full=full, conv_decision=conv):
-            with patch("backend.api.sessions.mark_abandoned"), \
+        with _Patches(full=full):
+            with patch("backend.state.state_agent.check_hard_limits", return_value=terminate), \
+                 patch("backend.api.sessions.mark_abandoned"), \
                  patch("backend.api.sessions.append_turn"):
                 orch = Orchestrator()
-                orch.handle_turn(full.session_id, "hi", progress_cb=rec)
+                asyncio.run(orch.run_turn(full.session_id, "hi", progress_cb=rec))
         assert rec.events == [
-            ("understand", "start"),
-            ("understand", "end"),
             ("wrap_up", "start"),
             ("wrap_up", "end"),
         ]
@@ -549,7 +548,7 @@ class TestProgressCallback:
                  patch("backend.api.sessions.append_turn"), \
                  patch("backend.api.sessions.write_feedback"):
                 orch = Orchestrator()
-                orch.handle_turn(full.session_id, "bye", progress_cb=rec)
+                asyncio.run(orch.run_turn(full.session_id, "bye", progress_cb=rec))
         assert rec.events == [
             ("understand", "start"),
             ("understand", "end"),
@@ -569,10 +568,10 @@ class TestProgressCallback:
         )
         rec = _Recorder()
         with _Patches(full=full, conv_decision=conv):
-            with patch("backend.orchestrator.terminal_paths.emit_drift_clarification") as mock_emit:
+            with patch("backend.orchestrator.turn.terminal_paths.emit_drift_clarification") as mock_emit:
                 mock_emit.return_value = MagicMock(step_type=StepType.ask)
                 orch = Orchestrator()
-                orch.handle_turn(full.session_id, "horror please", progress_cb=rec)
+                asyncio.run(orch.run_turn(full.session_id, "horror please", progress_cb=rec))
         assert rec.events == [
             ("understand", "start"),
             ("understand", "end"),
@@ -585,10 +584,10 @@ class TestProgressCallback:
         rec = _Recorder()
         with _Patches(full=full) as p:
             p.cluster_soft.return_value = None
-            with patch("backend.orchestrator.terminal_paths.emit_early_clarification") as mock_emit:
+            with patch("backend.orchestrator.turn.terminal_paths.emit_early_clarification") as mock_emit:
                 mock_emit.return_value = MagicMock(step_type=StepType.ask)
                 orch = Orchestrator()
-                orch.handle_turn(full.session_id, "thing", progress_cb=rec)
+                asyncio.run(orch.run_turn(full.session_id, "thing", progress_cb=rec))
         assert rec.events == [
             ("understand", "start"),
             ("understand", "end"),
@@ -607,7 +606,7 @@ class TestProgressCallback:
         decision = _decision_recommend(cluster.id)
         with _Patches(full=full, clusters=[cluster], decision=decision):
             orch = Orchestrator()
-            result = orch.handle_turn(full.session_id, "go", progress_cb=boom)
+            result = asyncio.run(orch.run_turn(full.session_id, "go", progress_cb=boom))
         assert result.step_type == StepType.show
 
 
@@ -629,7 +628,7 @@ class TestDriftConfirmAndDismiss:
         )
         with _Patches(full=full, conv_decision=conv) as p:
             orch = Orchestrator()
-            orch.handle_turn(full.session_id, "Yes I changed my mind")
+            asyncio.run(orch.run_turn(full.session_id, "Yes I changed my mind"))
         assert p.retrieval_retrieve_from_profile.called
 
     def test_drift_confirmed_uses_profile_summary_as_summary_arg(self) -> None:
@@ -646,7 +645,7 @@ class TestDriftConfirmAndDismiss:
         )
         with _Patches(full=full, conv_decision=conv, profile=profile) as p:
             orch = Orchestrator()
-            orch.handle_turn(full.session_id, "Yes I changed my mind")
+            asyncio.run(orch.run_turn(full.session_id, "Yes I changed my mind"))
         call_kwargs = p.retrieval_retrieve_from_profile.call_args.kwargs
         assert call_kwargs.get("summary") == "Enjoys slow drama"
 
@@ -660,7 +659,7 @@ class TestDriftConfirmAndDismiss:
         profile = UserProfile(constraints=[], preferences=[], attitudes=[], summary="")
         with _Patches(full=full, conv_decision=conv, profile=profile) as p:
             orch = Orchestrator()
-            orch.handle_turn(full.session_id, "Yes I changed my mind")
+            asyncio.run(orch.run_turn(full.session_id, "Yes I changed my mind"))
         call_kwargs = p.retrieval_retrieve_from_profile.call_args.kwargs
         assert call_kwargs.get("summary") == "Yes I changed my mind"
 
@@ -680,7 +679,7 @@ class TestDriftConfirmAndDismiss:
         )
         with _Patches(full=full, conv_decision=conv, profile=profile) as p:
             orch = Orchestrator()
-            orch.handle_turn(full.session_id, "Yes I changed my mind")
+            asyncio.run(orch.run_turn(full.session_id, "Yes I changed my mind"))
         call_kwargs = p.retrieval_retrieve_from_profile.call_args.kwargs
         assert "Film X" in call_kwargs.get("excluded_films", [])
         assert "Film Y" in call_kwargs.get("excluded_films", [])
@@ -693,7 +692,7 @@ class TestDriftConfirmAndDismiss:
         )
         with _Patches(full=full, conv_decision=conv) as p:
             orch = Orchestrator()
-            orch.handle_turn(full.session_id, "No I meant supernatural drama")
+            asyncio.run(orch.run_turn(full.session_id, "No I meant supernatural drama"))
         assert not p.retrieval_retrieve_from_profile.called
 
     def test_drift_dismissed_proceeds_to_decision_agent(self) -> None:
@@ -704,7 +703,7 @@ class TestDriftConfirmAndDismiss:
         )
         with _Patches(full=full, conv_decision=conv) as p:
             orch = Orchestrator()
-            orch.handle_turn(full.session_id, "No I meant supernatural drama")
+            asyncio.run(orch.run_turn(full.session_id, "No I meant supernatural drama"))
         assert p.decision_decide.called
 
     def test_drift_confirmed_proceeds_to_decision_agent(self) -> None:
@@ -715,7 +714,7 @@ class TestDriftConfirmAndDismiss:
         )
         with _Patches(full=full, conv_decision=conv) as p:
             orch = Orchestrator()
-            orch.handle_turn(full.session_id, "Yes I changed my mind")
+            asyncio.run(orch.run_turn(full.session_id, "Yes I changed my mind"))
         assert p.decision_decide.called
 
 
@@ -734,22 +733,23 @@ class TestTerminalStateTolerance:
             with patch("backend.api.sessions.mark_converged"), \
                  patch("backend.api.sessions.append_turn"):
                 orch = Orchestrator()
-                result = orch.handle_turn(full.session_id, "that's all, thanks")
+                result = asyncio.run(orch.run_turn(full.session_id, "that's all, thanks"))
         assert result.step_type == StepType.stop
 
-    def test_terminate_survives_cluster_crash(self) -> None:
+    def test_terminate_completes_without_prior_recommendation(self) -> None:
+        """Hard-limit terminate with no prior show turn still returns a stop turn."""
         full = _full(turns=[])
-        conv = StateDecision(
+        terminate = StateDecision(
             action=StateAction.terminate,
             reason="max turns",
             reply="Session over.",
         )
-        with _Patches(full=full, conv_decision=conv) as p:
-            p.cluster_soft.side_effect = RuntimeError("retrieval reformulation failed")
-            with patch("backend.api.sessions.mark_abandoned"), \
+        with _Patches(full=full):
+            with patch("backend.state.state_agent.check_hard_limits", return_value=terminate), \
+                 patch("backend.api.sessions.mark_abandoned"), \
                  patch("backend.api.sessions.append_turn"):
                 orch = Orchestrator()
-                result = orch.handle_turn(full.session_id, "done")
+                result = asyncio.run(orch.run_turn(full.session_id, "done"))
         assert result.step_type == StepType.stop
 
     def test_clarify_drift_survives_profile_crash(self) -> None:
@@ -764,10 +764,10 @@ class TestTerminalStateTolerance:
         )
         with _Patches(full=full, conv_decision=conv) as p:
             p.profile_extract.side_effect = RuntimeError("profile agent crashed")
-            with patch("backend.orchestrator.terminal_paths.emit_drift_clarification") as mock_emit:
+            with patch("backend.orchestrator.turn.terminal_paths.emit_drift_clarification") as mock_emit:
                 mock_emit.return_value = MagicMock(step_type=StepType.ask)
                 orch = Orchestrator()
-                result = orch.handle_turn(full.session_id, "horror please")
+                result = asyncio.run(orch.run_turn(full.session_id, "horror please"))
         assert result.step_type == StepType.ask
 
 
@@ -780,7 +780,7 @@ class TestReRetrieve:
         conv = StateDecision(action=StateAction.re_retrieve, reason="oracle already seen all films")
         with _Patches(full=full, conv_decision=conv) as p:
             orch = Orchestrator()
-            orch.handle_turn(full.session_id, "I've already seen all of those")
+            asyncio.run(orch.run_turn(full.session_id, "I've already seen all of those"))
         assert p.retrieval_retrieve_from_profile.called
 
     def test_re_retrieve_proceeds_to_decision_agent(self) -> None:
@@ -789,7 +789,7 @@ class TestReRetrieve:
         conv = StateDecision(action=StateAction.re_retrieve, reason="oracle already seen all films")
         with _Patches(full=full, conv_decision=conv) as p:
             orch = Orchestrator()
-            orch.handle_turn(full.session_id, "I've already seen all of those")
+            asyncio.run(orch.run_turn(full.session_id, "I've already seen all of those"))
         assert p.decision_decide.called
 
     def test_re_retrieve_passes_seen_films_as_excluded_films(self) -> None:
@@ -812,7 +812,7 @@ class TestReRetrieve:
         )
         with _Patches(full=full, conv_decision=conv, profile=profile) as p:
             orch = Orchestrator()
-            orch.handle_turn(full.session_id, "I've seen them all")
+            asyncio.run(orch.run_turn(full.session_id, "I've seen them all"))
         call_kwargs = p.retrieval_retrieve_from_profile.call_args.kwargs
         assert "Film A" in call_kwargs.get("excluded_films", [])
         assert "Film B" in call_kwargs.get("excluded_films", [])
@@ -827,7 +827,7 @@ class TestSeenFilmsAccumulation:
         decision = _decision_recommend(cluster.id)
         with _Patches(full=full, clusters=[cluster], decision=decision) as p:
             orch = Orchestrator()
-            orch.handle_turn(full.session_id, "surprise me")
+            asyncio.run(orch.run_turn(full.session_id, "surprise me"))
         p.update_profile.assert_called_once()
         call_args = p.update_profile.call_args
         persisted = call_args.args[1] if call_args.args else call_args.kwargs.get("preference_profile") or call_args.kwargs.get("profile_jsonb")
@@ -845,7 +845,7 @@ class TestSeenFilmsAccumulation:
         )
         with _Patches(full=full, profile=profile) as p:
             orch = Orchestrator()
-            orch.handle_turn(full.session_id, "something like Interstellar")
+            asyncio.run(orch.run_turn(full.session_id, "something like Interstellar"))
         p.update_profile.assert_called_once()
         call_args = p.update_profile.call_args
         persisted = call_args.args[1] if call_args.args else call_args.kwargs.get("preference_profile") or call_args.kwargs.get("profile_jsonb")

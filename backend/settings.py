@@ -102,14 +102,11 @@ class SessionConfig(BaseModel):
         max_recommendations:  Maximum number of show-type turns allowed before the
                               session is force-terminated. Checked by the hard-limit
                               gate before any LLM call.
-        recommendation_top_k: Number of top-scoring films to show in a deterministic
-                              recommendation render (default 5).
     """
     max_turns: int
     state_turns: int
     cost_limit_usd: float
     max_recommendations: int
-    recommendation_top_k: int = 5
 
 
 class RetrievalConfig(BaseModel):

@@ -8,5 +8,5 @@ import type { MovieDto } from "@/utils/types";
  * @returns MovieDto with all catalogue fields.
  */
 export function fetchMovie(movieId: number): Promise<MovieDto> {
-  return get<MovieDto>(`/movies/${movieId}`);
+  return get<MovieDto>(`/movies/get_movie/${movieId}`);
 }

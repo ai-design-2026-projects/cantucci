@@ -32,7 +32,7 @@ export function useSessionHandler() {
   });
 
   const { mutate: createAndNavigate, isPending: isCreatingNav } = useMutation<
-    SessionState,
+    SessionDto,
     Error
   >({
     mutationFn: createSession,

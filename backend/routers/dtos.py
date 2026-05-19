@@ -56,21 +56,33 @@ class TurnDto(BaseModel):
 
 
 class SessionDto(BaseModel):
-    """Full state of a session including its turn history.
+    """HTTP representation of a session, used by both the listing and detail endpoints.
+
+    Public fields (serialized to the frontend):
+        session_id, status, max_turns, created_at, updated_at,
+        turn_count, first_user_message, cluster_snapshot, turns.
+
     Attributes:
-        session_id:  UUID of the session.
-        status:      Current lifecycle state.
-        max_turns:   Maximum number of turns before forced termination.
-        created_at:  Server-set UTC timestamp of session creation.
-        updated_at:  Server-set UTC timestamp of the last state change.
-        turns:       Ordered list of all turns (ascending turn_number).
+        session_id:          UUID of the session.
+        status:              Current lifecycle state.
+        max_turns:           Maximum number of turns before forced termination.
+        created_at:          Server-set UTC timestamp of session creation.
+        updated_at:          Server-set UTC timestamp of the last state change.
+        turn_count:          Number of completed turns (populated on both endpoints).
+        first_user_message:  Text of the first oracle message, or None.
+        cluster_snapshot:    Current cluster state (latest clustered turn's clusters).
+        turns:               Ordered list of all turns; empty on the listing endpoint.
     """
+
     session_id: UUID
     status: SessionStatus
     max_turns: int
     created_at: datetime
     updated_at: datetime
-    turns: list[TurnDto]
+    turn_count: int = 0
+    first_user_message: str | None = None
+    cluster_snapshot: list["ClusterDto"] = []
+    turns: list[TurnDto] = []
 
 
 class TurnRequest(BaseModel):
@@ -99,7 +111,6 @@ class TurnRequest(BaseModel):
         if not v.strip():
             raise ValueError("user_message must not be empty or whitespace")
         return v
-
 
 
 class SoftScore(BaseModel):
@@ -202,3 +213,4 @@ class ConvergedClusterDto(BaseModel):
 
 
 TurnDto.model_rebuild()
+SessionDto.model_rebuild()

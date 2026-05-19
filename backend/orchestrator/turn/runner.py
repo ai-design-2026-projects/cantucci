@@ -109,7 +109,6 @@ class TurnRunner:
         last_show = await asyncio.to_thread(
             presentation.last_show_recommendation,
             ctx.full_session,
-            ctx.cfg.session.recommendation_top_k,
         )
         async with self._wrap_up():
             return await asyncio.to_thread(
@@ -131,7 +130,6 @@ class TurnRunner:
         last_show = await asyncio.to_thread(
             presentation.last_show_recommendation,
             ctx.full_session,
-            ctx.cfg.session.recommendation_top_k,
         )
         async with self._wrap_up():
             return await asyncio.to_thread(

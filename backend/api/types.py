@@ -191,7 +191,33 @@ class RunResults:
 
 @dataclass
 class SessionRow:
-    """Complete session state including all turns, feedback, and eval data."""
+    """Complete internal session state: turns, clusters, feedback, metrics.
+
+    This is the read-side type used by the orchestrator and all internal
+    agents. It is never serialised directly; the HTTP layer converts it to
+    ``SessionDto`` via ``presentation.assemble_session_dto``.
+
+    Attributes:
+        session_id:         Session UUID.
+        run_id:             UUID of the parent run.
+        seed:               Per-session RNG seed.
+        config_hash:        SHA-256 prefix of the YAML config snapshot.
+        model_version:      LLM model identifier used for this session.
+        status:             Lifecycle state (active | converged | abandoned).
+        preference_profile: Structured oracle preference from the last turn.
+        turns:              Ordered list of completed turns.
+        cluster_snapshot:   Clusters from the most recent clustered turn.
+                            Mirrors the ``clusters.session_id`` FK at the
+                            in-memory level so agents can read current state
+                            without walking all turns.
+        feedback:           All oracle feedback records for this session.
+        metrics:            Aggregate quality metrics, or None if unavailable.
+        judge_scores:       LLM-as-judge scores.
+        created_at:         UTC timestamp of session creation.
+        updated_at:         UTC timestamp of the last state change.
+        max_turns:          Hard turn budget for this session.
+    """
+
     session_id: uuid.UUID
     run_id: uuid.UUID
     seed: int
@@ -200,6 +226,7 @@ class SessionRow:
     status: str
     preference_profile: dict[str, Any] | None
     turns: list[TurnRow]
+    cluster_snapshot: list[ClusterRow]
     feedback: list[FeedbackRow]
     metrics: SessionMetricsRow | None
     judge_scores: list[JudgeScoreRow]

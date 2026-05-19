@@ -7,7 +7,10 @@ import { StopOverlay } from "./StopOverlay";
 import { useFetchSession } from "./hooks/useFetchSession";
 import { useSessionHandler } from "./hooks/useSessionHandler";
 import { useSessionStore } from "@/store/sessionStore";
+import { useClusterStore } from "@/store/clusterStore";
+import { useClusterSnapshotStore } from "@/store/clusterSnapshotStore";
 import { useUiStore } from "@/store/uiStore";
+import { hydrateClusterSnapshot } from "@/features/clusters/utils/hydrateSnapshot";
 
 /**
  * Root page for an active session.
@@ -23,6 +26,8 @@ export function SessionPage() {
   const { sessionId: storeSessionId, setSessionId } = useSessionStore();
   const { restartSession, createAndNavigate } = useSessionHandler();
   const { stopOverlayDismissed, reopenStopOverlay } = useUiStore();
+  const { reset: resetCluster } = useClusterStore();
+  const { reset: resetClusterSnapshot, setSnapshot, setRefining, setOpen: setSheetOpen } = useClusterSnapshotStore();
 
   const sessionId = urlSessionId ?? storeSessionId;
 
@@ -33,6 +38,22 @@ export function SessionPage() {
   }, [urlSessionId, storeSessionId, setSessionId]);
 
   const { data: session } = useFetchSession(sessionId ?? null);
+
+  useEffect(() => {
+    if (!session) return;
+    let cancelled = false;
+    resetClusterSnapshot();
+    resetCluster();
+    setSheetOpen(false);
+    hydrateClusterSnapshot(session.cluster_snapshot).then((hydrated) => {
+      if (cancelled) return;
+      setSnapshot(hydrated);
+      setRefining(false);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [session?.session_id]);
 
   const turnCount = session?.turns.length ?? 0;
   const maxTurns = session?.max_turns ?? 20;
