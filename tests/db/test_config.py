@@ -40,6 +40,7 @@ from testcontainers.postgres import PostgresContainer
 from backend.api.db import close_pool
 from db.apply import apply
 from db.ingest import run_from_artifact
+from testcontainers.core.container import Reaper
 
 
 _PGVECTOR_IMAGE = "pgvector/pgvector:pg16"
@@ -55,6 +56,7 @@ def _postgres_container() -> PostgresContainer:
     finally:
         close_pool()
         container.stop()
+        Reaper.delete_instance()
 
 
 @pytest.fixture(scope="session")

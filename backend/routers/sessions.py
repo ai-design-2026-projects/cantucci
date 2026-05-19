@@ -16,11 +16,9 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
-import backend.api.sessions as api_sessions
 from backend.auth import User, get_current_user
 from backend.exceptions import SessionNotFound
 from backend.orchestrator.orchestrator import Orchestrator
-from backend.orchestrator.utils import presentation
 from backend.orchestrator.turn.progress import (
     ClusterSnapshotEvent,
     ErrorEvent,
@@ -54,11 +52,13 @@ def _orchestrator(request: Request) -> Orchestrator:
 @router.get("/list", response_model=list[SessionDto])
 def list_sessions(
     user: User | None = Depends(get_current_user),
+    orchestrator: Orchestrator = Depends(_orchestrator),
 ) -> list[SessionDto]:
     """List all sessions owned by the authenticated user, newest first.
 
     Args:
-        user: Resolved by ``get_current_user``; None for anonymous.
+        user:         Resolved by ``get_current_user``; None for anonymous.
+        orchestrator: Injected via ``_orchestrator`` dependency.
 
     Returns:
         List of ``SessionDto`` (turns=[]) ordered by updated_at DESC (HTTP 200).
@@ -68,8 +68,7 @@ def list_sessions(
     """
     if user is None:
         raise HTTPException(status_code=401, detail="Authentication required.")
-    rows = api_sessions.list_sessions_by_user(user.id)
-    return [presentation.row_to_session_dto(r) for r in rows]
+    return orchestrator.list_sessions(user.id)
 
 
 @router.post("", response_model=SessionDto, status_code=201)
@@ -288,6 +287,7 @@ def get_session(
 def delete_session(
     session_id: UUID,
     user: User | None = Depends(get_current_user),
+    orchestrator: Orchestrator = Depends(_orchestrator),
 ) -> None:
     """Delete a session and all its child data.
 
@@ -300,8 +300,9 @@ def delete_session(
     DB write, which surfaces as an ErrorEvent on its NDJSON stream.
 
     Args:
-        session_id: UUID of the session to delete (path parameter).
-        user:       Resolved by ``get_current_user``; None for anonymous callers.
+        session_id:   UUID of the session to delete (path parameter).
+        user:         Resolved by ``get_current_user``; None for anonymous callers.
+        orchestrator: Injected via ``_orchestrator`` dependency.
 
     Returns:
         HTTP 204 No Content on success.
@@ -312,7 +313,7 @@ def delete_session(
     """
     if user is None:
         raise HTTPException(status_code=401, detail="Authentication required.")
-    deleted = api_sessions.delete_session(session_id, user.id)
+    deleted = orchestrator.delete_session(session_id, user.id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Session not found.")
     log.debug("DELETE /sessions/{id} user=%s session=%s", user.id, session_id)
