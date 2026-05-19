@@ -1,7 +1,7 @@
 """Unit tests for the state hard-limit gate (check_hard_limits).
 
 These tests cover only the deterministic layer — no LLM, no DB, no Docker.
-SessionFull objects are built inline with the minimal fields needed.
+SessionRow objects are built inline with the minimal fields needed.
 """
 
 from __future__ import annotations
@@ -22,14 +22,14 @@ def _utcnow() -> datetime:
 
 
 def _turn(step_type: str | None = "show") -> MagicMock:
-    """Return a minimal TurnDetail-like object."""
+    """Return a minimal TurnRow-like object."""
     t = MagicMock()
     t.step_type = step_type
     return t
 
 
 def _full(turns: list, max_turns: int = 15) -> MagicMock:
-    """Return a minimal SessionFull-like object."""
+    """Return a minimal SessionRow-like object."""
     f = MagicMock()
     f.session_id = uuid.uuid4()
     f.turns = turns

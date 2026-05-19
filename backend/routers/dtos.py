@@ -1,9 +1,9 @@
 """
-HTTP-boundary DTOs for the frontend.
+HTTP-boundary DataTransferObjects for the frontend.
 
 Pydantic models used exclusively at the HTTP layer: request bodies, response
 payloads, and per-field metadata needed for frontend rendering.  All internal
-types (ClusterSnapshot, MovieMetadata, etc.) are separate — see backend/api/types.py.
+types (ClusterRow, MovieRow, etc.) are separate — see backend/api/types.py.
 """
 
 from datetime import datetime
@@ -13,7 +13,6 @@ from uuid import UUID
 from pydantic import BaseModel, field_validator
 
 from backend.api.types import SessionStatus, StepType
-
 
 
 class AmbiguityMeta(BaseModel):
@@ -29,28 +28,7 @@ class AmbiguityMeta(BaseModel):
     cluster_refs: list[UUID]
 
 
-class SessionSummary(BaseModel):
-    """Lightweight session descriptor for history listings.
-
-    Attributes:
-        session_id:          UUID of the session.
-        status:              Current lifecycle state.
-        created_at:          Server-set UTC timestamp of session creation.
-        updated_at:          Server-set UTC timestamp of the last state change.
-        turn_count:          Number of completed turns in this session.
-        first_user_message:  Text of the first oracle message, or None for
-                             sessions with no turns yet.
-    """
-
-    session_id: UUID
-    status: SessionStatus
-    created_at: datetime
-    updated_at: datetime
-    turn_count: int
-    first_user_message: str | None
-
-
-class TurnResult(BaseModel):
+class TurnDto(BaseModel):
     """Outcome of a single conversation turn, returned by the orchestrator.
 
     Attributes:
@@ -74,19 +52,26 @@ class TurnResult(BaseModel):
     converged: bool
     created_at: datetime
     ambiguity_meta: AmbiguityMeta | None = None
-    recommendation: "RecommendationPublic | None" = None
+    recommendation: "RecommendationDto | None" = None
 
 
-class SessionState(BaseModel):
-    """Full state of a session including its turn history.
+class SessionDto(BaseModel):
+    """HTTP representation of a session, used by both the listing and detail endpoints.
+
+    Public fields (serialized to the frontend):
+        session_id, status, max_turns, created_at, updated_at,
+        turn_count, first_user_message, cluster_snapshot, turns.
 
     Attributes:
-        session_id:  UUID of the session.
-        status:      Current lifecycle state.
-        max_turns:   Maximum number of turns before forced termination.
-        created_at:  Server-set UTC timestamp of session creation.
-        updated_at:  Server-set UTC timestamp of the last state change.
-        turns:       Ordered list of all turns (ascending turn_number).
+        session_id:          UUID of the session.
+        status:              Current lifecycle state.
+        max_turns:           Maximum number of turns before forced termination.
+        created_at:          Server-set UTC timestamp of session creation.
+        updated_at:          Server-set UTC timestamp of the last state change.
+        turn_count:          Number of completed turns (populated on both endpoints).
+        first_user_message:  Text of the first oracle message, or None.
+        cluster_snapshot:    Current cluster state (latest clustered turn's clusters).
+        turns:               Ordered list of all turns; empty on the listing endpoint.
     """
 
     session_id: UUID
@@ -94,7 +79,46 @@ class SessionState(BaseModel):
     max_turns: int
     created_at: datetime
     updated_at: datetime
-    turns: list[TurnResult]
+    turn_count: int = 0
+    first_user_message: str | None = None
+    cluster_snapshot: list["ClusterDto"] = []
+    turns: list[TurnDto] = []
+
+    def converged_turn(self) -> "TurnDto | None":
+        """Return the turn where convergence was declared, or None.
+
+        Returns:
+            The ``TurnDto`` with ``converged=True``, or ``None`` if none exist.
+        """
+        for turn in reversed(self.turns):
+            if turn.converged:
+                return turn
+        return None
+
+    def last_turn_with_recommendation(self) -> "TurnDto | None":
+        """Return the last turn carrying a non-None recommendation, or None.
+
+        Returns:
+            ``TurnDto`` with a recommendation, or ``None``.
+        """
+        for turn in reversed(self.turns):
+            if turn.recommendation is not None:
+                return turn
+        return None
+
+    def transcript(self) -> str:
+        """Build a plain-text turn-by-turn transcript.
+
+        Returns:
+            Multi-line string with alternating Oracle / CinePal lines.
+        """
+        lines: list[str] = []
+        for turn in self.turns:
+            lines.append(f"[Turn {turn.turn_number}]")
+            lines.append(f"Oracle: {turn.user_message}")
+            lines.append(f"CinePal: {turn.assistant_message}")
+            lines.append("")
+        return "\n".join(lines)
 
 
 class TurnRequest(BaseModel):
@@ -125,7 +149,6 @@ class TurnRequest(BaseModel):
         return v
 
 
-
 class SoftScore(BaseModel):
     """Soft assignment score for one movie in a cluster.
 
@@ -140,7 +163,7 @@ class SoftScore(BaseModel):
     excluded: bool
 
 
-class ClusterPublic(BaseModel):
+class ClusterDto(BaseModel):
     """A single cluster as exposed to the frontend.
 
     Attributes:
@@ -150,7 +173,7 @@ class ClusterPublic(BaseModel):
         level:             1 = coarse, 2 = fine.
         parent_cluster_id: UUID of the parent coarse cluster, or None.
         soft_scores:       Per-movie soft assignment scores.
-        top_titles:        Movie ids sorted by descending score (top ~5).
+        top_titles:        All assigned film ids: non-excluded first (score desc), then excluded.
     """
 
     id: UUID
@@ -162,7 +185,7 @@ class ClusterPublic(BaseModel):
     top_titles: list[int]
 
 
-class MoviePublic(BaseModel):
+class MovieDto(BaseModel):
     """Full movie metadata as exposed to the frontend.
 
     Attributes:
@@ -197,7 +220,7 @@ class MoviePublic(BaseModel):
     original_language: str | None
 
 
-class RecommendationPublic(BaseModel):
+class RecommendationDto(BaseModel):
     """Structured recommendation payload emitted on show and stop turns.
 
     Attributes:
@@ -205,11 +228,11 @@ class RecommendationPublic(BaseModel):
         films:   Top-K films in descending score order, fully enriched.
     """
 
-    cluster: ClusterPublic
-    films: list[MoviePublic]
+    cluster: ClusterDto
+    films: list[MovieDto]
 
 
-class ConvergedClusterPublic(BaseModel):
+class ConvergedClusterDto(BaseModel):
     """Payload returned by GET /sessions/{id}/converged-cluster.
 
     Attributes:
@@ -220,9 +243,138 @@ class ConvergedClusterPublic(BaseModel):
                             Orchestrator on convergence, or None.
     """
 
-    cluster: ClusterPublic
-    movies: list[MoviePublic]
+    cluster: ClusterDto
+    movies: list[MovieDto]
     preference_profile: dict[str, Any] | None
 
 
-TurnResult.model_rebuild()
+class MetricCIDto(BaseModel):
+    """Point estimate and 95% confidence interval for a single metric.
+
+    Attributes:
+        value: Point estimate (mean or proportion).
+        ci_lo: Lower CI bound.
+        ci_hi: Upper CI bound.
+        n:     Sample size.
+    """
+
+    value: float
+    ci_lo: float
+    ci_hi: float
+    n: int
+
+
+class MetricBundleDto(BaseModel):
+    """Full suite of per-metric CIs for a run cohort.
+
+    Continuous metrics use bootstrap CIs; binary proportions use Wilson score CIs.
+    """
+
+    precision_at_k: MetricCIDto
+    recall_at_k: MetricCIDto
+    ndcg_at_k: MetricCIDto
+    turns_to_convergence: MetricCIDto
+    avg_cognitive_load: MetricCIDto
+    total_cost_usd: MetricCIDto
+    drift_events: MetricCIDto
+    converged_rate: MetricCIDto
+    explicit_acceptance_rate: MetricCIDto
+    judge_clustering_coherence: MetricCIDto
+    judge_question_quality: MetricCIDto
+    judge_profile_fidelity: MetricCIDto
+
+
+class RunSummaryDto(BaseModel):
+    """Lightweight run summary for the run listing endpoint.
+
+    Attributes:
+        id:          Run UUID.
+        name:        Human-readable run label.
+        condition:   Experimental condition.
+        status:      Lifecycle status (running | completed | aborted).
+        started_at:  UTC timestamp of run creation.
+        ended_at:    UTC timestamp of finalization, or None if still running.
+        n_sessions:  Total number of sessions in this run.
+    """
+
+    id: UUID
+    name: str
+    condition: str
+    status: str
+    started_at: datetime | None
+    ended_at: datetime | None
+    n_sessions: int
+
+
+class RunDetailDto(BaseModel):
+    """Full run metadata with overall aggregate metrics.
+
+    Attributes:
+        id:            Run UUID.
+        name:          Human-readable run label.
+        condition:     Experimental condition.
+        config_hash:   SHA-256 prefix of the YAML config snapshot.
+        seed:          RNG seed shared across all sessions.
+        model_version: LLM model identifier.
+        status:        Lifecycle status.
+        notes:         Optional free-text annotation.
+        started_at:    UTC timestamp of run creation.
+        ended_at:      UTC timestamp of finalization, or None.
+        n_sessions:    Total number of sessions in this run.
+        aggregate:     Overall per-metric CIs across all sessions.
+    """
+
+    id: UUID
+    name: str
+    condition: str
+    config_hash: str
+    seed: int
+    model_version: str
+    status: str
+    notes: str | None
+    started_at: datetime | None
+    ended_at: datetime | None
+    n_sessions: int
+    aggregate: MetricBundleDto
+
+
+class EvalSessionRowDto(BaseModel):
+    """Per-session eval metrics for the drill-down table endpoint.
+
+    Attributes:
+        session_id:                  Session UUID.
+        persona_id:                  Eval persona slug, or None for live sessions.
+        ground_truth_id:             Ground-truth set slug, or None for live sessions.
+        converged:                   Whether the session reached convergence.
+        explicit_acceptance:         Whether convergence was triggered by explicit oracle signal.
+        turns_to_convergence:        Turn number when convergence was declared, or None.
+        avg_cognitive_load:          Mean cognitive load per turn, or None.
+        total_cost_usd:              Total API cost in USD.
+        drift_events:                Count of preference drift events.
+        precision_at_k:              Precision@K vs ground-truth, or None.
+        recall_at_k:                 Recall@K vs ground-truth, or None.
+        ndcg_at_k:                   NDCG@K vs ground-truth, or None.
+        judge_clustering_coherence:  Judge score 1–5, or None.
+        judge_question_quality:      Judge score 1–5, or None.
+        judge_profile_fidelity:      Judge score 1–5, or None.
+    """
+
+    session_id: UUID
+    persona_id: str | None
+    ground_truth_id: str | None
+    converged: bool
+    explicit_acceptance: bool
+    turns_to_convergence: int | None
+    avg_cognitive_load: float | None
+    total_cost_usd: float
+    drift_events: int
+    precision_at_k: float | None
+    recall_at_k: float | None
+    ndcg_at_k: float | None
+    judge_clustering_coherence: int | None
+    judge_question_quality: int | None
+    judge_profile_fidelity: int | None
+
+
+TurnDto.model_rebuild()
+SessionDto.model_rebuild()

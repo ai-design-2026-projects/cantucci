@@ -2,6 +2,7 @@
 pythonpath = ["."]
 filterwarnings = ["error"]
 addopts = "-p tests.db.test_config"
+asyncio_mode = "auto"
 
 [tool.coverage.run]
 branch = true

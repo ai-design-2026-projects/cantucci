@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { LayoutGrid } from "lucide-react";
 import { motion, LayoutGroup } from "framer-motion";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
@@ -19,8 +18,7 @@ import { useClusterSnapshotStore } from "@/store/clusterSnapshotStore";
  * backend emits a new snapshot mid-turn.
  */
 export function ClusterSnapshotSheet() {
-  const [open, setOpen] = useState(false);
-  const { clusters, isRefining } = useClusterSnapshotStore();
+  const { clusters, isRefining, open, setOpen } = useClusterSnapshotStore();
   const count = clusters.length;
 
   return (
@@ -42,7 +40,7 @@ export function ClusterSnapshotSheet() {
       </Button>
 
       <Sheet open={open} onOpenChange={setOpen}>
-        <SheetContent side="right" className="w-full sm:max-w-md flex flex-col p-0">
+        <SheetContent side="right" className="w-full sm:max-w-xl flex flex-col p-0">
           <SheetHeader className="px-5 pt-5 pb-3 border-b border-border">
             <SheetTitle>Clusters</SheetTitle>
             <SheetDescription>
@@ -68,6 +66,7 @@ export function ClusterSnapshotSheet() {
                       animate={{ opacity: 1, y: 0 }}
                       exit={{ opacity: 0, y: -8 }}
                       transition={{ duration: 0.25 }}
+                      className="min-w-0"
                     >
                       <ClusterCard cluster={cluster} isRefining={isRefining} />
                     </motion.div>

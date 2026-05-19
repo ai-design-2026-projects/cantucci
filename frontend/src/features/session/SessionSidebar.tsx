@@ -22,10 +22,10 @@ import { useClusterStore } from "@/store/clusterStore";
 import { useUiStore } from "@/store/uiStore";
 import { useClusterSnapshotStore } from "@/store/clusterSnapshotStore";
 import { cn } from "@/lib/utils";
-import type { SessionSummary } from "@/utils/types";
+import type { SessionDto } from "@/utils/types";
 
 interface SessionListItemProps {
-  summary: SessionSummary;
+  summary: SessionDto;
   isActive: boolean;
   onDeleteConfirmed: (id: string) => void;
 }

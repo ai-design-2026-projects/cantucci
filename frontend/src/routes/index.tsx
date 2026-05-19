@@ -4,7 +4,7 @@ import { App } from "@/App";
 import { SessionPage } from "@/features/session/SessionPage";
 import { LoginPage } from "@/features/auth/pages/LoginPage";
 import { RegisterPage } from "@/features/auth/pages/RegisterPage";
-import { AdminPage } from "@/features/admin/pages/AdminPage";
+import { EvalLabPage } from "@/features/eval/pages/EvalLabPage";
 import { ProtectedRoute } from "@/features/auth/components/ProtectedRoute";
 
 export const router = createBrowserRouter([
@@ -17,7 +17,7 @@ export const router = createBrowserRouter([
       { path: "register", element: <RegisterPage /> },
       {
         element: <ProtectedRoute requireAdmin />,
-        children: [{ path: "admin", element: <AdminPage /> }],
+        children: [{ path: "admin", element: <EvalLabPage /> }],
       },
     ],
   },

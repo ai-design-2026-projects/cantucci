@@ -96,7 +96,7 @@ def get_run(run_id: uuid.UUID) -> Run:
         row = conn.execute(
             """
             SELECT id, name, condition, config_hash, config_snapshot,
-                   seed, model_version, status, notes
+                   seed, model_version, status, notes, started_at, ended_at
             FROM runs
             WHERE id = %s
             """,
@@ -116,6 +116,8 @@ def get_run(run_id: uuid.UUID) -> Run:
         model_version=row[6],
         status=row[7],
         notes=row[8],
+        started_at=row[9],
+        ended_at=row[10],
     )
 
 
@@ -148,7 +150,7 @@ def list_runs(
         rows = conn.execute(
             f"""
             SELECT id, name, condition, config_hash, config_snapshot,
-                   seed, model_version, status, notes
+                   seed, model_version, status, notes, started_at, ended_at
             FROM runs
             {where}
             ORDER BY started_at DESC
@@ -160,7 +162,7 @@ def list_runs(
         Run(
             id=r[0], name=r[1], condition=r[2], config_hash=r[3],
             config_snapshot=r[4], seed=r[5], model_version=r[6],
-            status=r[7], notes=r[8],
+            status=r[7], notes=r[8], started_at=r[9], ended_at=r[10],
         )
         for r in rows
     ]

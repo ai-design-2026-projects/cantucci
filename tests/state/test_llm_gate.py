@@ -35,7 +35,14 @@ def _llm_response(parsed: StateCheckResponse) -> LLMResponse:
     )
 
 
-def _call(**overrides: Any):
+def _async_return(value):
+    """Wrap *value* in an async callable suitable for monkeypatching ``llm_harness.call``."""
+    async def _fn(**_kw):
+        return value
+    return _fn
+
+
+async def _call(**overrides: Any):
     kwargs: dict[str, Any] = dict(
         session_id=uuid.uuid4(),
         run_id=uuid.uuid4(),
@@ -48,32 +55,32 @@ def _call(**overrides: Any):
         cfg=_cfg(),
     )
     kwargs.update(overrides)
-    return check_llm_state(**kwargs)
+    return await check_llm_state(**kwargs)
 
 
 class TestProceedDecision:
-    def test_proceed_action(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    async def test_proceed_action(self, monkeypatch: pytest.MonkeyPatch) -> None:
         parsed = StateCheckResponse(decision="proceed", reason="oracle still exploring")
         monkeypatch.setattr(
             "backend.state.tools.llm_gate.llm_harness.call",
-            lambda **_kw: _llm_response(parsed),
+            _async_return(_llm_response(parsed)),
         )
-        result = _call()
+        result = await _call()
         assert result.action is StateAction.proceed
         assert result.reply is None
 
-    def test_proceed_carries_reason(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    async def test_proceed_carries_reason(self, monkeypatch: pytest.MonkeyPatch) -> None:
         parsed = StateCheckResponse(decision="proceed", reason="no closing signal")
         monkeypatch.setattr(
             "backend.state.tools.llm_gate.llm_harness.call",
-            lambda **_kw: _llm_response(parsed),
+            _async_return(_llm_response(parsed)),
         )
-        result = _call()
+        result = await _call()
         assert "no closing signal" in result.reason
 
 
 class TestNaturalEndDecision:
-    def test_natural_end_action(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    async def test_natural_end_action(self, monkeypatch: pytest.MonkeyPatch) -> None:
         parsed = StateCheckResponse(
             decision="natural_end",
             reason="oracle said thanks and bye",
@@ -81,12 +88,12 @@ class TestNaturalEndDecision:
         )
         monkeypatch.setattr(
             "backend.state.tools.llm_gate.llm_harness.call",
-            lambda **_kw: _llm_response(parsed),
+            _async_return(_llm_response(parsed)),
         )
-        result = _call(user_message="Thanks, that's all I needed. Bye!")
+        result = await _call(user_message="Thanks, that's all I needed. Bye!")
         assert result.action is StateAction.natural_end
 
-    def test_natural_end_uses_farewell_reply(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    async def test_natural_end_uses_farewell_reply(self, monkeypatch: pytest.MonkeyPatch) -> None:
         farewell = "Thanks for exploring with CinePal! Enjoy your film."
         parsed = StateCheckResponse(
             decision="natural_end",
@@ -95,12 +102,12 @@ class TestNaturalEndDecision:
         )
         monkeypatch.setattr(
             "backend.state.tools.llm_gate.llm_harness.call",
-            lambda **_kw: _llm_response(parsed),
+            _async_return(_llm_response(parsed)),
         )
-        result = _call()
+        result = await _call()
         assert result.reply == farewell
 
-    def test_natural_end_fallback_reply_when_none(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    async def test_natural_end_fallback_reply_when_none(self, monkeypatch: pytest.MonkeyPatch) -> None:
         parsed = StateCheckResponse(
             decision="natural_end",
             reason="explicit close",
@@ -108,15 +115,15 @@ class TestNaturalEndDecision:
         )
         monkeypatch.setattr(
             "backend.state.tools.llm_gate.llm_harness.call",
-            lambda **_kw: _llm_response(parsed),
+            _async_return(_llm_response(parsed)),
         )
-        result = _call()
+        result = await _call()
         assert result.reply is not None
         assert len(result.reply) > 0
 
 
 class TestClarifyDriftDecision:
-    def test_clarify_drift_action(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    async def test_clarify_drift_action(self, monkeypatch: pytest.MonkeyPatch) -> None:
         parsed = StateCheckResponse(
             decision="clarify_drift",
             reason="oracle said no horror then asked for horror",
@@ -127,12 +134,12 @@ class TestClarifyDriftDecision:
         )
         monkeypatch.setattr(
             "backend.state.tools.llm_gate.llm_harness.call",
-            lambda **_kw: _llm_response(parsed),
+            _async_return(_llm_response(parsed)),
         )
-        result = _call(user_message="I want to watch a horror film tonight")
+        result = await _call(user_message="I want to watch a horror film tonight")
         assert result.action is StateAction.clarify_drift
 
-    def test_clarify_drift_populates_fields(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    async def test_clarify_drift_populates_fields(self, monkeypatch: pytest.MonkeyPatch) -> None:
         parsed = StateCheckResponse(
             decision="clarify_drift",
             reason="contradiction on genre",
@@ -143,15 +150,15 @@ class TestClarifyDriftDecision:
         )
         monkeypatch.setattr(
             "backend.state.tools.llm_gate.llm_harness.call",
-            lambda **_kw: _llm_response(parsed),
+            _async_return(_llm_response(parsed)),
         )
-        result = _call()
+        result = await _call()
         assert result.drift_topic == "horror"
         assert result.prior_statement == "no horror"
         assert result.current_statement == "horror tonight"
         assert result.reply == "Which do you prefer?"
 
-    def test_clarify_drift_fallback_reply_when_none(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    async def test_clarify_drift_fallback_reply_when_none(self, monkeypatch: pytest.MonkeyPatch) -> None:
         parsed = StateCheckResponse(
             decision="clarify_drift",
             reason="contradiction",
@@ -162,105 +169,105 @@ class TestClarifyDriftDecision:
         )
         monkeypatch.setattr(
             "backend.state.tools.llm_gate.llm_harness.call",
-            lambda **_kw: _llm_response(parsed),
+            _async_return(_llm_response(parsed)),
         )
-        result = _call()
+        result = await _call()
         assert result.reply is not None
         assert len(result.reply) > 0
 
 
 class TestDriftConfirmedDecision:
-    def test_drift_confirmed_action(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    async def test_drift_confirmed_action(self, monkeypatch: pytest.MonkeyPatch) -> None:
         parsed = StateCheckResponse(
             decision="drift_confirmed",
             reason="oracle said yes I changed my mind",
         )
         monkeypatch.setattr(
             "backend.state.tools.llm_gate.llm_harness.call",
-            lambda **_kw: _llm_response(parsed),
+            _async_return(_llm_response(parsed)),
         )
-        result = _call(
+        result = await _call(
             user_message="Yes, I changed my mind, show me horror",
             in_drift_clarification_state=True,
         )
         assert result.action is StateAction.drift_confirmed
         assert result.reply is None
 
-    def test_drift_confirmed_carries_reason(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    async def test_drift_confirmed_carries_reason(self, monkeypatch: pytest.MonkeyPatch) -> None:
         parsed = StateCheckResponse(
             decision="drift_confirmed",
             reason="oracle explicitly confirmed genre change",
         )
         monkeypatch.setattr(
             "backend.state.tools.llm_gate.llm_harness.call",
-            lambda **_kw: _llm_response(parsed),
+            _async_return(_llm_response(parsed)),
         )
-        result = _call(in_drift_clarification_state=True)
+        result = await _call(in_drift_clarification_state=True)
         assert "oracle explicitly confirmed genre change" in result.reason
 
 
 class TestDriftDismissedDecision:
-    def test_drift_dismissed_action(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    async def test_drift_dismissed_action(self, monkeypatch: pytest.MonkeyPatch) -> None:
         parsed = StateCheckResponse(
             decision="drift_dismissed",
             reason="oracle clarified they meant supernatural drama, not horror",
         )
         monkeypatch.setattr(
             "backend.state.tools.llm_gate.llm_harness.call",
-            lambda **_kw: _llm_response(parsed),
+            _async_return(_llm_response(parsed)),
         )
-        result = _call(
+        result = await _call(
             user_message="No I meant supernatural drama, not horror",
             in_drift_clarification_state=True,
         )
         assert result.action is StateAction.drift_dismissed
         assert result.reply is None
 
-    def test_drift_dismissed_carries_reason(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    async def test_drift_dismissed_carries_reason(self, monkeypatch: pytest.MonkeyPatch) -> None:
         parsed = StateCheckResponse(
             decision="drift_dismissed",
             reason="oracle corrected misunderstanding",
         )
         monkeypatch.setattr(
             "backend.state.tools.llm_gate.llm_harness.call",
-            lambda **_kw: _llm_response(parsed),
+            _async_return(_llm_response(parsed)),
         )
-        result = _call(in_drift_clarification_state=True)
+        result = await _call(in_drift_clarification_state=True)
         assert "oracle corrected misunderstanding" in result.reason
 
 
 class TestReRetrieveDecision:
     """Gate returns re_retrieve when oracle signals all recommended films already seen."""
 
-    def test_re_retrieve_action(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    async def test_re_retrieve_action(self, monkeypatch: pytest.MonkeyPatch) -> None:
         parsed = StateCheckResponse(
             decision="re_retrieve",
             reason="oracle stated they have already watched all recommended films",
         )
         monkeypatch.setattr(
             "backend.state.tools.llm_gate.llm_harness.call",
-            lambda **_kw: _llm_response(parsed),
+            _async_return(_llm_response(parsed)),
         )
-        result = _call(
+        result = await _call(
             user_message="I've already seen all of those, can you find something I haven't watched?",
             recommended_last_turn=["Film A", "Film B", "Film C"],
         )
         assert result.action is StateAction.re_retrieve
         assert result.reply is None
 
-    def test_re_retrieve_carries_reason(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    async def test_re_retrieve_carries_reason(self, monkeypatch: pytest.MonkeyPatch) -> None:
         parsed = StateCheckResponse(
             decision="re_retrieve",
             reason="oracle explicitly stated seen all films",
         )
         monkeypatch.setattr(
             "backend.state.tools.llm_gate.llm_harness.call",
-            lambda **_kw: _llm_response(parsed),
+            _async_return(_llm_response(parsed)),
         )
-        result = _call(recommended_last_turn=["Film A"])
+        result = await _call(recommended_last_turn=["Film A"])
         assert "oracle explicitly stated seen all films" in result.reason
 
-    def test_seen_films_and_recommended_passed_to_prompt(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    async def test_seen_films_and_recommended_passed_to_prompt(self, monkeypatch: pytest.MonkeyPatch) -> None:
         parsed = StateCheckResponse(decision="proceed", reason="ok")
         captured: dict = {}
 
@@ -274,9 +281,9 @@ class TestReRetrieveDecision:
         )
         monkeypatch.setattr(
             "backend.state.tools.llm_gate.llm_harness.call",
-            lambda **_kw: _llm_response(parsed),
+            _async_return(_llm_response(parsed)),
         )
-        _call(
+        await _call(
             recommended_last_turn=["Film A", "Film B"],
             seen_films=["Film C", "Film D"],
         )
@@ -285,7 +292,7 @@ class TestReRetrieveDecision:
 
 
 class TestDriftClarificationStateFlag:
-    def test_flag_passed_without_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    async def test_flag_passed_without_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
         parsed = StateCheckResponse(decision="proceed", reason="ambiguous")
         captured: dict = {}
 
@@ -299,12 +306,12 @@ class TestDriftClarificationStateFlag:
         )
         monkeypatch.setattr(
             "backend.state.tools.llm_gate.llm_harness.call",
-            lambda **_kw: _llm_response(parsed),
+            _async_return(_llm_response(parsed)),
         )
-        _call(in_drift_clarification_state=True)
+        await _call(in_drift_clarification_state=True)
         assert captured.get("in_drift_clarification_state") is True
 
-    def test_flag_false_by_default(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    async def test_flag_false_by_default(self, monkeypatch: pytest.MonkeyPatch) -> None:
         parsed = StateCheckResponse(decision="proceed", reason="normal turn")
         captured: dict = {}
 
@@ -318,19 +325,19 @@ class TestDriftClarificationStateFlag:
         )
         monkeypatch.setattr(
             "backend.state.tools.llm_gate.llm_harness.call",
-            lambda **_kw: _llm_response(parsed),
+            _async_return(_llm_response(parsed)),
         )
-        _call()
+        await _call()
         assert captured.get("in_drift_clarification_state") is False
 
 
 class TestDryRunFixture:
     """The dry-run fixture for state_check validates against the schema."""
 
-    def test_fixture_validates(self) -> None:
+    async def test_fixture_validates(self) -> None:
         from backend.llm import llm_harness
 
-        result = llm_harness.call(
+        result = await llm_harness.call(
             run_id=uuid.uuid4(),
             session_id=uuid.uuid4(),
             turn_id=uuid.uuid4(),

@@ -6,11 +6,11 @@ import { Mascot } from "@/components/mascot/Mascot";
 import { RecommendationMessage } from "@/features/conversation/RecommendationMessage";
 import { useUiStore } from "@/store/uiStore";
 import { cn } from "@/lib/utils";
-import type { SessionState, TurnResult } from "@/utils/types";
+import type { SessionDto, TurnDto } from "@/utils/types";
 
 interface StopOverlayProps {
   /** Current session, used to detect terminal turns and recommendation. */
-  session: SessionState | undefined;
+  session: SessionDto | undefined;
   /** Called when the user clicks "New Session". */
   onRestart: () => void;
 }
@@ -36,7 +36,7 @@ export function StopOverlay({ session, onRestart }: StopOverlayProps) {
     reopenStopOverlay();
   }, [sessionId, reopenStopOverlay]);
 
-  const stopTurn: TurnResult | undefined = session?.turns
+  const stopTurn: TurnDto | undefined = session?.turns
     .filter((t) => t.step_type === "stop")
     .at(-1);
 

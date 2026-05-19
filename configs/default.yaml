@@ -42,13 +42,17 @@ session:
   # Maximum number of show-type turns allowed per session. The hard-limit gate
   # terminates the session when this cap is reached, before any LLM call.
   max_recommendations: 5
-  # Number of top-scoring films to include in a deterministic recommendation render.
-  recommendation_top_k: 5
 
 retrieval:
   # Maximum number of candidate films fetched from pgvector per turn.
   # Larger values improve recall but slow down HDBSCAN and increase token counts.
   top_k: 50
+  # Number of IVFFlat lists probed per vector_search query. The index is built
+  # with lists = 100 (db/migrations/003_catalogue.sql); pgvector's default is 1,
+  # which limits recall to ~1% of the catalogue. Rule of thumb: sqrt(lists) = 10
+  # for ~99% recall. Applied via SET LOCAL ivfflat.probes in
+  # backend/api/movies.py:vector_search.
+  ivfflat_probes: 10
 
 split:
   # Number of rows retained in the mini subset (strict subset of main).
@@ -107,4 +111,29 @@ ingestion:
     main: embeddings/main_20260517.parquet
     mini: embeddings/mini_20260517.parquet
     eval_holdout: embeddings/eval_holdout_20260517.parquet
+
+eval:
+  oracle:
+    # LLM model used to drive the Oracle agent during automated eval sessions.
+    # Independent budget from the system's session.cost_limit_usd.
+    model:
+      name: "openrouter/owl-alpha"
+      provider: openrouter
+      seed: 42
+      max_tokens: 512
+    # USD ceiling for total Oracle LLM spend across a single eval run.
+    cost_limit_usd: 5.0
+  judge:
+    # LLM model used by the post-session judge to score clustering_coherence,
+    # question_quality, and profile_fidelity (1–5 per dimension).
+    model:
+      name: "openrouter/owl-alpha"
+      provider: openrouter
+      seed: 42
+      max_tokens: 512
+    # USD ceiling for total Judge LLM spend across a single eval run.
+    cost_limit_usd: 2.0
+  metrics:
+    # K for precision@K, recall@K, and NDCG@K against the ground-truth film set.
+    k: 5
 

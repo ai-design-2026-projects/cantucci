@@ -20,7 +20,7 @@ export function formatTimestamp(iso: string): string {
  * For "forced_choice": returns placeholder labels until the backend enriches
  * the payload with option text.
  *
- * @param meta - AmbiguityMeta from a TurnResult.
+ * @param meta - AmbiguityMeta from a TurnDto.
  * @returns Array of string labels to render as choice buttons.
  */
 export function normaliseAmbiguityChoices(meta: AmbiguityMeta): string[] {

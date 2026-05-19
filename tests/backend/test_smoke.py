@@ -43,10 +43,10 @@ def _terminal_result(events: list[dict[str, Any]]) -> dict[str, Any]:
 def test_route_table_matches_spec(client: TestClient) -> None:
     """The session router exposes the documented session endpoints."""
     routes = {(r.path, frozenset(r.methods or set())) for r in client.app.routes if hasattr(r, "methods")}
-    assert ("/sessions/create", frozenset({"POST"})) in routes
+    assert ("/sessions", frozenset({"POST"})) in routes
     assert ("/sessions/list", frozenset({"GET"})) in routes
     assert ("/sessions/{session_id}/turns", frozenset({"POST"})) in routes
-    assert ("/sessions/get/{session_id}", frozenset({"GET"})) in routes
+    assert ("/sessions/{session_id}", frozenset({"GET"})) in routes
     assert ("/sessions/delete/{session_id}", frozenset({"DELETE"})) in routes
 
 
@@ -59,21 +59,21 @@ def test_dry_run_is_active_in_test_config() -> None:
 
 def test_create_session_persists_row(client: TestClient) -> None:
     """POST /sessions writes a session row whose config_hash matches the active YAML."""
-    response = client.post("/sessions/create")
+    response = client.post("/sessions")
     assert response.status_code == 201, response.text
     body = response.json()
     UUID(body["session_id"])
     assert body["status"] == "active"
     assert body["turns"] == []
 
-    fetched = client.get(f"/sessions/get/{body['session_id']}")
+    fetched = client.get(f"/sessions/{body['session_id']}")
     assert fetched.status_code == 200
     assert fetched.json()["session_id"] == body["session_id"]
 
 
 def test_full_turn_runs_end_to_end(client: TestClient) -> None:
     """POST /turns streams NDJSON ending in a well-formed TurnResult event."""
-    session = client.post("/sessions/create").json()
+    session = client.post("/sessions").json()
     session_id = session["session_id"]
 
     events = _collect_stream(
@@ -98,7 +98,7 @@ def test_turn_result_persists_with_matching_config_hash(client: TestClient) -> N
 
     import psycopg
 
-    session_id = client.post("/sessions/create").json()["session_id"]
+    session_id = client.post("/sessions").json()["session_id"]
     events = _collect_stream(
         client,
         f"/sessions/{session_id}/turns",
@@ -106,7 +106,7 @@ def test_turn_result_persists_with_matching_config_hash(client: TestClient) -> N
     )
     _terminal_result(events)
 
-    fetched = client.get(f"/sessions/get/{session_id}").json()
+    fetched = client.get(f"/sessions/{session_id}").json()
     assert len(fetched["turns"]) == 1
 
     expected_hash = get_config_hash()

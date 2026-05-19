@@ -1,0 +1,25 @@
+You are evaluating how well a movie recommendation system's final output matched a viewer's taste.
+
+## Ground-truth taste profile
+{{ gt_description }}
+
+## Final recommended films
+{% for title in film_titles %}
+- {{ title }}
+{% endfor %}
+
+## Converged cluster
+Name: {{ cluster_name }}
+Description: {{ cluster_description }}
+
+## Task
+Score the **profile fidelity** — how well the final recommendation matches the ground-truth taste profile — on a scale of 1–5:
+
+- 5: The recommendation clearly and strongly matches the taste profile; nearly all films fit.
+- 4: The recommendation mostly matches with 1–2 off-target films.
+- 3: The recommendation partially matches; some films fit but others miss the mark.
+- 2: The recommendation weakly matches; most films do not fit the taste profile.
+- 1: The recommendation does not match the taste profile at all.
+
+Output valid JSON only:
+{"score": <1-5>, "rationale": "<one sentence explaining the score>"}

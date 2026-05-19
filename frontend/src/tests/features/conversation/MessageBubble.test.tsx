@@ -1,9 +1,9 @@
 import { describe, it, expect, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { MessageBubble } from "@/features/conversation/MessageBubble";
-import type { TurnResult } from "@/utils/types";
+import type { TurnDto } from "@/utils/types";
 
-function makeTurn(overrides: Partial<TurnResult> = {}): TurnResult {
+function makeTurn(overrides: Partial<TurnDto> = {}): TurnDto {
   return {
     turn_id: "t-1",
     session_id: "s-1",

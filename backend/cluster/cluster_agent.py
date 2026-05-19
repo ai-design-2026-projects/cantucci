@@ -4,7 +4,7 @@ Two paths, both driven explicitly by the Orchestrator:
 
 Fresh path (Scenario A):
   1. ``soft_cluster``:      fetch embeddings + HDBSCAN → ``SoftClusterResult`` (no LLM).
-  2. ``describe_clusters``: LLM-name each cluster → ``list[ClusterSnapshot]``.
+  2. ``describe_clusters``: LLM-name each cluster → ``list[ClusterRow]``.
 
 Refinement path (Scenario B):
   ``refine``: thin wrapper over ``cluster_refiner.refine``.
@@ -25,7 +25,7 @@ from backend.cluster.tools import (
     embedding_fetcher,
     soft_cluster_engine,
 )
-from backend.api.types import ClusterAssignment, ClusterSnapshot
+from backend.api.types import ClusterAssignment, ClusterRow
 from backend.retrieval.types import RetrievalResult
 from backend.settings import get_settings
 
@@ -145,7 +145,7 @@ def soft_cluster(
     )
 
 
-def describe_clusters(
+async def describe_clusters(
     *,
     soft_result: SoftClusterResult,
     user_query: str,
@@ -155,7 +155,7 @@ def describe_clusters(
     turn_id: UUID,
     accumulated_cost_usd: float = 0.0,
     dry_run: bool = False,
-) -> list[ClusterSnapshot]:
+) -> list[ClusterRow]:
     """LLM-name each cluster and build ClusterSnapshots with soft assignments.
 
     Args:
@@ -169,7 +169,7 @@ def describe_clusters(
         dry_run:              If ``True``, skip live LLM calls.
 
     Returns:
-        List of named ``ClusterSnapshot`` objects with soft assignments.
+        List of named ``ClusterRow`` objects with soft assignments.
 
     Raises:
         LLMParseError:     If the describer LLM call returns malformed JSON.
@@ -187,7 +187,7 @@ def describe_clusters(
         },
     )
 
-    labels = cluster_describer.describe(
+    labels = await cluster_describer.describe(
         clusters_payload=soft_result.clusters_payload,
         user_query=user_query,
         reformulated_query=reformulated_query,
@@ -198,7 +198,7 @@ def describe_clusters(
         dry_run=dry_run,
     )
 
-    snapshots: list[ClusterSnapshot] = []
+    snapshots: list[ClusterRow] = []
     for ci, (name, description) in enumerate(labels):
         scores = soft_result.membership[:, ci]
         assignments = [
@@ -213,7 +213,7 @@ def describe_clusters(
             if scores[i] >= threshold
         ]
         snapshots.append(
-            ClusterSnapshot(
+            ClusterRow(
                 id=uuid4(),
                 name=name,
                 description=description,
@@ -232,7 +232,7 @@ def describe_clusters(
         },
     )
     log.debug(
-        "final ClusterSnapshot list",
+        "final ClusterRow list",
         extra={
             "session_id": str(session_id),
             "turn_id": str(turn_id),
@@ -243,25 +243,30 @@ def describe_clusters(
     return snapshots
 
 
-def refine(
+async def refine(
     *,
-    prior_clusters: list[ClusterSnapshot],
+    prior_clusters: list[ClusterRow],
     user_query: str,
-    asked_question: str,
-    user_answer: str,
+    system_message: str,
+    oracle_reply: str,
     session_id: UUID,
     run_id: UUID,
     turn_id: UUID,
     accumulated_cost_usd: float = 0.0,
     dry_run: bool = False,
-) -> list[ClusterSnapshot]:
-    """Refine prior clusters given a clarifying Q&A. Wrapper over cluster_refiner.
+) -> list[ClusterRow]:
+    """Refine prior clusters in light of the oracle's latest reply.
+
+    Wrapper over ``cluster_refiner.refine``. The orchestrator fires this on
+    every turn that already has a clustered prior turn — whether the prior
+    assistant message was a clarifying ``ask`` or a ``show`` recommendation.
 
     Args:
-        prior_clusters:       The previous turn's ``ClusterSnapshot`` list.
+        prior_clusters:       The most recent clustered turn's snapshots.
         user_query:           The oracle's original session-level query.
-        asked_question:       The clarifying question asked on the previous turn.
-        user_answer:          The oracle's reply to asked_question.
+        system_message:       The system's last assistant message (question
+                              or rendered recommendation).
+        oracle_reply:         The oracle's reply to *system_message*.
         session_id:           UUID of the current session.
         run_id:               UUID of the parent run.
         turn_id:              UUID of the current turn.
@@ -269,17 +274,17 @@ def refine(
         dry_run:              If ``True``, skip live LLM calls.
 
     Returns:
-        Refined ``list[ClusterSnapshot]`` with new UUIDs.
+        Refined ``list[ClusterRow]`` with new UUIDs.
 
     Raises:
         LLMParseError:     If the harness exhausts its retry budget.
         CostLimitExceeded: If the session budget is exhausted.
     """
-    return cluster_refiner.refine(
+    return await cluster_refiner.refine(
         prior_clusters=prior_clusters,
         user_query=user_query,
-        asked_question=asked_question,
-        user_answer=user_answer,
+        system_message=system_message,
+        oracle_reply=oracle_reply,
         session_id=session_id,
         run_id=run_id,
         turn_id=turn_id,

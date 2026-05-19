@@ -4,12 +4,12 @@ import { AmbiguityChoice } from "./AmbiguityChoice";
 import { WaitingBubbleContent } from "./WaitingBubbleContent";
 import { RecommendationMessage } from "./RecommendationMessage";
 import { formatTimestamp } from "./utils/messageFormatters";
-import type { TurnResult } from "@/utils/types";
+import type { TurnDto } from "@/utils/types";
 import { cn } from "@/lib/utils";
 
 interface MessageBubbleProps {
   /** The turn to render. */
-  turn: TurnResult;
+  turn: TurnDto;
   /** Whether this is the last turn in the list (controls tail visibility). */
   isLast: boolean;
   /** Called when the oracle picks an ambiguity choice. */
@@ -22,7 +22,7 @@ interface MessageBubbleProps {
  * Oracle bubble slides in from the left; assistant from the right.
  * If the turn is an ask-type with ambiguity_meta, choice buttons appear below the assistant bubble.
  *
- * @param turn - TurnResult to render.
+ * @param turn - TurnDto to render.
  * @param isLast - Whether this is the most recent turn.
  * @param onChoose - Callback for ambiguity choice selection.
  * @returns A div containing oracle and assistant message elements.
@@ -57,8 +57,9 @@ export function MessageBubble({ turn, isLast, onChoose }: MessageBubbleProps) {
         <motion.div
           className={cn(
             "self-end bg-bg-surface border border-border text-foreground rounded-lg rounded-br-sm px-3.5 py-2.5 text-[0.9375rem] leading-[1.55]",
-            "max-w-[80%] min-w-[280px] min-h-[88px]",
-            isWaiting && "flex flex-col justify-center"
+            isWaiting
+              ? "w-[min(80%,270px)] min-w-[280px] min-h-[70 px] flex flex-col justify-center"
+              : "max-w-[80%] min-w-[280px]"
           )}
           initial={{ opacity: 0, x: 16 }}
           animate={{ opacity: 1, x: 0 }}

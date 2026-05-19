@@ -3,7 +3,8 @@ import { Composer } from "./Composer";
 import { MessageBubble } from "./MessageBubble";
 import { useFetchTurns } from "./hooks/useFetchTurns";
 import { useTurnHandler } from "./hooks/useTurnHandler";
-import type { TurnResult } from "@/utils/types";
+import { useSessionFlight } from "@/store/turnFlightStore";
+import type { TurnDto } from "@/utils/types";
 
 interface ConversationPanelProps {
   /** Active session UUID. */
@@ -24,7 +25,8 @@ interface ConversationPanelProps {
  */
 export function ConversationPanel({ sessionId, isTerminal = false }: ConversationPanelProps) {
   const turns = useFetchTurns(sessionId);
-  const { submitTurn, isPending } = useTurnHandler();
+  const { submitTurn } = useTurnHandler();
+  const flight = useSessionFlight(sessionId);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -54,7 +56,7 @@ export function ConversationPanel({ sessionId, isTerminal = false }: Conversatio
           </div>
         )}
 
-        {turns.map((turn: TurnResult, i: number) => (
+        {turns.map((turn: TurnDto, i: number) => (
           <MessageBubble
             key={turn.turn_id}
             turn={turn}
@@ -66,7 +68,7 @@ export function ConversationPanel({ sessionId, isTerminal = false }: Conversatio
       </div>
 
       {!isTerminal && (
-        <Composer isLoading={isPending} onSubmit={handleSubmit} />
+        <Composer isLoading={flight.isPending} onSubmit={handleSubmit} />
       )}
     </div>
   );

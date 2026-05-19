@@ -1,220 +1,44 @@
-"""Orchestrator — DB-backed, policy-driven coordinator for conversational sessions.
-
-No in-memory session state: all persistence flows through ``backend.api``.
-
-Turn flow:
-  Oracle → Orchestrator → Wave 1 (parallel: State + Profile + Refine if
-  applicable) → if non-terminal: Retrieval + Cluster (fresh path, serial) or
-  Refine result (refinement path) → Decision Agent → Orchestrator writes turn /
-  clusters / feedback / profile.
-
-The Orchestrator is the sole writer to the DB. All sub-agents are read-only.
-Private decision logic lives in ``backend/orchestrator/tools/``.
 """
+Orchestrator — public surface for session lifecycle and per-turn execution.
+The Orchestrator owns three endpoints worth of behaviour:
+    - create_session: open a run + session row and return the initial state.
+    - run_turn: load the session snapshot, instantiate a TurnRunner,
+        and await one turn's execution.
+    - get_session: hydrate every persisted turn into the HTTP DTO shape,
+        atching all movie-metadata fetches into one DB call.
 
+The class itself is stateless — no in-memory session state, no module-level
+caches. All persistence flows through ``backend.api``; every turn is
+replayable from its stored seed + config snapshot + turn history alone.
+"""
+import asyncio
 import logging
-from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from decimal import Decimal
-from uuid import UUID, uuid4
+from uuid import UUID
 
 import backend.api.movies as api_movies
 import backend.api.retrieval as api_retrieval
 import backend.api.runs as api_runs
 import backend.api.sessions as api_sessions
-import backend.retrieval.agent as retrieval_agent
-from backend.cluster import cluster_agent
-from backend.state import state_agent
-from backend.decision import decision_agent
-from backend.profile import profile_agent
-from backend.api.types import ClusterSnapshot, SessionStatus, StepType, TurnDetail
-from backend.state.types import StateAction, StateDecision
-from backend.decision.types import DecisionAction
+from backend.api.types import SessionStatus
 from backend.exceptions import SessionNotFound
-from backend.routers.dtos import (
-    ClusterPublic,
-    MoviePublic,
-    RecommendationPublic,
-    SessionState,
-    SoftScore,
-    TurnResult,
-)
-from backend.orchestrator.progress import (
-    ClusterFilmStub,
-    ClusterSnapshotEvent,
-    ClusterSnapshotPayload,
-    NullProgressCallback,
-    ProgressCallback,
-    ProgressPhase,
-    ProgressStep,
-    make_progress_event,
-)
-from backend.orchestrator.tools.feedback import classify_feedback
-from backend.orchestrator.tools.policy import (
-    cluster_snapshot_to_spec,
-    prior_questions,
-)
-from backend.orchestrator.tools.render import render_recommendation
-from backend.orchestrator.tools.turns import emit_drift_clarification, emit_early_clarification
+from backend.orchestrator.utils import presentation
+from backend.orchestrator.turn.progress import NullProgressCallback, ProgressCallback
+from backend.orchestrator.turn import TurnRunner
+from backend.routers.dtos import MovieDto, SessionDto, TurnDto
 from backend.settings import get_config_hash, get_config_snapshot, get_settings
 
 log = logging.getLogger(__name__)
 
 
-def _pick_best_cluster(clusters: list[ClusterSnapshot]) -> ClusterSnapshot:
-    """Return the cluster with the highest mean non-excluded assignment score.
-
-    Used to reconstruct which cluster was recommended on a show turn when the
-    best_cluster_id is not stored separately.
-
-    Args:
-        clusters: Non-empty list of ClusterSnapshot objects.
-
-    Returns:
-        The cluster whose mean active score is highest.
-    """
-    def mean_score(c: ClusterSnapshot) -> float:
-        active = [a.score for a in c.assignments if not a.excluded]
-        return sum(active) / len(active) if active else 0.0
-
-    return max(clusters, key=mean_score)
-
-
-def _make_recommendation_public(
-    cluster: ClusterSnapshot,
-    top_ids: list[int],
-    movie_data: dict[int, dict],
-) -> RecommendationPublic:
-    """Assemble a RecommendationPublic from pre-fetched movie data.
-
-    Args:
-        cluster:    The cluster to include in the payload.
-        top_ids:    Ordered list of movie_ids (descending score) to include.
-        movie_data: Dict mapping movie_id → MoviePublic-shaped dict.
-
-    Returns:
-        A ``RecommendationPublic`` DTO.
-    """
-    films = [MoviePublic(**movie_data[mid]) for mid in top_ids if mid in movie_data]
-    cluster_pub = ClusterPublic(
-        id=cluster.id,
-        name=cluster.name,
-        description=cluster.description,
-        level=cluster.level,
-        parent_cluster_id=cluster.parent_cluster_id,
-        soft_scores=[
-            SoftScore(movie_id=a.movie_id, score=a.score, excluded=a.excluded)
-            for a in cluster.assignments
-        ],
-        top_titles=top_ids,
-    )
-    return RecommendationPublic(cluster=cluster_pub, films=films)
-
-
-def _build_recommendation(
-    cluster: ClusterSnapshot,
-    top_k: int,
-) -> RecommendationPublic:
-    """Build a RecommendationPublic from a live ClusterSnapshot via a DB fetch.
-
-    Args:
-        cluster: The cluster to recommend.
-        top_k:   Maximum number of top-scoring films to include.
-
-    Returns:
-        A ``RecommendationPublic`` DTO with fully enriched movie data.
-    """
-    top_assignments = sorted(
-        [a for a in cluster.assignments if not a.excluded],
-        key=lambda a: a.score,
-        reverse=True,
-    )[:top_k]
-    top_ids = [a.movie_id for a in top_assignments]
-    movie_dicts = api_movies.fetch_movies_public(top_ids)
-    movie_data = {m["id"]: m for m in movie_dicts}
-    return _make_recommendation_public(cluster, top_ids, movie_data)
-
-
-def _prior_clusters_from_turn(turn: TurnDetail) -> list[ClusterSnapshot]:
-    """Return the ClusterSnapshots stored on a prior turn."""
-    return list(turn.clusters)
-
-
-_TOP_K_FILMS = 6
-
-
-def _emit_cluster_snapshot(
-    clusters: list[ClusterSnapshot],
-    progress_cb: ProgressCallback,
-) -> None:
-    """Enrich clusters with poster/rating stubs and emit a ClusterSnapshotEvent.
-
-    Gathers the top-K non-excluded movie ids from each cluster, fetches
-    lightweight stubs from the DB in one batch, then fires the event via
-    *progress_cb* so the router can stream it to the frontend.
-
-    Args:
-        clusters:    List of ClusterSnapshot objects produced by clustering.
-        progress_cb: The turn's streaming callback.
-    """
-    all_ids: list[int] = []
-    cluster_tops: list[list[int]] = []
-    for c in clusters:
-        top = sorted(
-            [a for a in c.assignments if not a.excluded],
-            key=lambda a: a.score,
-            reverse=True,
-        )[:_TOP_K_FILMS]
-        ids = [a.movie_id for a in top]
-        cluster_tops.append(ids)
-        all_ids.extend(ids)
-
-    unique_ids = list(dict.fromkeys(all_ids))
-    stubs_by_id: dict[int, dict] = {
-        s["id"]: s for s in api_movies.fetch_stubs(unique_ids)
-    }
-
-    payloads: list[ClusterSnapshotPayload] = []
-    for c, ids in zip(clusters, cluster_tops):
-        active_scores = [a.score for a in c.assignments if not a.excluded]
-        top_films = [
-            ClusterFilmStub(
-                id=mid,
-                title=stubs_by_id[mid]["title"],
-                poster_url=stubs_by_id[mid]["poster_url"],
-                release_year=stubs_by_id[mid]["release_year"],
-                vote_average=stubs_by_id[mid]["vote_average"],
-            )
-            for mid in ids
-            if mid in stubs_by_id
-        ]
-        payloads.append(
-            ClusterSnapshotPayload(
-                id=str(c.id),
-                name=c.name,
-                description=c.description,
-                level=c.level,
-                confidence=sum(active_scores) / len(active_scores) if active_scores else 0.0,
-                top_films=top_films,
-            )
-        )
-
-    try:
-        progress_cb(ClusterSnapshotEvent(clusters=payloads))
-    except Exception:
-        log.warning("cluster snapshot event dropped", exc_info=True)
-
-
 class Orchestrator:
-    """LLM-backed orchestrator. No in-memory session state; all persistence in DB.
-
-    Each ``create_session`` call inserts one run + one session row. In the full
-    system, runs are managed externally and ``create_session`` accepts a run_id.
-    For the scaffold, a run is created implicitly per interactive session.
+    """Stateless coordinator. One process-wide instance shared across all
+    sessions; per-turn state lives in a fresh ``TurnRunner`` per call.
     """
 
-    def create_session(self, user_id: UUID | None = None) -> SessionState:
-        """Create a run + session row and return the initial SessionState.
+    def create_session(self, user_id: UUID | None = None) -> SessionDto:
+        """Create a run + session row and return the initial SessionDto.
 
         Loads the default config for model, seed, and session parameters.
 
@@ -222,12 +46,13 @@ class Orchestrator:
             user_id: Authenticated user who owns this session; None for anonymous.
 
         Returns:
-            A ``SessionState`` with status=active and an empty turn list.
+            A ``SessionDto`` with status=active and an empty turn list.
         """
         cfg = get_settings()
         config_hash = get_config_hash()
         config_snapshot = get_config_snapshot()
 
+        # Create a new run for this session so we can group it with eval runs in the future.
         run_id = api_runs.create_run(
             name="interactive",
             condition="baseline",
@@ -238,6 +63,7 @@ class Orchestrator:
         )
 
         now = datetime.now(timezone.utc)
+        # Create the session row with a reference to the run we just created.
         session_id = api_sessions.create_session(
             run_id=run_id,
             seed=cfg.models.strong.seed,
@@ -252,7 +78,8 @@ class Orchestrator:
             "session created",
             extra={"session_id": str(session_id), "run_id": str(run_id)},
         )
-        return SessionState(
+        # Return the initial session state with an empty turn list.
+        return SessionDto(
             session_id=session_id,
             status=SessionStatus.active,
             max_turns=cfg.session.max_turns,
@@ -260,764 +87,94 @@ class Orchestrator:
             updated_at=now,
             turns=[],
         )
+    
 
-    def handle_turn(
+    async def run_turn(
         self,
         session_id: UUID,
         user_message: str,
         *,
         progress_cb: ProgressCallback = NullProgressCallback(),
-    ) -> TurnResult:
-        """Orchestrate one conversational turn and persist all resulting state.
-
-        Full flow:
-          1. Load session state from DB.
-          2. Wave 1 (parallel): State Agent + Profile Agent + Refine (if
-             refinement turn). Retrieval runs serially AFTER state check on
-             fresh turns, so wasted retrieval calls are avoided on terminal paths.
-          3. If state is terminal, discard speculative results and return early.
-          4. Fresh path (after state check): retrieve → soft_cluster → describe_clusters.
-             Refinement path: resolve the parallel refine future.
-          5. Decision Agent: decides action and generates question when continuing.
-          6. Persist turn, clusters, feedback, and updated profile.
-
+    ) -> TurnDto:
+        """Load the session snapshot and run one turn via a fresh ``TurnRunner``.
+        The runner holds all per-turn state and owns the async task graph
         Args:
             session_id:   UUID of the target session.
             user_message: The oracle's message for this turn.
-            progress_cb:  Invoked at the start and end of each wave so the
-                          router can stream ``ProgressEvent`` lines to the
-                          live-state frontend. Defaults to ``NullProgressCallback``
-                          so non-streaming callers (tests, eval scripts) are
-                          unaffected. Must be thread-safe and must not raise.
-
+            progress_cb:  Invoked at the start and end of each progress step.
+                          Called on the event loop thread; must not block or raise.
         Returns:
-            A ``TurnResult`` describing the outcome of this turn.
-
+            A ``TurnDto`` describing the outcome of this turn.
         Raises:
             SessionNotFound:   If *session_id* does not exist in the DB.
             CostLimitExceeded: If the session budget is exhausted.
             LLMParseError:     If any agent LLM call returns malformed JSON.
         """
-        def _emit(step: ProgressStep, phase: ProgressPhase) -> None:
-            try:
-                progress_cb(make_progress_event(step, phase))
-            except Exception:
-                log.warning(
-                    "progress callback failed",
-                    exc_info=True,
-                    extra={
-                        "session_id": str(session_id),
-                        "turn_id": str(turn_id),
-                        "step": step.value,
-                        "phase": phase,
-                    },
-                )
 
-        full = api_retrieval.get_session_full(session_id)
-
-        turn_id = uuid4()
-        turn_number = len(full.turns) + 1
-        cfg = get_settings()
-
-        # N-1 profile (may be None on the first turn)
-        prior_profile = full.preference_profile
-
-        # Short history: last 2 completed turns
-        recent_turns: list[TurnDetail] = full.turns[-2:]
-
-        log.debug(
-            "turn entry",
-            extra={
-                "session_id": str(session_id),
-                "turn_id": str(turn_id),
-                "turn_number": turn_number,
-                "user_message_len": len(user_message),
-                "prior_turns": len(full.turns),
-            },
-        )
-
-        prior_turn = full.turns[-1] if full.turns else None
-        is_refinement = (
-            prior_turn is not None
-            and prior_turn.step_type == StepType.ask.value
-            and prior_turn.clusters
-        )
-
-        if is_refinement:
-            log.info(
-                "refinement after ask",
-                extra={"session_id": str(session_id), "turn_number": turn_number},
-            )
-
-        # Wave 1: state + profile (always) + refine (refinement turns only).
-        # Retrieval is intentionally absent from this pool — it runs serially after
-        # state check clears, so terminal actions (terminate, natural_end,
-        # clarify_drift) and retrieval_override reruns never pay for a wasted
-        # retrieval call.
-        prior_seen: list[str] = list(prior_profile.get("seen_films", [])) if prior_profile else []
-        recommended_last_turn: list[str] = []
-        if full.turns:
-            last = full.turns[-1]
-            if last.step_type == StepType.show.value:
-                for c in last.clusters:
-                    for a in c.assignments:
-                        if not a.excluded and a.title:
-                            recommended_last_turn.append(a.title)
-
-        _emit(ProgressStep.understand, "start")
-        with ThreadPoolExecutor(max_workers=3) as pool:
-            f_conv = pool.submit(
-                state_agent.check,
-                session_id=session_id,
-                run_id=full.run_id,
-                turn_id=turn_id,
-                turn_number=turn_number,
-                user_message=user_message,
-                full=full,
-                preference_profile=prior_profile,
-                cfg=cfg,
-                recommended_last_turn=recommended_last_turn,
-                seen_films=prior_seen,
-            )
-            f_profile = pool.submit(
-                profile_agent.extract,
-                session_id=session_id,
-                run_id=full.run_id,
-                turn_id=turn_id,
-                turn_number=turn_number,
-                user_message=user_message,
-                prior_profile=prior_profile,
-                recent_turns=recent_turns,
-            )
-            f_refine = (
-                pool.submit(
-                    cluster_agent.refine,
-                    prior_clusters=_prior_clusters_from_turn(prior_turn),
-                    user_query=user_message,
-                    asked_question=prior_turn.assistant_message or "",
-                    user_answer=user_message,
-                    session_id=session_id,
-                    run_id=full.run_id,
-                    turn_id=turn_id,
-                )
-                if is_refinement
-                else None
-            )
-            conv = f_conv.result()
-
-            _terminal = conv.action in (
-                StateAction.terminate,
-                StateAction.natural_end,
-                StateAction.clarify_drift,
-            )
-            if _terminal:
-                for _f, _name in ((f_refine, "refine"), (f_profile, "profile")):
-                    if _f is None:
-                        continue
-                    try:
-                        _f.result()
-                    except Exception as _exc:
-                        log.warning(
-                            "speculative agent failed (discarded — state terminal)",
-                            extra={
-                                "agent": _name,
-                                "session_id": str(session_id),
-                                "error": str(_exc),
-                            },
-                        )
-                clusters = []
-                new_profile = prior_profile
-            else:
-                new_profile = f_profile.result()
-                if is_refinement:
-                    clusters = f_refine.result()
-                elif conv.action in (StateAction.drift_confirmed, StateAction.re_retrieve) or conv.retrieval_override:
-                    # drift_confirmed and retrieval_override each replace clusters via
-                    # their own retrieval call below — skip the initial retrieval.
-                    clusters = []
-                else:
-                    rr = retrieval_agent.retrieve_from_message(
-                        user_query=user_message,
-                        k=cfg.retrieval.top_k,
-                        session_id=session_id,
-                        run_id=full.run_id,
-                        turn_id=turn_id,
-                    )
-                    clusters = self._cluster_from_retrieval(
-                        rr,
-                        user_query=user_message,
-                        cfg=cfg,
-                        session_id=session_id,
-                        full=full,
-                        turn_id=turn_id,
-                        turn_number=turn_number,
-                    )
-        _emit(ProgressStep.understand, "end")
-
-        last_show_rec: RecommendationPublic | None = None
-        if conv.action in (StateAction.terminate, StateAction.natural_end):
-            for prior_t in reversed(full.turns):
-                if prior_t.step_type == StepType.show.value and prior_t.clusters:
-                    last_show_rec = _build_recommendation(
-                        _pick_best_cluster(prior_t.clusters),
-                        cfg.session.recommendation_top_k,
-                    )
-                    break
-
-        if conv.action is StateAction.terminate:
-            _emit(ProgressStep.wrap_up, "start")
-            try:
-                return self._terminate_turn(
-                    session_id=session_id,
-                    turn_id=turn_id,
-                    turn_number=turn_number,
-                    user_message=user_message,
-                    decision=conv,
-                    recommendation=last_show_rec,
-                )
-            finally:
-                _emit(ProgressStep.wrap_up, "end")
-
-        if conv.action is StateAction.natural_end:
-            _emit(ProgressStep.wrap_up, "start")
-            try:
-                return self._natural_end_turn(
-                    session_id=session_id,
-                    turn_id=turn_id,
-                    turn_number=turn_number,
-                    user_message=user_message,
-                    decision=conv,
-                    preference_profile=prior_profile or {},
-                    recommendation=last_show_rec,
-                )
-            finally:
-                _emit(ProgressStep.wrap_up, "end")
-
-        if conv.action is StateAction.clarify_drift:
-            _emit(ProgressStep.wrap_up, "start")
-            try:
-                return emit_drift_clarification(
-                    session_id=session_id,
-                    turn_id=turn_id,
-                    turn_number=turn_number,
-                    user_message=user_message,
-                    decision=conv,
-                )
-            finally:
-                _emit(ProgressStep.wrap_up, "end")
-
-        if conv.action is StateAction.drift_confirmed:
-            drift_summary = new_profile.summary or user_message
-            drift_excluded = list(dict.fromkeys(prior_seen + new_profile.anchor_films))
-            log.info(
-                "drift confirmed — re-retrieving from profile summary",
-                extra={
-                    "session_id": str(session_id),
-                    "turn_id": str(turn_id),
-                    "using_profile_summary": bool(new_profile.summary),
-                    "n_excluded_films": len(drift_excluded),
-                },
-            )
-            rr = retrieval_agent.retrieve_from_profile(
-                summary=drift_summary,
-                excluded_films=drift_excluded,
-                k=cfg.retrieval.top_k,
-                session_id=session_id,
-                run_id=full.run_id,
-                turn_id=turn_id,
-            )
-            clusters = self._cluster_from_retrieval(
-                rr,
-                user_query=drift_summary,
-                cfg=cfg,
-                session_id=session_id,
-                full=full,
-                turn_id=turn_id,
-                turn_number=turn_number,
-            )
-
-        if conv.action is StateAction.re_retrieve:
-            re_summary = new_profile.summary or user_message
-            re_excluded = list(dict.fromkeys(prior_seen + new_profile.anchor_films))
-            log.info(
-                "re_retrieve — fresh chain from profile with seen-films excluded",
-                extra={
-                    "session_id": str(session_id),
-                    "turn_id": str(turn_id),
-                    "n_excluded_films": len(re_excluded),
-                },
-            )
-            rr = retrieval_agent.retrieve_from_profile(
-                summary=re_summary,
-                excluded_films=re_excluded,
-                k=cfg.retrieval.top_k,
-                session_id=session_id,
-                run_id=full.run_id,
-                turn_id=turn_id,
-            )
-            clusters = self._cluster_from_retrieval(
-                rr,
-                user_query=re_summary,
-                cfg=cfg,
-                session_id=session_id,
-                full=full,
-                turn_id=turn_id,
-                turn_number=turn_number,
-            )
-
-        if conv.action is StateAction.drift_dismissed:
-            log.info(
-                "drift dismissed — using current-turn retrieval",
-                extra={"session_id": str(session_id), "turn_id": str(turn_id)},
-            )
-
-        # State ↔ Cluster reconciliation: if state supplies a
-        # retrieval override, the speculative cluster result is stale — rerun.
-        if conv.retrieval_override:
-            log.warning(
-                "cluster rerun: state supplied retrieval override",
-                extra={
-                    "session_id": str(session_id),
-                    "turn_id": str(turn_id),
-                    "override_query": conv.retrieval_override,
-                },
-            )
-            rr = retrieval_agent.retrieve_from_message(
-                user_query=conv.retrieval_override,
-                k=cfg.retrieval.top_k,
-                session_id=session_id,
-                run_id=full.run_id,
-                turn_id=turn_id,
-            )
-            clusters = self._cluster_from_retrieval(
-                rr,
-                user_query=conv.retrieval_override,
-                cfg=cfg,
-                session_id=session_id,
-                full=full,
-                turn_id=turn_id,
-                turn_number=turn_number,
-            )
-
-        if clusters:
-            _emit_cluster_snapshot(clusters, progress_cb)
-
-        if not clusters:
-            _emit(ProgressStep.wrap_up, "start")
-            try:
-                return emit_early_clarification(
-                    session_id=session_id,
-                    turn_id=turn_id,
-                    turn_number=turn_number,
-                    user_message=user_message,
-                )
-            finally:
-                _emit(ProgressStep.wrap_up, "end")
-
-        api_sessions.append_turn(
+        full_session = await asyncio.to_thread(api_retrieval.get_session_full, session_id)
+        runner = TurnRunner(
             session_id=session_id,
-            turn_number=turn_number,
             user_message=user_message,
-            assistant_message=None,
-            step_type=None,
-            converged=False,
-            turn_id=turn_id,
+            full_session=full_session,
+            progress_cb=progress_cb,
         )
+        return await runner.run()
 
-        api_sessions.snapshot_clusters(
-            session_id, turn_id, [cluster_snapshot_to_spec(c) for c in clusters]
-        )
-
-        log.debug(
-            "cluster snapshot persisted",
-            extra={
-                "session_id": str(session_id),
-                "turn_id": str(turn_id),
-                "n_clusters": len(clusters),
-            },
-        )
-
-        _emit(ProgressStep.choose, "start")
-        decision = decision_agent.decide(
-            session_id=session_id,
-            run_id=full.run_id,
-            turn_id=turn_id,
-            turn_number=turn_number,
-            user_query=user_message,
-            clusters=clusters,
-            preference_profile=prior_profile,
-            prior_questions=prior_questions(full.turns),
-        )
-
-        log.debug(
-            "decision action chosen",
-            extra={
-                "session_id": str(session_id),
-                "turn_id": str(turn_id),
-                "action": decision.action.value,
-                "entropy_score": decision.entropy_score,
-            },
-        )
-
-        reply: str
-        step_type: StepType
-        converged: bool
-        recommendation: RecommendationPublic | None = None
-
-        if decision.action == DecisionAction.continue_:
-            reply = decision.question_text or ""
-            step_type = StepType.ask
-            converged = False
-        else:
-            best_cluster = next(
-                (c for c in clusters if c.id == decision.best_cluster_id),
-                clusters[0],
-            )
-            reply = render_recommendation(
-                best_cluster=best_cluster,
-                top_k=cfg.session.recommendation_top_k,
-            )
-            rendered_titles = [
-                a.title
-                for a in sorted(
-                    [a for a in best_cluster.assignments if not a.excluded],
-                    key=lambda a: a.score,
-                    reverse=True,
-                )[: cfg.session.recommendation_top_k]
-                if a.title
-            ]
-            new_profile.seen_films = list(
-                dict.fromkeys(new_profile.seen_films + rendered_titles)
-            )
-            converged = False
-            step_type = StepType.show
-            recommendation = _build_recommendation(best_cluster, cfg.session.recommendation_top_k)
-
-        log.debug(
-            "state verdict",
-            extra={
-                "session_id": str(session_id),
-                "turn_id": str(turn_id),
-                "converged": converged,
-                "step_type": step_type.value,
-            },
-        )
-        _emit(ProgressStep.choose, "end")
-
-        _emit(ProgressStep.finalize, "start")
-        api_sessions.update_turn(
-            turn_id=turn_id,
-            assistant_message=reply,
-            step_type=step_type.value,
-            converged=converged,
-        )
-
-        fb_level, fb_type, fb_target_id = classify_feedback(full.turns, user_message, decision)
-        api_sessions.write_feedback(
-            session_id=session_id,
-            turn_id=turn_id,
-            feedback_level=fb_level,
-            feedback_type=fb_type,
-            content=user_message,
-            target_id=fb_target_id,
-        )
-
-        new_profile.seen_films = list(
-            dict.fromkeys(prior_seen + new_profile.anchor_films + new_profile.seen_films)
-        )
-        api_sessions.update_preference_profile(session_id, new_profile.model_dump())
-        _emit(ProgressStep.finalize, "end")
-
-        log.debug(
-            "profile updated",
-            extra={
-                "session_id": str(session_id),
-                "turn_id": str(turn_id),
-                "n_constraints": len(new_profile.constraints),
-            },
-        )
-
-        now = datetime.now(timezone.utc)
-        log.info(
-            "turn handled",
-            extra={
-                "session_id": str(session_id),
-                "turn_number": turn_number,
-                "step_type": step_type.value,
-                "converged": converged,
-            },
-        )
-        return TurnResult(
-            turn_id=turn_id,
-            session_id=session_id,
-            turn_number=turn_number,
-            user_message=user_message,
-            assistant_message=reply,
-            step_type=step_type,
-            converged=converged,
-            created_at=now,
-            recommendation=recommendation,
-        )
-
-    def _cluster_from_retrieval(
-        self,
-        rr,
-        *,
-        user_query: str,
-        cfg,
-        session_id: UUID,
-        full,
-        turn_id: UUID,
-        turn_number: int,
-    ) -> list[ClusterSnapshot]:
-        """Run HDBSCAN → LLM describe over an already-fetched ``RetrievalResult``.
+    def list_sessions(self, user_id: UUID) -> list[SessionDto]:
+        """Return all sessions owned by user_id, newest first.
 
         Args:
-            rr:           ``RetrievalResult`` produced by one of the retrieve_from_* functions.
-            user_query:   The original query string (raw message or profile summary), passed
-                          to ``describe_clusters`` for context.
-            cfg:          Loaded settings for the current turn.
-            session_id:   UUID of the current session.
-            full:         Full session state loaded from DB.
-            turn_id:      UUID of the current turn.
-            turn_number:  1-based turn index within the session.
+            user_id: UUID of the authenticated user.
 
         Returns:
-            List of named ``ClusterSnapshot`` objects, or an empty list when
-            retrieval yields no candidates or HDBSCAN classifies all as noise.
+            List of ``SessionDto`` with ``turns=[]``, ordered by updated_at DESC.
         """
-        sr = cluster_agent.soft_cluster(
-            retrieval_result=rr,
-            session_id=session_id,
-            turn_id=turn_id,
-            turn_number=turn_number,
-        )
-        if sr is None:
-            return []
-        return cluster_agent.describe_clusters(
-            soft_result=sr,
-            user_query=user_query,
-            reformulated_query=rr.reformulated_query,
-            session_id=session_id,
-            run_id=full.run_id,
-            turn_id=turn_id,
-        )
+        rows = api_sessions.list_sessions_by_user(user_id)
+        return [presentation.row_to_session_dto(r) for r in rows]
 
-    def _terminate_turn(
-        self,
-        *,
-        session_id: UUID,
-        turn_id: UUID,
-        turn_number: int,
-        user_message: str,
-        decision: StateDecision,
-        recommendation: RecommendationPublic | None = None,
-    ) -> TurnResult:
-        """Persist and return a terminal turn when a hard limit is reached.
-
-        Writes step_type=stop, converged=False and marks the session abandoned.
-        No LLM call is made.
+    def delete_session(self, session_id: UUID, user_id: UUID) -> bool:
+        """Delete a session if it exists and is owned by user_id.
 
         Args:
-            session_id:     UUID of the target session.
-            turn_id:        Pre-allocated turn UUID.
-            turn_number:    1-based index for this turn.
-            user_message:   Oracle's message that triggered the limit check.
-            decision:       StateDecision from check_hard_limits.
-            recommendation: Last show turn's recommendation, if any.
+            session_id: UUID of the session to delete.
+            user_id:    UUID of the requesting user.
 
         Returns:
-            A TurnResult with step_type=stop, converged=False.
+            True if deleted, False if not found or not owned by user_id.
         """
-        reply = decision.reply or "Session limit reached. Thank you for using CinePal!"
-        step_type = StepType.stop
-        api_sessions.append_turn(
-            session_id=session_id,
-            turn_number=turn_number,
-            user_message=user_message,
-            assistant_message=reply,
-            step_type=step_type.value,
-            converged=False,
-            turn_id=turn_id,
-        )
-        api_sessions.mark_abandoned(session_id, decision.reason)
-        log.warning(
-            "turn terminated: hard limit",
-            extra={
-                "session_id": str(session_id),
-                "turn_number": turn_number,
-                "reason": decision.reason,
-            },
-        )
-        now = datetime.now(timezone.utc)
-        log.info(
-            "turn handled",
-            extra={
-                "session_id": str(session_id),
-                "turn_number": turn_number,
-                "step_type": step_type.value,
-                "converged": False,
-            },
-        )
-        return TurnResult(
-            turn_id=turn_id,
-            session_id=session_id,
-            turn_number=turn_number,
-            user_message=user_message,
-            assistant_message=reply,
-            step_type=step_type,
-            converged=False,
-            created_at=now,
-            recommendation=recommendation,
-        )
+        deleted = api_sessions.delete_session(session_id, user_id)
+        if deleted:
+            log.info(
+                "session deleted",
+                extra={"session_id": str(session_id), "user_id": str(user_id)},
+            )
+        return deleted
 
-    def _natural_end_turn(
-        self,
-        *,
-        session_id: UUID,
-        turn_id: UUID,
-        turn_number: int,
-        user_message: str,
-        decision: StateDecision,
-        preference_profile: dict,
-        recommendation: RecommendationPublic | None = None,
-    ) -> TurnResult:
-        """Persist and return a natural-end turn detected by the LLM gate.
-
-        Writes step_type=stop, converged=True, marks the session converged,
-        and records an accept feedback row.
+    def get_movie(self, movie_id: int) -> MovieDto | None:
+        """Return a single movie by TMDB id, or None if not in the catalogue.
 
         Args:
-            session_id:        UUID of the target session.
-            turn_id:           Pre-allocated turn UUID.
-            turn_number:       1-based index for this turn.
-            user_message:      Oracle's message that the gate classified as natural end.
-            decision:          StateDecision from the state agent.
-            preference_profile: N-1 profile to persist with the converged session.
-            recommendation:    Last show turn's recommendation, if any.
+            movie_id: TMDB integer id.
 
         Returns:
-            A TurnResult with step_type=stop, converged=True.
+            A ``MovieDto`` or ``None`` when the id is unknown.
         """
-        reply = decision.reply or "Thank you — closing the session!"
-        step_type = StepType.stop
-        api_sessions.append_turn(
-            session_id=session_id,
-            turn_number=turn_number,
-            user_message=user_message,
-            assistant_message=reply,
-            step_type=step_type.value,
-            converged=True,
-            turn_id=turn_id,
-        )
-        api_sessions.write_feedback(
-            session_id=session_id,
-            turn_id=turn_id,
-            feedback_level="global",
-            feedback_type="accept",
-            content=user_message,
-            target_id=None,
-        )
-        api_sessions.mark_converged(session_id, preference_profile)
-        log.info(
-            "turn handled",
-            extra={
-                "session_id": str(session_id),
-                "turn_number": turn_number,
-                "step_type": step_type.value,
-                "converged": True,
-            },
-        )
-        now = datetime.now(timezone.utc)
-        return TurnResult(
-            turn_id=turn_id,
-            session_id=session_id,
-            turn_number=turn_number,
-            user_message=user_message,
-            assistant_message=reply,
-            step_type=step_type,
-            converged=True,
-            created_at=now,
-            recommendation=recommendation,
-        )
+        rows = api_movies.fetch_movies_dto([movie_id])
+        if not rows:
+            return None
+        return MovieDto(**rows[0])
 
-    def get_session(self, session_id: UUID) -> SessionState:
+    def get_session(self, session_id: UUID) -> SessionDto:
         """Return full session state including all turns from the DB.
-
         Args:
             session_id: UUID of the session to retrieve.
-
         Returns:
-            A ``SessionState`` with turns in ascending turn_number order.
-
+            A ``SessionDto`` with turns in ascending turn_number order.
         Raises:
             SessionNotFound: If *session_id* does not exist in the DB.
         """
         try:
-            full = api_retrieval.get_session_full(session_id)
+            full_session = api_retrieval.get_session_full(session_id)
         except ValueError as exc:
             raise SessionNotFound(session_id) from exc
-
-        cfg = get_settings()
-
-        # Pre-compute the best cluster + top-movie-ids for every show turn so we
-        # can batch all movie fetches into a single DB call.
-        show_turn_info: dict[UUID, tuple[ClusterSnapshot, list[int]]] = {}
-        for t in full.turns:
-            if t.step_type == StepType.show.value and t.clusters:
-                best = _pick_best_cluster(t.clusters)
-                top_ids = [
-                    a.movie_id
-                    for a in sorted(
-                        [a for a in best.assignments if not a.excluded],
-                        key=lambda a: a.score,
-                        reverse=True,
-                    )[: cfg.session.recommendation_top_k]
-                ]
-                show_turn_info[t.id] = (best, top_ids)
-
-        # Batch-fetch all movie metadata needed across all show turns
-        all_ids = list(
-            dict.fromkeys(mid for _, (_, ids) in show_turn_info.items() for mid in ids)
-        )
-        movie_data: dict[int, dict] = (
-            {m["id"]: m for m in api_movies.fetch_movies_public(all_ids)}
-            if all_ids
-            else {}
-        )
-
-        # Build turns, hydrating recommendation for show and stop steps
-        last_show_recommendation: RecommendationPublic | None = None
-        turns: list[TurnResult] = []
-        for t in full.turns:
-            recommendation: RecommendationPublic | None = None
-            step = StepType(t.step_type) if t.step_type else StepType.show
-            if step == StepType.show and t.id in show_turn_info:
-                best, top_ids = show_turn_info[t.id]
-                recommendation = _make_recommendation_public(best, top_ids, movie_data)
-                last_show_recommendation = recommendation
-            elif step == StepType.stop:
-                recommendation = last_show_recommendation
-
-            turns.append(
-                TurnResult(
-                    turn_id=t.id,
-                    session_id=session_id,
-                    turn_number=t.turn_number,
-                    user_message=t.user_message,
-                    assistant_message=t.assistant_message or "",
-                    step_type=step,
-                    converged=t.converged,
-                    created_at=t.created_at,
-                    recommendation=recommendation,
-                )
-            )
-
-        return SessionState(
-            session_id=full.session_id,
-            status=SessionStatus(full.status),
-            max_turns=full.max_turns,
-            created_at=full.created_at,
-            updated_at=full.updated_at,
-            turns=turns,
-        )
+        return presentation.assemble_session_dto(full_session)

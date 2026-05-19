@@ -3,7 +3,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useFetchMovieDetail } from "@/features/clusters/hooks/useFetchMovieDetail";
 import { useUiStore } from "@/store/uiStore";
 import { buildPosterUrl, formatRuntime, formatRating } from "@/features/clusters/utils/clusterFormatters";
-import type { MoviePublic } from "@/utils/types";
+import type { MovieDto } from "@/utils/types";
 
 /**
  * Global film detail modal.
@@ -43,7 +43,7 @@ function FilmSkeleton() {
   );
 }
 
-function FilmLayout({ film }: { film: MoviePublic }) {
+function FilmLayout({ film }: { film: MovieDto }) {
   const posterSrc = buildPosterUrl(film.poster_url);
   const subtitle = [film.release_year, formatRuntime(film.runtime)].filter(Boolean).join(" · ");
 
@@ -59,35 +59,54 @@ function FilmLayout({ film }: { film: MoviePublic }) {
         )}
       </div>
 
-      <div className="flex-1 p-6 flex flex-col gap-2 overflow-y-auto max-h-[70vh] sm:max-h-[500px]">
+      <div className="flex-1 p-6 flex flex-col gap-3 overflow-y-auto max-h-[70vh] sm:max-h-[500px]">
         <h2 className="font-display text-xl leading-tight text-foreground">{film.title}</h2>
 
         {subtitle && (
-          <p className="text-sm text-muted-foreground">{subtitle}</p>
+          <p className="text-xs text-muted-foreground">{subtitle}</p>
         )}
 
-        <div className="flex items-center gap-2 text-sm">
-          {film.vote_average !== null && (
-            <span className="text-primary font-medium">⭐ {formatRating(film.vote_average)}</span>
-          )}
-          {film.genres.length > 0 && (
-            <span className="text-muted-foreground">{film.genres.slice(0, 3).join(", ")}</span>
-          )}
-        </div>
+        {film.genres.length > 0 && (
+          <div className="flex flex-wrap gap-1">
+            {film.genres.slice(0, 4).map((g) => (
+              <span key={g} className="inline-flex items-center rounded-md bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+                {g}
+              </span>
+            ))}
+          </div>
+        )}
+
+        {film.vote_average !== null && (
+          <p className="text-sm font-medium text-amber-500">⭐ {formatRating(film.vote_average)}</p>
+        )}
 
         {film.director && (
-          <p className="text-sm text-muted-foreground">
-            <span className="text-foreground/60 text-xs uppercase tracking-wider mr-1">Dir.</span>
-            {film.director}
-          </p>
+          <div>
+            <p className="text-[10px] uppercase tracking-widest text-muted-foreground/60 mb-1">Director</p>
+            <div className="flex items-center gap-2">
+              <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-medium text-foreground">
+                {film.director.charAt(0)}
+              </span>
+              <span className="font-display text-sm font-medium text-foreground">{film.director}</span>
+            </div>
+          </div>
         )}
 
         {film.top_cast.length > 0 && (
-          <p className="text-sm text-muted-foreground">{film.top_cast.slice(0, 4).join(", ")}</p>
+          <div>
+            <p className="text-[10px] uppercase tracking-widest text-muted-foreground/60 mb-1.5">Cast</p>
+            <div className="flex flex-wrap gap-1.5">
+              {film.top_cast.slice(0, 4).map((actor) => (
+                <span key={actor} className="inline-flex items-center rounded-full border border-border/60 bg-muted/50 px-2.5 py-0.5 text-xs text-foreground/80">
+                  {actor}
+                </span>
+              ))}
+            </div>
+          </div>
         )}
 
         {film.overview && (
-          <p className="text-sm text-foreground/80 leading-relaxed mt-1">{film.overview}</p>
+          <p className="text-sm text-foreground/70 leading-relaxed border-t border-border/40 pt-3 mt-1">{film.overview}</p>
         )}
       </div>
     </div>

@@ -11,8 +11,8 @@ session-scoped ``client`` fixture used by the smoke tests.
 
 from __future__ import annotations
 
+import asyncio
 import json
-import time
 from datetime import datetime, timezone
 from typing import Any, Iterator
 from uuid import UUID, uuid4
@@ -23,21 +23,21 @@ from fastapi.testclient import TestClient
 
 from backend.api.types import SessionStatus, StepType
 from backend.exceptions import SessionNotFound
-from backend.orchestrator.progress import (
+from backend.orchestrator.turn.progress import (
     ProgressCallback,
     ProgressEvent,
     ProgressStep,
 )
-from backend.routers.dtos import SessionState, TurnResult
+from backend.routers.dtos import SessionDto, TurnDto
 from backend.routers.sessions import router as sessions_router
 
 
 SESSION_ID = uuid4()
 
 
-def _make_turn_result(session_id: UUID, *, message: str = "ok") -> TurnResult:
-    """Build a deterministic ``TurnResult`` for the fake to return."""
-    return TurnResult(
+def _make_turn_result(session_id: UUID, *, message: str = "ok") -> TurnDto:
+    """Build a deterministic ``TurnDto`` for the fake to return."""
+    return TurnDto(
         turn_id=uuid4(),
         session_id=session_id,
         turn_number=1,
@@ -50,10 +50,10 @@ def _make_turn_result(session_id: UUID, *, message: str = "ok") -> TurnResult:
     )
 
 
-def _make_session_state(session_id: UUID) -> SessionState:
-    """Build a minimal ``SessionState`` for the pre-stream existence check."""
+def _make_session_state(session_id: UUID) -> SessionDto:
+    """Build a minimal ``SessionDto`` for the pre-stream existence check."""
     now = datetime.now(timezone.utc)
-    return SessionState(
+    return SessionDto(
         session_id=session_id,
         status=SessionStatus.active,
         max_turns=10,
@@ -78,7 +78,7 @@ class FakeOrchestrator:
         *,
         known_session_ids: set[UUID],
         scripted_events: list[tuple[ProgressStep, str]],
-        returns: TurnResult | None = None,
+        returns: TurnDto | None = None,
         raises: Exception | None = None,
         progress_delay_s: float = 0.0,
     ) -> None:
@@ -89,24 +89,27 @@ class FakeOrchestrator:
         self.delay = progress_delay_s
         self.received_cb: list[ProgressEvent] = []
 
-    def get_session(self, session_id: UUID) -> SessionState:
+    def get_session(self, session_id: UUID) -> SessionDto:
         if session_id not in self.known:
             raise SessionNotFound(f"no such session {session_id}")
         return _make_session_state(session_id)
 
-    def handle_turn(
+    async def run_turn(
         self,
         session_id: UUID,
         user_message: str,
         progress_cb: ProgressCallback | None = None,
-    ) -> TurnResult:
+    ) -> TurnDto:
         for step, phase in self.scripted:
             event = ProgressEvent(step=step, phase=phase)  # type: ignore[arg-type]
             if progress_cb is not None:
                 progress_cb(event)
                 self.received_cb.append(event)
             if self.delay:
-                time.sleep(self.delay)
+                # Hand control back to the event loop so the streaming consumer
+                # can drain events between scripted steps — proves the queue
+                # genuinely interleaves with the worker.
+                await asyncio.sleep(self.delay)
         if self.raises is not None:
             raise self.raises
         assert self.returns is not None
@@ -149,12 +152,12 @@ def test_success_stream_emits_progress_then_result(known_session_id: UUID) -> No
     fake = FakeOrchestrator(
         known_session_ids={known_session_id},
         scripted_events=[
-            (ProgressStep.understand, "start"),
-            (ProgressStep.understand, "end"),
-            (ProgressStep.choose, "start"),
-            (ProgressStep.choose, "end"),
-            (ProgressStep.finalize, "start"),
-            (ProgressStep.finalize, "end"),
+            (ProgressStep.UNDERSTAND, "start"),
+            (ProgressStep.UNDERSTAND, "end"),
+            (ProgressStep.CHOOSE, "start"),
+            (ProgressStep.CHOOSE, "end"),
+            (ProgressStep.FINALIZE, "start"),
+            (ProgressStep.FINALIZE, "end"),
         ],
         returns=_make_turn_result(known_session_id),
         progress_delay_s=0.001,
@@ -190,10 +193,10 @@ def test_early_exit_emits_wrap_up_after_understand(known_session_id: UUID) -> No
     fake = FakeOrchestrator(
         known_session_ids={known_session_id},
         scripted_events=[
-            (ProgressStep.understand, "start"),
-            (ProgressStep.understand, "end"),
-            (ProgressStep.wrap_up, "start"),
-            (ProgressStep.wrap_up, "end"),
+            (ProgressStep.UNDERSTAND, "start"),
+            (ProgressStep.UNDERSTAND, "end"),
+            (ProgressStep.WRAP_UP, "start"),
+            (ProgressStep.WRAP_UP, "end"),
         ],
         returns=_make_turn_result(known_session_id, message="wrapped"),
     )
@@ -214,7 +217,7 @@ def test_every_line_is_valid_json(known_session_id: UUID) -> None:
     """No partial frames, no trailing garbage — strict NDJSON."""
     fake = FakeOrchestrator(
         known_session_ids={known_session_id},
-        scripted_events=[(ProgressStep.understand, "start"), (ProgressStep.understand, "end")],
+        scripted_events=[(ProgressStep.UNDERSTAND, "start"), (ProgressStep.UNDERSTAND, "end")],
         returns=_make_turn_result(known_session_id),
     )
     response = TestClient(_app_with(fake)).post(
@@ -245,7 +248,7 @@ def test_error_event_replaces_result_when_worker_raises(known_session_id: UUID) 
     """A mid-turn raise becomes a terminal error event, HTTP stays 200."""
     fake = FakeOrchestrator(
         known_session_ids={known_session_id},
-        scripted_events=[(ProgressStep.understand, "start")],
+        scripted_events=[(ProgressStep.UNDERSTAND, "start")],
         raises=RuntimeError("understand crashed"),
     )
     status, _, events = _stream_post(TestClient(_app_with(fake)), known_session_id)

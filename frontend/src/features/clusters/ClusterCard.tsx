@@ -1,4 +1,5 @@
 import { TooltipProvider, Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
+import { motion } from "framer-motion";
 import { useUiStore } from "@/store/uiStore";
 import { ConfidenceBar } from "@/components/ConfidenceBar";
 import { buildPosterUrl, clusterColor } from "@/features/clusters/utils/clusterFormatters";
@@ -22,9 +23,10 @@ interface ClusterCardProps {
 export function ClusterCard({ cluster, isRefining }: ClusterCardProps) {
   const { openFilmDetail } = useUiStore();
   const color = clusterColor(cluster.id);
+  const films = cluster.films;
 
   return (
-    <div className="relative rounded-lg border border-border bg-card overflow-hidden">
+    <div className="relative rounded-lg border border-border bg-card min-w-0">
       <div className="absolute left-0 top-0 bottom-0 w-1 shrink-0" style={{ backgroundColor: color }} />
 
       {isRefining && (
@@ -39,52 +41,64 @@ export function ClusterCard({ cluster, isRefining }: ClusterCardProps) {
         </div>
       )}
 
-      <div className="pl-5 pr-4 pt-4 pb-3">
+      <div className="pl-5 pr-4 pt-4 pb-3 min-w-0">
         <h4 className="font-display text-base text-foreground tracking-tight leading-tight">
           {cluster.name}
         </h4>
         {cluster.description && (
-          <p className="mt-0.5 text-xs text-muted-foreground leading-relaxed">
+          <p className="mt-0.5 text-xs text-muted-foreground leading-relaxed whitespace-normal break-words">
             {cluster.description}
           </p>
         )}
 
         <div className="mt-2">
           <ConfidenceBar score={cluster.confidence} label={`${cluster.name} confidence`} />
+          {!isRefining && (
+            <motion.div
+              className="mt-1 h-px rounded-full bg-border/60"
+              initial={{ opacity: 0, scaleX: 0 }}
+              animate={{ opacity: 1, scaleX: 1 }}
+              transition={{ duration: 0.5, ease: "easeOut" }}
+              style={{ originX: 0 }}
+            />
+          )}
         </div>
 
-        {cluster.top_films.length > 0 && (
+        {films.length > 0 && (
           <TooltipProvider delayDuration={300}>
-            <div className="mt-3 flex gap-1.5 overflow-x-auto pb-1 -mx-1 px-1">
-              {cluster.top_films.map((film) => (
-                <Tooltip key={film.id}>
-                  <TooltipTrigger asChild>
-                    <button
-                      type="button"
-                      onClick={() => openFilmDetail(film.id)}
-                      className="shrink-0 w-12 h-[72px] rounded overflow-hidden bg-muted focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                    >
-                      {buildPosterUrl(film.poster_url) ? (
-                        <img
-                          src={buildPosterUrl(film.poster_url)!}
-                          alt={film.title}
-                          className="w-full h-full object-cover hover:scale-110 transition-transform duration-200"
-                        />
-                      ) : (
-                        <div className="w-full h-full flex items-center justify-center text-muted-foreground text-[0.5rem] p-1 text-center leading-tight">
-                          {film.title}
-                        </div>
+            <div className="mt-3 -mx-1 overflow-x-auto pb-1 px-1 cluster-film-scroll">
+              <div className="flex flex-nowrap gap-1.5">
+                {films.map((film) => (
+                  <Tooltip key={film.id}>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        onClick={() => openFilmDetail(film.id)}
+                        className="shrink-0 w-12 h-[72px] rounded overflow-hidden bg-muted focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      >
+                        {buildPosterUrl(film.poster_url) ? (
+                          <img
+                            src={buildPosterUrl(film.poster_url)!}
+                            alt={film.title}
+                            className="w-full h-full object-cover hover:scale-110 transition-transform duration-200"
+                            loading="lazy"
+                          />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center text-muted-foreground text-[0.5rem] p-1 text-center leading-tight">
+                            {film.title}
+                          </div>
+                        )}
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom">
+                      <p className="font-medium">{film.title}</p>
+                      {film.release_year && (
+                        <p className="text-muted-foreground text-xs">{film.release_year}</p>
                       )}
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent side="bottom">
-                    <p className="font-medium">{film.title}</p>
-                    {film.release_year && (
-                      <p className="text-muted-foreground text-xs">{film.release_year}</p>
-                    )}
-                  </TooltipContent>
-                </Tooltip>
-              ))}
+                    </TooltipContent>
+                  </Tooltip>
+                ))}
+              </div>
             </div>
           </TooltipProvider>
         )}

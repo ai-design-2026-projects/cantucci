@@ -1,73 +1,59 @@
-"""Progress event protocol for streaming turn execution.
-
-Defines the contract the orchestrator uses to notify HTTP-layer callers of
-wave boundaries while ``handle_turn`` runs synchronously. The orchestrator
-invokes a ``ProgressCallback`` at the start and end of each wave; the
-router translates those callbacks into NDJSON lines on the wire, which the
-live-state frontend (``PipelineStatusLine``) renders as the current stage.
-
-This module owns the callback shape and the event payloads, so the router
-never reaches into orchestrator internals to invent event types.
-
-Parallel components
--------------------
-The ``understand`` step wraps Wave 1, in which up to three agents run
-concurrently on a ``ThreadPoolExecutor(max_workers=3)``:
-
-* ``state_agent.check``       — hard-limit and LLM drift/end/re-retrieve gate.
-* ``profile_agent.extract``   — preference-profile extraction.
-* ``cluster_agent.refine``    — refinement turns only (speculative).
-
-Retrieval is intentionally absent from Wave 1. On fresh turns it runs
-serially after state_agent returns a non-terminal action, so terminal
-paths (terminate, natural_end, clarify_drift) and retrieval_override
-reruns never pay for a wasted retrieval call.
-
-The ``choose`` step wraps Wave 2, which is a single serial call to
-``decision_agent.decide`` (ambiguity was merged into the decision agent
-in PR #61, so there is no longer a second parallel sibling here).
 """
-
-from __future__ import annotations
-
+Progress event protocol for streaming turn execution.
+Defines the contract the orchestrator uses to notify HTTP-layer callers of
+step boundaries while ``run_turn`` drives an async task graph. The
+orchestrator invokes a ``ProgressCallback`` at the start and end of each
+step; the router translates those callbacks into NDJSON lines on the wire,
+which the live-state frontend (``PipelineStatusLine``) renders as the
+current stage.
+"""
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Literal, Protocol, Union
-
 from pydantic import BaseModel, Field
-
-from backend.routers.dtos import TurnResult
+from backend.routers.dtos import TurnDto
 
 
 class ProgressStep(str, Enum):
-    """The wave-level checkpoints a streaming client may observe.
-
-    Orchestrator v2 runs Wave 1 as three agents in parallel and Wave 2 as a
-    single serial agent, so per-agent boundaries would either fire
-    concurrently or lie about ordering. Each value here wraps one logical
-    block the user perceives as a single activity:
-
-    * ``understand`` — Wave 1, parallel: state + profile + refine (if
-                       applicable). Retrieval runs serially after state check
-                       on fresh turns.
-    * ``choose``     — Wave 2, serial: decision (now generates the
-      clarifying question itself; ambiguity merged in per PR #61).
-    * ``finalize``   — Reply rendering and final persistence.
-    * ``wrap_up``    — Early-exit paths (hard limit, natural end, drift,
-      empty retrieval) that skip the rest of the pipeline.
     """
+    Pipeline checkpoints a streaming client may observe, from coarse wave-level
+    to fine sub-step. Coarse values (UNDERSTAND, CHOOSE, FINALIZE, WRAP_UP) are
+    kept for back-compat; fine-grained values are emitted in addition so clients
+    can display a more specific status label.
 
-    understand = "understand"
-    choose = "choose"
-    finalize = "finalize"
-    wrap_up = "wrap_up"
+    Wave-level:
+    * ``UNDERSTAND`` — Wave 1: parallel state gate + profile + retrieval +
+                       clustering. Sub-steps RETRIEVING and CLUSTERING fire
+                       within this wave.
+    * ``CHOOSE``     — Wave 2: decision agent selects ask or show. Sub-steps
+                       DECIDING and COMPOSING fire within this wave.
+    * ``FINALIZE``   — Reply persistence and profile update.
+    * ``WRAP_UP``    — Early-exit paths (hard limit, natural end, drift, empty
+                       retrieval) that bypass the main pipeline.
+
+    Fine-grained sub-steps (fired in addition to the wave event):
+    * ``RETRIEVING`` — Vector search running inside UNDERSTAND.
+    * ``CLUSTERING`` — Cluster refinement running inside UNDERSTAND, after
+                       retrieval results are ready.
+    * ``DECIDING``   — Decision agent running inside CHOOSE.
+    * ``COMPOSING``  — Reply text being built inside CHOOSE.
+    """
+    UNDERSTAND = "understand"
+    RETRIEVING = "retrieving"
+    CLUSTERING = "clustering"
+    CHOOSE = "choose"
+    DECIDING = "deciding"
+    COMPOSING = "composing"
+    FINALIZE = "finalize"
+    WRAP_UP = "wrap_up"
 
 
 ProgressPhase = Literal["start", "end"]
 
 
 class ProgressEvent(BaseModel):
-    """One step boundary in a turn.
+    """
+    One step boundary in a turn.
 
     Attributes:
         type: Always ``"progress"`` so frontend can discriminate the union.
@@ -75,7 +61,6 @@ class ProgressEvent(BaseModel):
         phase: ``"start"`` when the step begins, ``"end"`` when it returns.
         ts:   Server-set UTC timestamp of the boundary.
     """
-
     type: Literal["progress"] = "progress"
     step: ProgressStep
     phase: ProgressPhase
@@ -83,8 +68,8 @@ class ProgressEvent(BaseModel):
 
 
 class ClusterFilmStub(BaseModel):
-    """Lightweight film metadata carried in a cluster snapshot event.
-
+    """
+    Lightweight film metadata carried in a cluster snapshot event.
     Attributes:
         id:            TMDB movie id.
         title:         English release title.
@@ -92,7 +77,6 @@ class ClusterFilmStub(BaseModel):
         release_year:  4-digit release year or None.
         vote_average:  TMDB mean rating 0–10 or None.
     """
-
     id: int
     title: str
     poster_url: str | None
@@ -101,32 +85,31 @@ class ClusterFilmStub(BaseModel):
 
 
 class ClusterSnapshotPayload(BaseModel):
-    """One cluster as it appears in a mid-turn snapshot event.
-
+    """
+    One cluster as it appears in a mid-turn snapshot event.
     Attributes:
         id:          Cluster UUID (string form).
         name:        Human-readable cluster label.
         description: Short theme description or None.
         level:       1 = coarse, 2 = fine.
         confidence:  Mean soft-assignment score over non-excluded films in [0, 1].
-        top_films:   All non-excluded films sorted by descending soft score.
+        films:       All assigned films: non-excluded first (score desc), then
+                     excluded. Matches the ordering used in ClusterDto.top_titles.
     """
-
     id: str
     name: str
     description: str | None
     level: int
     confidence: float
-    top_films: list[ClusterFilmStub]
+    films: list[ClusterFilmStub]
 
 
 class ClusterSnapshotEvent(BaseModel):
-    """Mid-turn event carrying the live cluster snapshot after clustering.
-
+    """
+    Mid-turn event carrying the live cluster snapshot after clustering.
     Emitted once per turn, after Wave 1 clustering completes, so the frontend
     can update the Cluster Snapshot panel in real time while the decision
     agent is still running.
-
     Attributes:
         type:     Always ``"clusters"`` for discrimination.
         clusters: List of cluster payloads, ordered by cluster level then name.
@@ -139,30 +122,27 @@ class ClusterSnapshotEvent(BaseModel):
 
 
 class ResultEvent(BaseModel):
-    """Terminal event carrying the full turn payload.
-
+    """
+    Terminal event carrying the full turn payload.
     Attributes:
         type: Always ``"result"`` for discrimination.
-        data: The same ``TurnResult`` shape the legacy JSON endpoint returned.
+        data: The same ``TurnDto`` shape the legacy JSON endpoint returned.
     """
-
     type: Literal["result"] = "result"
-    data: TurnResult
+    data: TurnDto
 
 
 class ErrorEvent(BaseModel):
-    """Terminal event emitted when the worker thread raises.
-
+    """
+    Terminal event emitted when the worker thread raises.
     HTTP status is already 200 by the time we know about the failure (headers
     are flushed before the orchestrator runs), so the frontend learns about
     errors by seeing this line instead of a ``result`` line.
-
     Attributes:
         type:    Always ``"error"`` for discrimination.
         code:    Short machine-readable code (e.g. exception class name).
         message: Human-readable failure reason; safe to surface in the UI.
     """
-
     type: Literal["error"] = "error"
     code: str
     message: str
@@ -175,9 +155,8 @@ StreamEvent = Union[ProgressEvent, ClusterSnapshotEvent, ResultEvent, ErrorEvent
 class ProgressCallback(Protocol):
     """Callable the orchestrator invokes at step boundaries and after clustering.
 
-    Implementations must be thread-safe: ``handle_turn`` may be running in a
-    worker thread while the FastAPI event loop consumes events on another.
-    Implementations must not raise — the orchestrator wraps each invocation
+    Invoked on the event loop thread (``run_turn`` is async). Implementations
+    must not block or raise — the orchestrator wraps each invocation
     defensively, but propagating exceptions would still pollute logs.
     """
 
@@ -189,7 +168,7 @@ class ProgressCallback(Protocol):
 class NullProgressCallback:
     """No-op default used when no streaming client is attached.
 
-    Lets ``handle_turn`` keep an unconditional callback invocation in its body
+    Lets ``run_turn`` keep an unconditional callback invocation in its body
     without forcing every caller (tests, eval scripts, future batch jobs) to
     build a real callback.
     """

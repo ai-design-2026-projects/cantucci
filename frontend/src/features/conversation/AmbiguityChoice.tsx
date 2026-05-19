@@ -4,7 +4,7 @@ import type { AmbiguityMeta } from "@/utils/types";
 import { normaliseAmbiguityChoices } from "./utils/messageFormatters";
 
 interface AmbiguityChoiceProps {
-  /** Metadata from the ask-type TurnResult. */
+  /** Metadata from the ask-type TurnDto. */
   meta: AmbiguityMeta;
   /** Called when the oracle selects a choice; receives the choice label text. */
   onChoose: (choice: string) => void;

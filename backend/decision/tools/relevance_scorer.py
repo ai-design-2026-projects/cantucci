@@ -9,7 +9,7 @@ import logging
 import re
 from uuid import UUID
 
-from backend.api.types import ClusterSnapshot
+from backend.api.types import ClusterRow
 
 log = logging.getLogger(__name__)
 
@@ -21,7 +21,7 @@ def _tokens(text: str) -> set[str]:
 
 def score(
     user_query: str,
-    clusters: list[ClusterSnapshot],
+    clusters: list[ClusterRow],
 ) -> dict[UUID, float]:
     """Return per-cluster Jaccard relevance scores for *user_query*.
 

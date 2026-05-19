@@ -1,0 +1,19 @@
+You are evaluating the quality of clarifying questions asked by a movie recommendation system.
+
+## Ground-truth taste profile
+{{ gt_description }}
+
+## Conversation transcript
+{{ transcript }}
+
+## Task
+Score the **question quality** on a scale of 1–5:
+
+- 5: Questions were highly targeted, progressively refined the preference profile, and efficiently converged on the oracle's taste.
+- 4: Questions were mostly effective with minor inefficiencies.
+- 3: Questions were adequate but sometimes redundant, too broad, or off-topic.
+- 2: Questions were poorly targeted — many missed the key dimensions of the oracle's taste.
+- 1: Questions were irrelevant or unhelpful throughout.
+
+Output valid JSON only:
+{"score": <1-5>, "rationale": "<one sentence explaining the score>"}

@@ -1,4 +1,5 @@
-"""Unit tests for active orchestrator policy helpers.
+"""Unit tests for orchestrator history-inspection helpers and
+ClusterRow's type-conversion classmethod.
 
 Pure Python, no DB, no Docker, no LLM.
 """
@@ -10,19 +11,19 @@ from uuid import uuid4
 
 from backend.api.types import (
     ClusterAssignment,
-    ClusterSnapshot,
+    ClusterRow,
     StepType,
-    TurnDetail,
+    TurnRow,
 )
-from backend.orchestrator.tools.policy import cluster_snapshot_to_spec, prior_questions
+from backend.orchestrator.utils.history import prior_questions
 
 
 def _turn(
     *,
     step_type: str | None,
     assistant_message: str | None,
-) -> TurnDetail:
-    return TurnDetail(
+) -> TurnRow:
+    return TurnRow(
         id=uuid4(),
         turn_number=1,
         user_message="user",
@@ -57,7 +58,7 @@ def test_prior_questions_ignores_non_ask_and_empty_messages() -> None:
 
 def test_cluster_snapshot_to_spec_preserves_cluster_fields() -> None:
     parent_id = uuid4()
-    snapshot = ClusterSnapshot(
+    snapshot = ClusterRow(
         id=uuid4(),
         name="Quiet dread",
         description="Slow, unsettling films",
@@ -66,7 +67,7 @@ def test_cluster_snapshot_to_spec_preserves_cluster_fields() -> None:
         assignments=[],
     )
 
-    spec = cluster_snapshot_to_spec(snapshot)
+    spec = snapshot.to_spec()
 
     assert spec.name == "Quiet dread"
     assert spec.description == "Slow, unsettling films"
@@ -75,7 +76,7 @@ def test_cluster_snapshot_to_spec_preserves_cluster_fields() -> None:
 
 
 def test_cluster_snapshot_to_spec_converts_assignments() -> None:
-    snapshot = ClusterSnapshot(
+    snapshot = ClusterRow(
         id=uuid4(),
         name="Noir",
         description=None,
@@ -87,13 +88,13 @@ def test_cluster_snapshot_to_spec_converts_assignments() -> None:
         ],
     )
 
-    spec = cluster_snapshot_to_spec(snapshot)
+    spec = snapshot.to_spec()
 
     assert spec.assignments == [(10, 0.9, False), (20, 0.4, True)]
 
 
 def test_cluster_snapshot_to_spec_sets_centroid_to_none() -> None:
-    snapshot = ClusterSnapshot(
+    snapshot = ClusterRow(
         id=uuid4(),
         name="Anything",
         description=None,
@@ -102,4 +103,4 @@ def test_cluster_snapshot_to_spec_sets_centroid_to_none() -> None:
         assignments=[],
     )
 
-    assert cluster_snapshot_to_spec(snapshot).centroid is None
+    assert snapshot.to_spec().centroid is None

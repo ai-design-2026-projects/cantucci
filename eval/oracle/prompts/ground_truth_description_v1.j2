@@ -1,0 +1,17 @@
+You are writing a neutral, voice-agnostic taste profile for a movie viewer.
+
+The following films were sampled from a curated set that represents this viewer's ideal taste:
+
+## Seed films (starting point)
+{% for film in seed_films %}
+- {{ film.title }}{% if film.release_year %} ({{ film.release_year }}){% endif %}{% if film.genres %} — {{ film.genres | join(", ") }}{% endif %}
+{% endfor %}
+
+## Expanded similar films (ground-truth set)
+{% for film in gt_films %}
+- {{ film.title }}{% if film.release_year %} ({{ film.release_year }}){% endif %}{% if film.genres %} — {{ film.genres | join(", ") }}{% endif %}
+{% endfor %}
+
+Write a 3–5 sentence description of what unifies these films — the themes, tones, genres, styles, and emotional registers they share. Write in the third person ("This viewer gravitates toward..."). Do NOT name specific films. Do NOT mention the viewer's personality or communication style — describe taste content only.
+
+Output only the description paragraph, nothing else.

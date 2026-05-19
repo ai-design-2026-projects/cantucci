@@ -3,7 +3,8 @@ import { streamTurn } from "@/features/conversation/services/turnService";
 import { useSessionStore } from "@/store/sessionStore";
 import { useUiStore } from "@/store/uiStore";
 import { useClusterSnapshotStore } from "@/store/clusterSnapshotStore";
-import type { SessionState, TurnResult } from "@/utils/types";
+import { useTurnFlightStore } from "@/store/turnFlightStore";
+import type { SessionDto, TurnDto } from "@/utils/types";
 
 interface PostTurnParams {
   /** Session id to post the turn to. */
@@ -29,9 +30,10 @@ export function useTurnHandler() {
   const { incrementTurn } = useSessionStore();
   const { setCurrentStep } = useUiStore();
   const { setSnapshot, setRefining } = useClusterSnapshotStore();
+  const { markStarted, markStep, markFinished } = useTurnFlightStore();
 
   const { mutate: submitTurn, isPending, error } = useMutation<
-    TurnResult,
+    TurnDto,
     Error,
     PostTurnParams
   >({
@@ -43,6 +45,7 @@ export function useTurnHandler() {
           // an empty state between steps.
           if (event.phase === "start") {
             setCurrentStep(event.step);
+            markStep(sessionId, event.step);
           }
         },
         onClusters: (event) => {
@@ -52,10 +55,11 @@ export function useTurnHandler() {
     onMutate: async ({ sessionId, userMessage }) => {
       await queryClient.cancelQueries({ queryKey: ["session", sessionId] });
       setCurrentStep(null);
+      markStarted(sessionId);
 
-      const previous = queryClient.getQueryData<SessionState>(["session", sessionId]);
+      const previous = queryClient.getQueryData<SessionDto>(["session", sessionId]);
       if (previous) {
-        const optimistic: TurnResult = {
+        const optimistic: TurnDto = {
           turn_id: `optimistic-${Date.now()}`,
           session_id: sessionId,
           turn_number: previous.turns.length + 1,
@@ -67,7 +71,7 @@ export function useTurnHandler() {
           ambiguity_meta: null,
           recommendation: null,
         };
-        queryClient.setQueryData<SessionState>(["session", sessionId], {
+        queryClient.setQueryData<SessionDto>(["session", sessionId], {
           ...previous,
           turns: [...previous.turns, optimistic],
         });
@@ -75,15 +79,17 @@ export function useTurnHandler() {
       return { previous };
     },
     onError: (_err, { sessionId }, context) => {
-      const ctx = context as { previous?: SessionState } | undefined;
+      const ctx = context as { previous?: SessionDto } | undefined;
       if (ctx?.previous) {
         queryClient.setQueryData(["session", sessionId], ctx.previous);
       }
       setCurrentStep(null);
+      markFinished(sessionId);
     },
     onSuccess: (_result, { sessionId }) => {
       incrementTurn();
       setCurrentStep(null);
+      markFinished(sessionId);
       setRefining(false);
       queryClient.invalidateQueries({ queryKey: ["session", sessionId] });
       queryClient.invalidateQueries({ queryKey: ["sessions", "list"] });

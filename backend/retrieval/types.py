@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 from pydantic import BaseModel, Field
-from backend.api.types import MovieMetadata
+from backend.api.types import MovieRow
 
 
 class ReformulatedQuery(BaseModel):
@@ -62,7 +62,7 @@ class RetrievalResult:
     user_query: str
     reformulated_query: str
     k: int
-    candidates: list[MovieMetadata]
+    candidates: list[MovieRow]
     scores: dict[int, float]
     excluded_films: list[str] = field(default_factory=list)
     excluded_movie_ids: list[int] = field(default_factory=list)

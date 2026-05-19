@@ -35,7 +35,7 @@ _STEP_TYPE_MESSAGE = "retrieval_reformulate"
 _STEP_TYPE_PROFILE = "retrieval_reformulate_profile"
 
 
-def from_message(
+async def from_message(
     *,
     user_query: str,
     session_id: UUID,
@@ -89,7 +89,7 @@ def from_message(
         {"role": "user", "content": user_query},
     ]
 
-    response = llm_harness.call(
+    response = await llm_harness.call(
         run_id=run_id,
         session_id=session_id,
         turn_id=turn_id,
@@ -113,7 +113,7 @@ def from_message(
     return response.parsed
 
 
-def from_profile(
+async def from_profile(
     *,
     summary: str,
     session_id: UUID,
@@ -169,7 +169,7 @@ def from_profile(
         {"role": "user", "content": "Generate the search query for this profile summary."},
     ]
 
-    response = llm_harness.call(
+    response = await llm_harness.call(
         run_id=run_id,
         session_id=session_id,
         turn_id=turn_id,

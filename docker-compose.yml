@@ -1,0 +1,38 @@
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: cinepal
+      POSTGRES_PASSWORD: cinepal
+      POSTGRES_DB: cinepal
+    volumes:
+      - cinepal-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cinepal -d cinepal"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  backend:
+    image: ghcr.io/ai-design-2026-projects/cinepal-backend:${CINEPAL_VERSION:-latest}
+    env_file: .env
+    environment:
+      # Overrides the DATABASE_URL from .env so the container reaches the db
+      # service by name rather than localhost.
+      DATABASE_URL: postgresql://cinepal:cinepal@db:5432/cinepal
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+
+  frontend:
+    image: ghcr.io/ai-design-2026-projects/cinepal-frontend:${CINEPAL_VERSION:-latest}
+    depends_on:
+      - backend
+    ports:
+      - "80:80"
+
+volumes:
+  cinepal-pgdata:

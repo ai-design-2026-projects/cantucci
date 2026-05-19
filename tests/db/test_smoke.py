@@ -55,6 +55,10 @@ def test_vector_similarity_query_runs(db_url: str, mini_catalogue: int) -> None:
     probe[0] = 1.0
     with psycopg.connect(db_url) as conn:
         register_vector(conn)
+        # Scan all ivfflat lists so the smoke test gets an exact result rather
+        # than relying on ANN recall with the default probes=1. The test verifies
+        # query correctness (ordering), not ANN quality.
+        conn.execute("SET ivfflat.probes = 100")
         rows = conn.execute(
             "SELECT id, embedding <=> %s AS distance FROM movies ORDER BY distance LIMIT 5",
             (probe,),

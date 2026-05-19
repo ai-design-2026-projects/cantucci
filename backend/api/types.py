@@ -1,18 +1,8 @@
 """
 Shared types for the api/ data-access layer.
-
-Covers DB-facing domain objects (cluster snapshots, movie rows, session metrics,
-turn details) and the DB-column enums (SessionStatus, StepType).  These are the
+Covers DB-facing domain objects (cluster rows, movie rows, session metrics,
+turn rows) and the DB-column enums (SessionStatus, StepType).  These are the
 types that cross the api/ boundary — every other layer imports them from here.
-
-Internal organisation:
-  - Movie types: MovieHit, MovieMetadata
-  - Cluster types: ClusterSpec, ClusterAssignment, ClusterSnapshot
-  - Eval types: SessionMetrics, JudgeScore
-  - Session/turn enums: SessionStatus, StepType
-  - Turn/session data: TurnDetail, FeedbackEntry, SessionSummary,
-                       RunAggregate, RunResults, SessionFull
-  - Run row: Run (Pydantic, used by api/runs.py)
 """
 
 import uuid
@@ -34,11 +24,8 @@ class MovieHit:
 
 
 @dataclass
-class MovieMetadata:
-    """Enriched film metadata returned by the Librarian (metadata_fetcher) tool.
-
-    Matches the synopsis, genre, and director fields named in architecture.md.
-    """
+class MovieRow:
+    """Enriched film metadata returned by the Retriever and stored in the movies table."""
     movie_id: int
     title: str
     overview: str | None
@@ -48,9 +35,8 @@ class MovieMetadata:
     director: str | None = None
 
 
-
 @dataclass
-class ClusterSpec:
+class ClusterSpecification:
     """Input spec for snapshot_clusters: one item per cluster to insert."""
     name: str
     description: str | None
@@ -64,7 +50,6 @@ class ClusterSpec:
 @dataclass
 class ClusterAssignment:
     """Soft-cluster membership score for a single film."""
-
     movie_id: int
     score: float
     excluded: bool
@@ -72,9 +57,8 @@ class ClusterAssignment:
 
 
 @dataclass
-class ClusterSnapshot:
+class ClusterRow:
     """In-memory cluster state for one turn — never written directly to DB."""
-
     id: uuid.UUID
     name: str
     description: str | None
@@ -82,12 +66,23 @@ class ClusterSnapshot:
     parent_cluster_id: uuid.UUID | None
     assignments: list[ClusterAssignment]
 
+    def to_spec(self) -> ClusterSpecification:
+        """Convert the snapshot back to a Specification for insertion"""
+        return ClusterSpecification(
+            name=self.name,
+            description=self.description,
+            level=self.level,
+            centroid=None,
+            parent_cluster_id=self.parent_cluster_id,
+            assignments=[
+                (a.movie_id, a.score, a.excluded) for a in self.assignments
+            ],
+        )
 
 
 @dataclass
-class SessionMetrics:
+class SessionMetricsRow:
     """Aggregate quality metrics for a completed session."""
-
     session_id: uuid.UUID
     converged: bool
     turns_to_convergence: int | None
@@ -97,13 +92,16 @@ class SessionMetrics:
     total_input_tokens: int
     total_output_tokens: int
     total_cost_usd: Decimal
+    precision_at_k: float | None = None
+    recall_at_k: float | None = None
+    ndcg_at_k: float | None = None
 
 
 @dataclass
-class JudgeScore:
+class JudgeScoreRow:
     """LLM-as-judge score for a single evaluation dimension."""
-
     id: uuid.UUID
+    session_id: uuid.UUID
     dimension: str
     score: int
     rationale: str | None
@@ -134,7 +132,7 @@ class StepType(str, Enum):
 
 
 @dataclass
-class TurnDetail:
+class TurnRow:
     """Full data for a single completed turn, as returned by get_session_full."""
 
     id: uuid.UUID
@@ -143,12 +141,12 @@ class TurnDetail:
     assistant_message: str | None
     step_type: str | None
     converged: bool
-    clusters: list[ClusterSnapshot]
+    clusters: list[ClusterRow]
     created_at: datetime
 
 
 @dataclass
-class FeedbackEntry:
+class FeedbackRow:
     """Oracle feedback record for a single turn."""
 
     id: uuid.UUID
@@ -160,44 +158,33 @@ class FeedbackEntry:
 
 
 @dataclass
-class SessionSummary:
-    """Lightweight session overview used in run-level aggregates."""
+class SessionRow:
+    """Complete internal session state: turns, clusters, feedback, metrics.
 
-    session_id: uuid.UUID
-    run_id: uuid.UUID
-    seed: int
-    config_hash: str
-    model_version: str
-    status: str
-    turn_count: int
-    converged_at_turn: int | None
-    metrics: SessionMetrics | None
-    judge_scores: list[JudgeScore]
+    This is the read-side type used by the orchestrator and all internal
+    agents. It is never serialised directly; the HTTP layer converts it to
+    ``SessionDto`` via ``presentation.assemble_session_dto``.
 
-
-@dataclass
-class RunAggregate:
-    """Computed statistics across all sessions in a run."""
-
-    n_sessions: int
-    convergence_rate: float
-    mean_turns_to_convergence: float | None
-    mean_cognitive_load: float | None
-    mean_judge: dict[str, float]
-
-
-@dataclass
-class RunResults:
-    """Full results for a run: all session summaries plus aggregate stats."""
-
-    run_id: uuid.UUID
-    sessions: list[SessionSummary]
-    aggregate: RunAggregate
-
-
-@dataclass
-class SessionFull:
-    """Complete session state including all turns, feedback, and eval data."""
+    Attributes:
+        session_id:         Session UUID.
+        run_id:             UUID of the parent run.
+        seed:               Per-session RNG seed.
+        config_hash:        SHA-256 prefix of the YAML config snapshot.
+        model_version:      LLM model identifier used for this session.
+        status:             Lifecycle state (active | converged | abandoned).
+        preference_profile: Structured oracle preference from the last turn.
+        turns:              Ordered list of completed turns.
+        cluster_snapshot:   Clusters from the most recent clustered turn.
+                            Mirrors the ``clusters.session_id`` FK at the
+                            in-memory level so agents can read current state
+                            without walking all turns.
+        feedback:           All oracle feedback records for this session.
+        metrics:            Aggregate quality metrics, or None if unavailable.
+        judge_scores:       LLM-as-judge scores.
+        created_at:         UTC timestamp of session creation.
+        updated_at:         UTC timestamp of the last state change.
+        max_turns:          Hard turn budget for this session.
+    """
 
     session_id: uuid.UUID
     run_id: uuid.UUID
@@ -206,10 +193,11 @@ class SessionFull:
     model_version: str
     status: str
     preference_profile: dict[str, Any] | None
-    turns: list[TurnDetail]
-    feedback: list[FeedbackEntry]
-    metrics: SessionMetrics | None
-    judge_scores: list[JudgeScore]
+    turns: list[TurnRow]
+    cluster_snapshot: list[ClusterRow]
+    feedback: list[FeedbackRow]
+    metrics: SessionMetricsRow | None
+    judge_scores: list[JudgeScoreRow]
     created_at: datetime
     updated_at: datetime
     max_turns: int
@@ -227,3 +215,5 @@ class Run(BaseModel):
     model_version: str
     status: str
     notes: str | None
+    started_at: datetime | None = None
+    ended_at: datetime | None = None

@@ -1,17 +1,162 @@
 """
-Write evaluation results: session_metrics and judge_scores.
+Read/write evaluation results: session_metrics and judge_scores.
 
-These are written by the eval harness after a session completes; never by the
+Write side: called by the eval harness after a session completes; never by the
 live conversational loop.
+
+Read side: called by backend/eval/aggregator.py to compute per-run statistics.
 """
 
 import logging
 import uuid
+from dataclasses import dataclass
 from decimal import Decimal
 
 from backend.api.db import transaction
 
 log = logging.getLogger(__name__)
+
+
+@dataclass
+class SessionMetricsRead:
+    """JOIN projection of session_metrics + sessions fields needed for aggregation."""
+
+    session_id: uuid.UUID
+    persona_id: str | None
+    ground_truth_id: str | None
+    converged: bool
+    turns_to_convergence: int | None
+    avg_cognitive_load: float | None
+    explicit_acceptance: bool
+    drift_events: int
+    total_cost_usd: float
+    precision_at_k: float | None
+    recall_at_k: float | None
+    ndcg_at_k: float | None
+
+
+@dataclass
+class JudgeScoreRead:
+    """Minimal judge_scores projection for aggregation — dimension + score per session."""
+
+    session_id: uuid.UUID
+    persona_id: str | None
+    dimension: str
+    score: int
+
+
+def list_session_metrics_for_run(run_id: uuid.UUID) -> list[SessionMetricsRead]:
+    """Return all session_metrics rows for sessions belonging to run_id.
+
+    Joins session_metrics with sessions to include persona_id and ground_truth_id
+    required for per-persona aggregation.
+
+    Args:
+        run_id: Run UUID to filter by.
+
+    Returns:
+        List of SessionMetricsRead, one per session that has metrics. Sessions
+        without a session_metrics row are excluded.
+    """
+    with transaction() as conn:
+        rows = conn.execute(
+            """
+            SELECT
+                sm.session_id,
+                s.persona_id,
+                s.ground_truth_id,
+                sm.converged,
+                sm.turns_to_convergence,
+                sm.avg_cognitive_load,
+                sm.explicit_acceptance,
+                sm.drift_events,
+                sm.total_cost_usd,
+                sm.precision_at_k,
+                sm.recall_at_k,
+                sm.ndcg_at_k
+            FROM session_metrics sm
+            JOIN sessions s ON s.id = sm.session_id
+            WHERE s.run_id = %s
+            """,
+            (run_id,),
+        ).fetchall()
+
+    return [
+        SessionMetricsRead(
+            session_id=r[0],
+            persona_id=r[1],
+            ground_truth_id=r[2],
+            converged=r[3],
+            turns_to_convergence=r[4],
+            avg_cognitive_load=r[5],
+            explicit_acceptance=r[6],
+            drift_events=r[7],
+            total_cost_usd=float(r[8]),
+            precision_at_k=r[9],
+            recall_at_k=r[10],
+            ndcg_at_k=r[11],
+        )
+        for r in rows
+    ]
+
+
+def list_judge_scores_for_run(run_id: uuid.UUID) -> list[JudgeScoreRead]:
+    """Return all judge_scores rows for sessions belonging to run_id.
+
+    Joins judge_scores with sessions to include persona_id for per-persona grouping.
+
+    Args:
+        run_id: Run UUID to filter by.
+
+    Returns:
+        List of JudgeScoreRead across all sessions and all judge dimensions.
+    """
+    with transaction() as conn:
+        rows = conn.execute(
+            """
+            SELECT js.session_id, s.persona_id, js.dimension, js.score
+            FROM judge_scores js
+            JOIN sessions s ON s.id = js.session_id
+            WHERE s.run_id = %s
+            """,
+            (run_id,),
+        ).fetchall()
+
+    return [
+        JudgeScoreRead(
+            session_id=r[0],
+            persona_id=r[1],
+            dimension=r[2],
+            score=r[3],
+        )
+        for r in rows
+    ]
+
+
+def count_sessions_per_run(run_ids: list[uuid.UUID]) -> dict[uuid.UUID, int]:
+    """Return the session count for each requested run_id.
+
+    Args:
+        run_ids: List of run UUIDs to count sessions for.
+
+    Returns:
+        Dict mapping run_id to session count. Runs with no sessions are absent.
+    """
+    if not run_ids:
+        return {}
+
+    with transaction() as conn:
+        rows = conn.execute(
+            """
+            SELECT run_id, COUNT(*) AS n
+            FROM sessions
+            WHERE run_id = ANY(%s)
+            GROUP BY run_id
+            """,
+            (run_ids,),
+        ).fetchall()
+
+    return {r[0]: r[1] for r in rows}
 
 
 def upsert_session_metrics(
@@ -24,6 +169,9 @@ def upsert_session_metrics(
     total_input_tokens: int = 0,
     total_output_tokens: int = 0,
     total_cost_usd: Decimal = Decimal("0"),
+    precision_at_k: float | None = None,
+    recall_at_k: float | None = None,
+    ndcg_at_k: float | None = None,
 ) -> None:
     """Insert or update the session_metrics row for a session.
 
@@ -40,6 +188,9 @@ def upsert_session_metrics(
         total_input_tokens: Sum of input tokens across all LLM calls in the session.
         total_output_tokens: Sum of output tokens across all LLM calls.
         total_cost_usd: Estimated API cost for the session.
+        precision_at_k: Precision@K of the final recommendation vs ground-truth film set.
+        recall_at_k: Recall@K of the final recommendation vs ground-truth film set.
+        ndcg_at_k: NDCG@K of the final recommendation vs ground-truth film set.
     """
     with transaction() as conn:
         conn.execute(
@@ -47,8 +198,9 @@ def upsert_session_metrics(
             INSERT INTO session_metrics
                 (session_id, converged, turns_to_convergence, avg_cognitive_load,
                  explicit_acceptance, drift_events, total_input_tokens,
-                 total_output_tokens, total_cost_usd, computed_at)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
+                 total_output_tokens, total_cost_usd, computed_at,
+                 precision_at_k, recall_at_k, ndcg_at_k)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), %s, %s, %s)
             ON CONFLICT (session_id) DO UPDATE SET
                 converged              = EXCLUDED.converged,
                 turns_to_convergence   = EXCLUDED.turns_to_convergence,
@@ -58,12 +210,16 @@ def upsert_session_metrics(
                 total_input_tokens     = EXCLUDED.total_input_tokens,
                 total_output_tokens    = EXCLUDED.total_output_tokens,
                 total_cost_usd         = EXCLUDED.total_cost_usd,
-                computed_at            = NOW()
+                computed_at            = NOW(),
+                precision_at_k         = EXCLUDED.precision_at_k,
+                recall_at_k            = EXCLUDED.recall_at_k,
+                ndcg_at_k              = EXCLUDED.ndcg_at_k
             """,
             (
                 session_id, converged, turns_to_convergence, avg_cognitive_load,
                 explicit_acceptance, drift_events, total_input_tokens,
                 total_output_tokens, total_cost_usd,
+                precision_at_k, recall_at_k, ndcg_at_k,
             ),
         )
     log.debug("upserted session_metrics for session %s", session_id)

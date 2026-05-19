@@ -39,7 +39,7 @@ def _make_response(content: str) -> SimpleNamespace:
 
 
 class _FakeClient:
-    """Stand-in for ``openai.OpenAI`` that yields scripted responses in order."""
+    """Stand-in for ``openai.AsyncOpenAI`` that yields scripted responses in order."""
 
     def __init__(self, payloads: list[str]) -> None:
         self._payloads: Iterator[str] = iter(payloads)
@@ -48,7 +48,7 @@ class _FakeClient:
         client = self
 
         class _ChatCompletions:
-            def create(self, **kwargs):  # type: ignore[no-untyped-def]
+            async def create(self, **kwargs):  # type: ignore[no-untyped-def]
                 client.calls.append(kwargs)
                 return _make_response(next(client._payloads))
 
@@ -83,7 +83,7 @@ def _install_fake_client(monkeypatch: pytest.MonkeyPatch, payloads: list[str]) -
     return fake
 
 
-def _call(**overrides):  # type: ignore[no-untyped-def]
+async def _call(**overrides):  # type: ignore[no-untyped-def]
     """Invoke the harness with sensible defaults; overrides win."""
     kwargs = dict(
         run_id=uuid4(),
@@ -101,10 +101,10 @@ def _call(**overrides):  # type: ignore[no-untyped-def]
         response_schema=_Schema,
     )
     kwargs.update(overrides)
-    return llm_harness.call(**kwargs)
+    return await llm_harness.call(**kwargs)
 
 
-def test_call_with_schema_validates_first_attempt(
+async def test_call_with_schema_validates_first_attempt(
     _no_dry_run: None, _no_backoff: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A valid JSON response on the first attempt is parsed and returned."""
@@ -112,7 +112,7 @@ def test_call_with_schema_validates_first_attempt(
         monkeypatch,
         ['{"query": "a slow burn", "excluded_films": []}'],
     )
-    response = _call()
+    response = await _call()
     assert isinstance(response.parsed, _Schema)
     assert response.parsed.query == "a slow burn"
     assert response.parsed.excluded_films == []
@@ -121,7 +121,7 @@ def test_call_with_schema_validates_first_attempt(
     assert len(fake.calls) == 1
 
 
-def test_call_with_schema_retries_on_malformed_json(
+async def test_call_with_schema_retries_on_malformed_json(
     _no_dry_run: None, _no_backoff: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Malformed JSON consumes one retry; a valid follow-up resolves the call."""
@@ -132,13 +132,13 @@ def test_call_with_schema_retries_on_malformed_json(
             '{"query": "ok", "excluded_films": ["X"]}',
         ],
     )
-    response = _call()
+    response = await _call()
     assert response.parsed is not None
     assert response.parsed.excluded_films == ["X"]
     assert len(fake.calls) == 2
 
 
-def test_call_with_schema_retries_on_validation_error(
+async def test_call_with_schema_retries_on_validation_error(
     _no_dry_run: None, _no_backoff: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Well-formed JSON with the wrong shape is also retried as a parse failure."""
@@ -149,13 +149,13 @@ def test_call_with_schema_retries_on_validation_error(
             '{"query": "right shape now", "excluded_films": []}',
         ],
     )
-    response = _call()
+    response = await _call()
     assert response.parsed is not None
     assert response.parsed.query == "right shape now"
     assert len(fake.calls) == 2
 
 
-def test_call_with_schema_raises_after_exhaustion(
+async def test_call_with_schema_raises_after_exhaustion(
     _no_dry_run: None, _no_backoff: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """All three attempts malformed → LLMParseError carrying the final raw payload."""
@@ -164,17 +164,17 @@ def test_call_with_schema_raises_after_exhaustion(
         ["nope", "still no", "definitely not"],
     )
     with pytest.raises(LLMParseError) as exc_info:
-        _call()
+        await _call()
     assert exc_info.value.step_type == "retrieval_reformulate"
     assert "definitely not" in exc_info.value.raw
     assert len(fake.calls) == 3
 
 
-def test_dry_run_validates_fixture_against_schema() -> None:
+async def test_dry_run_validates_fixture_against_schema() -> None:
     """The dry-run fixture for retrieval_reformulate must satisfy the live schema."""
     from backend.retrieval.types import ReformulatedQuery
 
-    response = llm_harness.call(
+    response = await llm_harness.call(
         run_id=uuid4(),
         session_id=uuid4(),
         turn_id=uuid4(),

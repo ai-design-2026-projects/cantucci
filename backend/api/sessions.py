@@ -8,55 +8,69 @@ writes to these tables.
 
 import logging
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from decimal import Decimal
 from typing import Any
 
 from backend.api.db import transaction
-from backend.api.types import ClusterSpec
+from backend.api.types import ClusterAssignment, ClusterRow, ClusterSpecification
 
 log = logging.getLogger(__name__)
 
 
 @dataclass
-class SessionSummaryRow:
+class SessionListRow:
     """Lightweight projection of a session row for history listings.
 
     Attributes:
         session_id:         Session UUID.
+        run_id:             UUID of the parent run.
+        seed:               Per-session RNG seed.
+        config_hash:        SHA-256 prefix of the YAML config snapshot.
+        model_version:      LLM model identifier used for this session.
         status:             Lifecycle state (active | converged | abandoned).
         created_at:         UTC timestamp of session creation.
         updated_at:         UTC timestamp of the last state change.
         turn_count:         Number of completed turns in this session.
         first_user_message: Text of the first oracle message, or None for
                             sessions with no turns yet.
+        cluster_snapshot:   Current cluster state (latest clustered turn's
+                            clusters). Empty list when no clustered turn yet.
     """
 
     session_id: uuid.UUID
+    run_id: uuid.UUID
+    seed: int
+    config_hash: str
+    model_version: str
     status: str
     created_at: datetime
     updated_at: datetime
     turn_count: int
     first_user_message: str | None
+    cluster_snapshot: list[ClusterRow] = field(default_factory=list)
 
 
-def list_sessions_by_user(user_id: uuid.UUID) -> list[SessionSummaryRow]:
+def list_sessions_by_user(user_id: uuid.UUID) -> list[SessionListRow]:
     """Return all sessions owned by user_id, ordered newest-first by updated_at.
 
     Sessions with user_id = NULL (anonymous) are never returned.
-    turn_count is computed via LEFT JOIN in a single round-trip.
+    turn_count is computed via LEFT JOIN in a single round-trip. cluster_snapshot
+    is populated with the clusters from the latest clustered turn, fetched in
+    one additional SELECT for the batch of returned sessions.
 
     Args:
         user_id: UUID of the authenticated user.
 
     Returns:
-        List of SessionSummaryRow, ordered by updated_at DESC.
+        List of SessionListRow, ordered by updated_at DESC.
     """
     with transaction() as conn:
-        rows = conn.execute(
+        session_rows = conn.execute(
             """
-            SELECT s.id, s.status, s.created_at, s.updated_at, COUNT(t.id),
+            SELECT s.id, s.run_id, s.seed, s.config_hash, s.model_version,
+                   s.status, s.created_at, s.updated_at, COUNT(t.id),
                    (SELECT user_message FROM turns
                     WHERE session_id = s.id
                     ORDER BY turn_number ASC
@@ -70,16 +84,72 @@ def list_sessions_by_user(user_id: uuid.UUID) -> list[SessionSummaryRow]:
             (user_id,),
         ).fetchall()
 
-    return [
-        SessionSummaryRow(
-            session_id=r[0],
-            status=r[1],
-            created_at=r[2],
-            updated_at=r[3],
-            turn_count=r[4],
-            first_user_message=r[5],
+        if not session_rows:
+            return []
+
+        session_ids = [r[0] for r in session_rows]
+
+        cluster_rows = conn.execute(
+            """
+            SELECT c.id, c.session_id, c.name, c.description, c.level,
+                   c.parent_cluster_id
+            FROM clusters c
+            WHERE c.turn_id IN (
+                SELECT DISTINCT ON (session_id) id
+                FROM turns
+                WHERE session_id = ANY(%s) AND id IN (
+                    SELECT DISTINCT turn_id FROM clusters
+                )
+                ORDER BY session_id, turn_number DESC
+            )
+            ORDER BY c.session_id, c.level, c.name
+            """,
+            (session_ids,),
+        ).fetchall()
+
+        cluster_ids = [r[0] for r in cluster_rows]
+        assignment_rows: list[Any] = []
+        if cluster_ids:
+            assignment_rows = conn.execute(
+                """
+                SELECT cluster_id, movie_id, score, excluded
+                FROM cluster_assignments
+                WHERE cluster_id = ANY(%s)
+                """,
+                (cluster_ids,),
+            ).fetchall()
+
+    assignments_by_cluster: dict[uuid.UUID, list[ClusterAssignment]] = {}
+    for r in assignment_rows:
+        assignments_by_cluster.setdefault(r[0], []).append(
+            ClusterAssignment(movie_id=r[1], score=r[2], excluded=r[3])
         )
-        for r in rows
+
+    clusters_by_session: dict[uuid.UUID, list[ClusterRow]] = {}
+    for r in cluster_rows:
+        clusters_by_session.setdefault(r[1], []).append(
+            ClusterRow(
+                id=r[0], name=r[2], description=r[3], level=r[4],
+                parent_cluster_id=r[5],
+                assignments=assignments_by_cluster.get(r[0], []),
+            )
+        )
+
+    return [
+        SessionListRow(
+            session_id=r[0],
+            run_id=r[1],
+            seed=r[2],
+            config_hash=r[3],
+            model_version=r[4],
+            status=r[5],
+            created_at=r[6],
+            updated_at=r[7],
+            turn_count=r[8],
+            first_user_message=r[9],
+            cluster_snapshot=clusters_by_session.get(r[0], []),
+        )
+        for r in session_rows
     ]
 
 
@@ -135,6 +205,8 @@ def create_session(
     max_turns: int = 15,
     cost_limit_usd: Decimal | None = None,
     user_id: uuid.UUID | None = None,
+    persona_id: str | None = None,
+    ground_truth_id: str | None = None,
 ) -> uuid.UUID:
     """Insert a new session row and return its UUID.
 
@@ -146,6 +218,8 @@ def create_session(
         max_turns: Hard turn budget for this session.
         cost_limit_usd: Optional cost hard-stop (raises CostLimitExceeded when hit).
         user_id: Authenticated user who owns this session; None for anonymous.
+        persona_id: Kebab-case slug of the eval persona; None for live sessions.
+        ground_truth_id: Kebab-case slug of the eval ground truth; None for live sessions.
 
     Returns:
         UUID of the newly created session.
@@ -155,12 +229,12 @@ def create_session(
             """
             INSERT INTO sessions
                 (run_id, seed, config_hash, model_version, max_turns,
-                 cost_limit_usd, user_id)
-            VALUES (%s, %s, %s, %s, %s, %s, %s)
+                 cost_limit_usd, user_id, persona_id, ground_truth_id)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
             RETURNING id
             """,
             (run_id, seed, config_hash, model_version,
-             max_turns, cost_limit_usd, user_id),
+             max_turns, cost_limit_usd, user_id, persona_id, ground_truth_id),
         ).fetchone()
 
     session_id: uuid.UUID = row[0]
@@ -253,7 +327,7 @@ def update_turn(
 def snapshot_clusters(
     session_id: uuid.UUID,
     turn_id: uuid.UUID,
-    clusters: list[ClusterSpec],
+    clusters: list[ClusterSpecification],
 ) -> list[uuid.UUID]:
     """Insert clusters + their assignment rows for a single turn snapshot.
 

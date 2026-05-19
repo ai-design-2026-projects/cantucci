@@ -23,6 +23,7 @@ from pathlib import Path
 # is earlier than any fixture or test collection that might call get_settings().
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]
 os.environ.setdefault("CONFIG_PATH", str(_PROJECT_ROOT / "configs" / "test.yaml"))
+os.environ.setdefault("AUTH_SECRET", "test-secret-not-for-production")
 
 # Docker Desktop on macOS exposes its daemon socket at ~/.docker/run/docker.sock
 # rather than the canonical /var/run/docker.sock that docker-py / testcontainers
@@ -40,6 +41,7 @@ from testcontainers.postgres import PostgresContainer
 from backend.api.db import close_pool
 from db.apply import apply
 from db.ingest import run_from_artifact
+from testcontainers.core.container import Reaper
 
 
 _PGVECTOR_IMAGE = "pgvector/pgvector:pg16"
@@ -55,6 +57,7 @@ def _postgres_container() -> PostgresContainer:
     finally:
         close_pool()
         container.stop()
+        Reaper.delete_instance()
 
 
 @pytest.fixture(scope="session")

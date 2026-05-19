@@ -9,25 +9,24 @@ Invariants enforced here:
 
 import asyncio
 import logging
-from dataclasses import asdict
+from contextlib import suppress
 from typing import AsyncIterator
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
-import backend.api.sessions as api_sessions
 from backend.auth import User, get_current_user
 from backend.exceptions import SessionNotFound
 from backend.orchestrator.orchestrator import Orchestrator
-from backend.orchestrator.progress import (
+from backend.orchestrator.turn.progress import (
     ClusterSnapshotEvent,
     ErrorEvent,
     ProgressEvent,
     ResultEvent,
     StreamEvent,
 )
-from backend.routers.dtos import SessionState, SessionSummary, TurnRequest
+from backend.routers.dtos import SessionDto, TurnRequest
 
 log = logging.getLogger(__name__)
 
@@ -50,23 +49,45 @@ def _orchestrator(request: Request) -> Orchestrator:
     return request.app.state.orchestrator  # type: ignore[return-value]
 
 
-@router.post("/create", response_model=SessionState, status_code=201)
-def create_session(
-    orchestrator: Orchestrator = Depends(_orchestrator),
+@router.get("/list", response_model=list[SessionDto])
+def list_sessions(
     user: User | None = Depends(get_current_user),
-) -> SessionState:
-    """Create a new recommendation session.
-
-    Anonymous callers (no ``Authorization`` header) get a session with
-    ``user_id=NULL``. Authenticated callers get the session linked to their
-    ``user_id``.
+    orchestrator: Orchestrator = Depends(_orchestrator),
+) -> list[SessionDto]:
+    """List all sessions owned by the authenticated user, newest first.
 
     Args:
-        orchestrator: Injected via ``_orchestrator`` dependency.
         user:         Resolved by ``get_current_user``; None for anonymous.
+        orchestrator: Injected via ``_orchestrator`` dependency.
 
     Returns:
-        The newly created ``SessionState`` (HTTP 201).
+        List of ``SessionDto`` (turns=[]) ordered by updated_at DESC (HTTP 200).
+
+    Raises:
+        HTTPException(401): If the request is anonymous.
+    """
+    if user is None:
+        raise HTTPException(status_code=401, detail="Authentication required.")
+    return orchestrator.list_sessions(user.id)
+
+
+@router.post("", response_model=SessionDto, status_code=201)
+def create_session(
+    user: User | None = Depends(get_current_user),
+    orchestrator: Orchestrator = Depends(_orchestrator),
+) -> SessionDto:
+    """Create a new recommendation session.
+
+    Returns an initial ``SessionDto`` with status=active and an empty turn
+    list. The session_id in the response is used as the path parameter for
+    subsequent turn requests.
+
+    Args:
+        user:         Resolved by ``get_current_user``; None for anonymous.
+        orchestrator: Injected via ``_orchestrator`` dependency.
+
+    Returns:
+        The newly created ``SessionDto`` (HTTP 201).
     """
     log.debug("POST /sessions request received")
     state = orchestrator.create_session(user_id=user.id if user else None)
@@ -88,16 +109,17 @@ async def _turn_event_stream(
     session_id: UUID,
     user_message: str,
 ) -> AsyncIterator[str]:
-    """Run a turn in a worker thread and yield NDJSON lines as events arrive.
+    """Drive ``run_turn`` on the event loop and yield NDJSON lines as events arrive.
 
     Wiring:
-      - An ``asyncio.Queue`` carries events from the worker thread to the
-        async generator running on the event loop.
-      - ``progress_cb`` is a thread-safe shim: the orchestrator (sync, on a
-        thread) calls it; we marshal each event onto the event loop via
-        ``loop.call_soon_threadsafe`` so the queue is only touched from the
-        loop thread.
+      - The orchestrator runs on the event loop, so ``progress_cb`` is just
+        ``queue.put_nowait``. No cross-thread hop, no ``call_soon_threadsafe``.
       - A sentinel object signals "worker is done" so the generator can exit.
+      - When the client disconnects, FastAPI cancels this generator; the
+        ``finally`` block cancels the worker task. ``CancelledError``
+        propagates into every speculative LLM call via the async harness,
+        aborting the in-flight ``httpx`` requests instead of letting them
+        complete and bill us.
 
     Failures inside the worker become a single trailing ``ErrorEvent``; the
     HTTP status is already 200 by the time we get here (headers flushed when
@@ -115,25 +137,25 @@ async def _turn_event_stream(
     """
     queue: asyncio.Queue[StreamEvent | object] = asyncio.Queue()
     done = object()
-    loop = asyncio.get_running_loop()
 
     def progress_cb(event: ProgressEvent | ClusterSnapshotEvent) -> None:
-        """Thread-safe hop from the worker thread onto the event loop."""
-        try:
-            loop.call_soon_threadsafe(queue.put_nowait, event)
-        except RuntimeError:
-            # Loop is closed; client disconnected. Drop the event silently.
-            log.debug("progress event dropped after loop closure")
+        """Push a progress event onto the stream queue. Runs on the event loop."""
+        queue.put_nowait(event)
 
     async def _run_worker() -> None:
         try:
-            result = await asyncio.to_thread(
-                orchestrator.handle_turn,
+            result = await orchestrator.run_turn(
                 session_id,
                 user_message,
                 progress_cb=progress_cb,
             )
             await queue.put(ResultEvent(data=result))
+        except asyncio.CancelledError:
+            # Client disconnected: cancellation has already cascaded into every
+            # in-flight LLM call. There is nobody to read a terminal event, so
+            # just unblock the consumer and let the task end cancelled.
+            await queue.put(done)
+            raise
         except SessionNotFound as exc:
             # Pre-check below normally catches this; race conditions land here.
             log.warning("session vanished mid-turn", extra={"session_id": str(session_id)})
@@ -146,6 +168,8 @@ async def _turn_event_stream(
             )
             await queue.put(ErrorEvent(code=type(exc).__name__, message=str(exc)))
         finally:
+            # Always unblock the consumer. Two ``done`` sentinels are harmless;
+            # the consumer breaks on the first one.
             await queue.put(done)
 
     worker = asyncio.create_task(_run_worker())
@@ -158,10 +182,16 @@ async def _turn_event_stream(
             assert isinstance(event, (ProgressEvent, ClusterSnapshotEvent, ResultEvent, ErrorEvent))
             yield _serialize(event)
     finally:
-        # Worker always completes (it puts ``done`` in its finally clause); the
-        # await guarantees the task is not garbage-collected mid-flight and
-        # surfaces any unexpected raise that escaped the broad handler.
-        await worker
+        # Client disconnect or stream completion: cancel any still-running
+        # worker so its CancelledError cascades into in-flight LLM calls.
+        if not worker.done():
+            worker.cancel()
+            with suppress(asyncio.CancelledError):
+                await worker
+        else:
+            # Already finished — surface any unexpected raise that escaped
+            # the broad handler.
+            await worker
 
 
 @router.post("/{session_id}/turns")
@@ -177,7 +207,7 @@ async def add_turn(
 
     - ``{"type": "progress", "step": ..., "phase": "start"|"end", "ts": ...}``
       emitted at each orchestrator step boundary.
-    - ``{"type": "result", "data": <TurnResult>}`` emitted once when the turn
+    - ``{"type": "result", "data": <TurnDto>}`` emitted once when the turn
       completes successfully. Always the terminal line on success.
     - ``{"type": "error", "code": ..., "message": ...}`` emitted once if the
       turn raises after streaming has started. Always the terminal line on
@@ -220,33 +250,11 @@ async def add_turn(
     )
 
 
-@router.get("/list", response_model=list[SessionSummary])
-def list_sessions(
-    user: User | None = Depends(get_current_user),
-) -> list[SessionSummary]:
-    """List all sessions owned by the authenticated user, newest first.
-
-    Args:
-        user: Resolved by ``get_current_user``; None for anonymous callers.
-
-    Returns:
-        Ordered list of ``SessionSummary`` objects (HTTP 200).
-
-    Raises:
-        HTTPException(401): If the request is anonymous.
-    """
-    if user is None:
-        raise HTTPException(status_code=401, detail="Authentication required.")
-    rows = api_sessions.list_sessions_by_user(user.id)
-    log.debug("GET /sessions user=%s n=%d", user.id, len(rows))
-    return [SessionSummary(**asdict(r)) for r in rows]
-
-
-@router.get("/get/{session_id}", response_model=SessionState)
+@router.get("/{session_id}", response_model=SessionDto)
 def get_session(
     session_id: UUID,
     orchestrator: Orchestrator = Depends(_orchestrator),
-) -> SessionState:
+) -> SessionDto:
     """Retrieve full session state including all turns in turn_number order.
 
     Args:
@@ -254,7 +262,7 @@ def get_session(
         orchestrator: Injected via ``_orchestrator`` dependency.
 
     Returns:
-        The ``SessionState`` with all turns (HTTP 200).
+        The ``SessionDto`` with all turns (HTTP 200).
 
     Raises:
         HTTPException(404): If *session_id* does not identify a live session.
@@ -279,6 +287,7 @@ def get_session(
 def delete_session(
     session_id: UUID,
     user: User | None = Depends(get_current_user),
+    orchestrator: Orchestrator = Depends(_orchestrator),
 ) -> None:
     """Delete a session and all its child data.
 
@@ -291,8 +300,9 @@ def delete_session(
     DB write, which surfaces as an ErrorEvent on its NDJSON stream.
 
     Args:
-        session_id: UUID of the session to delete (path parameter).
-        user:       Resolved by ``get_current_user``; None for anonymous callers.
+        session_id:   UUID of the session to delete (path parameter).
+        user:         Resolved by ``get_current_user``; None for anonymous callers.
+        orchestrator: Injected via ``_orchestrator`` dependency.
 
     Returns:
         HTTP 204 No Content on success.
@@ -303,7 +313,7 @@ def delete_session(
     """
     if user is None:
         raise HTTPException(status_code=401, detail="Authentication required.")
-    deleted = api_sessions.delete_session(session_id, user.id)
+    deleted = orchestrator.delete_session(session_id, user.id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Session not found.")
     log.debug("DELETE /sessions/{id} user=%s session=%s", user.id, session_id)
