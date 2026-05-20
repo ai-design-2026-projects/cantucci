@@ -10,6 +10,15 @@ Every agent must call ``llm_harness.call()`` — never instantiate an OpenAI
 - A ``dry_run`` mode that returns a canned response without hitting the API,
   used by component tests.
 
+Record/replay mode (demo recordings):
+- Set ``CINEPAL_LLM_MODE=record`` + ``CINEPAL_LLM_MANIFEST=<dir>`` to append
+  every live response to ``<dir>/<session_id>.jsonl``.
+- Set ``CINEPAL_LLM_MODE=replay`` to serve responses from the manifest instead
+  of hitting the API.  Raises ``ReplayDriftError`` if the call sequence diverges
+  from the recording.
+- ``CINEPAL_LLM_REPLAY_REALTIME=1`` re-introduces the recorded latency via
+  ``asyncio.sleep`` so the UI streaming feels natural.
+
 The OpenAI client is a module-level singleton so the underlying ``httpx``
 connection pool is reused across calls, saving TCP + TLS setup per round-trip.
 The client itself carries no per-session state — only the API key — so
@@ -24,7 +33,11 @@ branch). ``CancelledError`` MUST escape the retry loop unaltered.
 import asyncio
 import json
 import logging
+import os
 import time
+from collections import deque
+from dataclasses import asdict
+from pathlib import Path
 from uuid import UUID
 
 import openai
@@ -32,9 +45,19 @@ from pydantic import BaseModel, ValidationError
 
 from backend.logging_setup import log_llm_call
 from backend.settings import PROJECT_ROOT, get_env, get_settings
-from backend.llm.types import CostLimitExceeded, LLMParseError, LLMResponse
+from backend.llm.types import CostLimitExceeded, LLMParseError, LLMResponse, ReplayDriftError
 
 _DRY_RUN_FIXTURES_DIR = PROJECT_ROOT / "tests" / "fixtures" / "dry_run"
+
+_LLM_MODE: str | None = os.getenv("CINEPAL_LLM_MODE")
+_MANIFEST_DIR: Path | None = (
+    Path(os.environ["CINEPAL_LLM_MANIFEST"])
+    if os.getenv("CINEPAL_LLM_MANIFEST")
+    else None
+)
+_REPLAY_REALTIME: bool = os.getenv("CINEPAL_LLM_REPLAY_REALTIME") == "1"
+
+_replay_queues: dict[str, deque[dict]] = {}
 
 log = logging.getLogger(__name__)
 
@@ -154,6 +177,19 @@ async def call(
             parsed=parsed,
         )
 
+    if _LLM_MODE == "replay":
+        return await _replay_next(
+            session_id=str(session_id),
+            step_type=step_type,
+            run_id=run_id,
+            turn_id=turn_id,
+            seed=seed,
+            config_hash=config_hash,
+            model_and_version=model_and_version,
+            prompt_hash=prompt_hash,
+            response_schema=response_schema,
+        )
+
     log.debug(
         "llm_call pre-call",
         extra={
@@ -260,7 +296,7 @@ async def call(
         )
 
         cost = _estimate_cost(model_and_version, input_tokens, output_tokens)
-        return LLMResponse(
+        resp = LLMResponse(
             content=content,
             input_tokens=input_tokens,
             output_tokens=output_tokens,
@@ -268,10 +304,119 @@ async def call(
             cost_usd=cost,
             parsed=parsed,
         )
+        if _LLM_MODE == "record":
+            _record_append(str(session_id), step_type, str(turn_id), resp)
+        return resp
 
     if isinstance(last_exc, LLMParseError):
         raise LLMParseError(step_type=step_type, raw=last_raw or "")
     raise last_exc  # type: ignore[misc]
+
+
+def _load_manifest(session_id: str) -> deque[dict]:
+    """Load the JSONL manifest for *session_id* into a deque, caching the result.
+
+    The deque is consumed front-to-back during replay.  Call
+    ``reset_replay_state(session_id)`` to reload it (e.g. in tests).
+    """
+    if session_id not in _replay_queues:
+        if _MANIFEST_DIR is None:
+            raise RuntimeError(
+                "CINEPAL_LLM_MANIFEST must be set when CINEPAL_LLM_MODE=replay"
+            )
+        path = _MANIFEST_DIR / f"{session_id}.jsonl"
+        if not path.is_file():
+            raise FileNotFoundError(
+                f"Replay manifest not found at {path}. "
+                "Run CINEPAL_LLM_MODE=record first to generate it."
+            )
+        entries = deque(json.loads(line) for line in path.read_text().splitlines() if line.strip())
+        _replay_queues[session_id] = entries
+    return _replay_queues[session_id]
+
+
+async def _replay_next(
+    *,
+    session_id: str,
+    step_type: str,
+    run_id: str | UUID,
+    turn_id: str | UUID,
+    seed: int,
+    config_hash: str,
+    model_and_version: str,
+    prompt_hash: str,
+    response_schema: type[BaseModel] | None,
+) -> LLMResponse:
+    """Return the next recorded response from the session manifest.
+
+    Raises ``ReplayDriftError`` if the manifest's next entry does not match
+    the incoming ``step_type``.
+    """
+    queue = _load_manifest(session_id)
+    if not queue:
+        raise ReplayDriftError(expected="<empty manifest>", got=step_type, session_id=session_id)
+    entry = queue.popleft()
+    if entry["step_type"] != step_type:
+        raise ReplayDriftError(
+            expected=entry["step_type"], got=step_type, session_id=session_id
+        )
+    latency_ms: float = entry.get("latency_ms", 0.0)
+    if _REPLAY_REALTIME and latency_ms > 0:
+        await asyncio.sleep(latency_ms / 1000.0)
+    content: str = entry["content"]
+    parsed = _validate_response(content, response_schema, step_type) if response_schema else None
+    log_llm_call(
+        log,
+        run_id=run_id,
+        session_id=session_id,
+        turn_id=turn_id,
+        seed=seed,
+        config_hash=config_hash,
+        model_and_version=model_and_version,
+        prompt_hash=prompt_hash,
+        step_type=step_type,
+        input_tokens=entry.get("input_tokens", 0),
+        output_tokens=entry.get("output_tokens", 0),
+        latency_ms=latency_ms,
+    )
+    return LLMResponse(
+        content=content,
+        input_tokens=entry.get("input_tokens", 0),
+        output_tokens=entry.get("output_tokens", 0),
+        latency_ms=latency_ms,
+        cost_usd=0.0,
+        parsed=parsed,
+    )
+
+
+def _record_append(session_id: str, step_type: str, turn_id: str, resp: LLMResponse) -> None:
+    """Append a single harness response to the per-session JSONL manifest."""
+    if _MANIFEST_DIR is None:
+        raise RuntimeError(
+            "CINEPAL_LLM_MANIFEST must be set when CINEPAL_LLM_MODE=record"
+        )
+    _MANIFEST_DIR.mkdir(parents=True, exist_ok=True)
+    path = _MANIFEST_DIR / f"{session_id}.jsonl"
+    entry = {
+        "step_type": step_type,
+        "turn_id": turn_id,
+        "content": resp.content,
+        "input_tokens": resp.input_tokens,
+        "output_tokens": resp.output_tokens,
+        "latency_ms": resp.latency_ms,
+        "cost_usd": resp.cost_usd,
+    }
+    with path.open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps(entry) + "\n")
+
+
+def reset_replay_state(session_id: str) -> None:
+    """Evict a session's manifest queue so it reloads on the next replay call.
+
+    Intended for tests that need to replay the same manifest multiple times
+    without restarting the process.
+    """
+    _replay_queues.pop(session_id, None)
 
 
 def _validate_response(
