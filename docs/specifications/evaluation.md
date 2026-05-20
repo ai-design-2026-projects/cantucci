@@ -6,7 +6,7 @@
 
 Our main objective is to explore the following question:
 
-> Does conversational refinement converge to an oracle-accepted recommendation faster (fewer turns, lower cognitive load per turn) than a baseline?
+> Does conversational refinement result in a better recommendation for the oracle? (E.g., fewer turns, lower cognitive load, higher satisfaction) than a baseline?
 
 We approach this from three angles:
 
@@ -91,6 +91,7 @@ All metrics are persisted after each session. Aggregates (mean + 95% percentile 
 | **Avg cognitive load per turn** | Weighted combination of recommendation size and question length, averaged across all turns. |
 | **Explicit acceptance rate** | Whether the oracle issued an accept intent vs. convergence declared behaviourally by the system. |
 | **Drift events** | Count of drift events detected per session. |
+| **Oracle score** | A subjective rating from 1–5 provided by the oracle at the end of the session. |
 | **Total cost** | Sum of token costs across all system LLM calls in the session. |
 
 ### LLM-judge scores (subjective, 1–5)
