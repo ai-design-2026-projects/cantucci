@@ -14,12 +14,13 @@
  */
 
 import { test, expect } from "./fixtures";
-import { injectCursor } from "./helpers/cursor";
+import { injectCursor, moveAndClick } from "./helpers/cursor";
 
-const TYPE_DELAY = 55;
+const TYPE_DELAY = 35;
 const TURN_TIMEOUT = 90_000;
+
 test("CinePal demo", async ({ page }) => {
-  await page.waitForTimeout(10_000);
+  await page.waitForTimeout(1_000);
 
   await injectCursor(page);
 
@@ -28,53 +29,91 @@ test("CinePal demo", async ({ page }) => {
   const composer = page.getByRole("textbox", { name: "Oracle message" });
   await expect(composer).toBeVisible({ timeout: 15_000 });
 
+  await page.waitForTimeout(1200);
+
+  await moveAndClick(page, composer);
+  await composer.pressSequentially(
+    "Recently I've seen Interstellar, can you suggest something similar?",
+    { delay: TYPE_DELAY },
+  );
   await page.waitForTimeout(800);
 
-  await composer.click();
-  await composer.pressSequentially(
-    "I want something cozy — a detective story set in Europe, preferably rainy cities.",
-    { delay: TYPE_DELAY },
-  );
-  await page.waitForTimeout(600);
-
-  await page.getByRole("button", { name: "Send message" }).click();
+  const sendBtn = page.getByRole("button", { name: "Send message" });
+  await moveAndClick(page, sendBtn);
 
   await expect(composer).toBeEnabled({ timeout: TURN_TIMEOUT });
-  await page.waitForTimeout(1200);
+  await page.waitForTimeout(1500);
 
-  await page.getByRole("button", { name: "Open clusters panel" }).click();
-  await page.waitForTimeout(2000);
+  const clustersBtn = page.getByRole("button", { name: "Open clusters panel" });
+  await moveAndClick(page, clustersBtn);
+  await page.waitForTimeout(1500);
+
+  const sheetViewport = page.locator('[data-radix-scroll-area-viewport]').first();
+  const sheetBox = await sheetViewport.boundingBox();
+  if (sheetBox) {
+    const cx = sheetBox.x + sheetBox.width / 2;
+    const cy = sheetBox.y + sheetBox.height / 2;
+    await page.mouse.move(cx, cy, { steps: 10 });
+    await page.waitForTimeout(400);
+    const frames = 30;
+    for (let i = 0; i < frames; i++) {
+      const t = i / (frames - 1);
+      const ease = t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t;
+      await page.mouse.wheel(0, Math.round(ease * 16 + 2));
+      await page.waitForTimeout(16);
+    }
+    await page.waitForTimeout(800);
+  }
 
   await page.keyboard.press("Escape");
-  await page.waitForTimeout(600);
+  await page.waitForTimeout(800);
 
-  await composer.click();
+  await moveAndClick(page, composer);
   await composer.pressSequentially(
-    "Actually I prefer something more recent — post-2010, and with a female lead.",
+    "The sheer sense of cosmic awe",
     { delay: TYPE_DELAY },
   );
-  await page.waitForTimeout(500);
+  await page.waitForTimeout(800);
 
-  await page.getByRole("button", { name: "Send message" }).click();
+  await moveAndClick(page, sendBtn);
 
   await expect(composer).toBeEnabled({ timeout: TURN_TIMEOUT });
-  await page.waitForTimeout(1200);
+  await page.waitForTimeout(1500);
 
-  await page.getByRole("button", { name: "Open clusters panel" }).click();
+  await moveAndClick(page, clustersBtn);
   await page.waitForTimeout(2500);
 
   await page.keyboard.press("Escape");
-  await page.waitForTimeout(600);
+  await page.waitForTimeout(800);
 
-  await composer.click();
+  await moveAndClick(page, composer);
   await composer.pressSequentially(
-    "Yes, these look great. I'll go with the second cluster.",
+    "A mix of both",
     { delay: TYPE_DELAY },
   );
-  await page.waitForTimeout(500);
+  await page.waitForTimeout(800);
 
-  await page.getByRole("button", { name: "Send message" }).click();
+  await moveAndClick(page, sendBtn);
 
   await expect(composer).toBeEnabled({ timeout: TURN_TIMEOUT });
-  await page.waitForTimeout(2000);
+  await page.waitForTimeout(1000);
+
+  const logBox = await page.locator('[role="log"]').boundingBox();
+  if (logBox) {
+    const cx = logBox.x + logBox.width / 2;
+    const cy = logBox.y + logBox.height / 2;
+    await page.mouse.move(cx, cy, { steps: 10 });
+    const frames = 40;
+    for (let i = 0; i < frames; i++) {
+      const t = i / (frames - 1);
+      const ease = t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t;
+      await page.mouse.wheel(0, Math.round(ease * 18 + 2));
+      await page.waitForTimeout(16);
+    }
+  }
+  await page.waitForTimeout(800);
+
+  const heroFilm = page.locator("button.w-full.flex.gap-4").first();
+  await moveAndClick(page, heroFilm, { steps: 40, preClickDelay: 200 });
+  await page.waitForTimeout(3000);
 });

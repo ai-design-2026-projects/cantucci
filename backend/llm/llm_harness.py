@@ -359,11 +359,11 @@ async def _replay_next(
     queue = _load_manifest(session_id)
     if not queue:
         raise ReplayDriftError(expected="<empty manifest>", got=step_type, session_id=session_id)
-    entry = queue.popleft()
-    if entry["step_type"] != step_type:
-        raise ReplayDriftError(
-            expected=entry["step_type"], got=step_type, session_id=session_id
-        )
+    idx = next((i for i, e in enumerate(queue) if e["step_type"] == step_type), None)
+    if idx is None:
+        raise ReplayDriftError(expected="<no matching entry>", got=step_type, session_id=session_id)
+    entry = queue[idx]
+    del queue[idx]
     latency_ms: float = entry.get("latency_ms", 0.0)
     if _REPLAY_REALTIME and latency_ms > 0:
         await asyncio.sleep(latency_ms / 1000.0)
