@@ -1,8 +1,10 @@
 # CinePal - Conversational Clustering Movie Recommender System
 
-We build a conversational movie recommendation system in which the user (the **oracle**) interacts with an AI through a chat interface to discover films that match their taste or provide a set of suggestions. 
+We build a conversational movie recommendation system in which the user (the **oracle**) interacts with an AI through a chat interface to discover films that match their taste or provide a set of suggestions.
 
 The system does not ask the user to fill out a profile or rate movies upfront. Instead, it starts from the user's first natural-language request, proposes an initial clustering of the available movie space into meaningful groups, then refines that clustering turn by turn as the user reacts. The **clustering is the recommendation**: the user is converging toward a group of titles they want, and the system's job is to reach that group as efficiently as possible.
+
+For a detailed problem formulation and motivation, see [problem_statement.md](https://github.com/ai-design-2026-projects/cantucci/blob/main/docs/specifications/problem_statement.md).
 
 ## Research Scope
 
@@ -21,7 +23,7 @@ We approach this from four angles:
 
 - **Feedback is inherently ambiguous.** "Too dark" could mean genre, tone, visual style, or moral content. The system must map vague natural language onto structured cluster updates without demanding clarification at every turn.
 - **No ground truth for convergence.** The oracle defines success, so sessions cannot be labelled correct or incorrect independently of the user. This makes offline evaluation genuinely difficult.
-- **Retrieval and clustering are confounded.** A poor candidate pool on turn 1 limits every subsequent clustering decision, but slow convergence looks identical whether the retrieval or the clustering strategy is at fault. Then, how can I know that the first retrieval is enough to support good clustering?
+- **Retrieval and clustering are confounded.** A poor candidate pool on turn 1 limits every subsequent clustering decision, but slow convergence looks identical whether the retrieval or the clustering strategy is at fault.
 - **Stability vs. accuracy tension.** Cluster names and boundaries must feel consistent to the user across turns, yet the underlying content genuinely shifts as feedback narrows the pool. Too much stability means the labels lie; too much churn means the user loses their bearings.
 - **Profile extraction**: how can I track and leverage the user's evolving preferences across turns, and how can I use that profile to improve retrieval and clustering in future sessions?
 - **Conversation Drift**: A user might change their mind mid-session, or introduce new preferences that contradict earlier feedback. The system must be flexible enough to accommodate this without losing the thread of the conversation.
@@ -33,13 +35,12 @@ We approach this from four angles:
 
 We propose an architectural framework for conversational clustering recommenders that addresses the above challenges through a modular design separating concerns and allowing flexible experimentation with different strategies. The main components are:
 
-- **Orchestrator**: A *deterministic state machine* that manages the conversation flow, decides which agent to call at each turn, and maintains the overall session state.
+- **Orchestrator**: A *deterministic machine* that manages the conversation flow, decides which agent to call at each turn, and maintains the overall session state.
 Rather than a monolithic loop, each turn dispatches agents in parallel waves, maintaining consistency and response-time efficiency.
 It is the sole component with direct database access, enabling clean and secure management of data and interactions.
 
-- **Retrieval Agent**: Instead of embedding the oracle's raw query directly, the agent expands it into *rich hypothetical prose* written as if it were a film synopsis.
-An embedding-based search (*BAAI/bge-large-en-v1.5*) then retrieves a candidate pool of K films whose overviews are closest to that prose.
-We retrieve at each start, drift, and re-retrieve event, but not after every cluster update, keeping clusters stable between refinements. A future direction is to retrieve continuously and let the clustering agent decide which films to add or remove, which would handle *soft drift* — cases where the intial retrieval wasn't precise enough to capture the oracle's intent, but the feedback is still relevant to some of the retrieved films.
+- **Retrieval Agent**: Instead of embedding the oracle's raw query directly, the agent expands it into *rich hypothetical prose* written as if it were a film synopsis. An embedding-based search (*BAAI/bge-large-en-v1.5*) then retrieves a candidate pool of K films whose overviews are closest to that prose.
+We retrieve at each start, drift, and re-retrieve event, but not after every cluster update, keeping clusters stable between refinements. A future direction is to retrieve continuously and let the clustering agent decide which films to add or remove, which would handle *soft drift* — cases where the initial retrieval wasn't precise enough to capture the oracle's intent, but the feedback is still relevant to some of the retrieved films.
 
 - **Clustering Agent**: Operates in two modes. On a fresh turn it applies dimensionality reduction (*UMAP*) to the candidate pool, then produces an initial soft clustering (*HDBSCAN*).
 When prior clusters exist, an LLM-based *refinement step* updates boundaries, scores, and membership based on oracle feedback.
@@ -50,13 +51,17 @@ It also tracks excluded films and injects them into retrieval and clustering, bo
 
 - **Decision Agent**: Analyses the current cluster configuration together with the oracle's query and profile to decide the next action: recommending a cluster or asking a question to disambiguate.
 Clusters are first scored for relevance, then the entropy of that distribution is computed as a soft signal of how uncertain the best choice is — a guide rather than a hard threshold, since entropy alone cannot capture preference uncertainty.
-When it decides to ask, the agent selects the question type based on session state: *open-ended* questions early on, when intent is too vague to separate clusters; *targeted* binary questions once clusters have diverged, identifying the sharpest axis of ambiguity between the two most confusable clusters. Prior questions are injected into context to prevent repetition, and a hard *eager-to-see override* bypasses entropy entirely, forcing an immediate recommendation whenever the oracle signals impatience.
+When it decides to ask, the agent selects the question type based on cluster state: *open-ended* questions early on, when intent is too vague to separate clusters; *targeted* binary questions once clusters have diverged, identifying the sharpest axis of ambiguity between the two most confusable clusters. Prior questions are injected into context to prevent repetition, and a hard *eager-to-see override* bypasses entropy entirely, forcing an immediate recommendation whenever the oracle signals impatience.
 
 - **State Agent**: Detects conversation-level events that override the normal pipeline: `natural_end` (oracle signals satisfaction), `clarify_drift` (current message contradicts a stated constraint), `drift_confirmed`/`drift_dismissed` (resolution of a prior drift clarification), and `re_retrieve` (oracle has already seen all recently recommended films). This guard layer keeps the orchestrator's main path clean while handling the full range of conversational edge cases.
+
+Full component specifications and the architecture diagram are described in [architecture.md](https://github.com/ai-design-2026-projects/cantucci/blob/main/docs/specifications/architecture/architecture.md).
 
 ## Evaluation
 
 The core challenge is that there is no external ground truth: the oracle *is* the objective function. We address this through a two-layer setup: a hidden ground truth that the oracle never sees, and an LLM judge that scores transcripts after the session ends.
+
+A full specification of the evaluation setup is given in [evaluation.md](https://github.com/ai-design-2026-projects/cantucci/blob/main/docs/specifications/evaluation.md).
 
 **Conditions**: We aim to focus on two main agents:
 - *Clustering agent*: how well does the system interpret feedback to refine clusters?
