@@ -39,7 +39,7 @@ function SessionListItem({ summary, isActive, onDeleteConfirmed }: SessionListIt
     <>
       <div
         className={cn(
-          "group relative flex items-center gap-2 px-3 py-2 rounded-md cursor-pointer text-sm transition-colors",
+          "group relative w-[245px] flex items-center gap-2 px-3 py-2 rounded-md cursor-pointer text-sm transition-colors",
           isActive
             ? "bg-accent text-accent-foreground"
             : "text-muted-foreground hover:bg-muted hover:text-foreground"
