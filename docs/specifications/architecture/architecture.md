@@ -39,4 +39,51 @@ Each agent operates through a well-defined tool interface. Tools are the only me
 
 ## Turn Handling
 
----
+Each oracle message is handled by a fresh `TurnRunner` that loads the `TurnContext` from the database, and then it's discarded after the turn completes. The sequence has distinct phases with routing gates in between, as illustrated in the BPMN diagram below.
+
+![Turn Handling BPMN Diagram](../../media/turn_handling.png)
+
+### Phase 1 — Hard limit gate (synchronous)
+
+Before any LLM work is scheduled, `check_hard_limits` evaluates turn count and cost budget against the session config. This check is synchronous and cheap. If either limit is reached the orchestrator retrieves the last recommendation from history and returns a terminal `terminate` turn — no further tasks are spawned.
+
+### Phase 2 — Parallel understanding wave
+
+Three `asyncio` tasks are created simultaneously:
+
+| Task | What it does |
+|---|---|
+| **State gate** | LLM call: classifies the oracle's message against session history. Returns one of: `proceed`, `natural_end`, `clarify_drift`, `drift_confirmed`, `drift_dismissed`, `re_retrieve`. |
+| **Profile extraction** | LLM call: merges the oracle's message into the structured preference profile (constraints, soft preferences, attitudes, prose summary, anchor films, seen films). |
+| **Speculative branch** | If `prior_clustered` exists: `cluster_agent.refine` over the prior cluster set. Otherwise: `retrieve_from_message → soft_cluster (thread) → describe`. Runs entirely in parallel with the other two tasks. |
+
+### Phase 3 — State gate verdict (first routing gate)
+
+The state gate result is awaited first. Its verdict drives the first branch:
+
+- **`natural_end`** — all background tasks are discarded (failures swallowed so the bypass always completes), the orchestrator retrieves the last recommendation, persists a `natural_end` turn, and returns.
+- **`clarify_drift`** — same discard, but returns a drift-clarification turn instead.
+- **Any other verdict** — the profile task is awaited next, completing the understanding wave.
+
+If the state gate itself fails, sibling tasks (profile and speculative) are cancelled before the error propagates.
+
+### Phase 4 — Cluster resolution (second routing gate)
+
+Once both state gate and profile extraction have completed, cluster resolution picks the cluster list for this turn:
+
+- **`proceed` / `drift_dismissed`** — the speculative branch result is consumed as-is. It has been running in parallel since Phase 3 and is ready (or near-ready) at this point.
+- **`drift_confirmed` / `re_retrieve`** — the speculative branch is cancelled, and a fresh retrieval is performed using the updated profile summary as the query. The exclusion list is built from `prior_seen` plus any anchor films the profile agent extracted. After retrieval: `soft_cluster (thread) → describe`.
+
+If the resolved cluster list is **empty** (retrieval or HDBSCAN yielded no candidates) the orchestrator returns an early-clarification turn without entering the decision phase.
+
+### Phase 5 — Finalization (sequential)
+
+With a non-empty cluster list, the turn enters the finalization sequence:
+
+1. **Placeholder persist** — a turn row and a cluster snapshot are written to the database immediately, before the decision agent runs, so the session state is durable even if the decision LLM call fails.
+2. **Decision agent** — scores each cluster for relevance against the oracle's query, computes entropy across the soft-score distribution, and makes an LLM call that produces either `ask` (high entropy, continue) or `show` (one cluster dominates).
+3. **Reply construction**:
+   - `ask` — the decision agent's question text is returned verbatim.
+   - `show` — the best cluster is identified by id (falling back to the first cluster)
+4. **Final persist** — the turn row is updated with the reply text and step type, and the merged preference profile is written. The seen-films merge deduplicates `prior_seen ++ anchor_films ++ seen_films` in order.
+5. **Return** — a response is assembled and returned to the HTTP router.

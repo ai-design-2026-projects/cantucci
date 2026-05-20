@@ -88,6 +88,6 @@ A full specification of the evaluation setup is given in [evaluation.md](https:/
 
 - **Finalize experimental conditions and documentation:** Specify the experiment conditions we want to perform and analyze.
 - **Complete the evaluation setup**: Currently we have an empty infrastructure for evaluation setup. We need to implement the missing components and refine the already defined ones.
-- **Freeze and validate the fixed agents**: Before running ablations, we need to ensure agents behaviour is stable and correct. Any prompt or logic bug in a fixed component corrupts every condition equally and makes ablation results uninterpretable.
-- **Continuous retrieval for soft drift**: Extend the clustering agent to accept fresh candidates every turn and decide internally which films to absorb or drop, rather than waiting for an explicit drift or re-retrieve event.
+- **Freeze and validate the agents**: Before running ablations, we need to ensure agents behaviour is stable and correct. Any prompt or logic bug in a fixed component corrupts every condition equally and makes ablation results uninterpretable.
+- **Continuous retrieval**: Extend the clustering agent to accept fresh candidates every turn and decide internally which films to absorb or drop, rather than waiting for an explicit drift or re-retrieve event.
 - **Refine decision agent strategies**: Analyse failure cases in the decision agent's questioning strategy and define possible strategies to enhance it.
