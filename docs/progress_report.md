@@ -10,21 +10,20 @@ For a detailed problem formulation and motivation, see [problem_statement.md](ht
 
 Our main objective is to explore the following question:
 
-> Given a candidate pool of titles, what questioning and clustering strategy minimises turns to convergence while maximising recommendation quality as judged by the oracle?
+> Does conversational refinement converge to an oracle-accepted recommendation faster (fewer turns, lower cognitive load per turn) than a baseline?
 
-We approach this from four angles:
+We approach this from three angles:
 
 - **Questioning strategy**: how should the system decide what to ask at each turn, and what signals should drive that decision?
 - **Cluster update strategy**: how should oracle feedback propagate into cluster boundaries, and what algorithms or heuristics best support incremental refinement?
-- **Convergence and satisfaction**: how do we define and measure the point at which the system is ready to commit to a recommendation?
-- **Simulated oracle evaluation**: how do we assess recommendation quality when the oracle is an LLM agent, and how far do those assessments generalise?
+- **Satisfaction**: how do we assess recommendation quality when the oracle is an LLM agent, and how far do those assessments generalise?
 
 ## What Makes This Hard
 
 - **Feedback is inherently ambiguous.** "Too dark" could mean genre, tone, visual style, or moral content. The system must map vague natural language onto structured cluster updates without demanding clarification at every turn.
 - **No ground truth for convergence.** The oracle defines success, so sessions cannot be labelled correct or incorrect independently of the user. This makes offline evaluation genuinely difficult.
 - **Retrieval and clustering are confounded.** A poor candidate pool on turn 1 limits every subsequent clustering decision, but slow convergence looks identical whether the retrieval or the clustering strategy is at fault.
-- **Stability vs. accuracy tension.** Cluster names and boundaries must feel consistent to the user across turns, yet the underlying content genuinely shifts as feedback narrows the pool. Too much stability means the labels lie; too much churn means the user loses their bearings.
+- **Stability vs accuracy tension.** Cluster names and boundaries must feel consistent to the user across turns, yet the underlying content genuinely shifts as feedback narrows the pool. Too much stability means the labels lie; too much churn means the user loses their bearings.
 - **Profile extraction**: how can I track and leverage the user's evolving preferences across turns, and how can I use that profile to improve retrieval and clustering in future sessions?
 - **Conversation Drift**: A user might change their mind mid-session, or introduce new preferences that contradict earlier feedback. The system must be flexible enough to accommodate this without losing the thread of the conversation.
 - **Already seen movies**: The user might have already seen some of the movies in the candidate pool, and their feedback might be based on that prior knowledge. The system must be able to handle this and adjust its recommendations accordingly.
@@ -40,14 +39,14 @@ Rather than a monolithic loop, each turn dispatches agents in parallel waves, ma
 It is the sole component with direct database access, enabling clean and secure management of data and interactions.
 
 - **Retrieval Agent**: Instead of embedding the oracle's raw query directly, the agent expands it into *rich hypothetical prose* written as if it were a film synopsis. An embedding-based search (*BAAI/bge-large-en-v1.5*) then retrieves a candidate pool of K films whose overviews are closest to that prose.
-We retrieve at each start, drift, and re-retrieve event, but not after every cluster update, keeping clusters stable between refinements. A future direction is to retrieve continuously and let the clustering agent decide which films to add or remove, which would handle *soft drift* — cases where the initial retrieval wasn't precise enough to capture the oracle's intent, but the feedback is still relevant to some of the retrieved films.
+We retrieve at each start, drift, and re-retrieve event, but not after every cluster update, keeping clusters stable between refinements. A future direction is to retrieve continuously and let the clustering agent decide which films to add or remove, which would handle cases where the initial retrieval wasn't precise enough to capture the oracle's intent, but the feedback is still relevant to some of the retrieved films.
 
 - **Clustering Agent**: Operates in two modes. On a fresh turn it applies dimensionality reduction (*UMAP*) to the candidate pool, then produces an initial soft clustering (*HDBSCAN*).
 When prior clusters exist, an LLM-based *refinement step* updates boundaries, scores, and membership based on oracle feedback.
 In both modes a final LLM pass assigns *contrastive* labels — evocative taste and mood signatures rather than genre tags — so the user can distinguish clusters at a glance.
 
 - **Profile Agent**: Maintains a structured representation of the oracle's evolving taste across four fields: hard *constraints* (explicit requirements), soft *preferences* (stylistic leanings), *attitudes* (how the oracle engages), and a prose *summary* for downstream agents.
-It also tracks excluded films and injects them into retrieval and clustering, both to avoid re-recommending them and to ground the agents' interpretation of oracle feedback when those films are mentioned in context.
+It also tracks excluded films and injects them into retrieval and clustering, both to avoid re-recommending them.
 
 - **Decision Agent**: Analyses the current cluster configuration together with the oracle's query and profile to decide the next action: recommending a cluster or asking a question to disambiguate.
 Clusters are first scored for relevance, then the entropy of that distribution is computed as a soft signal of how uncertain the best choice is — a guide rather than a hard threshold, since entropy alone cannot capture preference uncertainty.
@@ -59,15 +58,15 @@ Full component specifications and the architecture diagram are described in [arc
 
 ## Evaluation
 
-The core challenge is that there is no external ground truth: the oracle *is* the objective function. We address this through a two-layer setup: a hidden ground truth that the oracle never sees, and an LLM judge that scores transcripts after the session ends.
+The core challenge is that there is no external ground truth: the oracle *is* the objective function.
+To address this, we defined the following approach:
 
-A full specification of the evaluation setup is given in [evaluation.md](https://github.com/ai-design-2026-projects/cantucci/blob/main/docs/specifications/evaluation.md).
-
-**Ground-truth construction:** Each ground truth is built offline, a held-out partition of the catalogue. A script samples N seed films, expands the set to ~40 films via cosine similarity in embedding space, and calls an LLM to write a neutral, voice-agnostic taste description. The result is saved as a versioned YAML file. During eval, the oracle receives only the description; the TMDB IDs are held by the runner and used for objective metric computation after the session ends.
+**Ground-truth construction:** Each ground truth is built offline from a held-out partition of the catalogue. A script samples N seed films, expands the set to ~40 films via cosine similarity in embedding space, and calls an LLM to write a neutral, voice-agnostic taste description. The result is saved as a versioned YAML file. During eval, the oracle receives only the description; the TMDB IDs are held by the runner and used for objective metric computation after the session ends.
 
 **Oracle:** A simulated oracle is an LLM agent that embodies a *ground truth* (the taste description) overlaid with a *persona* that controls communication style. Personas are defined by four behavioral dials: `verbosity` (terse / medium / verbose), `decisiveness` (likelihood to accept early, 0–1), `drift_probability` (per-turn chance of introducing a tangent), and `contradiction_rate` (per-turn chance of self-contradicting). A seeded `BehaviorRng`, keyed on `(persona_hash, gt_id, session_seed)`, injects deterministic stage directions into the oracle's context to trigger drift or contradiction. An acceptance gate, derived from the decisiveness dial, prevents low-decisiveness personas from converging in fewer turns than their dial would allow.
 
 **Metrics** (persisted per session in `session_metrics` and `judge_scores`):
+
 - *Precision@K, Recall@K, NDCG@K*: fraction of the top-K recommended films that appear in the ground-truth TMDB ID set.
 - *Turns to convergence*: turn number at which convergence is declared, or null if the session is abandoned.
 - *Avg cognitive load per turn*: recommendation size × 0.3 + question word count normalised to a 0–2 scale, averaged across turns.
@@ -75,6 +74,12 @@ A full specification of the evaluation setup is given in [evaluation.md](https:/
 - *Drift events*: count of `clarify_drift` events detected by the State Agent.
 - *LLM-judge scores*: clustering coherence, question quality, and preference-profile fidelity, each rated 1–5 by a separate judge model reading the full transcript, converged cluster, and ground-truth description (but not the oracle persona traits).
 
+**Baseline**: We compare our full system against two ablations designed to isolate retrieval and agentic benefits.
+
+- *Dry-run retrieval*: perform a top-K embedding retrieval using the same embedding pipeline but omit any LLM-driven clustering, labelling, or question generation.
+- *Plain LLM conversation*: a single monolithic LLM acts as the recommender: it receives the oracle's message and is prompted to either ask clarifying questions or return a ranked list of recommendations, without any attachment to the database, relying only on his knowledge. This baseline removes structured components.
+
+A full specification of the evaluation setup is given in [evaluation.md](https://github.com/ai-design-2026-projects/cantucci/blob/main/docs/specifications/evaluation.md).
 
 ## What We Have Done
 
@@ -86,8 +91,8 @@ A full specification of the evaluation setup is given in [evaluation.md](https:/
 
 ## Next Steps
 
-- **Finalize experimental conditions and documentation:** Specify the experiment conditions we want to perform and analyze.
-- **Complete the evaluation setup**: Currently we have an empty infrastructure for evaluation setup. We need to implement the missing components and refine the already defined ones.
+- **Finalize experimental conditions and documentation:** Specify the experiment conditions we want to perform and analyze. Then refine the whole documentation to have a proper fixed evaluation plan.
+- **Complete the evaluation setup**: Currently we have an non-functional placeholder for evaluation setup. We need to implement the missing components and refine the already defined ones.
 - **Freeze and validate the agents**: Before running ablations, we need to ensure agents behaviour is stable and correct. Any prompt or logic bug in a fixed component corrupts every condition equally and makes ablation results uninterpretable.
 - **Continuous retrieval**: Extend the clustering agent to accept fresh candidates every turn and decide internally which films to absorb or drop, rather than waiting for an explicit drift or re-retrieve event.
 - **Refine decision agent strategies**: Analyse failure cases in the decision agent's questioning strategy and define possible strategies to enhance it.
