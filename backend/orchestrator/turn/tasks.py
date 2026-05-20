@@ -19,7 +19,7 @@ Cancellation contract
 import asyncio
 import logging
 import backend.retrieval.agent as retrieval_agent
-from backend.api.types import ClusterRow
+from backend.repository.sessions import ClusterRow
 from backend.orchestrator.turn.context import TurnContext
 from backend.orchestrator.turn.speculative import (
     SpeculativeBranch,

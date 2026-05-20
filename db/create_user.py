@@ -15,7 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from pydantic import ValidationError
 
-from backend.api import users as api_users
+import backend.repository.users as api_users
 from backend.auth import hash_password
 from backend.routers.auth import LoginRequest
 import logging

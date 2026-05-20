@@ -19,7 +19,7 @@ from backend.decision.tools import entropy_calculator, relevance_scorer
 from backend.llm import llm_harness
 from backend.llm.prompts import make_prompt_loader
 from backend.settings import get_config_hash, get_settings
-from backend.api.types import ClusterRow
+from backend.repository.sessions import ClusterRow
 from backend.decision.types import DecisionAction, DecisionResponse, DecisionResult
 
 log = logging.getLogger(__name__)

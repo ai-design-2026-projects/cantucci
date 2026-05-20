@@ -5,7 +5,7 @@ No LLM calls, no DB access.
 
 from typing import Any
 
-from backend.api.types import TurnRow
+from backend.repository.sessions import TurnRow
 
 
 def build_prompt_vars(

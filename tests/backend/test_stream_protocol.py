@@ -21,7 +21,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from backend.api.types import SessionStatus, StepType
+from backend.orchestrator.domain import SessionStatus, StepType
 from backend.exceptions import SessionNotFound
 from backend.orchestrator.turn.progress import (
     ProgressCallback,

@@ -13,13 +13,9 @@ from uuid import UUID, uuid4
 
 import pytest
 
-from backend.api.types import (
-    ClusterAssignment,
-    ClusterRow,
-    SessionRow,
-    StepType,
-    TurnRow,
-)
+from backend.cluster.domain import ClusterAssignment
+from backend.orchestrator.domain import StepType
+from backend.repository.sessions import ClusterRow, SessionRow, TurnRow
 from backend.orchestrator.utils import presentation
 
 

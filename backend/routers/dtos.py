@@ -12,7 +12,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, field_validator
 
-from backend.api.types import SessionStatus, StepType
+from backend.orchestrator.domain import SessionStatus, StepType
 
 
 class AmbiguityMeta(BaseModel):

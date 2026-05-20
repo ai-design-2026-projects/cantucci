@@ -7,7 +7,8 @@ from __future__ import annotations
 
 from uuid import uuid4
 
-from backend.api.types import ClusterAssignment, ClusterRow
+from backend.cluster.domain import ClusterAssignment
+from backend.repository.sessions import ClusterRow
 from backend.orchestrator.utils.presentation import render_recommendation
 
 

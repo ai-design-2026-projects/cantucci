@@ -25,8 +25,8 @@ import logging
 from datetime import datetime, timezone
 from uuid import UUID
 
-import backend.api.sessions as api_sessions
-from backend.api.types import StepType
+import backend.repository.sessions as api_sessions
+from backend.orchestrator.domain import StepType
 from backend.routers.dtos import RecommendationDto, TurnDto
 from backend.state.types import StateDecision
 

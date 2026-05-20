@@ -25,7 +25,8 @@ from backend.cluster.tools import (
     embedding_fetcher,
     soft_cluster_engine,
 )
-from backend.api.types import ClusterAssignment, ClusterRow
+from backend.cluster.domain import ClusterAssignment
+from backend.repository.sessions import ClusterRow
 from backend.retrieval.types import RetrievalResult
 from backend.settings import get_settings
 

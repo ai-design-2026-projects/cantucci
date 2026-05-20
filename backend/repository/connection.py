@@ -1,20 +1,6 @@
-"""
-Database connection pool and transaction helper.
-
-This module is the only place in the codebase that opens Postgres connections.
-All other api/ modules import `transaction` from here — they never call psycopg directly.
-
-Usage:
-    from backend.api.db import transaction
-
-    with transaction() as conn:
-        conn.execute("SELECT 1")
-"""
-
 import logging
 from contextlib import contextmanager
 from typing import Generator
-
 import psycopg
 import psycopg_pool
 
@@ -22,9 +8,10 @@ from backend.settings import get_env
 
 log = logging.getLogger(__name__)
 
-# Module-level pool, lazily created on first use.
+# Module-level pool, lazily created on first use. Implements a singleton pattern for the connection pool
 _pool: psycopg_pool.ConnectionPool | None = None
-
+# Adjust based on expected concurrency and DB limits
+MAX_POOL_SIZE = 10
 
 def _get_pool() -> psycopg_pool.ConnectionPool:
     """Return the module-level connection pool, creating it on first use."""
@@ -39,7 +26,7 @@ def _get_pool() -> psycopg_pool.ConnectionPool:
         _pool = psycopg_pool.ConnectionPool(
             conninfo=conninfo,
             min_size=1,
-            max_size=10,
+            max_size=MAX_POOL_SIZE,
             open=True,
             configure=_configure_connection,
         )
@@ -54,8 +41,8 @@ def _configure_connection(conn: psycopg.Connection) -> None:
 
 @contextmanager
 def transaction() -> Generator[psycopg.Connection, None, None]:
-    """Yield a connection inside an explicit transaction.
-
+    """
+    Yield a connection inside an explicit transaction.
     Commits on clean exit, rolls back on any exception. Callers should never
     call conn.commit() or conn.rollback() themselves.
     """

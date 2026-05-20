@@ -9,12 +9,9 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from uuid import uuid4
 
-from backend.api.types import (
-    ClusterAssignment,
-    ClusterRow,
-    StepType,
-    TurnRow,
-)
+from backend.cluster.domain import ClusterAssignment
+from backend.orchestrator.domain import StepType
+from backend.repository.sessions import ClusterRow, TurnRow
 from backend.orchestrator.utils.history import prior_questions
 
 

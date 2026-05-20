@@ -3,8 +3,8 @@
 import logging
 import time
 
-import backend.api.movies as api_movies
-from backend.api.types import MovieHit
+import backend.repository.movies as api_movies
+from backend.retrieval.types import MovieHit
 from backend.settings import get_settings
 
 log = logging.getLogger(__name__)
@@ -19,7 +19,7 @@ def search(
 
     Delegates embedding to ``db.ingestion.embed.encode_all`` (same model and
     normalisation as catalogue ingest) and SQL retrieval to
-    ``backend.api.movies.vector_search``.
+    ``backend.repository.movies.vector_search``.
 
     Args:
         query:       Natural-language search string from the oracle.

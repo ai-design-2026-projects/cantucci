@@ -8,9 +8,9 @@ from __future__ import annotations
 
 import uuid
 
-import backend.api.runs as api_runs
-import backend.api.sessions as api_sessions
-import backend.api.users as api_users
+import backend.repository.runs as api_runs
+import backend.repository.sessions as api_sessions
+import backend.repository.users as api_users
 from backend.auth import hash_password
 
 

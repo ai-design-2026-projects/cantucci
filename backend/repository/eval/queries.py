@@ -1,48 +1,14 @@
-"""
-Read/write evaluation results: session_metrics and judge_scores.
-
-Write side: called by the eval harness after a session completes; never by the
-live conversational loop.
-
-Read side: called by backend/eval/aggregator.py to compute per-run statistics.
-"""
-
 import logging
 import uuid
-from dataclasses import dataclass
 from decimal import Decimal
 
-from backend.api.db import transaction
+from backend.repository.connection import transaction
+from backend.repository.eval.types import (
+    JudgeScoreRead,
+    SessionMetricsRead,
+)
 
 log = logging.getLogger(__name__)
-
-
-@dataclass
-class SessionMetricsRead:
-    """JOIN projection of session_metrics + sessions fields needed for aggregation."""
-
-    session_id: uuid.UUID
-    persona_id: str | None
-    ground_truth_id: str | None
-    converged: bool
-    turns_to_convergence: int | None
-    avg_cognitive_load: float | None
-    explicit_acceptance: bool
-    drift_events: int
-    total_cost_usd: float
-    precision_at_k: float | None
-    recall_at_k: float | None
-    ndcg_at_k: float | None
-
-
-@dataclass
-class JudgeScoreRead:
-    """Minimal judge_scores projection for aggregation — dimension + score per session."""
-
-    session_id: uuid.UUID
-    persona_id: str | None
-    dimension: str
-    score: int
 
 
 def list_session_metrics_for_run(run_id: uuid.UUID) -> list[SessionMetricsRead]:

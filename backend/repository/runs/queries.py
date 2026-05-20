@@ -1,18 +1,10 @@
-"""
-CRUD operations for the `runs` table.
-
-A run groups N sessions under one experimental condition with a single YAML
-config snapshot. Callers create a run before starting any sessions, then call
-finalize_run() when all sessions in the run are complete.
-"""
-
 import json
 import logging
 import uuid
 from typing import Any, Literal
 
-from backend.api.db import transaction
-from backend.api.types import Run
+from backend.repository.connection import transaction
+from backend.repository.runs.types import Run
 
 log = logging.getLogger(__name__)
 
@@ -26,8 +18,8 @@ def create_run(
     model_version: str,
     notes: str | None = None,
 ) -> uuid.UUID:
-    """Insert a new run row and return its UUID.
-
+    """
+    Insert a new run row and return its UUID.
     Args:
         name: Human-readable label (e.g. "ablation-uncertainty-2024-05").
         condition: One of baseline | uncertainty | random | boundary | popularity
@@ -40,7 +32,6 @@ def create_run(
         seed: RNG seed shared across all sessions in this run.
         model_version: LLM model identifier (e.g. "claude-opus-4-7").
         notes: Optional free-text annotation.
-
     Returns:
         UUID of the newly created run.
     """
@@ -65,8 +56,8 @@ def finalize_run(
     run_id: uuid.UUID,
     status: Literal["completed", "aborted"],
 ) -> None:
-    """Set run status to completed or aborted and record ended_at.
-
+    """
+    Set run status to completed or aborted and record ended_at.
     Args:
         run_id: UUID of the run to finalize.
         status: Terminal status value.
@@ -84,13 +75,14 @@ def finalize_run(
 
 
 def get_run(run_id: uuid.UUID) -> Run:
-    """Fetch a run by UUID. Raises ValueError if not found.
-
+    """
+    Fetch a run by UUID. Raises ValueError if not found.
     Args:
         run_id: UUID of the run.
-
     Returns:
         Run dataclass with all fields populated.
+    Raises:
+        ValueError: If the run does not exist.
     """
     with transaction() as conn:
         row = conn.execute(
@@ -125,12 +117,11 @@ def list_runs(
     condition: str | None = None,
     status: str | None = None,
 ) -> list[Run]:
-    """List runs, optionally filtered by condition and/or status.
-
+    """
+    List runs, optionally filtered by condition and/or status.
     Args:
         condition: Filter to this condition string (exact match).
         status: Filter to this status string (exact match).
-
     Returns:
         List of Run objects ordered by started_at descending.
     """

@@ -19,14 +19,9 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from backend.api.types import (
-    ClusterAssignment,
-    ClusterRow,
-    SessionRow,
-    SessionStatus,
-    StepType,
-    TurnRow,
-)
+from backend.cluster.domain import ClusterAssignment
+from backend.orchestrator.domain import SessionStatus, StepType
+from backend.repository.sessions import ClusterRow, SessionRow, TurnRow
 from backend.retrieval.types import RetrievalResult
 from backend.state.types import StateAction, StateDecision
 from backend.decision.types import DecisionAction, DecisionResult
@@ -163,7 +158,7 @@ class _Patches:
             return p.start()
 
         self.get_session_full = _patch(
-            "backend.api.retrieval.get_session_full",
+            "backend.repository.sessions.get_session_full",
             return_value=self._full,
         )
         self.get_settings = _patch(
@@ -190,7 +185,7 @@ class _Patches:
             return_value=mock_rr,
         )
         self.fetch_stubs = _patch(
-            "backend.api.movies.fetch_stubs",
+            "backend.repository.movies.fetch_stubs",
             side_effect=lambda ids: [
                 {
                     "id": mid,
@@ -203,7 +198,7 @@ class _Patches:
             ],
         )
         self.fetch_movies_dto = _patch(
-            "backend.api.movies.fetch_movies_dto",
+            "backend.repository.movies.fetch_movies_dto",
             side_effect=lambda ids: [
                 {
                     "id": mid,
@@ -245,19 +240,19 @@ class _Patches:
             return_value=self._profile,
         )
         self.append_turn = _patch(
-            "backend.api.sessions.append_turn",
+            "backend.repository.sessions.append_turn",
         )
         self.update_turn = _patch(
-            "backend.api.sessions.update_turn",
+            "backend.repository.sessions.update_turn",
         )
         self.snapshot_clusters = _patch(
-            "backend.api.sessions.snapshot_clusters",
+            "backend.repository.sessions.snapshot_clusters",
         )
         self.write_feedback = _patch(
-            "backend.api.sessions.write_feedback",
+            "backend.repository.sessions.write_feedback",
         )
         self.update_profile = _patch(
-            "backend.api.sessions.update_preference_profile",
+            "backend.repository.sessions.update_preference_profile",
         )
         return self
 
@@ -408,8 +403,8 @@ class TestStateShortCircuits:
         )
         with _Patches(full=full) as p:
             with patch("backend.state.state_agent.check_hard_limits", return_value=terminate), \
-                 patch("backend.api.sessions.mark_abandoned"), \
-                 patch("backend.api.sessions.append_turn"):
+                 patch("backend.repository.sessions.mark_abandoned"), \
+                 patch("backend.repository.sessions.append_turn"):
                 orch = Orchestrator()
                 result = asyncio.run(orch.run_turn(full.session_id, "hi"))
         assert result.step_type == StepType.stop
@@ -423,8 +418,8 @@ class TestStateShortCircuits:
             reply="Goodbye!",
         )
         with _Patches(full=full, conv_decision=conv) as p:
-            with patch("backend.api.sessions.mark_converged"), \
-                 patch("backend.api.sessions.append_turn"):
+            with patch("backend.repository.sessions.mark_converged"), \
+                 patch("backend.repository.sessions.append_turn"):
                 orch = Orchestrator()
                 result = asyncio.run(orch.run_turn(full.session_id, "bye"))
         # Profile result must NOT be persisted on natural_end (speculative run is discarded)
@@ -526,8 +521,8 @@ class TestProgressCallback:
         rec = _Recorder()
         with _Patches(full=full):
             with patch("backend.state.state_agent.check_hard_limits", return_value=terminate), \
-                 patch("backend.api.sessions.mark_abandoned"), \
-                 patch("backend.api.sessions.append_turn"):
+                 patch("backend.repository.sessions.mark_abandoned"), \
+                 patch("backend.repository.sessions.append_turn"):
                 orch = Orchestrator()
                 asyncio.run(orch.run_turn(full.session_id, "hi", progress_cb=rec))
         assert rec.events == [
@@ -544,9 +539,9 @@ class TestProgressCallback:
         )
         rec = _Recorder()
         with _Patches(full=full, conv_decision=conv):
-            with patch("backend.api.sessions.mark_converged"), \
-                 patch("backend.api.sessions.append_turn"), \
-                 patch("backend.api.sessions.write_feedback"):
+            with patch("backend.repository.sessions.mark_converged"), \
+                 patch("backend.repository.sessions.append_turn"), \
+                 patch("backend.repository.sessions.write_feedback"):
                 orch = Orchestrator()
                 asyncio.run(orch.run_turn(full.session_id, "bye", progress_cb=rec))
         assert rec.events == [
@@ -730,8 +725,8 @@ class TestTerminalStateTolerance:
         )
         with _Patches(full=full, conv_decision=conv) as p:
             p.cluster_soft.side_effect = RuntimeError("retrieval reformulation failed")
-            with patch("backend.api.sessions.mark_converged"), \
-                 patch("backend.api.sessions.append_turn"):
+            with patch("backend.repository.sessions.mark_converged"), \
+                 patch("backend.repository.sessions.append_turn"):
                 orch = Orchestrator()
                 result = asyncio.run(orch.run_turn(full.session_id, "that's all, thanks"))
         assert result.step_type == StepType.stop
@@ -746,8 +741,8 @@ class TestTerminalStateTolerance:
         )
         with _Patches(full=full):
             with patch("backend.state.state_agent.check_hard_limits", return_value=terminate), \
-                 patch("backend.api.sessions.mark_abandoned"), \
-                 patch("backend.api.sessions.append_turn"):
+                 patch("backend.repository.sessions.mark_abandoned"), \
+                 patch("backend.repository.sessions.append_turn"):
                 orch = Orchestrator()
                 result = asyncio.run(orch.run_turn(full.session_id, "done"))
         assert result.step_type == StepType.stop

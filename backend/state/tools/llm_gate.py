@@ -10,7 +10,7 @@ import logging
 from typing import Any
 from uuid import UUID
 
-from backend.api.types import TurnRow
+from backend.repository.sessions import TurnRow
 from backend.state.types import (
     StateAction,
     StateCheckResponse,

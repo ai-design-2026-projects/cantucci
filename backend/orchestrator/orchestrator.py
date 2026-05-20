@@ -8,7 +8,7 @@ The Orchestrator owns three endpoints worth of behaviour:
         atching all movie-metadata fetches into one DB call.
 
 The class itself is stateless — no in-memory session state, no module-level
-caches. All persistence flows through ``backend.api``; every turn is
+caches. All persistence flows through ``backend.repository``; every turn is
 replayable from its stored seed + config snapshot + turn history alone.
 """
 import asyncio
@@ -17,11 +17,10 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from uuid import UUID
 
-import backend.api.movies as api_movies
-import backend.api.retrieval as api_retrieval
-import backend.api.runs as api_runs
-import backend.api.sessions as api_sessions
-from backend.api.types import SessionStatus
+import backend.repository.movies as api_movies
+import backend.repository.runs as api_runs
+import backend.repository.sessions as api_sessions
+from backend.orchestrator.domain import SessionStatus
 from backend.exceptions import SessionNotFound
 from backend.orchestrator.utils import presentation
 from backend.orchestrator.turn.progress import NullProgressCallback, ProgressCallback
@@ -111,7 +110,7 @@ class Orchestrator:
             LLMParseError:     If any agent LLM call returns malformed JSON.
         """
 
-        full_session = await asyncio.to_thread(api_retrieval.get_session_full, session_id)
+        full_session = await asyncio.to_thread(api_sessions.get_session_full, session_id)
         runner = TurnRunner(
             session_id=session_id,
             user_message=user_message,
@@ -174,7 +173,7 @@ class Orchestrator:
             SessionNotFound: If *session_id* does not exist in the DB.
         """
         try:
-            full_session = api_retrieval.get_session_full(session_id)
+            full_session = api_sessions.get_session_full(session_id)
         except ValueError as exc:
             raise SessionNotFound(session_id) from exc
         return presentation.assemble_session_dto(full_session)

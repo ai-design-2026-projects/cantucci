@@ -6,7 +6,7 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, EmailStr, field_validator
 
-from backend.api import users as api_users
+import backend.repository.users as api_users
 from backend.auth import User, encode_token, get_current_user, hash_password, set_auth_cookie, verify_password
 
 log = logging.getLogger(__name__)

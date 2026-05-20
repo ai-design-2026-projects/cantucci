@@ -22,7 +22,7 @@ import jwt
 from fastapi import Depends, Header, HTTPException, Request, Response
 from pydantic import BaseModel
 
-from backend.api import users as api_users
+import backend.repository.users as api_users
 from backend.settings import get_env
 
 log = logging.getLogger(__name__)

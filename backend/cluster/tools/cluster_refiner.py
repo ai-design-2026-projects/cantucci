@@ -2,7 +2,8 @@ import logging
 from pathlib import Path
 from uuid import UUID, uuid4
 
-from backend.api.types import ClusterAssignment, ClusterRow
+from backend.cluster.domain import ClusterAssignment
+from backend.repository.sessions import ClusterRow
 from backend.cluster.types import ClusterRefineResponse
 from backend.llm import llm_harness
 from backend.llm.prompts import make_prompt_loader

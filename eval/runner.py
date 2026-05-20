@@ -28,7 +28,7 @@ from decimal import Decimal
 from pathlib import Path
 from uuid import UUID
 
-from backend.api.runs import create_run, finalize_run
+from backend.repository.runs import create_run, finalize_run
 from backend.logging_setup import configure_logging
 from backend.orchestrator.turn.progress import ClusterSnapshotEvent, ResultEvent, ErrorEvent
 from backend.settings import CONFIGS_DIR, PROJECT_ROOT, get_config_hash, get_config_snapshot, get_settings

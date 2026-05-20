@@ -4,7 +4,8 @@ Functions here only read from already-fetched session state. No DB access, no
 LLM calls, no side effects. They exist to keep the per-turn flow readable —
 each call answers a single question about the prior turns.
 """
-from backend.api.types import SessionRow, StepType, TurnRow
+from backend.orchestrator.domain import StepType
+from backend.repository.sessions import SessionRow, TurnRow
 
 
 def last_clustered_turn(turns: list[TurnRow]) -> TurnRow | None:

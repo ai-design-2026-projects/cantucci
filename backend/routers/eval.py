@@ -12,15 +12,14 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from backend.api.eval import (
+from backend.repository.eval import (
     JudgeScoreRead,
     SessionMetricsRead,
     count_sessions_per_run,
     list_judge_scores_for_run,
     list_session_metrics_for_run,
 )
-from backend.api.runs import get_run, list_runs
-from backend.api.types import Run
+from backend.repository.runs import get_run, list_runs, Run
 from backend.auth import User, require_admin
 from backend.eval.aggregator import MetricBundle, aggregate_run, aggregate_run_by_persona
 from backend.eval.statistics import MetricCI

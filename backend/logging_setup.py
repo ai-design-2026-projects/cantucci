@@ -62,7 +62,7 @@ _STDLIB_ATTRS = frozenset(logging.LogRecord("", 0, "", 0, "", (), None).__dict__
 _COMPONENTS: tuple[tuple[str, str], ...] = (
     ("app", "backend.app"),
     ("routers", "backend.routers"),
-    ("api", "backend.api"),
+    ("repository", "backend.repository"),
     ("orchestrator", "backend.orchestrator"),
     ("state", "backend.state"),
     ("profile", "backend.profile"),

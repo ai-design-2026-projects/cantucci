@@ -16,8 +16,9 @@ import asyncio
 import logging
 from datetime import datetime, timezone
 
-import backend.api.sessions as api_sessions
-from backend.api.types import ClusterRow, StepType
+import backend.repository.sessions as api_sessions
+from backend.orchestrator.domain import StepType
+from backend.repository.sessions import ClusterRow
 from backend.decision import decision_agent
 from backend.decision.types import DecisionAction, DecisionResult
 from backend.orchestrator.turn.context import TurnContext

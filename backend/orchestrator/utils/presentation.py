@@ -4,9 +4,9 @@ enrichment and formatting logic lives here so the orchestrator and
 router can stay focused on their respective responsibilities of turn flow.
 """
 import logging
-import backend.api.movies as api_movies
-from backend.api.types import ClusterRow, SessionRow, SessionStatus, StepType
-from backend.api.sessions import SessionListRow
+import backend.repository.movies as api_movies
+from backend.orchestrator.domain import SessionStatus, StepType
+from backend.repository.sessions import ClusterRow, SessionListRow, SessionRow
 from backend.orchestrator.turn.progress import (
     ClusterFilmStub,
     ClusterSnapshotEvent,

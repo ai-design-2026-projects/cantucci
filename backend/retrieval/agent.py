@@ -18,9 +18,9 @@ Both functions return the same ``RetrievalResult`` shape so downstream agents
 import logging
 from uuid import UUID
 
-from backend.api import movies as api_movies
-from backend.api.types import MovieRow
-from backend.api.types import MovieHit
+import backend.repository.movies as api_movies
+from backend.repository.movies import MovieRow
+from backend.retrieval.types import MovieHit
 from backend.retrieval.tools import metadata_fetcher, query_reformulator, vector_search
 from backend.retrieval.types import RetrievalResult
 

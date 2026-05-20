@@ -21,13 +21,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from backend.api.types import (
-    ClusterAssignment,
-    ClusterRow,
-    SessionRow,
-    StepType,
-    TurnRow,
-)
+from backend.cluster.domain import ClusterAssignment
+from backend.orchestrator.domain import StepType
+from backend.repository.sessions import ClusterRow, SessionRow, TurnRow
 from backend.retrieval.types import RetrievalResult
 from backend.state.types import StateAction, StateDecision
 from backend.decision.types import DecisionAction, DecisionResult
@@ -147,7 +143,7 @@ class _GraphPatches:
 
         # Make the orchestrator DB-free.
         self.get_session_full = _p(
-            "backend.api.retrieval.get_session_full",
+            "backend.repository.sessions.get_session_full",
             return_value=self._full,
         )
         self.get_settings = _p(
@@ -201,27 +197,27 @@ class _GraphPatches:
             return_value=_profile_dto(),
             is_async=True,
         )
-        self.append_turn = _p("backend.api.sessions.append_turn")
-        self.update_turn = _p("backend.api.sessions.update_turn")
+        self.append_turn = _p("backend.repository.sessions.append_turn")
+        self.update_turn = _p("backend.repository.sessions.update_turn")
         self.snapshot_clusters = _p(
-            "backend.api.sessions.snapshot_clusters"
+            "backend.repository.sessions.snapshot_clusters"
         )
-        self.write_feedback = _p("backend.api.sessions.write_feedback")
+        self.write_feedback = _p("backend.repository.sessions.write_feedback")
         self.update_profile = _p(
-            "backend.api.sessions.update_preference_profile"
+            "backend.repository.sessions.update_preference_profile"
         )
         self.mark_abandoned = _p(
-            "backend.api.sessions.mark_abandoned"
+            "backend.repository.sessions.mark_abandoned"
         )
         self.mark_converged = _p(
-            "backend.api.sessions.mark_converged"
+            "backend.repository.sessions.mark_converged"
         )
         self.fetch_stubs = _p(
-            "backend.api.movies.fetch_stubs",
+            "backend.repository.movies.fetch_stubs",
             return_value=[],
         )
         self.fetch_movies_dto = _p(
-            "backend.api.movies.fetch_movies_dto",
+            "backend.repository.movies.fetch_movies_dto",
             return_value=[],
         )
         return self

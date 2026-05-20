@@ -1,46 +1,21 @@
-"""CRUD operations for the users and roles tables.
-
-Follows the same pattern as the other api/ modules: all SQL runs inside
-``transaction()`` from ``backend.api.db``; no other layer touches these tables.
-"""
-
 import logging
 import uuid
-from dataclasses import dataclass
 
-from backend.api.db import transaction
+from backend.repository.connection import transaction
+from backend.repository.users.types import UserRow
 
 log = logging.getLogger(__name__)
 
 
-@dataclass
-class UserRow:
-    """Projection of a users row joined with its role name.
-
-    Attributes:
-        id:            UUID primary key.
-        email:         Unique email address.
-        password_hash: bcrypt hash; never returned to clients.
-        role:          Role name resolved from the roles table (e.g. ``"admin"``).
-    """
-
-    id: uuid.UUID
-    email: str
-    password_hash: str
-    role: str
-
-
 def create_user(email: str, password_hash: str, role_name: str) -> uuid.UUID:
-    """Insert a new user row and return its UUID.
-
+    """
+    Insert a new user row and return its UUID.
     Args:
         email:         Unique email address.
         password_hash: Pre-hashed password (use ``backend.auth.hash_password``).
         role_name:     Role name that must exist in the ``roles`` table.
-
     Returns:
         UUID of the newly created user.
-
     Raises:
         ValueError: If ``role_name`` does not exist in the roles table.
         psycopg.errors.UniqueViolation: If ``email`` is already registered.
@@ -64,11 +39,10 @@ def create_user(email: str, password_hash: str, role_name: str) -> uuid.UUID:
 
 
 def get_user_by_email(email: str) -> UserRow | None:
-    """Fetch a user row joined with its role name, looked up by email.
-
+    """
+    Fetch a user row joined with its role name, looked up by email.
     Args:
         email: Email address to look up.
-
     Returns:
         A ``UserRow`` if found, ``None`` otherwise.
     """
@@ -89,11 +63,10 @@ def get_user_by_email(email: str) -> UserRow | None:
 
 
 def get_user_by_id(user_id: uuid.UUID) -> UserRow | None:
-    """Fetch a user row joined with its role name, looked up by UUID.
-
+    """
+    Fetch a user row joined with its role name, looked up by UUID.
     Args:
         user_id: UUID primary key.
-
     Returns:
         A ``UserRow`` if found, ``None`` otherwise.
     """

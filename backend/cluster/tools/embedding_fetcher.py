@@ -1,7 +1,7 @@
 import logging
 import numpy as np
 
-import backend.api.movies as api_movies
+import backend.repository.movies as api_movies
 from backend.settings import get_settings
 
 log = logging.getLogger(__name__)

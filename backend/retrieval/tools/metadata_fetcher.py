@@ -1,7 +1,7 @@
 import logging
 
-import backend.api.movies as api_movies
-from backend.api.types import MovieRow
+import backend.repository.movies as api_movies
+from backend.repository.movies import MovieRow
 
 log = logging.getLogger(__name__)
 

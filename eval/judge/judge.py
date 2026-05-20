@@ -34,7 +34,7 @@ from pathlib import Path
 from uuid import UUID
 from pydantic import BaseModel
 
-from backend.api.eval import upsert_session_metrics, write_judge_score
+from backend.repository.eval import upsert_session_metrics, write_judge_score
 from backend.llm.prompts import make_prompt_loader
 from backend.routers.dtos import SessionDto, TurnDto
 from eval.shared.ground_truths import GroundTruth

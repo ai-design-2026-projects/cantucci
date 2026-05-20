@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any
 from uuid import UUID
 
-from backend.api.types import TurnRow
+from backend.repository.sessions import TurnRow
 from backend.llm import llm_harness
 from backend.llm.prompts import make_prompt_loader
 from backend.profile.tools.profile_merger import build_prompt_vars

@@ -9,7 +9,7 @@ import logging
 import re
 from uuid import UUID
 
-from backend.api.types import ClusterRow
+from backend.repository.sessions import ClusterRow
 
 log = logging.getLogger(__name__)
 

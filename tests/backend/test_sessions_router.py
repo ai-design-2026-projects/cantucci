@@ -16,7 +16,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from backend.api.types import SessionStatus
+from backend.orchestrator.domain import SessionStatus
 from backend.auth import User, get_current_user
 from backend.orchestrator.orchestrator import Orchestrator
 from backend.routers.dtos import SessionDto

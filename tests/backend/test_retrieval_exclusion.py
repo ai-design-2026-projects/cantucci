@@ -19,7 +19,7 @@ from uuid import uuid4
 
 import psycopg
 
-from backend.api import movies as api_movies
+import backend.repository.movies as api_movies
 from backend.retrieval import agent as retrieval_agent
 from backend.retrieval.types import ReformulatedQuery
 
