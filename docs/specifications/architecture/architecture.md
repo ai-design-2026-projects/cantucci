@@ -2,7 +2,9 @@
 
 This diagram captures the **online conversational loop**: the **Retrieval System**, **Cluster Agent** (grouping), **Profile Agent** (preference tracking), **State Agent** (event detection), **Decision Agent** (routing and questioning), and **Orchestrator** (state & handoffs), with persistent state and vector retrieval support.
 
-For high-level problem context and motivation for these agents, see [§3.2 of problem_statement.md](../problem_statement.md#system-on-each-turn).
+![Architecture Diagram](../../media/architecture_diagram.png)
+
+
 
 ## Diagram components
 
@@ -16,7 +18,7 @@ For high-level problem context and motivation for these agents, see [§3.2 of pr
 | **Decision Agent** | Routing & convergence | Scores clusters for relevance against the oracle's query, then computes entropy across the soft-score distribution as a signal of how uncertain the best choice is. An LLM call uses these signals together with the preference profile and prior questions to decide: **recommend** if one cluster dominates, or **continue** if entropy is high. When continuing, the question is generated in the same LLM call — open-ended early in a session, targeted and binary once clusters have diverged. |
 | **Orchestrator** | State management & handoffs | Maintains conversation state across the full session and coordinates agent handoffs. On each turn it runs a parallel wave — state gate, profile extraction, and speculative retrieval or cluster refinement — then routes based on the state verdict. It is the sole writer to the database. |
 | **Vector Database** | Persistent memory | Stores catalogue embeddings, session history, clusters, soft assignments, and oracle feedback. Supports both live retrieval and offline replay and analysis. |
-| **LLM Judge** | Offline evaluation | Reads archived sessions and scores transcripts on coherence, question quality, and profile fidelity. Strictly offline: the judge must not influence live session state or agent routing. |
+
 
 ## Agent Tools
 
@@ -28,7 +30,7 @@ Each agent operates through a well-defined tool interface. Tools are the only me
 | **Retrieval System** | `vector_search` | Queries the vector store for the top-K films by cosine similarity to the reformulated query. Accepts an exclusion list pushed into the SQL filter before the limit is applied. |
 | **Retrieval System** | `metadata_fetcher` | Retrieves synopsis, genre, director, and rating metadata for each candidate to pass downstream. |
 | **Cluster Agent** | `embedding_fetcher` | Fetches stored embeddings for the retrieved candidate IDs from the database. |
-| **Cluster Agent** | `soft_cluster_engine` | Runs dimensionality reduction followed by HDBSCAN to produce per-film soft-membership scores across clusters. |
+| **Cluster Agent** | `soft_cluster_engine` | Runs UMAP dimensionality reduction followed by HDBSCAN to produce per-film soft-membership scores across clusters. |
 | **Cluster Agent** | `cluster_describer` | LLM tool that analyses cluster commonalities (top titles, genres, sample overviews) and returns an evocative name and short description for each cluster. |
 | **Cluster Agent** | `cluster_refiner` | LLM tool that updates prior cluster boundaries, scores, and membership in light of the oracle's latest reply, without running a fresh embedding pass. |
 | **Decision Agent** | `relevance_scorer` | Compares the oracle's query against cluster names and descriptions to produce a per-cluster relevance score. |
@@ -89,10 +91,6 @@ This section makes explicit which agents may call which others, what information
 - **Orchestrator → Vector Database**
   - Payload: write payloads for oracle feedback, clusters, cluster assignments, turns, and session profile updates; read queries to fetch candidate vectors.
   - Semantics: the Orchestrator is the single writer to the database. It enforces schema validation, writes audit metadata, and emits structured log entries so every mutation is replayable.
-
-- **Database → LLM Judge (offline)**
-  - Payload: archived transcripts, cluster snapshots per turn, oracle feedback log, and the converged preference profile.
-  - Semantics: the judge reads but never writes; scoring outputs are stored in a separate evaluation table applied only after the session ends.
 
 ### Intentionally Disallowed Direct Calls
 

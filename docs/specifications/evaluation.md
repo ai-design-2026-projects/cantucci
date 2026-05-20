@@ -17,8 +17,9 @@ A **one-shot vector search**: the oracle's first message is embedded, the top-K 
 
 ## 3 Experimental conditions
 
-All components are held fixed across conditions. What varies is the Decision Agent's **question-selection criterion** — the rule used to identify which cluster axis to ask about next.
+All components are held fixed across conditions. What varies is the Decision Agent's **question-selection criterion** and the Cluster Agent's **refinement strategy**.
 
+**Decision Agent question-selection criteria:**
 | Condition | Selection rule |
 |---|---|
 | `baseline` | One-shot vector search (no questions asked). |
@@ -27,7 +28,12 @@ All components are held fixed across conditions. What varies is the Decision Age
 | `popularity` | Among titles in the ambiguous pool (score gap < threshold), ask about the one with the highest vote count. |
 | `random` | Sample uniformly from the ambiguous pool (control). |
 
-**Fixed across all conditions:** retrieval model and prompt, clustering algorithm and prompt, Profile Agent, State Agent, Orchestrator routing logic, cognitive-load budget.
+**Cluster Agent refinement strategies:**
+| Condition | Refinement method |
+|---|---|
+| `baseline` | No refinement; clusters are fixed after the initial embedding pass. |
+| `single_retrieve` | On drift, run a fresh embedding pass on the full holdout catalogue and let the agent re-cluster from scratch. |
+| `continuous_retrieve` | On drift, keep the same candidate pool but let the agent update cluster boundaries also considering new candidates. |
 
 ---
 

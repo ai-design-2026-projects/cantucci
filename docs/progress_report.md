@@ -91,7 +91,7 @@ A full specification of the evaluation setup is given in [evaluation.md](https:/
 
 ## Next Steps
 
-- **Complete and run the first full evaluation.** Finish the remaining eval harness components, build ground truths and personas, then run the full `(ground_truth × persona × seed)` cross-product. This is the highest priority.
+- **Complete and run the first full evaluation.** Finish the remaining eval harness components, build ground truths and personas, then run the full pipeline. This is the highest priority.
 - **Freeze and validate the fixed agents.** Before running ablations, audit the agents that are not being varied — Retrieval, Profile, State, and Orchestrator — to ensure their behaviour is stable and correct. Any prompt or logic bug in a fixed component corrupts every condition equally and makes ablation results uninterpretable.
 - **Ablate the decision agent's questioning strategies.** Once baseline numbers are in, compare uncertainty-driven, boundary-driven, popularity-first, and random question selection to see which minimises turns to convergence without hurting satisfaction.
 - **Continuous retrieval for soft drift.** Extend the clustering agent to accept fresh candidates every turn and decide internally which films to absorb or drop, rather than waiting for an explicit drift or re-retrieve event.
