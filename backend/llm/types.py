@@ -62,3 +62,28 @@ class LLMParseError(Exception):
         self.step_type = step_type
         self.raw = raw
         super().__init__(f"Failed to parse LLM output for step '{step_type}'")
+
+
+class ReplayDriftError(Exception):
+    """Raised by ``llm_harness.call()`` when the incoming ``step_type`` does not
+    match the next entry in the recorded manifest.
+
+    This indicates that the call sequence has diverged from the recording —
+    typically because the config, prompt, or seed changed after the manifest
+    was captured.  Re-record the manifest to fix this.
+
+    Attributes:
+        expected: The ``step_type`` stored in the next manifest entry.
+        got:      The ``step_type`` of the incoming harness call.
+        session_id: The session whose manifest queue is out of sync.
+    """
+
+    def __init__(self, expected: str, got: str, session_id: str) -> None:
+        self.expected = expected
+        self.got = got
+        self.session_id = session_id
+        super().__init__(
+            f"Replay drift in session {session_id!r}: "
+            f"expected step_type={expected!r} but got {got!r}. "
+            "Re-record the manifest (CINEPAL_LLM_MODE=record)."
+        )
