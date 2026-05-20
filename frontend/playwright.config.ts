@@ -9,7 +9,7 @@ export default defineConfig({
   use: {
     baseURL: "http://localhost:5173",
     headless: false,
-    viewport: { width: 1440, height: 900 },
+    viewport: null,
     launchOptions: {
       slowMo: 120,
     },

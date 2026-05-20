@@ -326,10 +326,14 @@ def _load_manifest(session_id: str) -> deque[dict]:
             )
         path = _MANIFEST_DIR / f"{session_id}.jsonl"
         if not path.is_file():
-            raise FileNotFoundError(
-                f"Replay manifest not found at {path}. "
-                "Run CINEPAL_LLM_MODE=record first to generate it."
-            )
+            manifests = sorted(_MANIFEST_DIR.glob("*.jsonl"), key=lambda p: p.stat().st_mtime)
+            if not manifests:
+                raise FileNotFoundError(
+                    f"Replay manifest not found at {path} and no fallback manifest exists. "
+                    "Run CINEPAL_LLM_MODE=record first to generate one."
+                )
+            path = manifests[-1]
+            log.warning("replay manifest=%s not found; falling back to %s", session_id, path.name)
         entries = deque(json.loads(line) for line in path.read_text().splitlines() if line.strip())
         _replay_queues[session_id] = entries
     return _replay_queues[session_id]

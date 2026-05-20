@@ -13,16 +13,17 @@
  *   npm run e2e:headed   (then capture screen with OBS / QuickTime)
  */
 
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./fixtures";
 import { injectCursor } from "./helpers/cursor";
 
 const TYPE_DELAY = 55;
 const TURN_TIMEOUT = 90_000;
-
 test("CinePal demo", async ({ page }) => {
+  await page.waitForTimeout(10_000);
+
   await injectCursor(page);
 
-  await page.goto("/");
+  await page.goto("http://localhost:5173");
 
   const composer = page.getByRole("textbox", { name: "Oracle message" });
   await expect(composer).toBeVisible({ timeout: 15_000 });

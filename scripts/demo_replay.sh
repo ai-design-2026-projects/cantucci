@@ -21,7 +21,11 @@ if [ -z "$(ls -A "$MANIFEST_DIR" 2>/dev/null)" ]; then
   exit 1
 fi
 
+DEMO_SESSION_ID="$(ls -t "$MANIFEST_DIR"/*.jsonl | head -1 | xargs basename | sed 's/.jsonl//')"
+export DEMO_SESSION_ID
+
 echo "==> Replay mode: serving LLM responses from $MANIFEST_DIR"
+echo "==> Session: $DEMO_SESSION_ID"
 echo "==> Start your screen recorder, then: cd frontend && npm run e2e:headed"
 echo ""
 
