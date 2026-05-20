@@ -2,42 +2,27 @@
 
 ---
 
-## 1 Research questions
+## 1 Research question
 
-1. **Primary** — Does conversational refinement converge to an oracle-accepted recommendation faster (fewer turns, lower cognitive load per turn) than a one-shot vector search baseline?
-2. **Secondary** — Which question-selection strategy in the Decision Agent maximises recommendation quality while minimising turns to convergence?
+Our main objective is to explore the following question:
+
+> Does conversational refinement converge to an oracle-accepted recommendation faster (fewer turns, lower cognitive load per turn) than a baseline?
+
+We approach this from three angles:
+
+- **Questioning strategy**: how should the system decide what to ask at each turn, and what signals should drive that decision?
+- **Cluster update strategy**: how should oracle feedback propagate into cluster boundaries, and what algorithms or heuristics best support incremental refinement?
+- **Satisfaction**: how do we assess recommendation quality when the oracle is an LLM agent, and how far do those assessments generalise?
 
 ---
 
-## 2 Baseline
+## 2 Baselines
 
 A **one-shot vector search**: the oracle's first message is embedded, the top-K most similar titles are returned as a flat ranked list, and no follow-up questions are asked. This is the simplest possible recommender on the same embedding space. Beating it is the minimum bar for the conversational loop to justify its cost.
 
----
+A **monolithic LLM conversation**: a single monolithic LLM acts as the recommender: it receives the oracle's message and is prompted to either ask clarifying questions or return a ranked list of recommendations, without any attachment to the database, relying only on its knowledge. This baseline removes structured components and tests whether the architecture's modularity and retrieval support provide benefits over a single-agent approach.
 
-## 3 Experimental conditions
-
-All components are held fixed across conditions. What varies is the Decision Agent's **question-selection criterion** and the Cluster Agent's **refinement strategy**.
-
-**Decision Agent question-selection criteria:**
-| Condition | Selection rule |
-|---|---|
-| `baseline` | One-shot vector search (no questions asked). |
-| `uncertainty` | Ask about the cluster axis where the two most confusable clusters have the smallest soft-score gap. |
-| `boundary` | Ask about the title geometrically nearest the midpoint between the two highest-weighted cluster centroids in embedding space. |
-| `popularity` | Among titles in the ambiguous pool (score gap < threshold), ask about the one with the highest vote count. |
-| `random` | Sample uniformly from the ambiguous pool (control). |
-
-**Cluster Agent refinement strategies:**
-| Condition | Refinement method |
-|---|---|
-| `baseline` | No refinement; clusters are fixed after the initial embedding pass. |
-| `single_retrieve` | On drift, run a fresh embedding pass on the full holdout catalogue and let the agent re-cluster from scratch. |
-| `continuous_retrieve` | On drift, keep the same candidate pool but let the agent update cluster boundaries also considering new candidates. |
-
----
-
-## 4 Ground-truth construction
+## 3 Ground-truth construction
 
 Ground truths are built offline from a held-out partition of the catalogue that is never used during ingestion.
 
@@ -51,7 +36,7 @@ Ground truths are built offline from a held-out partition of the catalogue that 
 
 ---
 
-## 5 Oracle
+## 4 Oracle
 
 A simulated oracle is an LLM agent instantiated with a **ground truth** (taste description) overlaid with a **persona** (communication style). One oracle instance is created per session and must not be reused.
 
@@ -81,22 +66,24 @@ Each oracle turn returns a message and one of three intents:
 
 ---
 
-## 6 Eval runner
+## 5 Evaluation runner
 
 The runner drives the full cross-product of ground truths, personas, and random seeds against the live system API. For each cell in the cross-product it runs a session, streams turn events, and after the session ends hands the transcript to the judge for scoring.
 
 **Dry-run mode** enables fixture responses for the oracle and judge without suppressing real API calls to the system. This lets the harness be exercised end-to-end without incurring LLM costs.
 
+**Single LLM mode** replaces the full system with a single LLM call per turn that receives the oracle's message.
+
 ---
 
-## 7 Metrics
+## 6 Metrics
 
 All metrics are persisted after each session. Aggregates (mean + 95% percentile bootstrap CI) are computed per run and exposed via admin endpoints.
 
 ### Objective metrics (computed from logs and ground truth)
 
 | Metric | How measured |
-|---|---|
+|---|---
 | **Precision@K** | Fraction of top-K recommended films appearing in the ground-truth film set. Binary relevance. |
 | **Recall@K** | Fraction of the ground-truth film set recovered in the top-K recommendation. |
 | **NDCG@K** | Normalised Discounted Cumulative Gain at K. Binary relevance, logarithmic rank discount. |
@@ -120,6 +107,6 @@ Each score is stored alongside the rendered judge prompt hash so multiple judge 
 
 ---
 
-## 8 Aggregation and reporting
+## 7 Aggregation and reporting
 
-After each run, all session metrics and judge scores are aggregated into a metric bundle — one point estimate with 95% percentile bootstrap CI per metric (2000 resamples, seeded for reproducibility). The same aggregation can be broken down by persona, enabling per-persona sensitivity analysis. Both views are exposed via admin-only endpoints.
+After each run, all session metrics and judge scores are aggregated into a metric bundle — one point estimate with 95% percentile bootstrap CI per metric (2000 resamples, seeded for reproducibility). The same aggregation can be broken down by persona, enabling per-persona sensitivity analysis. Both views are exposed via admin-only endpoints, that permits to display the results in an interactive dashboard in the frontend.
