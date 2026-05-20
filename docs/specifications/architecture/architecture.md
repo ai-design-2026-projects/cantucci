@@ -4,9 +4,7 @@ This diagram captures the **online conversational loop**: the **Retrieval System
 
 ![Architecture Diagram](../../media/architecture_diagram.png)
 
-
-
-## Diagram components
+## System components
 
 | Component | Role in system | Purpose |
 |---|---|---|
@@ -26,7 +24,7 @@ Each agent operates through a well-defined tool interface. Tools are the only me
 
 | Agent | Tool | Description |
 |---|---|---|
-| **Retrieval System** | `query_reformulator` | Expands the oracle's utterance or profile summary into hypothetical film-synopsis prose for embedding. |
+| **Retrieval System** | `query_reformulator` | Expands the oracle's query or profile summary into hypothetical film-synopsis prose for embedding. |
 | **Retrieval System** | `vector_search` | Queries the vector store for the top-K films by cosine similarity to the reformulated query. Accepts an exclusion list pushed into the SQL filter before the limit is applied. |
 | **Retrieval System** | `metadata_fetcher` | Retrieves synopsis, genre, director, and rating metadata for each candidate to pass downstream. |
 | **Cluster Agent** | `embedding_fetcher` | Fetches stored embeddings for the retrieved candidate IDs from the database. |
@@ -36,75 +34,9 @@ Each agent operates through a well-defined tool interface. Tools are the only me
 | **Decision Agent** | `relevance_scorer` | Compares the oracle's query against cluster names and descriptions to produce a per-cluster relevance score. |
 | **Decision Agent** | `entropy_calculator` | Measures spread across the cluster soft-score distribution; high entropy signals that further questioning is warranted. |
 | **Profile Agent** | `profile_merger` | LLM tool that merges the oracle's latest message into the structured preference profile, updating constraints, preferences, attitudes, and the prose summary. |
-| **State Agent** | `hard_limits` | Synchronous check for turn count and cost budget exhaustion; trips before any LLM work is scheduled. |
-| **State Agent** | `llm_gate` | LLM tool that classifies the oracle's message against session state, detecting natural ends, preference contradictions, and re-retrieve triggers. |
+| **State Agent** | `check_hard_limits` | Synchronous check for turn count and cost budget exhaustion; trips before any LLM work is scheduled. |
+| **State Agent** | `check_session_state` | LLM tool that classifies the oracle's message against session state, detecting natural ends, preference contradictions, and re-retrieve triggers. |
 
-## Workflow Summary
-
-| Agent | Input | Output |
-|---|---|---|
-| State Agent | Oracle message + session history + preference profile | State verdict (proceed / natural\_end / clarify\_drift / drift\_confirmed / drift\_dismissed / re\_retrieve) |
-| Profile Agent | Oracle message + prior profile + recent turns | Updated structured preference profile |
-| Retrieval System | Oracle utterance or profile summary + exclusion list | Top-K film metadata |
-| Cluster Agent | Film metadata (fresh) or prior clusters + oracle reply (refinement) | Named clusters with soft-assignment scores |
-| Decision Agent | Clusters + oracle query + preference profile + prior questions | Routing decision (recommend / continue) + question when continuing |
-| Orchestrator | All agent outputs + oracle response | Updated session state; next agent trigger; turn persisted to DB |
-
-State Agent, Profile Agent, and the speculative clustering branch all run in parallel at the start of each turn. The state verdict is awaited first; terminal verdicts cancel the speculative branch immediately.
-
-## Component Communication (paths, payloads, and constraints)
-
-This section makes explicit which agents may call which others, what information is exchanged on each edge, and which direct calls are intentionally disallowed to preserve clear role boundaries and enable independent testing and logging.
-
-- **Oracle → Orchestrator**
-  - Payload: raw oracle utterance (text).
-  - Responsibility: the Orchestrator records the message, checks hard limits synchronously, then spawns the parallel task wave.
-
-- **Orchestrator → State Agent** *(parallel wave, turn start)*
-  - Payload: oracle message, session history, preference profile, last-shown titles, seen films.
-  - Semantics: the hard-limit check runs synchronously before any LLM work. The LLM gate runs concurrently with profile extraction and speculative clustering.
-
-- **Orchestrator → Profile Agent** *(parallel wave, turn start)*
-  - Payload: oracle message, prior preference profile, recent turns.
-  - Semantics: runs concurrently with the state gate and speculative branch. Profile is consumed only if the state verdict is proceed, drift\_confirmed, or drift\_dismissed.
-
-- **Orchestrator → Retrieval System** *(speculative or triggered)*
-  - Payload: oracle utterance (speculative first-turn path) or profile summary (drift and re-retrieve path), exclusion list, retrieval parameters.
-  - Semantics: on the speculative path, retrieval is issued optimistically and cancelled if the state verdict is terminal. On drift\_confirmed and re\_retrieve, the speculative result is discarded and a fresh profile-driven retrieval is issued.
-
-- **Retrieval System → Cluster Agent**
-  - Payload: top-K film metadata and reformulated query.
-  - Semantics: the Retrieval System does not perform grouping; it hands off a flat candidate list. The Cluster Agent treats inputs as immutable.
-
-- **Orchestrator → Cluster Agent** *(speculative refinement path)*
-  - Payload: prior cluster snapshot, oracle message, last assistant message.
-  - Semantics: when prior clusters exist, the Orchestrator speculatively fires a refinement pass concurrently with the state gate. If the state verdict is proceed or drift\_dismissed the refined clusters are used; otherwise the result is discarded.
-
-- **Cluster Agent → Decision Agent**
-  - Payload: named clusters with soft-assignment scores.
-  - Semantics: the Cluster Agent does not decide whether to stop or continue; it returns pure descriptive outputs. The Decision Agent receives clusters as read-only.
-
-- **Decision Agent → Orchestrator (routing signal)**
-  - Payload: action (recommend / continue), best cluster reference, rationale, entropy score, and — when continuing — the clarifying question text and the cluster references it targets.
-  - Semantics: question generation is part of the same LLM call as the routing decision. If the action is recommend, the Orchestrator surfaces the best cluster to the oracle. If continue, it surfaces the question.
-
-- **Orchestrator → Vector Database**
-  - Payload: write payloads for oracle feedback, clusters, cluster assignments, turns, and session profile updates; read queries to fetch candidate vectors.
-  - Semantics: the Orchestrator is the single writer to the database. It enforces schema validation, writes audit metadata, and emits structured log entries so every mutation is replayable.
-
-### Intentionally Disallowed Direct Calls
-
-- The Retrieval System, Cluster Agent, Decision Agent, Profile Agent, and State Agent are disallowed from writing to the database directly. All state mutations flow exclusively through the Orchestrator, preserving a single canonical writer.
-- The LLM Judge must not be called synchronously inside the live loop and must not have write access to session state. Its role is strictly evaluative and offline.
-- The Retrieval System must not perform clustering or routing logic; it is a supplier of enriched candidates only.
-- The Decision Agent must not read from or write to session state directly; prior questions are injected by the Orchestrator before the agent is called.
-
-### Rationale for the Communication Pattern
-
-1. **Testability & Ablation:** With clearly scoped, read-only agents and a single state writer (the Orchestrator), each agent can be unit-tested in isolation and swapped for ablation experiments without risk of hidden side effects.
-2. **Latency:** The parallel wave (state gate + profile + speculative clustering) hides the cost of the state check behind work that would be needed anyway, keeping per-turn latency close to the longest single LLM call rather than the sum.
-3. **Observability:** The Orchestrator logs token counts and a prompt hash per call, enabling per-step cost accounting and full session replay.
-4. **Trust & User-Facing Correctness:** Routing all writes through the Orchestrator prevents silent overrides of oracle constraints and ensures that drift is surfaced explicitly before any state change is committed.
-5. **Security & Safety:** Isolating the LLM Judge and restricting write access reduces the risk that an evaluation pass can mutate live sessions or leak sensitive preference state.
+## Turn Handling
 
 ---

@@ -63,10 +63,6 @@ The core challenge is that there is no external ground truth: the oracle *is* th
 
 A full specification of the evaluation setup is given in [evaluation.md](https://github.com/ai-design-2026-projects/cantucci/blob/main/docs/specifications/evaluation.md).
 
-**Conditions**: We aim to focus on two main agents:
-- *Clustering agent*: how well does the system interpret feedback to refine clusters?
-- *Decision agent*: how well does the system decide when to ask vs. recommend, and how well does it select questions?
-
 **Ground-truth construction:** Each ground truth is built offline, a held-out partition of the catalogue. A script samples N seed films, expands the set to ~40 films via cosine similarity in embedding space, and calls an LLM to write a neutral, voice-agnostic taste description. The result is saved as a versioned YAML file. During eval, the oracle receives only the description; the TMDB IDs are held by the runner and used for objective metric computation after the session ends.
 
 **Oracle:** A simulated oracle is an LLM agent that embodies a *ground truth* (the taste description) overlaid with a *persona* that controls communication style. Personas are defined by four behavioral dials: `verbosity` (terse / medium / verbose), `decisiveness` (likelihood to accept early, 0–1), `drift_probability` (per-turn chance of introducing a tangent), and `contradiction_rate` (per-turn chance of self-contradicting). A seeded `BehaviorRng`, keyed on `(persona_hash, gt_id, session_seed)`, injects deterministic stage directions into the oracle's context to trigger drift or contradiction. An acceptance gate, derived from the decisiveness dial, prevents low-decisiveness personas from converging in fewer turns than their dial would allow.
@@ -87,11 +83,11 @@ A full specification of the evaluation setup is given in [evaluation.md](https:/
 - **Data pipeline.** We scrape and clean film metadata from TMDB, embed synopses using `BAAI/bge-large-en-v1.5` in a GPU Colab notebook, and upload the resulting parquet artifacts to Hugging Face. The backend ingests them into a pgvector-enabled Postgres instance on startup. Three catalogue splits are available: `mini` (dev), `main` (~40k films), and `eval_holdout` (reserved for ground-truth construction).
 - **Test suite and CI/CD.** Smoke tests cover the full turn pipeline end-to-end in dry-run mode (no live LLM calls) using fixture responses. The CI pipeline runs ruff, mypy, and pytest on every push. A CD pipeline builds and pushes versioned Docker images on merge to main.
 - **Frontend.** The React/TypeScript frontend handles authentication, the chat interface, and streaming cluster previews. An admin panel lets us view eval session transcripts and metrics through an interactive dashboard.
-- **Eval harness.** The oracle, judge, ground-truth builder, and HTTP client are all implemented. The harness can be exercised end-to-end in dry-run mode; live runs against real personas and ground truths are the immediate next step.
 
 ## Next Steps
 
-- **Complete and run the first full evaluation.** Finish the remaining eval harness components, build ground truths and personas, then run the full pipeline. This is the highest priority.
-- **Freeze and validate the fixed agents.** Before running ablations, audit the agents that are not being varied — Retrieval, Profile, State, and Orchestrator — to ensure their behaviour is stable and correct. Any prompt or logic bug in a fixed component corrupts every condition equally and makes ablation results uninterpretable.
-- **Ablate the decision agent's questioning strategies.** Once baseline numbers are in, compare uncertainty-driven, boundary-driven, popularity-first, and random question selection to see which minimises turns to convergence without hurting satisfaction.
-- **Continuous retrieval for soft drift.** Extend the clustering agent to accept fresh candidates every turn and decide internally which films to absorb or drop, rather than waiting for an explicit drift or re-retrieve event.
+- **Finalize experimental conditions and documentation:** Specify the experiment conditions we want to perform and analyze.
+- **Complete the evaluation setup**: Currently we have an empty infrastructure for evaluation setup. We need to implement the missing components and refine the already defined ones.
+- **Freeze and validate the fixed agents**: Before running ablations, we need to ensure agents behaviour is stable and correct. Any prompt or logic bug in a fixed component corrupts every condition equally and makes ablation results uninterpretable.
+- **Continuous retrieval for soft drift**: Extend the clustering agent to accept fresh candidates every turn and decide internally which films to absorb or drop, rather than waiting for an explicit drift or re-retrieve event.
+- **Refine decision agent strategies**: Analyse failure cases in the decision agent's questioning strategy and define possible strategies to enhance it.

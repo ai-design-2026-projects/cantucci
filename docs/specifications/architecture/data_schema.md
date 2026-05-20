@@ -52,7 +52,13 @@ CREATE INDEX ON movies (vote_count);
 
 `bayesian_rating` uses `(v * R + m * C) / (v + m)` where `v = vote_count`, `R = vote_average`, `m` = minimum vote threshold, `C` = global mean. Use this as the ranking signal; raw `vote_average` should not be used alone.
 
-The `embedding` column stores 1024-dimensional vectors produced by `BAAI/bge-large-en-v1.5` on a composite of: `{title} {original_title} {overview} {tagline} {genres} {top3_cast} {director}`.
+The `embedding` column stores the pre-computed vector representation of the movie based on a composite of its metadata fields. This allows for efficient similarity search during retrieval.
+
+The composite text should include the most salient attributes for clustering. We concatenate the following fields:
+
+```
+{title} {original_title} {overview} {tagline} {genres} {top3_cast} {director}
+```
 
 ---
 
@@ -72,6 +78,7 @@ CREATE TABLE collections (
 ---
 
 ### `genres`
+Each movie can belong to multiple genres and each genre can apply to multiple movies, so we use a join table:
 
 ```sql
 CREATE TABLE genres (
@@ -90,7 +97,7 @@ CREATE TABLE movie_genres (
 
 ### `people`, `cast_members`, `crew_members`
 
-Single `people` table for cast and crew; role is determined by the join tables.
+The role is determined in the join tables (`cast_members` and `crew_members`) which reference `people.id` and specify the department/job or character played.
 
 ```sql
 CREATE TABLE people (
@@ -124,6 +131,7 @@ CREATE INDEX ON crew_members (job);        -- frequent filter: job = 'Director'
 ---
 
 ### `keywords`
+We define a separate `keywords` table and a many-to-many `movie_keywords` join table to capture the TMDB keywords associated with each movie. These are user-generated tags that can provide additional signals for clustering (e.g. "time travel", "based on novel", "space opera").
 
 ```sql
 CREATE TABLE keywords (
@@ -141,13 +149,18 @@ CREATE TABLE movie_keywords (
 ---
 
 ### `production_companies`
+Some movies are produced by multiple companies, and some companies produce multiple movies, so we use a join table:
 
 ```sql
 CREATE TABLE production_companies (
     id    BIGINT PRIMARY KEY,
     name  TEXT   NOT NULL
 );
+```
 
+Again, many-to-many relationships to capture the spoken languages and production countries for each movie:
+
+```sql
 CREATE TABLE movie_companies (
     movie_id   BIGINT NOT NULL REFERENCES movies(id) ON DELETE CASCADE,
     company_id BIGINT NOT NULL REFERENCES production_companies(id),
@@ -210,7 +223,7 @@ Admin accounts are provisioned via `python -m db.create_user --role admin`; the 
 
 ## Run & evaluation tables
 
-Written by the evaluation harness, not the live conversational loop.
+These tables are written by the evaluation harness (not the live conversational loop) to group sessions into experimental conditions and store per-session and per-run results.
 
 ### `runs`
 
@@ -282,11 +295,13 @@ CREATE INDEX ON judge_scores (dimension);
 
 ## Session tables
 
-Written at runtime by the orchestrator (sole DB writer).
+To store various per session data, we have the following tables. These are written to at runtime by the conversational loop to capture the evolving state of each session, including the turns taken, the cluster states, and the oracle feedback.
+
+A `uuid` is generated for each session and turn to serve as stable identifiers that can be referenced across tables. The `session_id` foreign key links all related records together, while `turn_number` captures the sequential order of turns within a session.
 
 ### `sessions`
 
-One row per conversation. Each session references a parent `run` and optionally an authenticated `user`.
+Table that identifies a single session. Each time a new conversation is started, a new session is created. The `status` field tracks whether the session is active, has converged, or was abandoned. The `config_hash` allows us to link back to the exact configuration used for this session for reproducibility. The `preference_profile` is populated at convergence with the structured profile extracted from oracle feedback.
 
 ```sql
 CREATE TABLE sessions (
@@ -356,6 +371,8 @@ CREATE TABLE clusters (
 CREATE INDEX ON clusters (session_id, turn_id);
 ```
 
+`parent_cluster_id` encodes the two-level hierarchy: coarse clusters (`level = 0`) have `parent_cluster_id = NULL`; fine clusters (`level = 1`) reference their parent coarse cluster.
+
 ---
 
 ### `cluster_assignments`
@@ -379,7 +396,7 @@ CREATE INDEX ON cluster_assignments (movie_id);
 
 ### `oracle_feedback`
 
-Immutable log of every oracle action. Append-only; never updated.
+Immutable log of every oracle action. Never updated; new rows only.
 
 ```sql
 CREATE TABLE oracle_feedback (
