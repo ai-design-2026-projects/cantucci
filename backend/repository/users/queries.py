@@ -12,7 +12,7 @@ def create_user(email: str, password_hash: str, role_name: str) -> uuid.UUID:
     Insert a new user row and return its UUID.
     Args:
         email:         Unique email address.
-        password_hash: Pre-hashed password (use ``backend.auth.hash_password``).
+        password_hash: Pre-hashed password (use ``backend.auth.passwords.hash_password``).
         role_name:     Role name that must exist in the ``roles`` table.
     Returns:
         UUID of the newly created user.

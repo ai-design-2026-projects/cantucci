@@ -1,11 +1,3 @@
-"""In-memory domain types for clustering.
-
-These are agent-facing types used for working state during the turn pipeline.
-They are not DB rows: ``ClusterAssignment`` is a soft-membership score held
-in memory, and ``ClusterSpecification`` is the write-input handed to the
-session layer's ``snapshot_clusters``.
-"""
-
 import uuid
 from dataclasses import dataclass
 

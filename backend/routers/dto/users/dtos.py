@@ -1,6 +1,6 @@
 from pydantic import BaseModel, EmailStr, field_validator
 
-from backend.auth import User
+from backend.auth.types import User
 
 
 class LoginRequest(BaseModel):

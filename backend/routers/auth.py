@@ -2,7 +2,10 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 
 import backend.repository.users as api_users
-from backend.auth import User, encode_token, get_current_user, hash_password, set_auth_cookie, verify_password
+from backend.routers.dependencies import get_current_user
+from backend.auth.passwords import hash_password, verify_password
+from backend.auth.tokens import encode_token, set_auth_cookie
+from backend.auth.types import User
 from backend.routers.dto.users.dtos import LoginRequest, LoginResponse
 
 log = logging.getLogger(__name__)

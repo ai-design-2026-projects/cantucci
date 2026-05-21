@@ -5,7 +5,7 @@ LLM calls, no side effects. They exist to keep the per-turn flow readable —
 each call answers a single question about the prior turns.
 """
 from backend.orchestrator.domain import StepType
-from backend.repository.sessions import SessionRow, TurnRow
+from backend.repository.sessions.types import SessionRow, TurnRow
 
 
 def last_clustered_turn(turns: list[TurnRow]) -> TurnRow | None:

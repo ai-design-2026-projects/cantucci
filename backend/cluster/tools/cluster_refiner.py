@@ -7,7 +7,7 @@ if TYPE_CHECKING:
     from backend.repository.movies.types import MovieRow
 
 from backend.cluster.domain import ClusterAssignment
-from backend.repository.sessions import ClusterRow
+from backend.repository.sessions.types import ClusterRow
 from backend.cluster.types import ClusterRefineResponse
 from backend.llm import llm_harness
 from backend.llm.utils.prompts import make_prompt_loader

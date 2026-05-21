@@ -12,7 +12,8 @@ from backend.repository.eval import (
     list_session_metrics_for_run,
 )
 from backend.repository.runs import get_run, list_runs, Run
-from backend.auth import User, require_admin
+from backend.routers.dependencies import require_admin
+from backend.auth.types import User
 from backend.eval.aggregator import aggregate_run, aggregate_run_by_persona
 from backend.routers.dto.eval.builders import metric_bundle_dto, metric_ci_dto
 from backend.routers.dto.eval.dtos import EvalSessionRowDto, MetricBundleDto, MetricCIDto

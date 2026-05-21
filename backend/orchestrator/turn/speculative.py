@@ -32,12 +32,12 @@ from enum import Enum
 from typing import TYPE_CHECKING
 
 import backend.retrieval.agent as retrieval_agent
-from backend.repository.sessions import ClusterRow
+from backend.repository.sessions.types import ClusterRow
 from backend.cluster import cluster_agent
 from backend.retrieval.types import RetrievalResult
 
 if TYPE_CHECKING:
-    from backend.repository.sessions import TurnRow
+    from backend.repository.sessions.types import TurnRow
     from backend.orchestrator.turn.context import TurnContext
 
 log = logging.getLogger(__name__)

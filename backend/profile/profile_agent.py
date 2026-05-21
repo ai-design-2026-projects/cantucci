@@ -16,7 +16,7 @@ import logging
 from pathlib import Path
 from uuid import UUID
 
-from backend.repository.sessions import TurnRow
+from backend.repository.sessions.types import TurnRow
 from backend.llm import llm_harness
 from backend.llm.utils.prompts import make_prompt_loader
 from backend.profile.tools.profile_merger import build_prompt_vars

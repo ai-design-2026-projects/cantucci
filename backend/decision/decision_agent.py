@@ -18,7 +18,7 @@ from backend.llm import llm_harness
 from backend.llm.utils.prompts import make_prompt_loader
 from backend.profile.types import UserProfile
 from backend.settings import get_config_hash, get_settings
-from backend.repository.sessions import ClusterRow
+from backend.repository.sessions.types import ClusterRow
 from backend.decision.types import DecisionAction, DecisionResponse, DecisionResult
 
 log = logging.getLogger(__name__)

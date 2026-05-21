@@ -18,7 +18,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from backend.cluster.domain import ClusterAssignment
-from backend.repository.sessions import ClusterRow
+from backend.repository.sessions.types import ClusterRow
 from backend.decision import decision_agent
 from backend.decision.types import DecisionAction, DecisionResult
 

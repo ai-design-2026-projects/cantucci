@@ -18,7 +18,7 @@ from datetime import datetime, timezone
 
 import backend.repository.sessions as api_sessions
 from backend.orchestrator.domain import StepType
-from backend.repository.sessions import ClusterRow
+from backend.repository.sessions.types import ClusterRow
 from backend.decision import decision_agent
 from backend.decision.types import DecisionAction, DecisionResult
 from backend.orchestrator.turn.context import TurnContext

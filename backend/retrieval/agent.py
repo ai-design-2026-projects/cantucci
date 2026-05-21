@@ -19,7 +19,7 @@ import logging
 from uuid import UUID
 
 import backend.repository.movies as api_movies
-from backend.repository.movies import MovieRow
+from backend.repository.movies.types import MovieRow
 from backend.retrieval.types import MovieHit
 from backend.retrieval.tools import metadata_fetcher, query_reformulator, vector_search
 from backend.retrieval.types import RetrievalResult

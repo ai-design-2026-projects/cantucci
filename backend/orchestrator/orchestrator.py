@@ -23,7 +23,7 @@ import backend.repository.sessions as api_sessions
 from backend.orchestrator.domain import SessionStatus
 from backend.exceptions import SessionNotFound
 from backend.orchestrator.turn.progress import NullProgressCallback, ProgressCallback
-from backend.orchestrator.turn import TurnRunner
+from backend.orchestrator.turn.runner import TurnRunner
 from backend.routers.dto.movies.dtos import MovieDto
 from backend.routers.dto.sessions.builders import assemble_session_dto, row_to_session_dto
 from backend.routers.dto.sessions.dtos import SessionDto, TurnDto

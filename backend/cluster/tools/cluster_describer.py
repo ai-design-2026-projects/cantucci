@@ -1,16 +1,3 @@
-"""cluster_describer — assign a name and description to each cluster via LLM.
-
-A single batched call sends all clusters' top titles, genres, and overviews to
-the model, which returns a JSON object whose ``clusters`` field has one
-``{cluster_index, name, description}`` per HDBSCAN cluster.  One call per turn
-is cheaper and lets the model differentiate cluster names by contrast.
-
-JSON parsing and Pydantic validation (with retry) are delegated to
-``backend.llm.llm_harness``; this tool only renders the prompt, hands it to
-the harness with ``response_schema=ClusterDescribeResponse``, and then aligns
-the validated entries back to the input cluster order by ``cluster_index``.
-"""
-
 import logging
 from uuid import UUID
 

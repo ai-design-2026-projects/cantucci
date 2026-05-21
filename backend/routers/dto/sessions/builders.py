@@ -9,7 +9,7 @@ from backend.orchestrator.domain import SessionStatus, StepType
 if TYPE_CHECKING:
     from backend.orchestrator.turn.progress import ProgressCallback
 from backend.repository.movies.types import MovieDetailsRow
-from backend.repository.sessions import ClusterRow, SessionListRow, SessionRow
+from backend.repository.sessions.types import ClusterRow, SessionListRow, SessionRow
 from backend.routers.dto.movies.dtos import MovieDto
 from backend.routers.dto.sessions.dtos import (
     ClusterDto,

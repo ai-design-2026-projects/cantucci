@@ -20,7 +20,7 @@ from uuid import UUID
 
 from backend.orchestrator.domain import StepType
 from backend.profile.types import UserProfile
-from backend.repository.sessions import SessionRow, TurnRow
+from backend.repository.sessions.types import SessionRow, TurnRow
 from backend.state.tools.hard_limits import check_hard_limits as _check_hard_limits
 from backend.state.tools.llm_gate import check_llm_state
 from backend.state.types import StateDecision

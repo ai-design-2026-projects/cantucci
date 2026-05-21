@@ -7,7 +7,8 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
-from backend.auth import User, get_current_user
+from backend.routers.dependencies import get_current_user
+from backend.auth.types import User
 from backend.exceptions import SessionNotFound
 from backend.orchestrator.orchestrator import Orchestrator
 from backend.routers.dto.sessions.dtos import SessionDto, TurnRequest

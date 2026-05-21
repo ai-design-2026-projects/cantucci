@@ -23,7 +23,7 @@ import asyncio
 import uuid
 from unittest.mock import MagicMock
 
-from backend.repository.sessions import SessionRow
+from backend.repository.sessions.types import SessionRow
 from backend.orchestrator.turn.context import TurnContext
 from backend.orchestrator.turn.runner import TurnRunner
 from backend.orchestrator.turn.tasks import TurnTasks

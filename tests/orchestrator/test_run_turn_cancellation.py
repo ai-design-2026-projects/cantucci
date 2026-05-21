@@ -23,7 +23,7 @@ import pytest
 
 from backend.cluster.domain import ClusterAssignment
 from backend.orchestrator.domain import StepType
-from backend.repository.sessions import ClusterRow, SessionRow, TurnRow
+from backend.repository.sessions.types import ClusterRow, SessionRow, TurnRow
 from backend.retrieval.types import RetrievalResult
 from backend.state.types import StateAction, StateDecision
 from backend.decision.types import DecisionAction, DecisionResult

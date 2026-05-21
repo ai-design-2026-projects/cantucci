@@ -11,7 +11,7 @@ from uuid import uuid4
 
 from backend.cluster.domain import ClusterAssignment
 from backend.orchestrator.domain import StepType
-from backend.repository.sessions import ClusterRow, TurnRow
+from backend.repository.sessions.types import ClusterRow, TurnRow
 from backend.orchestrator.utils.history import prior_questions
 
 

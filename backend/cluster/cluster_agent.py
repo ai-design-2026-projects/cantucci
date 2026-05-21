@@ -1,18 +1,3 @@
-"""Cluster Agent — groups retrieved candidates into named, soft-assigned clusters.
-
-Two paths, both driven explicitly by the Orchestrator:
-
-Fresh path (Scenario A):
-  1. ``soft_cluster``:      fetch embeddings + HDBSCAN → ``SoftClusterResult`` (no LLM).
-  2. ``describe_clusters``: LLM-name each cluster → ``list[ClusterRow]``.
-
-Refinement path (Scenario B):
-  ``refine``: thin wrapper over ``cluster_refiner.refine``.
-
-The Orchestrator calls retrieval itself and passes the result to ``soft_cluster``.
-Retrieval and clustering are fully decoupled.
-"""
-
 import logging
 from dataclasses import dataclass
 from uuid import UUID, uuid4
@@ -26,7 +11,7 @@ from backend.cluster.tools import (
     soft_cluster_engine,
 )
 from backend.cluster.domain import ClusterAssignment, ClusterPayload
-from backend.repository.sessions import ClusterRow
+from backend.repository.sessions.types import ClusterRow
 from backend.retrieval.types import RetrievalResult
 from backend.repository.movies.types import MovieRow
 from backend.settings import get_settings

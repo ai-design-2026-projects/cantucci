@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from uuid import UUID, uuid4
 
 from backend.profile.types import UserProfile
-from backend.repository.sessions import SessionRow, TurnRow
+from backend.repository.sessions.types import SessionRow, TurnRow
 from backend.orchestrator.utils import history
 from backend.orchestrator.turn.progress import NullProgressCallback, ProgressCallback
 from backend.settings import Settings, get_settings

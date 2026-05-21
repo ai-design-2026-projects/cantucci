@@ -19,7 +19,7 @@ Cancellation contract
 import asyncio
 import logging
 import backend.retrieval.agent as retrieval_agent
-from backend.repository.sessions import ClusterRow
+from backend.repository.sessions.types import ClusterRow
 from backend.orchestrator.turn.context import TurnContext
 from backend.orchestrator.turn.speculative import (
     SpeculativeBranch,
@@ -28,7 +28,7 @@ from backend.orchestrator.turn.speculative import (
     spawn_retrieve_msg,
 )
 from backend.orchestrator.turn.task_drain import cancel_and_drain, discard_speculative
-from backend.profile import profile_agent
+import backend.profile.profile_agent as profile_agent
 from backend.profile.types import UserProfile
 from backend.state import state_agent
 from backend.state.types import StateAction, StateDecision
