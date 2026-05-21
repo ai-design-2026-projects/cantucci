@@ -6,111 +6,84 @@ agent or layer.
 
 ---
 
-## Retrieval System
+## HTTP API
 
-The Retrieval System converts an oracle query into enriched film candidates.
-SQL lives in `backend/api/movies.py`; the agent entry-point is
-`backend/retrieval/agent.py`; tool implementations are in
-`backend/retrieval/tools/`.
+Base URL: `http://localhost:8000` (dev). Interactive docs at `/docs`.
 
-### `retrieve` — agent entry-point
+**Access levels**
 
-```
-backend.retrieval.agent.retrieve(
-    *,
-    query: str,
-    k: int,
-    active_constraints: dict | None = None,
-) -> RetrievalResult
-```
-
-**Input**
-| Parameter | Type | Description |
-|---|---|---|
-| `query` | `str` | Natural-language oracle preference string (non-empty). |
-| `k` | `int` | Maximum candidates to return (positive integer). |
-| `active_constraints` | `dict \| None` | Hard constraints from oracle state. Accepted but not yet applied (v1 no-op; logs WARNING). |
-
-**Output** — `RetrievalResult` (`backend/models/movies.py`)
-| Field | Type | Description |
-|---|---|---|
-| `query` | `str` | Echo of the input query. |
-| `k` | `int` | Echo of the input k. |
-| `candidates` | `list[MovieMetadata]` | Films in descending similarity order. |
-| `scores` | `dict[int, float]` | `movie_id → cosine similarity` for every candidate. |
-
-**Error cases**
-| Condition | Exception |
+| Level | Description |
 |---|---|
-| `query` is empty or whitespace | `ValueError("query must be a non-empty string")` |
-| `k ≤ 0` | `ValueError("k must be positive, got {k}")` |
-| DB unreachable | `psycopg.OperationalError` (propagates from `tx()`) |
+| `public` | No authentication required. |
+| `user` | Valid JWT required — via `Authorization: Bearer <token>` header or `auth_token` HttpOnly cookie. |
+| `admin` | JWT required with `role = admin`. Admin accounts are provisioned via `python -m db.create_user --role admin`. |
 
 ---
 
-### `vector_search` — tool
+### Auth — `/auth`
 
+| Method | Path | Level | Description |
+|---|---|---|---|
+| `POST` | `/auth/register` | public | Create a new account with the `user` role. Returns a signed JWT and sets an HttpOnly cookie. Returns 409 if the email is already registered. |
+| `POST` | `/auth/login` | public | Verify credentials. Returns a signed JWT and sets an HttpOnly cookie. Returns 401 on bad credentials. |
+| `POST` | `/auth/logout` | public | Clears the `auth_token` cookie. No server-side token revocation. |
+| `GET` | `/auth/me` | user | Return the currently authenticated user (`id`, `email`, `role`). Returns 401 if anonymous. |
+
+**Request body** (`/auth/login`, `/auth/register`):
+```json
+{ "email": "user@example.com", "password": "at-least-8-chars" }
 ```
-backend.api.movies.vector_search(
-    embedding: list[float] | np.ndarray,
-    k: int,
-) -> list[MovieHit]
+
+**Response** (`LoginResponse`):
+```json
+{ "token": "<jwt>", "user": { "id": "<uuid>", "email": "...", "role": "user" } }
 ```
-
-Queries the `movies` table using pgvector cosine distance (`<=>` operator).
-Returns similarity = `1 − cosine_distance` so the list is descending by relevance.
-
-**Input**
-| Parameter | Type | Description |
-|---|---|---|
-| `embedding` | `list[float] \| ndarray` | 384-dim query vector (must match `movies.embedding` dimension). |
-| `k` | `int` | Maximum results. |
-
-**Output** — `list[MovieHit]`
-| Field | Type | Description |
-|---|---|---|
-| `movie_id` | `int` | TMDB integer ID. |
-| `title` | `str` | Film title. |
-| `score` | `float` | Cosine similarity in approximately [0, 1]. |
-
-**Error cases**
-| Condition | Exception |
-|---|---|
-| `k ≤ 0` | `ValueError("k must be positive, got {k}")` |
 
 ---
 
-### `fetch_metadata` — tool (Librarian)
+### Sessions — `/sessions`
 
+| Method | Path | Level | Description |
+|---|---|---|---|
+| `POST` | `/sessions` | public | Create a new session. Returns a `SessionDto` with `status=active` and an empty turn list. The `session_id` is used in subsequent turn requests. |
+| `GET` | `/sessions/list` | user | List all sessions owned by the authenticated user, newest first. Returns `turns=[]` on each item. Returns 401 if anonymous. |
+| `GET` | `/sessions/{session_id}` | public | Fetch full session state including all turns in ascending `turn_number` order. Returns 404 if not found. |
+| `POST` | `/sessions/{session_id}/turns` | public | Submit the oracle's message. Streams progress and the final result as NDJSON (`application/x-ndjson`). Returns 404 if session not found, 422 if `user_message` is empty. |
+| `DELETE` | `/sessions/delete/{session_id}` | user | Delete a session and all its child data. Only the owning user may delete. Returns 204 on success, 401 if anonymous, 404 if not found or not owned by the caller. |
+
+**Turn request body**:
+```json
+{ "user_message": "I want something slow and melancholic." }
 ```
-backend.api.movies.fetch_metadata(
-    movie_ids: list[int],
-) -> list[MovieMetadata]
+
+**Turn stream format** (`application/x-ndjson`) — one JSON object per line:
+```jsonc
+{"type": "progress", "step": "retrieval", "phase": "start", "ts": "..."}
+{"type": "cluster_snapshot", "clusters": [...]}
+{"type": "result", "data": <TurnDto>}   // terminal on success
+{"type": "error", "code": "...", "message": "..."}  // terminal on failure
 ```
 
-Enriches a list of TMDB IDs with synopsis, genre names, and director.
-Joins `movies ← movie_genres → genres` and `crew_members (job='Director')`.
-Return order matches the input `movie_ids` order; missing IDs are silently
-dropped (the catalogue is authoritative).
+---
 
-**Input**
-| Parameter | Type | Description |
+### Movies — `/movies`
+
+| Method | Path | Level | Description |
+|---|---|---|---|
+| `GET` | `/movies/get_movie/{movie_id}` | public | Return full metadata for a single TMDB film. Returns 404 if the ID is not in the catalogue. |
+
+---
+
+### Eval dashboard — `/eval` (admin only)
+
+All routes require `role = admin`. Read-only — these endpoints never write to the DB.
+
+| Method | Path | Description |
 |---|---|---|
-| `movie_ids` | `list[int]` | TMDB IDs returned by `vector_search`. |
+| `GET` | `/eval/runs` | List all eval runs with session counts, ordered by `started_at` descending. |
+| `GET` | `/eval/runs/{run_id}` | Full run metadata plus overall aggregate metrics (95% CIs across all sessions). Returns 404 if not found. |
+| `GET` | `/eval/runs/{run_id}/aggregate` | Overall `MetricBundle` for a run: Precision@K, Recall@K, NDCG@K, turns to convergence, cognitive load, cost, drift events, convergence rate, explicit acceptance rate, and three LLM-judge scores — each with 95% bootstrap CI. |
+| `GET` | `/eval/runs/{run_id}/aggregate/by-persona` | Same metrics broken down per `persona_id`. Sessions with no persona are grouped under `"__none__"`. |
+| `GET` | `/eval/runs/{run_id}/sessions` | Raw per-session rows (drill-down table): one entry per session with all `session_metrics` fields plus pivoted judge scores. |
 
-**Output** — `list[MovieMetadata]`
-| Field | Type | Description |
-|---|---|---|
-| `movie_id` | `int` | TMDB integer ID. |
-| `title` | `str` | Film title. |
-| `overview` | `str \| None` | Synopsis. |
-| `tagline` | `str \| None` | Tagline. |
-| `release_year` | `int \| None` | Year extracted from `release_date`. |
-| `genres` | `list[str]` | Genre names; empty list if none. |
-| `director` | `str \| None` | First director found; `None` if no crew record. |
 
-**Error cases**
-| Condition | Behaviour |
-|---|---|
-| Empty `movie_ids` | Returns `[]` immediately (no DB round-trip). |
-| ID not in catalogue | Silently omitted from result. |

@@ -6,6 +6,12 @@ An AI system that clusters a movie catalogue by *conversing* with a human oracle
 **Authors:** Davide Donà, Andrea Blushi
 
 ---
+## Demo video
+
+https://github.com/user-attachments/assets/b308d0ea-cb32-4a1b-897f-7ba45f78df00
+
+
+---
 
 ## Component docs
 
