@@ -1,17 +1,3 @@
-"""JWT authentication utilities and FastAPI dependencies.
-
-Public surface:
-    hash_password / verify_password  — bcrypt helpers
-    encode_token / decode_token      — JWT sign / verify (PyJWT)
-    set_auth_cookie                  — attach the HttpOnly JWT cookie to a response
-    get_current_user                 — FastAPI dependency; returns User | None
-    require_admin                    — FastAPI dependency; raises 403 if not admin
-
-The JWT signing secret comes from ``EnvSettings.auth_secret`` (env var
-``AUTH_SECRET``). Token TTL comes from ``EnvSettings.jwt_ttl_seconds``.
-Nothing auth-related is hard-coded here.
-"""
-
 import logging
 import uuid
 from datetime import datetime, timezone

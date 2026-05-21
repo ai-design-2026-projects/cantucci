@@ -1,18 +1,3 @@
-"""Jinja2 prompt loader factory for CinePal agents.
-
-Each agent module calls ``make_prompt_loader`` once at module level,
-binding the returned callable to its own ``prompts/`` subdirectory::
-
-    from pathlib import Path
-    from backend.llm.prompts import make_prompt_loader
-
-    load_prompt = make_prompt_loader(Path(__file__).parent / "prompts")
-    text, prompt_hash = load_prompt("orchestrator_system_v1", {"max_turns": 15})
-
-Prompts are versioned Jinja2 files colocated with the agent that owns them,
-one file per named prompt, named ``{function}_{version}.j2``.
-"""
-
 import hashlib
 from collections.abc import Callable, Mapping
 import logging

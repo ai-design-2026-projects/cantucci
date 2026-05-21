@@ -35,7 +35,7 @@ from uuid import UUID
 from pydantic import BaseModel
 
 from backend.repository.eval import upsert_session_metrics, write_judge_score
-from backend.llm.prompts import make_prompt_loader
+from backend.llm.utils.prompts import make_prompt_loader
 from backend.routers.dto.sessions.dtos import SessionDto, TurnDto
 from eval.shared.ground_truths import GroundTruth
 from eval.shared.llm_gateway import LLMGateway

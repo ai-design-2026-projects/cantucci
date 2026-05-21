@@ -10,7 +10,7 @@ from backend.cluster.domain import ClusterAssignment
 from backend.repository.sessions import ClusterRow
 from backend.cluster.types import ClusterRefineResponse
 from backend.llm import llm_harness
-from backend.llm.prompts import make_prompt_loader
+from backend.llm.utils.prompts import make_prompt_loader
 from backend.llm.types import LLMParseError
 from backend.retrieval.tools import metadata_fetcher
 from backend.settings import get_config_hash, get_settings

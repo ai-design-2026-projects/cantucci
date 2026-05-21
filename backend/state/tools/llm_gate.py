@@ -17,7 +17,7 @@ from backend.state.types import (
     StateDecision,
 )
 from backend.llm import llm_harness
-from backend.llm.prompts import make_prompt_loader
+from backend.llm.utils.prompts import make_prompt_loader
 from backend.settings import Settings, get_config_hash
 from pathlib import Path
 

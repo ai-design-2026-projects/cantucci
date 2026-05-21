@@ -1,84 +1,21 @@
-"""Single gateway for all LLM calls in the CinePal backend.
-
-Every agent must call ``llm_harness.call()`` — never instantiate an OpenAI
-(or any other) client directly.  This module enforces:
-
-- Structured logging of every call via ``log_llm_call``.
-- A pre-call cost guard that raises ``CostLimitExceeded`` when the session
-  budget is exhausted.
-- Retry with exponential backoff (max 3 attempts) for transient API errors.
-- A ``dry_run`` mode that returns a canned response without hitting the API,
-  used by component tests.
-
-Record/replay mode (demo recordings):
-- Set ``CINEPAL_LLM_MODE=record`` + ``CINEPAL_LLM_MANIFEST=<dir>`` to append
-  every live response to ``<dir>/<session_id>.jsonl``.
-- Set ``CINEPAL_LLM_MODE=replay`` to serve responses from the manifest instead
-  of hitting the API.  Raises ``ReplayDriftError`` if the call sequence diverges
-  from the recording.
-- ``CINEPAL_LLM_REPLAY_REALTIME=1`` re-introduces the recorded latency via
-  ``asyncio.sleep`` so the UI streaming feels natural.
-
-The OpenAI client is a module-level singleton so the underlying ``httpx``
-connection pool is reused across calls, saving TCP + TLS setup per round-trip.
-The client itself carries no per-session state — only the API key — so
-reuse is safe.
-
-The call is fully async: cancellation propagates through ``httpx`` so an
-in-flight API request is genuinely aborted when the caller's task is
-cancelled (e.g. client disconnect, orchestrator dropping a speculative
-branch). ``CancelledError`` MUST escape the retry loop unaltered.
-"""
-
 import asyncio
-import json
 import logging
-import os
-import time
-from collections import deque
-from dataclasses import asdict
-from pathlib import Path
 from uuid import UUID
 
 import openai
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel
 
 from backend.logging_setup import log_llm_call
-from backend.settings import PROJECT_ROOT, get_env, get_settings
-from backend.llm.types import CostLimitExceeded, LLMParseError, LLMResponse, ReplayDriftError
-
-_DRY_RUN_FIXTURES_DIR = PROJECT_ROOT / "tests" / "fixtures" / "dry_run"
-
-_LLM_MODE: str | None = os.getenv("CINEPAL_LLM_MODE")
-_MANIFEST_DIR: Path | None = (
-    Path(os.environ["CINEPAL_LLM_MANIFEST"])
-    if os.getenv("CINEPAL_LLM_MANIFEST")
-    else None
-)
-_REPLAY_REALTIME: bool = os.getenv("CINEPAL_LLM_REPLAY_REALTIME") == "1"
-
-_replay_queues: dict[str, deque[dict]] = {}
+from backend.settings import get_settings
+from backend.llm.types import CostLimitExceeded, LLMParseError, LLMResponse
+from backend.llm.utils import client as _client_mod
+from backend.llm.utils import retry as _retry_mod
+from backend.llm.utils.dry_run import dry_run_response
+from backend.llm.utils.pricing import estimate_cost
+from backend.llm.utils.record_replay import is_record_mode, is_replay_mode, record_append, replay_next
+from backend.llm.utils.schema_validation import validate_response
 
 log = logging.getLogger(__name__)
-
-_MAX_ATTEMPTS = 3
-
-# USD per million tokens for known model families.  Used to estimate cost_usd
-# on each LLMResponse.  Models are matched by prefix so version suffixes are
-# tolerated (e.g. "gpt-4o-mini-2024-07-18" matches "gpt-4o-mini").
-_COST_PER_M: dict[str, dict[str, float]] = {
-    "gpt-4o-mini": {"input": 0.15, "output": 0.60},
-    "gpt-4o": {"input": 2.50, "output": 10.00},
-    "claude-opus": {"input": 15.0, "output": 75.0},
-    "claude-sonnet": {"input": 3.0, "output": 15.0},
-    "claude-haiku": {"input": 0.80, "output": 4.0},
-}
-
-_TRANSIENT_ERRORS = (
-    openai.RateLimitError,
-    openai.APITimeoutError,
-    openai.APIConnectionError,
-)
 
 
 async def call(
@@ -104,9 +41,9 @@ async def call(
     When ``response_schema`` is provided, the harness switches the underlying
     chat-completion to JSON-object mode, parses the response, and validates it
     against the supplied Pydantic model. Parse and validation failures consume
-    the same retry budget as transient API errors (``_MAX_ATTEMPTS``); after
-    exhaustion the harness raises ``LLMParseError`` with the last raw payload.
-    The validated model is returned on ``LLMResponse.parsed``.
+    the same retry budget as transient API errors; after exhaustion the harness
+    raises ``LLMParseError`` with the last raw payload. The validated model is
+    returned on ``LLMResponse.parsed``.
 
     Args:
         run_id:               Experiment run identifier for logging.
@@ -135,27 +72,17 @@ async def call(
     Raises:
         CostLimitExceeded:   If ``accumulated_cost_usd >= cost_limit_usd`` before the call.
         LLMParseError:       If ``response_schema`` was set and the model returned an
-                             invalid payload on all ``_MAX_ATTEMPTS`` attempts.
+                             invalid payload on all retry attempts.
         openai.RateLimitError / APITimeoutError / APIConnectionError:
-                             If all 3 retry attempts fail on a transient error.
+                             If all retry attempts fail on a transient error.
         openai.APIError:     On any non-transient API error (raised immediately, no retry).
     """
-    # dry_run resolves to True when either the caller passes dry_run=True or
-    # any active model tier sets dry_run=true (smoke-test mode). It is
-    # evaluated before the cost guard because a fixture response accrues no
-    # real cost, so the guard would spuriously reject configs with zero budget.
     _cfg_models = get_settings().models
     effective_dry_run = dry_run or _cfg_models.strong.dry_run or _cfg_models.fast.dry_run
     if effective_dry_run:
-        fixture_path = _DRY_RUN_FIXTURES_DIR / f"{step_type}.json"
-        if not fixture_path.is_file():
-            raise FileNotFoundError(
-                f"dry_run fixture missing for step_type '{step_type}' at {fixture_path}. "
-                "Add a JSON fixture so the agent's parser receives a well-formed response."
-            )
-        content = fixture_path.read_text()
-        log_llm_call(
-            log,
+        return dry_run_response(
+            step_type=step_type,
+            response_schema=response_schema,
             run_id=run_id,
             session_id=session_id,
             turn_id=turn_id,
@@ -163,22 +90,10 @@ async def call(
             config_hash=config_hash,
             model_and_version=model_and_version,
             prompt_hash=prompt_hash,
-            step_type=step_type,
-            input_tokens=0,
-            output_tokens=0,
-            latency_ms=0.0,
-        )
-        parsed = _validate_response(content, response_schema, step_type) if response_schema else None
-        return LLMResponse(
-            content=content,
-            input_tokens=0,
-            output_tokens=0,
-            latency_ms=0.0,
-            parsed=parsed,
         )
 
-    if _LLM_MODE == "replay":
-        return await _replay_next(
+    if is_replay_mode():
+        return await replay_next(
             session_id=str(session_id),
             step_type=step_type,
             run_id=run_id,
@@ -211,12 +126,12 @@ async def call(
 
     last_exc: Exception | None = None
     last_raw: str | None = None
-    for attempt in range(_MAX_ATTEMPTS):
+    for attempt in range(_retry_mod.MAX_ATTEMPTS):
         if attempt > 0:
             # asyncio.sleep is a cancellation point — if the caller's task is
             # cancelled between attempts, CancelledError raises here and exits
             # the retry loop cleanly. Never catch it.
-            await asyncio.sleep(_backoff(attempt))
+            await asyncio.sleep(_retry_mod.backoff(attempt))
             log.warning(
                 "llm_call retry",
                 extra={
@@ -227,6 +142,7 @@ async def call(
                 },
             )
         try:
+            import time
             t0 = time.monotonic()
             kwargs: dict = dict(
                 model=model_and_version,
@@ -237,9 +153,9 @@ async def call(
                 kwargs["seed"] = seed
             if response_schema is not None:
                 kwargs["response_format"] = {"type": "json_object"}
-            response = await _client(provider).chat.completions.create(**kwargs)
+            response = await _client_mod.get_client(provider).chat.completions.create(**kwargs)
             latency_ms = (time.monotonic() - t0) * 1000.0
-        except _TRANSIENT_ERRORS as exc:
+        except _retry_mod.TRANSIENT_ERRORS as exc:
             last_exc = exc
             continue
         except openai.APIError:
@@ -258,7 +174,7 @@ async def call(
         parsed: BaseModel | None = None
         if response_schema is not None:
             try:
-                parsed = _validate_response(content, response_schema, step_type)
+                parsed = validate_response(content, response_schema, step_type)
             except LLMParseError as exc:
                 # Parse / schema failure consumes the same retry budget as a transient
                 # API error. We log the call (the request DID hit the API and burn tokens)
@@ -295,7 +211,7 @@ async def call(
             latency_ms=latency_ms,
         )
 
-        cost = _estimate_cost(model_and_version, input_tokens, output_tokens)
+        cost = estimate_cost(model_and_version, input_tokens, output_tokens)
         resp = LLMResponse(
             content=content,
             input_tokens=input_tokens,
@@ -304,184 +220,10 @@ async def call(
             cost_usd=cost,
             parsed=parsed,
         )
-        if _LLM_MODE == "record":
-            _record_append(str(session_id), step_type, str(turn_id), resp)
+        if is_record_mode():
+            record_append(str(session_id), step_type, str(turn_id), resp)
         return resp
 
     if isinstance(last_exc, LLMParseError):
         raise LLMParseError(step_type=step_type, raw=last_raw or "")
     raise last_exc  # type: ignore[misc]
-
-
-def _load_manifest(session_id: str) -> deque[dict]:
-    """Load the JSONL manifest for *session_id* into a deque, caching the result.
-
-    The deque is consumed front-to-back during replay.  Call
-    ``reset_replay_state(session_id)`` to reload it (e.g. in tests).
-    """
-    if session_id not in _replay_queues:
-        if _MANIFEST_DIR is None:
-            raise RuntimeError(
-                "CINEPAL_LLM_MANIFEST must be set when CINEPAL_LLM_MODE=replay"
-            )
-        path = _MANIFEST_DIR / f"{session_id}.jsonl"
-        if not path.is_file():
-            manifests = sorted(_MANIFEST_DIR.glob("*.jsonl"), key=lambda p: p.stat().st_mtime)
-            if not manifests:
-                raise FileNotFoundError(
-                    f"Replay manifest not found at {path} and no fallback manifest exists. "
-                    "Run CINEPAL_LLM_MODE=record first to generate one."
-                )
-            path = manifests[-1]
-            log.warning("replay manifest=%s not found; falling back to %s", session_id, path.name)
-        entries = deque(json.loads(line) for line in path.read_text().splitlines() if line.strip())
-        _replay_queues[session_id] = entries
-    return _replay_queues[session_id]
-
-
-async def _replay_next(
-    *,
-    session_id: str,
-    step_type: str,
-    run_id: str | UUID,
-    turn_id: str | UUID,
-    seed: int,
-    config_hash: str,
-    model_and_version: str,
-    prompt_hash: str,
-    response_schema: type[BaseModel] | None,
-) -> LLMResponse:
-    """Return the next recorded response from the session manifest.
-
-    Raises ``ReplayDriftError`` if the manifest's next entry does not match
-    the incoming ``step_type``.
-    """
-    queue = _load_manifest(session_id)
-    if not queue:
-        raise ReplayDriftError(expected="<empty manifest>", got=step_type, session_id=session_id)
-    idx = next((i for i, e in enumerate(queue) if e["step_type"] == step_type), None)
-    if idx is None:
-        raise ReplayDriftError(expected="<no matching entry>", got=step_type, session_id=session_id)
-    entry = queue[idx]
-    del queue[idx]
-    latency_ms: float = entry.get("latency_ms", 0.0)
-    if _REPLAY_REALTIME and latency_ms > 0:
-        await asyncio.sleep(latency_ms / 1000.0)
-    content: str = entry["content"]
-    parsed = _validate_response(content, response_schema, step_type) if response_schema else None
-    log_llm_call(
-        log,
-        run_id=run_id,
-        session_id=session_id,
-        turn_id=turn_id,
-        seed=seed,
-        config_hash=config_hash,
-        model_and_version=model_and_version,
-        prompt_hash=prompt_hash,
-        step_type=step_type,
-        input_tokens=entry.get("input_tokens", 0),
-        output_tokens=entry.get("output_tokens", 0),
-        latency_ms=latency_ms,
-    )
-    return LLMResponse(
-        content=content,
-        input_tokens=entry.get("input_tokens", 0),
-        output_tokens=entry.get("output_tokens", 0),
-        latency_ms=latency_ms,
-        cost_usd=0.0,
-        parsed=parsed,
-    )
-
-
-def _record_append(session_id: str, step_type: str, turn_id: str, resp: LLMResponse) -> None:
-    """Append a single harness response to the per-session JSONL manifest."""
-    if _MANIFEST_DIR is None:
-        raise RuntimeError(
-            "CINEPAL_LLM_MANIFEST must be set when CINEPAL_LLM_MODE=record"
-        )
-    _MANIFEST_DIR.mkdir(parents=True, exist_ok=True)
-    path = _MANIFEST_DIR / f"{session_id}.jsonl"
-    entry = {
-        "step_type": step_type,
-        "turn_id": turn_id,
-        "content": resp.content,
-        "input_tokens": resp.input_tokens,
-        "output_tokens": resp.output_tokens,
-        "latency_ms": resp.latency_ms,
-        "cost_usd": resp.cost_usd,
-    }
-    with path.open("a", encoding="utf-8") as fh:
-        fh.write(json.dumps(entry) + "\n")
-
-
-def reset_replay_state(session_id: str) -> None:
-    """Evict a session's manifest queue so it reloads on the next replay call.
-
-    Intended for tests that need to replay the same manifest multiple times
-    without restarting the process.
-    """
-    _replay_queues.pop(session_id, None)
-
-
-def _validate_response(
-    content: str,
-    schema: type[BaseModel],
-    step_type: str,
-) -> BaseModel:
-    """Parse *content* as JSON and validate it against *schema*.
-
-    Raises ``LLMParseError`` (with the raw payload) on either a JSON decode
-    failure or a Pydantic validation error.  Callers in the retry loop catch
-    this and either continue or re-raise after exhausting attempts.
-    """
-    try:
-        return schema.model_validate_json(content)
-    except (ValidationError, json.JSONDecodeError) as exc:
-        log.debug(
-            "llm_call schema validation failed",
-            extra={"step_type": step_type, "error": str(exc)[:200]},
-        )
-        raise LLMParseError(step_type=step_type, raw=content) from exc
-
-
-_clients: dict[str, openai.AsyncOpenAI] = {}
-
-_PROVIDER_BASE_URLS: dict[str, str] = {
-    "openrouter": "https://openrouter.ai/api/v1",
-}
-
-
-def _client(provider: str = "openai") -> openai.AsyncOpenAI:
-    """Return the shared async client for *provider*, creating it on first call."""
-    if provider not in _clients:
-        env = get_env()
-        if provider == "openrouter":
-            if not env.openrouter_api_key:
-                raise ValueError(
-                    "OPENROUTER_API_KEY is not set. Add it to .env when using provider=openrouter."
-                )
-            _clients[provider] = openai.AsyncOpenAI(
-                base_url=_PROVIDER_BASE_URLS["openrouter"],
-                api_key=env.openrouter_api_key,
-            )
-        else:
-            if not env.openai_api_key:
-                raise ValueError(
-                    "OPENAI_API_KEY is not set. Add it to .env when using provider=openai."
-                )
-            _clients[provider] = openai.AsyncOpenAI(api_key=env.openai_api_key)
-    return _clients[provider]
-
-
-def _backoff(attempt: int) -> float:
-    """Return exponential backoff delay in seconds for a given attempt index."""
-    return float(2**attempt)
-
-
-def _estimate_cost(model: str, input_tokens: int, output_tokens: int) -> float:
-    """Estimate USD cost from token counts using the _COST_PER_M pricing table."""
-    for prefix, rates in _COST_PER_M.items():
-        if model.startswith(prefix):
-            return (input_tokens * rates["input"] + output_tokens * rates["output"]) / 1_000_000
-    log.warning("unknown model for cost estimation, charging 0", extra={"model": model})
-    return 0.0

@@ -14,7 +14,7 @@ Two response objects, one per scenario:
   so there is no input-keyed index — only a list.
 
 The harness validates both schemas through ``response_schema=`` and retries on
-parse/validation failures (see ``backend.llm.llm_harness._validate_response``).
+parse/validation failures (see ``backend.llm.schema.validate_response``).
 
 Pool-membership of ``movie_id`` values in the refine response is NOT enforced
 here — the schema has no access to the allowed pool. The caller in
