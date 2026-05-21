@@ -27,8 +27,8 @@ jobs:
               - 'db/**'
               - 'tests/db/**'
               - 'configs/**'
-              - 'requirements.txt'
               - 'pyproject.toml'
+              - 'uv.lock'
               - 'tests/conftest.py'
               - 'tests/__init__.py'
               - 'tests/fixtures/**'
@@ -37,8 +37,8 @@ jobs:
               - 'backend/**'
               - 'tests/backend/**'
               - 'configs/**'
-              - 'requirements.txt'
               - 'pyproject.toml'
+              - 'uv.lock'
               - 'tests/conftest.py'
               - 'tests/__init__.py'
               - 'tests/fixtures/**'
@@ -56,17 +56,16 @@ jobs:
       HF_HOME: ${{ github.workspace }}/.hf-cache
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: astral-sh/setup-uv@v3
         with:
-          python-version: '3.11'
-          cache: pip
+          enable-caching: true
       - name: cache hugging face artifacts
         uses: actions/cache@v4
         with:
           path: ${{ env.HF_HOME }}
           key: hf-${{ runner.os }}-${{ env.CINEPAL_ARTIFACTS_REPO }}-${{ hashFiles('configs/test.yaml') }}
-      - run: pip install -r requirements.txt
-      - run: pytest tests/db -v
+      - run: uv sync --frozen --extra test --no-dev
+      - run: uv run pytest tests/db -v
 
   backend-smoke:
     name: backend smoke
@@ -79,14 +78,13 @@ jobs:
       HF_HOME: ${{ github.workspace }}/.hf-cache
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: astral-sh/setup-uv@v3
         with:
-          python-version: '3.11'
-          cache: pip
+          enable-caching: true
       - name: cache hugging face artifacts and embedding model
         uses: actions/cache@v4
         with:
           path: ${{ env.HF_HOME }}
           key: hf-${{ runner.os }}-${{ env.CINEPAL_ARTIFACTS_REPO }}-${{ hashFiles('configs/test.yaml') }}
-      - run: pip install -r requirements.txt
-      - run: pytest tests/backend -v
+      - run: uv sync --frozen --extra test --no-dev
+      - run: uv run pytest tests/backend -v

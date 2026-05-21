@@ -1,14 +1,11 @@
-"""Sentence-transformer embedding wrapper."""
+from __future__ import annotations
 import logging
-from typing import TYPE_CHECKING
-
 import numpy as np
 import torch
+from sentence_transformers import SentenceTransformer
 
 from backend.settings import get_settings
 
-if TYPE_CHECKING:
-    from sentence_transformers import SentenceTransformer
 
 log = logging.getLogger(__name__)
 

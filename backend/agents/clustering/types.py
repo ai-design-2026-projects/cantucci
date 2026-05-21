@@ -2,7 +2,7 @@ import uuid
 from dataclasses import dataclass, field
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class ClusterDraft:
     """A cluster to be written to the DB as part of a new cluster snapshot.
 
@@ -20,7 +20,7 @@ class ClusterDraft:
     memberships: list[tuple[int, float]] = field(default_factory=list)
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class ClusterSnapshotDraft:
     """A complete cluster snapshot ready to be persisted.
 

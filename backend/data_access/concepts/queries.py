@@ -25,7 +25,7 @@ def create_concept(name: str, concept_type: str, definition: dict[str, Any]) -> 
             "INSERT INTO concepts (name, type, definition) VALUES (%s, %s, %s) RETURNING id",
             (name, concept_type, json.dumps(definition)),
         ).fetchone()
-    concept_id: uuid.UUID = row[0]
+    concept_id: uuid.UUID = row["id"]
     log.debug("concept_created", extra={"concept_id": str(concept_id), "name": name, "type": concept_type})
     return concept_id
 
@@ -68,7 +68,7 @@ def get_concept_by_name(name: str) -> ConceptRow | None:
         ).fetchone()
     if row is None:
         return None
-    return ConceptRow(id=row[0], name=row[1], type=row[2], definition=row[3], created_at=row[4])
+    return ConceptRow.from_row(row)
 
 
 def get_concept_scores(concept_id: uuid.UUID, movie_ids: list[int] | None = None) -> list[ConceptScoreRow]:
@@ -92,4 +92,4 @@ def get_concept_scores(concept_id: uuid.UUID, movie_ids: list[int] | None = None
                 "SELECT concept_id, movie_id, score FROM concept_scores WHERE concept_id = %s ORDER BY score DESC",
                 (concept_id,),
             ).fetchall()
-    return [ConceptScoreRow(concept_id=r[0], movie_id=r[1], score=r[2]) for r in rows]
+    return [ConceptScoreRow.from_row(r) for r in rows]

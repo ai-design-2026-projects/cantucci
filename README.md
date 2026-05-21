@@ -16,9 +16,12 @@ https://github.com/user-attachments/assets/b308d0ea-cb32-4a1b-897f-7ba45f78df00
 ## Component docs
 
 - [`backend/README.md`](backend/README.md) — FastAPI service, endpoints, env vars, logging helper.
-- [`db/README.md`](db/README.md) — Postgres migrations and catalogue ingestion.
-- [`eval/README.md`](eval/README.md) — Offline evaluation harness: Oracle user-simulator, judge, runner.
-- [`frontend/README.md`](frontend/README.md) — React + Vite UI.
+- [`frontend/README.md`](frontend/README.md) — React + Vite UI (forthcoming).
+- [`db/README.md`](db/README.md) — Postgres migrations and loading pre-built HF artifacts.
+- [`dataset/README.md`](dataset/README.md) — Offline data pipeline: TMDB scrape → Colab embed → HF upload.
+- [`demo/README.md`](demo/README.md) — Record/replay demo scripts
+- [`eval/README.md`](eval/README.md) — Offline evaluation harness (forthcoming).
+
 
 ---
 
@@ -66,7 +69,7 @@ cp .env.example .env   # fill DATABASE_URL, OPENAI_API_KEY (HF_TOKEN if repo is 
 #   echo "AUTH_SECRET=$(openssl rand -hex 32)" >> .env
 
 # 2. Python dependencies
-pip install -r requirements.txt
+uv sync --extra test   # core + test deps; add --extra dataset for the scrape pipeline
 
 # 3. Start Postgres + pgvector
 docker run -d \
@@ -84,9 +87,9 @@ python -m db.apply
 # 5. Ingest catalogue (mini set — fast, ingestion artifact pinned in configs/default.yaml)
 python -m db.ingest
 # Producing a fresh snapshot is two stages — scrape locally, embed in Colab:
-#   python -m db.scrape --upload     # stage 1: TMDB → HF (snapshots/)
+#   python -m dataset.scrape --upload    # stage 1: TMDB → HF (snapshots/)
 #   open notebooks/embed_in_colab.ipynb  # stage 2: HF snapshot → embed → HF (embeddings/)
-# See db/README.md for the full workflow.
+# See dataset/README.md for the full workflow.
 
 # 6. Run backend
 uvicorn backend.app:app
@@ -113,7 +116,9 @@ CONFIG_PATH=configs/test.yaml pytest tests/
 ```
 backend/    FastAPI service, agents, LLM harness, DB access layer
 configs/    YAML experimental-condition configs (model, clustering, …)
-db/         Migrations + catalogue ingestion pipeline
+dataset/    Offline data pipeline: TMDB scrape, clean, embed, HF upload
+db/         Postgres schema migrations + load pre-built HF artifacts
+demo/       Record/replay demo scripts and manifests
 eval/       Offline evaluation harness — Oracle simulator, judge, runner
 frontend/   React + Vite UI
 notebooks/  Colab GPU embedding notebook

@@ -1,6 +1,7 @@
 import json
 import logging
 import uuid
+from collections import defaultdict
 from typing import Any
 
 from backend.data_access.connection import transaction
@@ -40,14 +41,14 @@ def create_cluster_snapshot(
             """,
             (conversation_id, parent_id, operation, json.dumps(params)),
         ).fetchone()
-    cluster_snapshot_id: uuid.UUID = row[0]
+    cluster_snapshot_id: uuid.UUID = row["id"]
     log.debug("cluster_snapshot_created", extra={"cluster_snapshot_id": str(cluster_snapshot_id), "operation": operation})
     return cluster_snapshot_id
 
 
 def create_cluster(
     cluster_snapshot_id: uuid.UUID,
-    label: str,
+    label: str | None,
     summary: str | None,
     exemplar_movie_ids: list[int],
     parent_cluster_id: uuid.UUID | None = None,
@@ -56,7 +57,7 @@ def create_cluster(
 
     Args:
         cluster_snapshot_id: Parent cluster snapshot UUID.
-        label:               Human-readable label.
+        label:               Human-readable label, or None for unlabeled root clusters.
         summary:             One-sentence summary, or None.
         exemplar_movie_ids:  Top movie IDs by probability.
         parent_cluster_id:   UUID of the source cluster for drill-down operations.
@@ -73,7 +74,7 @@ def create_cluster(
             """,
             (cluster_snapshot_id, label, summary, json.dumps(exemplar_movie_ids), parent_cluster_id),
         ).fetchone()
-    return row[0]
+    return row["id"]
 
 
 def create_memberships(memberships: list[tuple[uuid.UUID, int, float]]) -> None:
@@ -92,6 +93,41 @@ def create_memberships(memberships: list[tuple[uuid.UUID, int, float]]) -> None:
     log.debug("memberships_inserted", extra={"count": len(memberships)})
 
 
+def update_cluster_label(cluster_id: uuid.UUID, label: str, summary: str | None) -> None:
+    """Persist a generated label and summary for an existing cluster.
+
+    Args:
+        cluster_id: UUID of the cluster to update.
+        label:      Generated label string.
+        summary:    Generated summary, or None.
+    """
+    with transaction() as conn:
+        conn.execute(
+            "UPDATE clusters SET label = %s, summary = %s WHERE id = %s",
+            (label, summary, cluster_id),
+        )
+    log.debug("cluster_label_updated", extra={"cluster_id": str(cluster_id), "label": label})
+
+
+def get_root_cluster_snapshot() -> ClusterSnapshotRow | None:
+    """Return the global root cluster snapshot (conversation_id IS NULL, operation = 'base').
+
+    Returns:
+        The most recently created root ``ClusterSnapshotRow``, or None if none exists.
+    """
+    with transaction() as conn:
+        row = conn.execute(
+            """
+            SELECT id, conversation_id, parent_id, operation, params, created_at
+            FROM cluster_snapshots
+            WHERE conversation_id IS NULL AND parent_id IS NULL AND operation = 'base'
+            ORDER BY created_at DESC
+            LIMIT 1
+            """,
+        ).fetchone()
+    return ClusterSnapshotRow.from_row(row) if row else None
+
+
 def get_cluster_snapshot(cluster_snapshot_id: uuid.UUID) -> ClusterSnapshotRow | None:
     """Fetch a single cluster snapshot row by ID.
 
@@ -108,14 +144,7 @@ def get_cluster_snapshot(cluster_snapshot_id: uuid.UUID) -> ClusterSnapshotRow |
         ).fetchone()
     if row is None:
         return None
-    return ClusterSnapshotRow(
-        id=row[0],
-        conversation_id=row[1],
-        parent_id=row[2],
-        operation=row[3],
-        params=row[4],
-        created_at=row[5],
-    )
+    return ClusterSnapshotRow.from_row(row)
 
 
 def get_cluster_snapshot_with_clusters(cluster_snapshot_id: uuid.UUID) -> ClusterSnapshotWithClusters | None:
@@ -141,17 +170,7 @@ def get_cluster_snapshot_with_clusters(cluster_snapshot_id: uuid.UUID) -> Cluste
             (cluster_snapshot_id,),
         ).fetchall()
 
-    clusters = [
-        ClusterRow(
-            id=r[0],
-            cluster_snapshot_id=r[1],
-            label=r[2],
-            summary=r[3],
-            exemplar_movie_ids=list(r[4]) if r[4] else [],
-            parent_cluster_id=r[5],
-        )
-        for r in rows
-    ]
+    clusters = [ClusterRow.from_row(r) for r in rows]
     log.debug("get_cluster_snapshot_with_clusters", extra={"cluster_snapshot_id": str(cluster_snapshot_id), "n_clusters": len(clusters)})
     return ClusterSnapshotWithClusters(cluster_snapshot=snapshot, clusters=clusters)
 
@@ -175,10 +194,81 @@ def get_conversation_cluster_snapshots(conversation_id: uuid.UUID) -> list[Clust
             """,
             (conversation_id,),
         ).fetchall()
-    return [
-        ClusterSnapshotRow(id=r[0], conversation_id=r[1], parent_id=r[2], operation=r[3], params=r[4], created_at=r[5])
-        for r in rows
-    ]
+    return [ClusterSnapshotRow.from_row(r) for r in rows]
+
+
+def create_root_snapshot_from_assignments(
+    movie_ids: list[int],
+    cluster_ids: list[int],
+    cluster_probs: list[float],
+    params: dict[str, Any],
+    n_exemplars: int = 15,
+) -> uuid.UUID:
+    """Build a root cluster snapshot from offline primary cluster assignments.
+
+    Creates the snapshot, all clusters (without labels), and all primary-assignment
+    memberships in a single transaction. Called at ingest time after the offline
+    embedding pipeline has produced cluster_ids and cluster_probs columns in the
+    parquet artifact.
+
+    Args:
+        movie_ids:    TMDB IDs in row order (must match array row order).
+        cluster_ids:  Primary cluster index per movie (0-based, from argmax of
+                      soft membership probabilities).
+        cluster_probs: Soft-membership probability of the primary cluster.
+        params:       Replayability parameters (UMAP + HDBSCAN settings).
+        n_exemplars:  Maximum number of exemplar movie IDs to store per cluster.
+
+    Returns:
+        UUID of the newly created root cluster snapshot.
+    """
+    buckets: dict[int, list[tuple[int, float]]] = defaultdict(list)
+    for movie_id, cid, prob in zip(movie_ids, cluster_ids, cluster_probs):
+        buckets[cid].append((movie_id, prob))
+
+    with transaction() as conn:
+        row = conn.execute(
+            """
+            INSERT INTO cluster_snapshots (conversation_id, parent_id, operation, params)
+            VALUES (NULL, NULL, 'base', %s)
+            RETURNING id
+            """,
+            (json.dumps(params),),
+        ).fetchone()
+        snapshot_id: uuid.UUID = row["id"]
+
+        cluster_uuid_map: dict[int, uuid.UUID] = {}
+        for cid in sorted(buckets.keys()):
+            movies_in_cluster = sorted(buckets[cid], key=lambda x: x[1], reverse=True)
+            exemplar_ids = [m[0] for m in movies_in_cluster[:n_exemplars]]
+            cluster_row = conn.execute(
+                """
+                INSERT INTO clusters (cluster_snapshot_id, label, summary, exemplar_movie_ids, parent_cluster_id)
+                VALUES (%s, NULL, NULL, %s, NULL)
+                RETURNING id
+                """,
+                (snapshot_id, json.dumps(exemplar_ids)),
+            ).fetchone()
+            cluster_uuid_map[cid] = cluster_row["id"]
+
+        membership_rows = [
+            (cluster_uuid_map[cid], movie_id, prob)
+            for movie_id, cid, prob in zip(movie_ids, cluster_ids, cluster_probs)
+        ]
+        conn.executemany(
+            "INSERT INTO cluster_memberships (cluster_id, movie_id, probability) VALUES (%s, %s, %s)",
+            membership_rows,
+        )
+
+    log.info(
+        "root_snapshot_created",
+        extra={
+            "snapshot_id": str(snapshot_id),
+            "n_clusters": len(buckets),
+            "n_memberships": len(membership_rows),
+        },
+    )
+    return snapshot_id
 
 
 def get_memberships(cluster_id: uuid.UUID) -> list[ClusterMembershipRow]:
@@ -195,4 +285,4 @@ def get_memberships(cluster_id: uuid.UUID) -> list[ClusterMembershipRow]:
             "SELECT cluster_id, movie_id, probability FROM cluster_memberships WHERE cluster_id = %s ORDER BY probability DESC",
             (cluster_id,),
         ).fetchall()
-    return [ClusterMembershipRow(cluster_id=r[0], movie_id=r[1], probability=r[2]) for r in rows]
+    return [ClusterMembershipRow.from_row(r) for r in rows]

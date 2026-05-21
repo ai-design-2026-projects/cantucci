@@ -1,27 +1,3 @@
-"""
-Logging setup for the CinePal backend.
-
-Call configure_logging() once at application startup (in app.py lifespan).
-Every other module then does:
-    log = logging.getLogger(__name__)
-
-Output sinks:
-  * Terminal — ANSI-coloured key=value lines, level controlled by LOG_LEVEL (default INFO).
-  * Files    — plain key=value lines under ``logs/<utc_timestamp>/``, level DEBUG,
-               one file per backend component (orchestrator, state, profile,
-               cluster, decision, retrieval, llm, api, routers, app) plus a catch-all
-               ``all.log``. Files rotate at 10 MB with 5 backups.
-               A best-effort ``logs/latest`` symlink points at the current run dir.
-
-Uvicorn's own loggers (uvicorn, uvicorn.error, uvicorn.access) are routed
-through the same stream formatter so all backend output has a consistent shape.
-
-LLM calls:
-    from backend.logging_setup import log_llm_call
-    log_llm_call(log, run_id=..., session_id=..., ...)
-Emits a structured INFO record containing the exact field set mandated by CLAUDE.md.
-"""
-
 import logging
 import os
 from datetime import datetime, timezone

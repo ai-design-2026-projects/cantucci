@@ -1,14 +1,5 @@
-"""Row mapping and DataFrame assembly for TMDB JSON snapshots.
-
-Pure data transformation — no I/O, no API calls. Consumed by
-``db/scrape.py`` after raw responses have been pulled by
-``db/ingestion/tmdb_fetch``. The DataFrame produced here is the
-exact schema consumed by ``db/ingestion/split.three_way`` and
-``db/ingestion/load.ingest``.
-"""
 import logging
 from typing import Any
-
 import pandas as pd
 
 log = logging.getLogger(__name__)
@@ -75,7 +66,7 @@ def _composite_text(row: dict[str, Any]) -> str:
 def map_record(rec: dict[str, Any]) -> dict[str, Any]:
     """Map a raw TMDB JSON response into the cleaned-shape row dict.
 
-    Output keys match what ``db/ingestion/load.py`` and ``split.three_way``
+    Output keys match what ``db/load.py`` and ``dataset/split.three_way``
     consume.
     """
     cast = list((rec.get("credits") or {}).get("cast") or [])
@@ -140,12 +131,12 @@ def build_dataframe(
     Args:
         records: Raw TMDB movie JSON dicts from ``tmdb_fetch``.
         reviews: Optional mapping of ``{movie_id: reviews_text}`` from
-                 ``reviews_fetch.fetch_all_reviews``.  Movies absent from the
+                 ``tmdb_fetch.fetch_all_reviews``.  Movies absent from the
                  mapping get a ``None`` (stored as NULL in the DB).
 
     Returns:
         Cleaned DataFrame with all columns expected by
-        ``db/ingestion/load.ingest``.
+        ``db/load.ingest``.
     """
     rows = [map_record(r) for r in records]
     df = pd.DataFrame(rows)

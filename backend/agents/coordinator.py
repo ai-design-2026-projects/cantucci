@@ -1,6 +1,6 @@
 import logging
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from backend.agents.clustering.agent import apply_drill_down, apply_merge, apply_recut
 from backend.agents.common.strategy import select_mode
@@ -8,9 +8,16 @@ from backend.agents.concept.agent import build_concept
 from backend.agents.explanation.agent import explain_placement
 from backend.agents.intent.agent import classify as classify_intent
 from backend.agents.intent.types import NavigationMode
-from backend.data_access.conversations.queries import get_conversation, get_messages
+from backend.agents.labeling.agent import label_cluster
+from backend.data_access.conversations.queries import get_conversation, get_messages, set_current_cluster_snapshot
 from backend.data_access.conversations.types import ConversationRow
-from backend.data_access.cluster_snapshots.queries import get_cluster_snapshot_with_clusters, get_conversation_cluster_snapshots
+from backend.data_access.cluster_snapshots.queries import (
+    get_cluster_snapshot_with_clusters,
+    get_conversation_cluster_snapshots,
+    update_cluster_label,
+)
+from backend.data_access.cluster_snapshots.types import ClusterRow
+from backend.data_access.movies.queries import list_movie_ids
 
 log = logging.getLogger(__name__)
 
@@ -29,7 +36,6 @@ class CoordinatorResult:
 
 class Coordinator:
     """Orchestrates one user message through the agent pipeline.
-
     Does not hold session state — all state is read from and written to the DB.
     Each call to handle_message is stateless and re-reads current conversation state.
     """
@@ -64,6 +70,9 @@ class Coordinator:
         all_snapshots = get_conversation_cluster_snapshots(conversation_id)
 
         message_id = uuid.uuid4()
+
+        if any(c.label is None for c in clusters):
+            clusters = await _label_unlabeled_clusters(clusters, conversation_id, message_id, accumulated_cost)
 
         intent = await classify_intent(
             user_message=user_message,
@@ -109,8 +118,8 @@ class Coordinator:
                     cluster_snapshot_id=current_cluster_snapshot_id,
                 )
             concept = None
-            if intent.dimension:
-                concept = await build_concept(intent.dimension, conversation_id, message_id, accumulated_cost)
+            if intent.concept:
+                concept = await build_concept(intent.concept, conversation_id, message_id, accumulated_cost)
             new_cluster_snapshot_id = await apply_drill_down(
                 source_cluster_id=target_id,
                 parent_cluster_snapshot_id=current_cluster_snapshot_id,
@@ -135,7 +144,7 @@ class Coordinator:
                 cluster_ids=ids_to_merge,
                 parent_cluster_snapshot_id=current_cluster_snapshot_id,
                 conversation_id=conversation_id,
-                merged_label=intent.dimension or "Merged",
+                merged_label=intent.merged_label or "Merged",
                 accumulated_cost=accumulated_cost,
             )
             reply = "Merged the selected clusters into one."
@@ -144,10 +153,10 @@ class Coordinator:
         if intent.mode == NavigationMode.RECUT:
             all_movie_ids = list({mid for c in clusters for m in [] for mid in []})
             if not all_movie_ids:
-                all_movie_ids = _all_catalogue_ids()
+                all_movie_ids = list_movie_ids()
             concept = None
-            if intent.dimension:
-                concept = await build_concept(intent.dimension, conversation_id, message_id, accumulated_cost)
+            if intent.concept:
+                concept = await build_concept(intent.concept, conversation_id, message_id, accumulated_cost)
             new_cluster_snapshot_id = await apply_recut(
                 movie_ids=all_movie_ids,
                 parent_cluster_snapshot_id=current_cluster_snapshot_id,
@@ -187,7 +196,6 @@ class Coordinator:
                 reply_text="No base cluster snapshot found yet. Ingest the catalogue first.",
                 cluster_snapshot_id=_sentinel_cluster_snapshot_id(),
             )
-        from backend.data_access.conversations.queries import set_current_cluster_snapshot
         set_current_cluster_snapshot(conversation_id, root.id)
         cswc = get_cluster_snapshot_with_clusters(root.id)
         n = len(cswc.clusters) if cswc else 0
@@ -240,18 +248,48 @@ class Coordinator:
         return CoordinatorResult(reply_text=result.text, cluster_snapshot_id=current_cluster_snapshot_id)
 
 
+async def _label_unlabeled_clusters(
+    clusters: list[ClusterRow],
+    conversation_id: uuid.UUID,
+    message_id: uuid.UUID,
+    accumulated_cost: float,
+) -> list[ClusterRow]:
+    """Generate and persist labels for any cluster whose label is None.
+
+    Root clusters arrive from ingest without labels; this function labels them
+    lazily on first conversation access.
+
+    Args:
+        clusters:         Current cluster list (may contain None-labeled entries).
+        conversation_id:  Conversation UUID for LLM logging.
+        message_id:       Current message UUID for LLM logging.
+        accumulated_cost: Running LLM cost this conversation.
+
+    Returns:
+        Cluster list with all None labels replaced by generated ones.
+    """
+    labeled: list[ClusterRow] = []
+    for cluster in clusters:
+        if cluster.label is not None:
+            labeled.append(cluster)
+            continue
+        result = await label_cluster(
+            exemplar_movie_ids=cluster.exemplar_movie_ids,
+            conversation_id=str(conversation_id),
+            accumulated_cost=accumulated_cost,
+            message_id=str(message_id),
+        )
+        update_cluster_label(cluster.id, result.label, result.summary)
+        log.info(
+            "root_cluster_labeled",
+            extra={"cluster_id": str(cluster.id), "label": result.label},
+        )
+        labeled.append(replace(cluster, label=result.label, summary=result.summary))
+    return labeled
+
+
 def _sentinel_cluster_snapshot_id() -> uuid.UUID:
     """Return a zero UUID as a sentinel when no cluster snapshot exists yet."""
     return uuid.UUID("00000000-0000-0000-0000-000000000000")
 
 
-def _all_catalogue_ids() -> list[int]:
-    """Fetch all movie IDs from the catalogue for a full recut.
-
-    Returns:
-        List of TMDB integer IDs.
-    """
-    from backend.data_access.connection import transaction
-    with transaction() as conn:
-        rows = conn.execute("SELECT id FROM movies WHERE fused_embedding IS NOT NULL ORDER BY id").fetchall()
-    return [r[0] for r in rows]

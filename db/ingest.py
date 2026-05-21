@@ -8,28 +8,30 @@ Usage:
 
 The repo and per-split filenames are pinned in ``configs/default.yaml`` under
 the ``ingestion:`` block. Producing a new snapshot is a two-stage workflow:
-``python -m db.scrape --upload`` (local TMDB scrape) followed by
+``python -m dataset.scrape --upload`` (local TMDB scrape) followed by
 ``notebooks/embed_in_colab.ipynb`` (GPU embed + upload). The ``eval_holdout``
 slice is intentionally never written to the DB.
 
-After all rows are loaded the script builds the base HDBSCAN cluster snapshot and
-persists it as the root node of the cluster snapshot graph.  Re-running the script
-will create a second root cluster snapshot — call with ``--skip-clustering`` during
-development to skip that step.
+After all rows are loaded, the script computes fused embeddings, UMAP coordinates,
+and the base HDBSCAN cluster snapshot directly from the in-memory embeddings. No
+GPU is required. Root cluster labels are generated lazily on first access by the
+labeling agent.
 """
 import argparse
-import asyncio
 import json
 import logging
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pandas as pd
 
+from backend.cluster_engine.offline import compute_offline_columns
+from backend.data_access.cluster_snapshots.queries import create_root_snapshot_from_assignments
 from backend.logging_setup import configure_logging
 from backend.settings import get_settings
-from db.ingestion import load
-from db.ingestion.fetch import fetch_artifact
+from db.utils import load
+from dataset.io.fetch import fetch_artifact
 
 log = logging.getLogger(__name__)
 
@@ -86,16 +88,44 @@ def _load_artifact(path: Path) -> tuple[pd.DataFrame, np.ndarray, np.ndarray | N
     return df, text_embeddings, review_embeddings
 
 
-def run_from_artifact(name: str, skip_clustering: bool = False) -> None:
-    """Fetch the pinned HF artifact(s) and ingest into the DB.
-
-    After loading all rows the base HDBSCAN cluster snapshot is computed unless
-    *skip_clustering* is True.
+def _build_snapshot_params(n_movies: int, n_clusters: int) -> dict[str, Any]:
+    """Build the replayability params dict for a base cluster snapshot.
 
     Args:
-        name:             Which artifact(s) to ingest — ``"main"``,
-                          ``"mini"``, or ``"all"`` (main + mini).
-        skip_clustering:  When True, skip ``build_root_cluster_snapshot`` after load.
+        n_movies:   Number of movies in the snapshot.
+        n_clusters: Number of clusters produced by the offline pipeline.
+
+    Returns:
+        Dict of HDBSCAN + UMAP settings from the current config, augmented with
+        the actual movie and cluster counts for reference.
+    """
+    cfg = get_settings()
+    base = cfg.clustering.base
+    umap = cfg.umap
+    return {
+        "algorithm": base.algorithm,
+        "min_cluster_size": base.min_cluster_size,
+        "min_samples": base.min_samples,
+        "cluster_selection_method": base.cluster_selection_method,
+        "cluster_selection_epsilon": base.cluster_selection_epsilon,
+        "umap_n_neighbors": umap.n_neighbors,
+        "umap_min_dist": umap.min_dist,
+        "seed": cfg.split.seed,
+        "n_movies": n_movies,
+        "n_clusters": n_clusters,
+    }
+
+
+def run_from_artifact(name: str) -> None:
+    """Fetch the pinned HF artifact(s) and ingest into the DB.
+
+    After loading all rows, computes fused embeddings, UMAP coordinates, and the
+    base HDBSCAN cluster snapshot from the in-memory embeddings. Movies from
+    multiple sets are deduplicated by ID before the offline computation runs.
+
+    Args:
+        name: Which artifact(s) to ingest — ``"main"``, ``"mini"``, or ``"all"``
+              (main + mini).
 
     Raises:
         ValueError: If *name* is ``"eval"`` — eval_holdout is never ingested.
@@ -105,22 +135,50 @@ def run_from_artifact(name: str, skip_clustering: bool = False) -> None:
             "eval_holdout is intentionally kept out of the DB — "
             "use it only for offline evaluation."
         )
-    cfg = get_settings().ingestion
+    cfg = get_settings()
     filenames = {
-        "main": cfg.artifacts.main,
-        "mini": cfg.artifacts.mini,
+        "main": cfg.ingestion.artifacts.main,
+        "mini": cfg.ingestion.artifacts.mini,
     }
     names = ["main", "mini"] if name == "all" else [name]
+
+    all_movie_ids: list[int] = []
+    all_text_embs: list[np.ndarray] = []
+    all_review_embs: list[np.ndarray] = []
+    has_any_review = False
+    seen_ids: set[int] = set()
+
     for n in names:
-        local_path = fetch_artifact(cfg.hf_repo, filenames[n])
+        local_path = fetch_artifact(cfg.ingestion.hf_repo, filenames[n])
         df, text_embeddings, review_embeddings = _load_artifact(local_path)
         load.ingest(df, text_embeddings, review_embeddings)
 
-    if not skip_clustering:
-        from backend.cluster_engine.offline import build_root_cluster_snapshot
-        seed = get_settings().split.seed
-        log.info("building_root_cluster_snapshot", extra={"seed": seed})
-        asyncio.run(build_root_cluster_snapshot(seed))
+        dim = text_embeddings.shape[1]
+        for i, mid in enumerate(df["id"].tolist()):
+            if mid in seen_ids:
+                continue
+            seen_ids.add(mid)
+            all_movie_ids.append(mid)
+            all_text_embs.append(text_embeddings[i])
+            if review_embeddings is not None:
+                all_review_embs.append(review_embeddings[i])
+                has_any_review = True
+            else:
+                all_review_embs.append(np.zeros(dim, dtype=np.float32))
+
+    text_arr = np.stack(all_text_embs)
+    review_arr = np.stack(all_review_embs) if has_any_review else None
+
+    log.info("offline_pipeline_start", extra={"n_movies": len(all_movie_ids)})
+    result = compute_offline_columns(all_movie_ids, text_arr, review_arr)
+
+    load.upsert_offline_columns(all_movie_ids, result.fused_embeddings, result.umap_coords)
+
+    params = _build_snapshot_params(len(all_movie_ids), result.n_clusters)
+    snapshot_id = create_root_snapshot_from_assignments(
+        all_movie_ids, result.cluster_ids, result.cluster_probs, params
+    )
+    log.info("ingest_complete", extra={"snapshot_id": str(snapshot_id)})
 
 
 def _parse_args() -> argparse.Namespace:
@@ -135,10 +193,6 @@ def _parse_args() -> argparse.Namespace:
         help="Which set(s) to write to the DB (default: mini). "
              "mini is a strict subset of main — ingesting main later won't duplicate rows.",
     )
-    p.add_argument(
-        "--skip-clustering", action="store_true",
-        help="Skip the HDBSCAN base cluster snapshot step (useful during dev).",
-    )
     return p.parse_args()
 
 
@@ -146,7 +200,7 @@ def main() -> None:
     """CLI entry point."""
     configure_logging()
     args = _parse_args()
-    run_from_artifact(args.set, skip_clustering=args.skip_clustering)
+    run_from_artifact(args.set)
 
 
 if __name__ == "__main__":

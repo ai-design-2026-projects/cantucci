@@ -1,8 +1,10 @@
 from dataclasses import dataclass, field
 
+TMDB_POSTER_BASE_URL = "https://image.tmdb.org/t/p/w500"
 
-@dataclass
-class MovieSearchHit:
+
+@dataclass(frozen=True, slots=True)
+class MovieSearchHitRow:
     """A single result from a k-NN vector search.
 
     Attributes:
@@ -14,8 +16,17 @@ class MovieSearchHit:
     title: str
     score: float
 
+    @classmethod
+    def from_row(cls, r: dict) -> "MovieSearchHitRow":
+        """Construct from a psycopg dict_row result of the vector search query."""
+        return cls(
+            movie_id=r["id"],
+            title=r["title"],
+            score=float(r["score"]),
+        )
 
-@dataclass
+
+@dataclass(frozen=True, slots=True)
 class MovieRow:
     """Enriched movie metadata for agent consumption.
 
@@ -36,8 +47,21 @@ class MovieRow:
     genres: list[str] = field(default_factory=list)
     director: str | None = None
 
+    @classmethod
+    def from_row(cls, r: dict) -> "MovieRow":
+        """Construct from a psycopg dict_row result of the fetch_metadata query."""
+        return cls(
+            movie_id=r["id"],
+            title=r["title"],
+            overview=r["overview"],
+            tagline=r["tagline"],
+            release_year=r["release_year"],
+            genres=list(r["genres"]) if r["genres"] else [],
+            director=r["director"],
+        )
 
-@dataclass
+
+@dataclass(frozen=True, slots=True)
 class MovieStubRow:
     """Lightweight movie projection for cluster snapshots and exemplar lists.
 
@@ -54,8 +78,19 @@ class MovieStubRow:
     release_year: int | None
     vote_average: float | None
 
+    @classmethod
+    def from_row(cls, r: dict) -> "MovieStubRow":
+        """Construct from a psycopg dict_row result of the fetch_stubs query."""
+        return cls(
+            id=r["id"],
+            title=r["title"],
+            poster_url=f"{TMDB_POSTER_BASE_URL}{r['poster_path']}" if r["poster_path"] else None,
+            release_year=r["release_year"],
+            vote_average=r["vote_average"],
+        )
 
-@dataclass
+
+@dataclass(frozen=True, slots=True)
 class MovieDetailsRow:
     """Full movie projection returned by fetch_movie_details.
 
@@ -87,3 +122,22 @@ class MovieDetailsRow:
     genres: list[str]
     director: str | None
     top_cast: list[str]
+
+    @classmethod
+    def from_row(cls, r: dict) -> "MovieDetailsRow":
+        """Construct from a psycopg dict_row result of the fetch_movie_details query."""
+        return cls(
+            id=r["id"],
+            title=r["title"],
+            release_year=r["release_year"],
+            runtime=r["runtime"],
+            vote_average=r["vote_average"],
+            vote_count=r["vote_count"],
+            bayesian_rating=r["bayesian_rating"],
+            overview=r["overview"],
+            poster_url=f"{TMDB_POSTER_BASE_URL}{r['poster_path']}" if r["poster_path"] else None,
+            original_language=r["original_language"],
+            genres=list(r["genres"]) if r["genres"] else [],
+            director=r["director"],
+            top_cast=list(r["top_cast"]) if r["top_cast"] else [],
+        )

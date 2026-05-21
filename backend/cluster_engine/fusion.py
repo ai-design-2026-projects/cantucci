@@ -5,36 +5,6 @@ import numpy as np
 log = logging.getLogger(__name__)
 
 
-def fuse_embeddings(
-    text_emb: np.ndarray,
-    review_emb: np.ndarray | None,
-    text_weight: float,
-    review_weight: float,
-) -> np.ndarray:
-    """Produce a single fused, L2-normalized embedding from text and review vectors.
-
-    When review_emb is None (no reviews available), returns text_emb unchanged.
-    The fusion formula is: normalize(text_weight * text + review_weight * review).
-
-    Args:
-        text_emb:      1024-d L2-normalized float32 text embedding.
-        review_emb:    1024-d L2-normalized float32 review embedding, or None.
-        text_weight:   Scalar weight for the text embedding (e.g. 0.6).
-        review_weight: Scalar weight for the review embedding (e.g. 0.4).
-
-    Returns:
-        1024-d L2-normalized float32 fused embedding.
-    """
-    if review_emb is None:
-        return text_emb
-
-    fused = text_weight * text_emb + review_weight * review_emb
-    norm = np.linalg.norm(fused)
-    if norm == 0.0:
-        return text_emb
-    return (fused / norm).astype(np.float32)
-
-
 def fuse_batch(
     text_embeddings: np.ndarray,
     review_embeddings: np.ndarray | None,

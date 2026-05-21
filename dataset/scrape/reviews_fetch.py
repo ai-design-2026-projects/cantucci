@@ -1,8 +1,3 @@
-"""TMDB reviews client: fetch top-K user reviews for a list of movie ids.
-
-Mirrors the sync httpx.Client + thread-pool pattern of ``tmdb_fetch.py`` —
-same throttle behaviour, same failure modes. Consumed by ``db/scrape.py``.
-"""
 import logging
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed

@@ -31,7 +31,7 @@ def create_conversation(
             """,
             (user_id, json.dumps(config_snapshot)),
         ).fetchone()
-    conversation_id: uuid.UUID = row[0]
+    conversation_id: uuid.UUID = row["id"]
     log.info("conversation_created", extra={"conversation_id": str(conversation_id)})
     return conversation_id
 
@@ -52,13 +52,7 @@ def get_conversation(conversation_id: uuid.UUID) -> ConversationRow | None:
         ).fetchone()
     if row is None:
         return None
-    return ConversationRow(
-        id=row[0],
-        user_id=row[1],
-        current_cluster_snapshot_id=row[2],
-        config_snapshot=row[3],
-        created_at=row[4],
-    )
+    return ConversationRow.from_row(row)
 
 
 def set_current_cluster_snapshot(conversation_id: uuid.UUID, cluster_snapshot_id: uuid.UUID) -> None:
@@ -96,7 +90,7 @@ def append_message(
             "INSERT INTO messages (conversation_id, role, content) VALUES (%s, %s, %s) RETURNING id",
             (conversation_id, role, content),
         ).fetchone()
-    return row[0]
+    return row["id"]
 
 
 def get_messages(conversation_id: uuid.UUID, limit: int = 20) -> list[MessageRow]:
@@ -120,9 +114,6 @@ def get_messages(conversation_id: uuid.UUID, limit: int = 20) -> list[MessageRow
             """,
             (conversation_id, limit),
         ).fetchall()
-    result = [
-        MessageRow(id=r[0], conversation_id=r[1], role=r[2], content=r[3], created_at=r[4])
-        for r in reversed(rows)
-    ]
+    result = [MessageRow.from_row(r) for r in reversed(rows)]
     log.debug("get_messages", extra={"conversation_id": str(conversation_id), "returned": len(result)})
     return result

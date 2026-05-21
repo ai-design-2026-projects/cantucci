@@ -3,7 +3,7 @@
 # manifest in demo/manifests/ — no real API calls, no cost per take.
 #
 # Usage:
-#   bash scripts/demo_replay.sh
+#   bash demo/demo_replay.sh
 #
 # Then start your screen recorder and run:
 #   cd frontend && npm run e2e:headed
@@ -17,7 +17,7 @@ MANIFEST_DIR="$REPO_ROOT/demo/manifests"
 
 if [ -z "$(ls -A "$MANIFEST_DIR" 2>/dev/null)" ]; then
   echo "ERROR: No manifests found in $MANIFEST_DIR"
-  echo "Run 'bash scripts/demo_record.sh' first to record a session."
+  echo "Run 'bash demo/demo_record.sh' first to record a session."
   exit 1
 fi
 

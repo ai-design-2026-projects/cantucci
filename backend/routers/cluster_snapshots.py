@@ -2,7 +2,7 @@ import logging
 import uuid
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter
 
 from backend.data_access.cluster_snapshots.queries import (
     get_cluster_snapshot_with_clusters,
@@ -34,7 +34,7 @@ def get_cluster_snapshot_endpoint(cluster_snapshot_id: uuid.UUID) -> ClusterSnap
     """
     result = get_cluster_snapshot_with_clusters(cluster_snapshot_id)
     if result is None:
-        raise HTTPException(status_code=404, detail=str(ClusterSnapshotNotFound(cluster_snapshot_id)))
+        raise ClusterSnapshotNotFound(cluster_snapshot_id)
 
     cluster_dtos = []
     for c in result.clusters:

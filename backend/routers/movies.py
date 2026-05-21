@@ -1,6 +1,6 @@
 import logging
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter
 
 from backend.data_access.movies.queries import fetch_movie_details
 from backend.exceptions import MovieNotFound
@@ -26,7 +26,7 @@ def get_movie(movie_id: int) -> MovieDto:
     """
     rows = fetch_movie_details([movie_id])
     if not rows:
-        raise HTTPException(status_code=404, detail=str(MovieNotFound(movie_id)))
+        raise MovieNotFound(movie_id)
     r = rows[0]
     return MovieDto(
         id=r.id,

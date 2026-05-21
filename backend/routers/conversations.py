@@ -1,8 +1,7 @@
 import logging
 import uuid
 from typing import Annotated
-
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 
 from backend.agents.coordinator import Coordinator
 from backend.auth.types import User
@@ -12,8 +11,8 @@ from backend.data_access.conversations.queries import (
     get_conversation,
     get_messages,
 )
-from backend.exceptions import ClusterSnapshotNotFound, ConversationNotFound
-from backend.routers.dependencies import get_current_user
+from backend.exceptions import ConversationNotFound
+from backend.routers.auth_deps import get_current_user
 from backend.routers.dto.conversations.dtos import (
     ConversationDto,
     MessageDto,
@@ -73,7 +72,7 @@ def get_conversation_endpoint(conversation_id: uuid.UUID) -> ConversationDto:
     """
     row = get_conversation(conversation_id)
     if row is None:
-        raise HTTPException(status_code=404, detail=str(ConversationNotFound(conversation_id)))
+        raise ConversationNotFound(conversation_id)
     messages = get_messages(conversation_id, limit=20)
     return ConversationDto(
         id=row.id,
@@ -108,20 +107,17 @@ async def send_message(
     """
     row = get_conversation(conversation_id)
     if row is None:
-        raise HTTPException(status_code=404, detail=str(ConversationNotFound(conversation_id)))
+        raise ConversationNotFound(conversation_id)
 
     append_message(conversation_id, "user", body.content)
     log.info("user_message", extra={"conversation_id": str(conversation_id)})
 
     coordinator = Coordinator()
-    try:
-        result = await coordinator.handle_message(
-            conversation_id=conversation_id,
-            user_message=body.content,
-            conversation_row=row,
-        )
-    except (ConversationNotFound, ClusterSnapshotNotFound) as exc:
-        raise HTTPException(status_code=404, detail=str(exc))
+    result = await coordinator.handle_message(
+        conversation_id=conversation_id,
+        user_message=body.content,
+        conversation_row=row,
+    )
 
     msg_id = append_message(conversation_id, "assistant", result.reply_text)
     log.info("assistant_reply", extra={"conversation_id": str(conversation_id), "cluster_snapshot_id": str(result.cluster_snapshot_id)})

@@ -7,7 +7,6 @@ from backend.agents.explanation.types import ExplanationResult
 from backend.data_access.movies.queries import fetch_metadata, fetch_stubs
 from backend.data_access.cluster_snapshots.queries import get_memberships, get_cluster_snapshot_with_clusters
 from backend.llm import llm_harness
-from backend.llm.prompts import hash_messages
 from backend.settings import get_config_hash, get_settings, prompts_dir
 
 log = logging.getLogger(__name__)
@@ -69,7 +68,6 @@ async def explain_placement(
         exemplar_titles=exemplar_titles,
     )
     messages = [{"role": "user", "content": prompt}]
-    prompt_hash = hash_messages(messages)
 
     resp = await llm_harness.call(
         run_id="online",
@@ -82,11 +80,10 @@ async def explain_placement(
         max_tokens=cfg.models.strong.max_tokens,
         step_type="explanation_agent",
         messages=messages,
-        prompt_hash=prompt_hash,
         cost_limit_usd=cfg.conversation.cost_limit_usd,
         accumulated_cost_usd=accumulated_cost,
         dry_run=cfg.models.strong.dry_run,
     )
 
     log.info("explanation_generated", extra={"movie_id": movie_id, "cluster_id": str(cluster_id)})
-    return ExplanationResult(text=resp.content, movie_title=movie.title, cluster_label=cluster_label)
+    return ExplanationResult.from_llm_response(resp.content, movie_title=movie.title, cluster_label=cluster_label)

@@ -6,7 +6,7 @@ from backend.agents.clustering.operations.merge import merge_clusters
 from backend.agents.clustering.operations.recut import recut
 from backend.agents.clustering.types import ClusterSnapshotDraft
 from backend.agents.concept.types import ConceptRep
-from backend.cluster_engine.labeling import label_cluster
+from backend.agents.labeling.agent import label_cluster
 from backend.data_access.cluster_snapshots.queries import create_cluster, create_cluster_snapshot, create_memberships
 from backend.data_access.conversations.queries import set_current_cluster_snapshot
 
@@ -107,12 +107,17 @@ async def _persist_and_label(
     )
 
     for cluster_draft in draft.clusters:
-        if cluster_draft.label in ("Cluster", f"Cluster {1}") or cluster_draft.label.startswith("Cluster "):
-            label, summary = await label_cluster(
+        needs_label = (
+            cluster_draft.label is None
+            or cluster_draft.label.startswith("Cluster ")
+        )
+        if needs_label:
+            result = await label_cluster(
                 exemplar_movie_ids=cluster_draft.exemplar_movie_ids,
                 conversation_id=str(conversation_id),
                 accumulated_cost=accumulated_cost,
             )
+            label, summary = result.label, result.summary
         else:
             label, summary = cluster_draft.label, cluster_draft.summary
 

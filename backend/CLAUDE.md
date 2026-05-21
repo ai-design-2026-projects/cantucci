@@ -1,0 +1,175 @@
+# backend/CLAUDE.md
+
+Backend-specific conventions for Claude Code. Top-level `CLAUDE.md` covers repo-wide rules; this file is the backend deep-dive.
+
+---
+
+## Type layering
+
+Three layers exist, with conversion flowing in one direction only:
+
+```
+data_access/<domain>/types.py  →  agents/<name>/types.py  →  routers/dto/<domain>/dtos.py
+        (Row)                         (agent-internal)               (Dto / wire)
+```
+
+**`backend/data_access/<domain>/types.py`** — `@dataclass(frozen=True, slots=True)` row types and aggregates. No HTTP knowledge, no Pydantic. Each row type carries a `from_row(cls, r: dict) -> "XRow"` classmethod that reads columns by name from a psycopg `dict_row` cursor result.
+
+**`backend/agents/<name>/types.py`** — `@dataclass(frozen=True, slots=True)` agent-internal types (results, enums). LLM-derived result types carry `from_llm_response(cls, parsed: BaseModel, ...) -> "X"` to encapsulate construction from a structured LLM response. Drafts that need to be built up incrementally (e.g. `ClusterDraft`, `ClusterSnapshotDraft`) use `frozen=True, slots=True` as well — all incremental construction is done by building a local list then passing it to the constructor in one call, never by mutating a field post-construction.
+
+**`backend/routers/dto/<domain>/dtos.py`** — Pydantic wire models. Constructed from row types inside router handlers. `User` (in `backend/auth/types.py`) is the one accepted straddler — it is a Pydantic model used as a dependency injection type on the HTTP layer, not to be widened.
+
+### Direction rule
+
+**Row → agent-internal → DTO.** Never the reverse. Inbound HTTP payloads are Pydantic request DTOs that the router unpacks into primitives before calling `data_access/` or `agents/`. Row → DTO conversion stays inline in router handlers (presentation logic belongs in the presentation layer).
+
+---
+
+## Dataclass vs Pydantic
+
+Use `@dataclass` for all internal types. Use Pydantic only at the wire boundary (request/response DTOs in `routers/dto/`). Internal invariants are enforced by `from_row` / `from_llm_response` constructors and mypy strict, not runtime validation.
+
+---
+
+## Naming conventions
+
+| Suffix | Layer | Example |
+|---|---|---|
+| `XRow` | DB-shaped (`data_access/`) | `ClusterSnapshotRow`, `MovieSearchHitRow` |
+| `XDto` | Wire (`routers/dto/`) | `ClusterSnapshotDto`, `MovieStubDto` |
+| *(no suffix)* | Agent-internal (`agents/`) | `IntentResult`, `ClusterDraft` |
+
+New code must follow this. `MovieSearchHitRow` is the canonical name — the old `MovieSearchHit` alias has been removed.
+
+---
+
+## `from_row` — DB → domain type conversion
+
+`data_access/connection.py` sets `conn.row_factory = dict_row` on every connection, so every `cursor.execute(...).fetchone()` returns a dict. All row dataclasses read by name:
+
+```python
+@dataclass(frozen=True, slots=True)
+class ClusterSnapshotRow:
+    id: uuid.UUID
+    conversation_id: uuid.UUID | None
+    ...
+
+    @classmethod
+    def from_row(cls, r: dict) -> "ClusterSnapshotRow":
+        return cls(
+            id=r["id"],
+            conversation_id=r["conversation_id"],
+            ...
+        )
+```
+
+`data_access/<domain>/queries.py` calls `Row.from_row(r)` instead of hand-building. Robust to SELECT column reordering; dict allocation cost is negligible at our query volume.
+
+---
+
+## `from_llm_response` — LLM output → agent type conversion
+
+Agent-internal dataclasses that come from LLM output carry:
+
+```python
+@dataclass(frozen=True, slots=True)
+class IntentResult:
+    mode: NavigationMode
+    ...
+
+    @classmethod
+    def from_llm_response(cls, parsed: BaseModel, raw_content: str) -> "IntentResult":
+        ...
+```
+
+The agent calls `IntentResult.from_llm_response(parsed, raw_content=resp.content)`. All normalisation logic (enum coercion, UUID parsing, fallback values) lives on the dataclass, not scattered in agent code. For plain-text LLM responses (no structured JSON), the signature accepts the content string directly:
+
+```python
+@classmethod
+def from_llm_response(cls, content: str, ...) -> "ExplanationResult":
+    return cls(text=content, ...)
+```
+
+---
+
+## Aggregates / composite types
+
+Types composed of multiple row types at the same layer (e.g. `ClusterSnapshotWithClusters`) live in the same `data_access/<domain>/types.py` as their component rows. They are not produced by `from_row` — they are assembled in `queries.py` by combining individual `from_row` calls.
+
+---
+
+## ID type aliases
+
+Raw `uuid.UUID` and `int` are used throughout. A `NewType` pass over `data_access/` + `agents/` would catch mis-passed-ID bugs at mypy time, but adoption cost is non-trivial. Documented here as a future option — not adopted in the current codebase.
+
+---
+
+## Exception taxonomy
+
+Single base in `backend/exceptions.py`:
+
+```python
+class DomainError(Exception):
+    """Base for all application-meaningful failures the HTTP layer should translate."""
+    http_status: int = 500
+```
+
+### Families
+
+| Class | `http_status` | Subclasses |
+|---|---|---|
+| `NotFoundError(DomainError)` | 404 | `ConversationNotFound`, `ClusterSnapshotNotFound`, `MovieNotFound` |
+| `ParseError(DomainError)` | 422 | `ConceptParseError` |
+| `AuthError(DomainError)` | 401 | `InvalidToken`, `TokenExpired` |
+| `OperationalError(DomainError)` | 500 | `CostLimitExceeded`, `LLMParseError`, `ReplayDriftError` |
+
+LLM-specific exceptions (`CostLimitExceeded`, `LLMParseError`, `ReplayDriftError`) live in `backend/llm/exceptions.py` and inherit from the cross-cutting families above.
+
+### Global handler
+
+Registered in `backend/app.py`:
+
+```python
+@app.exception_handler(DomainError)
+async def domain_error_handler(request: Request, exc: DomainError) -> JSONResponse:
+    return JSONResponse(status_code=exc.http_status, content={"detail": str(exc)})
+```
+
+Routers raise the domain exception directly — `raise ConversationNotFound(conversation_id)` — and never construct `HTTPException` themselves for domain failures.
+
+### Where exceptions live
+
+- `backend/exceptions.py` — cross-cutting domain exceptions (NotFound, Parse, Auth, Operational families).
+- `backend/llm/exceptions.py` — LLM-specific subclasses of the operational/parse families.
+- `<package>/exceptions.py` — package-local exceptions that don't warrant a cross-cutting family.
+- Never mix exceptions into a `types.py`.
+
+### `HTTPException` scope
+
+`HTTPException` is only allowed inside `backend/routers/`. Auth, data-access, and agent layers raise `DomainError` subclasses; routers let those propagate to the global handler.
+
+---
+
+## Known gaps
+
+### Root snapshot is built at ingest; root labels are generated lazily
+
+The root cluster snapshot is built at ingest time (via `db/ingest.py` calling
+`data_access.cluster_snapshots.queries.create_root_snapshot_from_assignments`)
+from the offline pipeline columns in the parquet artifact. Clusters are created
+without labels (`label=NULL`). The labeling agent fires lazily the first time a
+cluster is surfaced in a conversation — `agents/coordinator.py:_label_unlabeled_clusters`
+calls `agents/labeling/agent.py:label_cluster` for each unlabeled cluster and
+persists the result via `update_cluster_label`.
+
+### Content-addressed snapshot caching and conversation seeding are not wired
+
+The broader design intent is that any clustering operation deterministic given
+`(parent_snapshot_id, operation, params, seed)` should be precomputed once and
+reused across conversations. The missing pieces are:
+
+1. **Content-addressed lookup** — a `find_cached_snapshot(parent_id, operation, params, seed)` helper in `data_access/cluster_snapshots/queries.py` that returns an existing snapshot when all four inputs match, rather than computing a new one.
+2. **Conversation seeding** — `create_conversation` (or a post-create call) should auto-populate `current_cluster_snapshot_id` from the global root when one exists (`get_root_cluster_snapshot()` already exists in `queries.py`).
+3. **`_handle_reset` fallback** — after exhausting conversation-scoped snapshots, fall back to the global root via `get_root_cluster_snapshot()`.
+
+Explicitly out of scope for the current PR. Until wired, each conversation starts from the root snapshot lazily labeled on demand.

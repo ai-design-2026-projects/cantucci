@@ -9,7 +9,6 @@ from backend.agents.concept.types import ConceptRep, LinearAxisRep, PrototypeRep
 from backend.data_access.movies.queries import fetch_fused_embeddings, vector_search
 from backend.exceptions import ConceptParseError
 from backend.llm import llm_harness
-from backend.llm.prompts import hash_messages
 from backend.settings import get_config_hash, get_settings, prompts_dir
 
 log = logging.getLogger(__name__)
@@ -52,14 +51,13 @@ async def build_concept(
     Raises:
         ConceptParseError: If the LLM response is invalid or exemplars cannot be resolved.
     """
-    from db.ingestion.embed import embed_texts
+    from dataset.utils.embed import embed_texts
 
     cfg = get_settings()
 
     template = _ENV.get_template("parse_v1.j2")
     prompt = template.render(concept=concept_name)
     messages = [{"role": "user", "content": prompt}]
-    prompt_hash = hash_messages(messages)
 
     resp = await llm_harness.call(
         run_id="online",
@@ -72,7 +70,6 @@ async def build_concept(
         max_tokens=cfg.models.strong.max_tokens,
         step_type="concept_agent",
         messages=messages,
-        prompt_hash=prompt_hash,
         cost_limit_usd=cfg.conversation.cost_limit_usd,
         accumulated_cost_usd=accumulated_cost,
         dry_run=cfg.models.strong.dry_run,

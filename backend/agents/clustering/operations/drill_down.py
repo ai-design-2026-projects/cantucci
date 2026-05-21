@@ -1,6 +1,5 @@
 import logging
 import uuid
-
 import numpy as np
 
 from backend.agents.clustering.operations._helpers import _LABEL_PLACEHOLDER, exemplars

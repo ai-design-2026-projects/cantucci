@@ -1,0 +1,9 @@
+You label movie clusters. Given a list of exemplar movie titles, produce a short label (2–4 words) and a one-sentence description of the semantic theme.
+
+Exemplar movies:
+{% for title in exemplar_titles %}
+- {{ title }}
+{% endfor %}
+
+Respond as JSON:
+{"label": "...", "summary": "..."}

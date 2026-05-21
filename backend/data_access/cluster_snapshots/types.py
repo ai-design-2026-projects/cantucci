@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Any
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class ClusterSnapshotRow:
     """A row from the cluster_snapshots table.
 
@@ -23,28 +23,52 @@ class ClusterSnapshotRow:
     params: dict[str, Any]
     created_at: datetime
 
+    @classmethod
+    def from_row(cls, r: dict) -> "ClusterSnapshotRow":
+        """Construct from a psycopg dict_row result."""
+        return cls(
+            id=r["id"],
+            conversation_id=r["conversation_id"],
+            parent_id=r["parent_id"],
+            operation=r["operation"],
+            params=r["params"],
+            created_at=r["created_at"],
+        )
 
-@dataclass
+
+@dataclass(frozen=True, slots=True)
 class ClusterRow:
     """A row from the clusters table.
 
     Attributes:
         id:                 Cluster UUID.
         cluster_snapshot_id: Parent cluster snapshot UUID.
-        label:              Human-readable cluster label.
+        label:              Human-readable cluster label, or None for unlabeled root clusters.
         summary:            One-sentence LLM-generated summary.
         exemplar_movie_ids: Top-N movie IDs with highest membership probability.
         parent_cluster_id:  UUID of the cluster this was split from, if any.
     """
     id: uuid.UUID
     cluster_snapshot_id: uuid.UUID
-    label: str
+    label: str | None
     summary: str | None
     exemplar_movie_ids: list[int]
     parent_cluster_id: uuid.UUID | None
 
+    @classmethod
+    def from_row(cls, r: dict) -> "ClusterRow":
+        """Construct from a psycopg dict_row result."""
+        return cls(
+            id=r["id"],
+            cluster_snapshot_id=r["cluster_snapshot_id"],
+            label=r["label"],
+            summary=r["summary"],
+            exemplar_movie_ids=list(r["exemplar_movie_ids"]) if r["exemplar_movie_ids"] else [],
+            parent_cluster_id=r["parent_cluster_id"],
+        )
 
-@dataclass
+
+@dataclass(frozen=True, slots=True)
 class ClusterMembershipRow:
     """A row from the cluster_memberships table.
 
@@ -57,8 +81,17 @@ class ClusterMembershipRow:
     movie_id: int
     probability: float
 
+    @classmethod
+    def from_row(cls, r: dict) -> "ClusterMembershipRow":
+        """Construct from a psycopg dict_row result."""
+        return cls(
+            cluster_id=r["cluster_id"],
+            movie_id=r["movie_id"],
+            probability=r["probability"],
+        )
 
-@dataclass
+
+@dataclass(frozen=True, slots=True)
 class ClusterSnapshotWithClusters:
     """A cluster snapshot combined with its cluster list (no membership rows).
 

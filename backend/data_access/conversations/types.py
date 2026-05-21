@@ -1,9 +1,9 @@
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class ConversationRow:
     """A row from the conversations table.
 
@@ -20,8 +20,19 @@ class ConversationRow:
     config_snapshot: dict
     created_at: datetime
 
+    @classmethod
+    def from_row(cls, r: dict) -> "ConversationRow":
+        """Construct from a psycopg dict_row result."""
+        return cls(
+            id=r["id"],
+            user_id=r["user_id"],
+            current_cluster_snapshot_id=r["current_cluster_snapshot_id"],
+            config_snapshot=r["config_snapshot"],
+            created_at=r["created_at"],
+        )
 
-@dataclass
+
+@dataclass(frozen=True, slots=True)
 class MessageRow:
     """A row from the messages table.
 
@@ -37,3 +48,14 @@ class MessageRow:
     role: str
     content: str
     created_at: datetime
+
+    @classmethod
+    def from_row(cls, r: dict) -> "MessageRow":
+        """Construct from a psycopg dict_row result."""
+        return cls(
+            id=r["id"],
+            conversation_id=r["conversation_id"],
+            role=r["role"],
+            content=r["content"],
+            created_at=r["created_at"],
+        )

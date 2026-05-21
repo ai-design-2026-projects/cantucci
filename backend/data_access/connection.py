@@ -3,6 +3,7 @@ from contextlib import contextmanager
 from typing import Generator
 import psycopg
 import psycopg_pool
+from psycopg.rows import dict_row
 
 from backend.settings import get_env
 
@@ -34,9 +35,10 @@ def _get_pool() -> psycopg_pool.ConnectionPool:
 
 
 def _configure_connection(conn: psycopg.Connection) -> None:
-    """Register pgvector type adapter on every new connection."""
+    """Register pgvector type adapter and set dict_row as default on every new connection."""
     from pgvector.psycopg import register_vector
     register_vector(conn)
+    conn.row_factory = dict_row
 
 
 @contextmanager

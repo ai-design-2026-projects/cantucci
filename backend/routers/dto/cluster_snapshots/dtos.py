@@ -17,7 +17,7 @@ class ClusterDto(BaseModel):
         size:               Total number of movies with non-zero membership.
     """
     id: uuid.UUID
-    label: str
+    label: str | None
     summary: str | None
     exemplar_movie_ids: list[int]
     parent_cluster_id: uuid.UUID | None

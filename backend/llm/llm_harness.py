@@ -1,18 +1,20 @@
 import asyncio
+import hashlib
+import json
 import logging
 from uuid import UUID
-
 import openai
 from pydantic import BaseModel
 
 from backend.logging_setup import log_llm_call
 from backend.settings import get_settings
-from backend.llm.types import CostLimitExceeded, LLMParseError, LLMResponse
+from backend.llm.exceptions import CostLimitExceeded, LLMParseError
+from backend.llm.types import LLMResponse
 from backend.llm.utils import client as _client_mod
 from backend.llm.utils import retry as _retry_mod
 from backend.llm.utils.dry_run import dry_run_response
 from backend.llm.utils.pricing import estimate_cost
-from backend.llm.utils.record_replay import is_record_mode, is_replay_mode, record_append, replay_next
+from demo.record_replay import is_record_mode, is_replay_mode, record_append, replay_next
 from backend.llm.utils.schema_validation import validate_response
 
 log = logging.getLogger(__name__)
@@ -30,7 +32,6 @@ async def call(
     max_tokens: int,
     step_type: str,
     messages: list[dict[str, str]],
-    prompt_hash: str,
     cost_limit_usd: float,
     accumulated_cost_usd: float,
     dry_run: bool = False,
@@ -56,7 +57,6 @@ async def call(
         max_tokens:           Maximum completion tokens from config.
         step_type:            Name of the calling agent step, e.g. ``"intent_agent"``.
         messages:             Chat messages in ``[{"role": ..., "content": ...}]`` form.
-        prompt_hash:          SHA-256 prefix of the rendered prompt.
         cost_limit_usd:       Per-conversation cost ceiling from config.
         accumulated_cost_usd: Total USD spent so far this conversation (caller-tracked).
         dry_run:              If ``True``, skip the API call and return a canned response.
@@ -77,6 +77,9 @@ async def call(
                              If all retry attempts fail on a transient error.
         openai.APIError:     On any non-transient API error (raised immediately, no retry).
     """
+    prompt_hash = hashlib.sha256(
+        json.dumps(messages, sort_keys=True, ensure_ascii=False).encode()
+    ).hexdigest()[:8]
     _cfg_models = get_settings().models
     effective_dry_run = dry_run or _cfg_models.strong.dry_run or _cfg_models.fast.dry_run
     if effective_dry_run:

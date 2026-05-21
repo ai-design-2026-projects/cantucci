@@ -33,7 +33,7 @@ def create_user(email: str, password_hash: str, role_name: str) -> uuid.UUID:
     if row is None:
         raise ValueError(f"Role '{role_name}' not found in the roles table.")
 
-    user_id: uuid.UUID = row[0]
+    user_id: uuid.UUID = row["id"]
     log.debug("created user %s role=%s", user_id, role_name)
     return user_id
 
@@ -59,7 +59,7 @@ def get_user_by_email(email: str) -> UserRow | None:
 
     if row is None:
         return None
-    return UserRow(id=row[0], email=row[1], password_hash=row[2], role=row[3])
+    return UserRow.from_row(row)
 
 
 def get_user_by_id(user_id: uuid.UUID) -> UserRow | None:
@@ -83,4 +83,4 @@ def get_user_by_id(user_id: uuid.UUID) -> UserRow | None:
 
     if row is None:
         return None
-    return UserRow(id=row[0], email=row[1], password_hash=row[2], role=row[3])
+    return UserRow.from_row(row)

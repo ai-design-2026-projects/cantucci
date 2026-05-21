@@ -1,14 +1,12 @@
 import logging
 import uuid
-from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader
 from pydantic import BaseModel
 
-from backend.agents.intent.types import IntentResult, NavigationMode
+from backend.agents.intent.types import IntentResult
 from backend.data_access.cluster_snapshots.types import ClusterRow
 from backend.llm import llm_harness
-from backend.llm.prompts import hash_messages
 from backend.settings import get_config_hash, get_settings, prompts_dir
 
 log = logging.getLogger(__name__)
@@ -20,7 +18,8 @@ _ENV = Environment(loader=FileSystemLoader(str(_PROMPTS_DIR)), autoescape=False)
 class _IntentLLMResponse(BaseModel):
     """Structured output expected from the intent classification LLM call."""
     mode: str
-    dimension: str | None = None
+    concept: str | None = None
+    merged_label: str | None = None
     target_cluster_id: str | None = None
     confidence: float = 1.0
 
@@ -52,7 +51,6 @@ async def classify(
         user_message=user_message,
     )
     messages = [{"role": "user", "content": prompt}]
-    prompt_hash = hash_messages(messages)
 
     resp = await llm_harness.call(
         run_id="online",
@@ -65,7 +63,6 @@ async def classify(
         max_tokens=cfg.models.fast.max_tokens,
         step_type="intent_agent",
         messages=messages,
-        prompt_hash=prompt_hash,
         cost_limit_usd=cfg.conversation.cost_limit_usd,
         accumulated_cost_usd=accumulated_cost,
         dry_run=cfg.models.fast.dry_run,
@@ -73,34 +70,14 @@ async def classify(
     )
 
     parsed: _IntentLLMResponse = resp.parsed  # type: ignore[assignment]
-
-    try:
-        mode = NavigationMode(parsed.mode)
-    except ValueError:
-        log.warning("intent_unknown_mode", extra={"raw_mode": parsed.mode})
-        mode = NavigationMode.SMALL_TALK
-
-    target_id: uuid.UUID | None = None
-    if parsed.target_cluster_id:
-        try:
-            target_id = uuid.UUID(parsed.target_cluster_id)
-        except ValueError:
-            log.warning("intent_invalid_cluster_id", extra={"raw": parsed.target_cluster_id})
-
-    result = IntentResult(
-        mode=mode,
-        dimension=parsed.dimension,
-        target_cluster_id=target_id,
-        confidence=parsed.confidence,
-        raw_intent=resp.content,
-    )
+    result = IntentResult.from_llm_response(parsed, raw_content=resp.content)
     log.info(
         "intent_classified",
         extra={
             "conversation_id": str(conversation_id),
-            "mode": mode.value,
-            "dimension": parsed.dimension,
-            "confidence": parsed.confidence,
+            "mode": result.mode.value,
+            "concept": result.concept,
+            "confidence": result.confidence,
         },
     )
     return result

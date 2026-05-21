@@ -9,7 +9,8 @@ from uuid import UUID
 from pydantic import BaseModel
 
 from backend.logging_setup import log_llm_call
-from backend.llm.types import LLMResponse, ReplayDriftError
+from backend.llm.exceptions import ReplayDriftError
+from backend.llm.types import LLMResponse
 from backend.llm.utils.schema_validation import validate_response
 
 log = logging.getLogger(__name__)

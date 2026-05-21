@@ -1,14 +1,3 @@
-"""Upload timestamped parquet artifacts to the HuggingFace dataset repo.
-
-The repo is organised into two directories:
-
-- ``snapshots/snapshot_YYYYMMDD.parquet`` — written by ``db/scrape.py``
-  (stage 1, local). One file per snapshot, no embeddings.
-- ``embeddings/{main,mini,eval_holdout}_YYYYMMDD.parquet`` — written by
-  ``notebooks/embed_in_colab.ipynb`` (stage 2, GPU). Three files per snapshot.
-
-These are the **only** code paths in the repo that write to HuggingFace.
-"""
 import json
 import logging
 from datetime import datetime, timezone

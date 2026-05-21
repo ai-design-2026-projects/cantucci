@@ -3,9 +3,11 @@ import os
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
+from backend.exceptions import DomainError
 from backend.logging_setup import configure_logging
 from backend.routers.auth import router as auth_router
 from backend.routers.movies import router as movies_router
@@ -53,6 +55,14 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["Authorization", "Content-Type"],
 )
+
+
+@app.exception_handler(DomainError)
+async def domain_error_handler(request: Request, exc: DomainError) -> JSONResponse:
+    """Translate any DomainError subclass to an HTTP response using its http_status."""
+    log.warning("domain_error", extra={"status": exc.http_status, "detail": str(exc), "path": request.url.path})
+    return JSONResponse(status_code=exc.http_status, content={"detail": str(exc)})
+
 
 app.include_router(auth_router)
 app.include_router(movies_router)

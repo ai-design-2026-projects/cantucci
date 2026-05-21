@@ -8,7 +8,7 @@ Current clusters:
 {% endfor %}
 
 Navigation modes:
-- drill_down: split one cluster further along a semantic dimension
+- drill_down: split one cluster further along a semantic concept
 - merge: combine two or more clusters into one
 - recut: re-cluster the entire dataset from scratch
 - anchor_search: find movies similar to examples the user names
@@ -20,7 +20,8 @@ Navigation modes:
 Respond as JSON with these fields:
 {
   "mode": "<one of the modes above>",
-  "dimension": "<semantic concept or null>",
+  "concept": "<semantic concept for drill_down or recut, or null>",
+  "merged_label": "<short label for the resulting merged cluster, or null>",
   "target_cluster_id": "<cluster id string or null>",
   "confidence": <0.0–1.0>
 }

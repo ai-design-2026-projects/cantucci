@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Any
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class ConceptRow:
     """A row from the concepts table.
 
@@ -21,8 +21,19 @@ class ConceptRow:
     definition: dict[str, Any]
     created_at: datetime
 
+    @classmethod
+    def from_row(cls, r: dict) -> "ConceptRow":
+        """Construct from a psycopg dict_row result."""
+        return cls(
+            id=r["id"],
+            name=r["name"],
+            type=r["type"],
+            definition=r["definition"],
+            created_at=r["created_at"],
+        )
 
-@dataclass
+
+@dataclass(frozen=True, slots=True)
 class ConceptScoreRow:
     """A row from the concept_scores table.
 
@@ -34,3 +45,12 @@ class ConceptScoreRow:
     concept_id: uuid.UUID
     movie_id: int
     score: float
+
+    @classmethod
+    def from_row(cls, r: dict) -> "ConceptScoreRow":
+        """Construct from a psycopg dict_row result."""
+        return cls(
+            concept_id=r["concept_id"],
+            movie_id=r["movie_id"],
+            score=float(r["score"]),
+        )

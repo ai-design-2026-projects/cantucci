@@ -5,7 +5,7 @@ import logging
 
 from pydantic import BaseModel, ValidationError
 
-from backend.llm.types import LLMParseError
+from backend.llm.exceptions import LLMParseError
 
 log = logging.getLogger(__name__)
 

@@ -13,9 +13,9 @@ sidesteps the issue entirely.
 
 Usage:
     export TMDB_API_KEY=...
-    python -m db.scrape --limit 500 --concurrency 5          # local smoke
-    python -m db.scrape                                       # full local run, no upload
-    python -m db.scrape --upload                              # full local run + push to HF
+    python -m dataset.scrape --limit 500 --concurrency 5           # local smoke
+    python -m dataset.scrape                                       # full local run, no upload
+    python -m dataset.scrape --upload                              # full local run + push to HF
 
 Re-runs of the same command resume from ``data/local_scrape/tmdb_raw.jsonl``,
 so a crash mid-run loses at most the in-flight requests.
@@ -35,7 +35,9 @@ from tqdm.auto import tqdm
 
 from backend.logging_setup import configure_logging
 from backend.settings import get_settings
-from db.ingestion import clean, reviews_fetch, tmdb_fetch, upload
+from dataset.io import upload
+from dataset.scrape import tmdb_fetch
+from dataset.scrape import clean
 
 log = logging.getLogger(__name__)
 
@@ -180,7 +182,7 @@ def main() -> None:
     fetched_reviews: dict[int, str] = {}
     if not args.skip_reviews:
         movie_ids = [int(r["id"]) for r in raw_records]
-        fetched_reviews = reviews_fetch.fetch_all_reviews(
+        fetched_reviews = tmdb_fetch.fetch_all_reviews(
             args.api_key,
             movie_ids,
             concurrency=args.concurrency,

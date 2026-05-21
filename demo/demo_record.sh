@@ -3,7 +3,7 @@
 # demo/manifests/<session_id>.jsonl.
 #
 # Usage:
-#   bash scripts/demo_record.sh
+#   bash demo/demo_record.sh
 #
 # While uvicorn is running, open a second terminal and run:
 #   cd frontend && npm run e2e:headed

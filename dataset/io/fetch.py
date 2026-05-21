@@ -1,7 +1,5 @@
-"""Download a single parquet artifact from the Hugging Face Dataset repo."""
 import logging
 from pathlib import Path
-
 from huggingface_hub import hf_hub_download
 
 from backend.settings import ARTIFACTS_DIR, get_env
@@ -16,8 +14,8 @@ def fetch_artifact(
     token: str | None = None,
     artifacts_dir: Path | None = None,
 ) -> Path:
-    """Download a single parquet file from a HF Dataset repo and return its local path.
-
+    """
+    Download a single parquet file from a HF Dataset repo and return its local path.
     Args:
         repo_id:        HF dataset repo id, e.g. ``"446f6e6e79/CinePal-embeddings"``.
         filename:       Exact filename inside the repo, e.g. ``"main_20260517.parquet"``.
@@ -26,7 +24,6 @@ def fetch_artifact(
         token:          HF access token for private repos. Falls back to
                         ``get_env().hf_token`` (sourced from ``HF_TOKEN``).
         artifacts_dir:  Local destination directory. Defaults to ``data/artifacts/``.
-
     Returns:
         Absolute path to the downloaded parquet file on disk.
     """

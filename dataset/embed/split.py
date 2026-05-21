@@ -1,6 +1,4 @@
-"""Deterministic three-way dataset split: main / mini / eval_holdout."""
 import logging
-
 import pandas as pd
 
 log = logging.getLogger(__name__)

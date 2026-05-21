@@ -2,7 +2,7 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 
 from backend.data_access.users.queries import create_user, get_user_by_email
-from backend.routers.dependencies import get_current_user
+from backend.routers.auth_deps import get_current_user
 from backend.auth.passwords import hash_password, verify_password
 from backend.auth.tokens import encode_token, set_auth_cookie
 from backend.auth.types import User
