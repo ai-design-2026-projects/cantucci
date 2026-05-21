@@ -9,7 +9,7 @@ from uuid import uuid4
 
 from backend.cluster.domain import ClusterAssignment
 from backend.repository.sessions import ClusterRow
-from backend.orchestrator.utils.presentation import render_recommendation
+from backend.routers.dto.sessions.builders import render_recommendation
 
 
 def _cluster(assignments: list[ClusterAssignment]) -> ClusterRow:

@@ -16,7 +16,7 @@ import pytest
 from backend.cluster.domain import ClusterAssignment
 from backend.orchestrator.domain import StepType
 from backend.repository.sessions import ClusterRow, SessionRow, TurnRow
-from backend.orchestrator.utils import presentation
+from backend.routers.dto.sessions import builders as presentation
 
 
 def _cfg(top_k: int = 3) -> SimpleNamespace:

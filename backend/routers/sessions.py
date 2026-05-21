@@ -1,12 +1,3 @@
-"""Session and turn HTTP endpoints.
-
-Invariants enforced here:
-- No SQL. This layer calls the orchestrator; ``backend/api/`` owns the DB.
-- No LLM imports. All model calls happen inside the orchestrator.
-- Timestamps are set by the orchestrator (server-side UTC); never read from
-  request bodies.
-"""
-
 import asyncio
 import logging
 from contextlib import suppress
@@ -19,14 +10,14 @@ from fastapi.responses import StreamingResponse
 from backend.auth import User, get_current_user
 from backend.exceptions import SessionNotFound
 from backend.orchestrator.orchestrator import Orchestrator
-from backend.orchestrator.turn.progress import (
+from backend.routers.dto.sessions.dtos import SessionDto, TurnRequest
+from backend.routers.dto.sessions.streaming import (
     ClusterSnapshotEvent,
     ErrorEvent,
     ProgressEvent,
     ResultEvent,
     StreamEvent,
 )
-from backend.routers.dtos import SessionDto, TurnRequest
 
 log = logging.getLogger(__name__)
 

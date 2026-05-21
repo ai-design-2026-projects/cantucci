@@ -1,11 +1,3 @@
-"""
-Admin-only eval dashboard endpoints.
-
-Every route requires an authenticated admin user (Depends(require_admin)).
-Reads from the runs / session_metrics / judge_scores tables via the api/ and
-eval/ layers; never writes.
-"""
-
 import logging
 import uuid
 from typing import Annotated
@@ -21,56 +13,14 @@ from backend.repository.eval import (
 )
 from backend.repository.runs import get_run, list_runs, Run
 from backend.auth import User, require_admin
-from backend.eval.aggregator import MetricBundle, aggregate_run, aggregate_run_by_persona
-from backend.eval.statistics import MetricCI
-from backend.routers.dtos import (
-    EvalSessionRowDto,
-    MetricBundleDto,
-    MetricCIDto,
-    RunDetailDto,
-    RunSummaryDto,
-)
+from backend.eval.aggregator import aggregate_run, aggregate_run_by_persona
+from backend.routers.dto.eval.builders import metric_bundle_dto, metric_ci_dto
+from backend.routers.dto.eval.dtos import EvalSessionRowDto, MetricBundleDto, MetricCIDto
+from backend.routers.dto.runs.dtos import RunDetailDto, RunSummaryDto
 
 log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/eval", tags=["eval"])
-
-
-def _ci_dto(ci: MetricCI) -> MetricCIDto:
-    """Convert a MetricCI dataclass to its HTTP DTO.
-
-    Args:
-        ci: MetricCI from the statistics layer.
-
-    Returns:
-        MetricCIDto for serialization.
-    """
-    return MetricCIDto(value=ci.value, ci_lo=ci.ci_lo, ci_hi=ci.ci_hi, n=ci.n)
-
-
-def _bundle_dto(bundle: MetricBundle) -> MetricBundleDto:
-    """Convert a MetricBundle to its HTTP DTO.
-
-    Args:
-        bundle: Aggregated MetricBundle from the eval layer.
-
-    Returns:
-        MetricBundleDto for serialization.
-    """
-    return MetricBundleDto(
-        precision_at_k=_ci_dto(bundle.precision_at_k),
-        recall_at_k=_ci_dto(bundle.recall_at_k),
-        ndcg_at_k=_ci_dto(bundle.ndcg_at_k),
-        turns_to_convergence=_ci_dto(bundle.turns_to_convergence),
-        avg_cognitive_load=_ci_dto(bundle.avg_cognitive_load),
-        total_cost_usd=_ci_dto(bundle.total_cost_usd),
-        drift_events=_ci_dto(bundle.drift_events),
-        converged_rate=_ci_dto(bundle.converged_rate),
-        explicit_acceptance_rate=_ci_dto(bundle.explicit_acceptance_rate),
-        judge_clustering_coherence=_ci_dto(bundle.judge_clustering_coherence),
-        judge_question_quality=_ci_dto(bundle.judge_question_quality),
-        judge_profile_fidelity=_ci_dto(bundle.judge_profile_fidelity),
-    )
 
 
 def _resolve_run(run_id: uuid.UUID) -> Run:
@@ -149,7 +99,7 @@ def get_eval_run(
         started_at=run.started_at,
         ended_at=run.ended_at,
         n_sessions=n_sessions,
-        aggregate=_bundle_dto(bundle),
+        aggregate=metric_bundle_dto(bundle),
     )
 
 
@@ -168,7 +118,7 @@ def get_eval_aggregate(
     """
     log.info("eval aggregate run_id=%s", run_id)
     _resolve_run(run_id)
-    return _bundle_dto(aggregate_run(run_id))
+    return metric_bundle_dto(aggregate_run(run_id))
 
 
 @router.get("/runs/{run_id}/aggregate/by-persona", response_model=dict[str, MetricBundleDto])
@@ -189,7 +139,7 @@ def get_eval_aggregate_by_persona(
     log.info("eval aggregate_by_persona run_id=%s", run_id)
     _resolve_run(run_id)
     by_persona = aggregate_run_by_persona(run_id)
-    return {persona: _bundle_dto(bundle) for persona, bundle in by_persona.items()}
+    return {persona: metric_bundle_dto(bundle) for persona, bundle in by_persona.items()}
 
 
 @router.get("/runs/{run_id}/sessions", response_model=list[EvalSessionRowDto])

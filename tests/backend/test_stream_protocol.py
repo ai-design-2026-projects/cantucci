@@ -28,7 +28,7 @@ from backend.orchestrator.turn.progress import (
     ProgressEvent,
     ProgressStep,
 )
-from backend.routers.dtos import SessionDto, TurnDto
+from backend.routers.dto.sessions.dtos import SessionDto, TurnDto
 from backend.routers.sessions import router as sessions_router
 
 

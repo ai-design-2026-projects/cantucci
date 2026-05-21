@@ -27,7 +27,7 @@ from uuid import UUID
 
 import backend.repository.sessions as api_sessions
 from backend.orchestrator.domain import StepType
-from backend.routers.dtos import RecommendationDto, TurnDto
+from backend.routers.dto.sessions.dtos import RecommendationDto, TurnDto
 from backend.state.types import StateDecision
 
 log = logging.getLogger(__name__)

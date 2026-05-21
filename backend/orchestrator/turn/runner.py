@@ -22,8 +22,8 @@ from backend.orchestrator.turn.progress import (
     ProgressStep,
     make_progress_event,
 )
-from backend.orchestrator.utils import presentation
-from backend.routers.dtos import TurnDto
+from backend.routers.dto.sessions.builders import emit_cluster_snapshot, last_show_recommendation
+from backend.routers.dto.sessions.dtos import TurnDto
 from backend.state import state_agent
 from backend.state.types import StateAction, StateDecision
 
@@ -98,7 +98,7 @@ class TurnRunner:
             return await self._empty_clusters()
 
         # If we have clusters, emit a snapshot for the frontend before finalizing the turn
-        presentation.emit_cluster_snapshot(clusters, ctx.progress_cb)
+        emit_cluster_snapshot(clusters, ctx.progress_cb)
         return await finalize_mod.finalize(ctx, clusters, new_profile)
 
 
@@ -110,7 +110,7 @@ class TurnRunner:
         ctx = self.ctx
         # Retrieve the last-shown recommendation to use as a fallback
         last_show = await asyncio.to_thread(
-            presentation.last_show_recommendation,
+            last_show_recommendation,
             ctx.full_session,
         )
         async with self._wrap_up():
@@ -131,7 +131,7 @@ class TurnRunner:
         self._emit(ProgressStep.UNDERSTAND, "end")
         # Retrieve the last-shown recommendation to use as a fallback, in case the finalizer needs it to construct the natural end response
         last_show = await asyncio.to_thread(
-            presentation.last_show_recommendation,
+            last_show_recommendation,
             ctx.full_session,
         )
         async with self._wrap_up():

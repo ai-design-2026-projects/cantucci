@@ -1,25 +1,24 @@
-"""
-Recommendation rendering and DTO assembly for the orchestrator. All the
-enrichment and formatting logic lives here so the orchestrator and
-router can stay focused on their respective responsibilities of turn flow.
-"""
 import logging
+from typing import TYPE_CHECKING
+
 import backend.repository.movies as api_movies
 from backend.orchestrator.domain import SessionStatus, StepType
+
+if TYPE_CHECKING:
+    from backend.orchestrator.turn.progress import ProgressCallback
 from backend.repository.sessions import ClusterRow, SessionListRow, SessionRow
-from backend.orchestrator.turn.progress import (
-    ClusterFilmStub,
-    ClusterSnapshotEvent,
-    ClusterSnapshotPayload,
-    ProgressCallback,
-)
-from backend.routers.dtos import (
+from backend.routers.dto.movies.dtos import MovieDto
+from backend.routers.dto.sessions.dtos import (
     ClusterDto,
-    MovieDto,
     RecommendationDto,
     SessionDto,
     SoftScore,
     TurnDto,
+)
+from backend.routers.dto.sessions.streaming import (
+    ClusterFilmStub,
+    ClusterSnapshotEvent,
+    ClusterSnapshotPayload,
 )
 
 log = logging.getLogger(__name__)
@@ -157,7 +156,7 @@ def render_recommendation(*, best_cluster: ClusterRow) -> str:
 
 def emit_cluster_snapshot(
     clusters: list[ClusterRow],
-    progress_cb: ProgressCallback,
+    progress_cb: "ProgressCallback",
 ) -> None:
     """Enrich clusters with poster/rating stubs and emit a ClusterSnapshotEvent.
 

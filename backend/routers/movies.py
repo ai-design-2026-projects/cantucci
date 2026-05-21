@@ -1,12 +1,9 @@
-"""Movie catalogue HTTP endpoints."""
-
 import logging
-
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from backend.exceptions import MovieNotFound
 from backend.orchestrator.orchestrator import Orchestrator
-from backend.routers.dtos import MovieDto
+from backend.routers.dto.movies.dtos import MovieDto
 
 log = logging.getLogger(__name__)
 

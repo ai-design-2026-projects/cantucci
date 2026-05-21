@@ -1,49 +1,14 @@
-"""Authentication HTTP endpoints.
-"""
-
 import logging
-
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
-from pydantic import BaseModel, EmailStr, field_validator
 
 import backend.repository.users as api_users
 from backend.auth import User, encode_token, get_current_user, hash_password, set_auth_cookie, verify_password
+from backend.routers.dto.users.dtos import LoginRequest, LoginResponse
 
 log = logging.getLogger(__name__)
 _auth_log = logging.getLogger("auth")
 
 router = APIRouter(prefix="/auth", tags=["auth"])
-
-
-class LoginRequest(BaseModel):
-    """Body for ``POST /auth/login`` and ``POST /auth/register``.
-
-    Attributes:
-        email:    User email address. Must be a valid email format.
-        password: Plaintext password. Must be at least 8 characters.
-    """
-
-    email: EmailStr
-    password: str
-
-    @field_validator("password")
-    @classmethod
-    def password_min_length(cls, v: str) -> str:
-        if len(v) < 8:
-            raise ValueError("Password must be at least 8 characters.")
-        return v
-
-
-class LoginResponse(BaseModel):
-    """Successful login response.
-
-    Attributes:
-        token: Signed JWT; include as ``Authorization: Bearer <token>``.
-        user:  Basic user info (id, email, role).
-    """
-
-    token: str
-    user: User
 
 
 @router.post("/login", response_model=LoginResponse)

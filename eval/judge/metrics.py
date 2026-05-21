@@ -8,7 +8,7 @@ returned by ``RecommendationDto.films``.
 import math
 import logging
 
-from backend.routers.dtos import TurnDto
+from backend.routers.dto.sessions.dtos import TurnDto
 
 log = logging.getLogger(__name__)
 

@@ -135,15 +135,10 @@ def resolve_titles_to_ids(titles: list[str]) -> list[int]:
 
 
 def fetch_metadata(movie_ids: list[int]) -> list[MovieRow]:
-    """Return enriched metadata for each movie in *movie_ids*.
-
-    Joins movies ← movie_genres → genres and crew_members (Director only).
-    The return order matches the input *movie_ids* order; missing IDs are
-    silently omitted (the catalogue is the authoritative source).
-
+    """
+    Return enriched metadata for each movie in *movie_ids*.
     Args:
         movie_ids: TMDB integer IDs to look up.
-
     Returns:
         List of MovieRow in the same order as *movie_ids*, with missing
         IDs dropped.
@@ -199,15 +194,14 @@ def fetch_metadata(movie_ids: list[int]) -> list[MovieRow]:
 
 
 def fetch_stubs(movie_ids: list[int]) -> list[dict]:
-    """Return lightweight movie stubs for cluster snapshot payloads.
-
+    """
+    Return lightweight movie stubs for cluster snapshot payloads.
     Fetches only the fields needed for ``ClusterFilmStub``: id, title,
     poster_url (built from poster_path), release_year, and vote_average.
     Missing IDs are silently omitted.
 
     Args:
         movie_ids: TMDB integer IDs to look up.
-
     Returns:
         List of dicts with keys ``id``, ``title``, ``poster_url``,
         ``release_year``, ``vote_average``.  Order matches *movie_ids*.
@@ -241,15 +235,13 @@ def fetch_stubs(movie_ids: list[int]) -> list[dict]:
 
 
 def fetch_movies_dto(movie_ids: list[int]) -> list[dict]:
-    """Return full MovieDto-shaped dicts for the given movie IDs.
-
+    """
+    Return full MovieDto-shaped dicts for the given movie IDs.
     Joins movies ← movie_genres → genres, crew_members (Director), and
     cast_members (top 3 by cast_order) in one query.  Missing IDs are silently
     omitted.  Order matches *movie_ids*.
-
     Args:
         movie_ids: TMDB integer IDs to look up.
-
     Returns:
         List of dicts with keys matching the ``MovieDto`` DTO fields.
         ``poster_url`` is a full TMDB URL.  Order matches *movie_ids*.

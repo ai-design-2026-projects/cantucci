@@ -1,10 +1,11 @@
 import uuid
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
-from pydantic import BaseModel
 
 
-class Run(BaseModel):
+@dataclass
+class Run:
     """In-memory representation of a runs row."""
     id: uuid.UUID
     name: str

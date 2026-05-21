@@ -22,10 +22,11 @@ import backend.repository.runs as api_runs
 import backend.repository.sessions as api_sessions
 from backend.orchestrator.domain import SessionStatus
 from backend.exceptions import SessionNotFound
-from backend.orchestrator.utils import presentation
 from backend.orchestrator.turn.progress import NullProgressCallback, ProgressCallback
 from backend.orchestrator.turn import TurnRunner
-from backend.routers.dtos import MovieDto, SessionDto, TurnDto
+from backend.routers.dto.movies.dtos import MovieDto
+from backend.routers.dto.sessions.builders import assemble_session_dto, row_to_session_dto
+from backend.routers.dto.sessions.dtos import SessionDto, TurnDto
 from backend.settings import get_config_hash, get_config_snapshot, get_settings
 
 log = logging.getLogger(__name__)
@@ -129,7 +130,7 @@ class Orchestrator:
             List of ``SessionDto`` with ``turns=[]``, ordered by updated_at DESC.
         """
         rows = api_sessions.list_sessions_by_user(user_id)
-        return [presentation.row_to_session_dto(r) for r in rows]
+        return [row_to_session_dto(r) for r in rows]
 
     def delete_session(self, session_id: UUID, user_id: UUID) -> bool:
         """Delete a session if it exists and is owned by user_id.
@@ -176,4 +177,4 @@ class Orchestrator:
             full_session = api_sessions.get_session_full(session_id)
         except ValueError as exc:
             raise SessionNotFound(session_id) from exc
-        return presentation.assemble_session_dto(full_session)
+        return assemble_session_dto(full_session)
