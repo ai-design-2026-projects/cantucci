@@ -19,6 +19,8 @@ from uuid import uuid4
 import pytest
 from pydantic import BaseModel
 
+import backend.llm.utils.client as llm_client
+import backend.llm.utils.retry as llm_retry
 from backend.llm import llm_harness
 from backend.llm.types import LLMParseError
 
@@ -74,12 +76,12 @@ def _no_dry_run(monkeypatch: pytest.MonkeyPatch) -> None:
 @pytest.fixture()
 def _no_backoff(monkeypatch: pytest.MonkeyPatch) -> None:
     """Collapse retry backoff to zero so tests don't wait on real sleeps."""
-    monkeypatch.setattr(llm_harness, "_backoff", lambda _attempt: 0.0)
+    monkeypatch.setattr(llm_retry, "backoff", lambda _attempt: 0.0)
 
 
 def _install_fake_client(monkeypatch: pytest.MonkeyPatch, payloads: list[str]) -> _FakeClient:
     fake = _FakeClient(payloads)
-    monkeypatch.setattr(llm_harness, "_clients", {"openai": fake})
+    monkeypatch.setattr(llm_client, "_clients", {"openai": fake})
     return fake
 
 

@@ -38,7 +38,7 @@ import numpy as np
 import yaml
 
 from backend.logging_setup import configure_logging
-from backend.llm.prompts import make_prompt_loader
+from backend.llm.utils.prompts import make_prompt_loader
 from backend.settings import CONFIGS_DIR, PROJECT_ROOT, get_settings
 from db.ingestion.fetch import fetch_artifact
 from eval.shared.llm_gateway import LLMGateway

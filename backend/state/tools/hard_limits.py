@@ -5,7 +5,8 @@ Trips when the turn budget or recommendation cap has been exhausted.
 
 import logging
 
-from backend.api.types import SessionRow, StepType
+from backend.orchestrator.domain import StepType
+from backend.repository.sessions.types import SessionRow
 from backend.state.types import StateAction, StateDecision
 from backend.settings import Settings
 

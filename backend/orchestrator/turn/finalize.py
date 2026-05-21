@@ -16,15 +16,17 @@ import asyncio
 import logging
 from datetime import datetime, timezone
 
-import backend.api.sessions as api_sessions
-from backend.api.types import ClusterRow, StepType
+import backend.repository.sessions as api_sessions
+from backend.orchestrator.domain import StepType
+from backend.repository.sessions.types import ClusterRow
 from backend.decision import decision_agent
 from backend.decision.types import DecisionAction, DecisionResult
 from backend.orchestrator.turn.context import TurnContext
-from backend.orchestrator.utils import history, presentation
+from backend.orchestrator.utils import history
 from backend.orchestrator.turn.progress import ProgressPhase, ProgressStep, make_progress_event
 from backend.profile.types import UserProfile
-from backend.routers.dtos import RecommendationDto, TurnDto
+from backend.routers.dto.sessions.builders import build_recommendation, render_recommendation
+from backend.routers.dto.sessions.dtos import RecommendationDto, TurnDto
 
 log = logging.getLogger(__name__)
 
@@ -171,7 +173,7 @@ async def _build_show(
         (c for c in clusters if c.id == decision.best_cluster_id),
         clusters[0],
     )
-    reply = presentation.render_recommendation(
+    reply = render_recommendation(
         best_cluster=best_cluster,
     )
     rendered_titles = [
@@ -187,7 +189,7 @@ async def _build_show(
         dict.fromkeys(new_profile.seen_films + rendered_titles)
     )
     recommendation = await asyncio.to_thread(
-        presentation.build_recommendation,
+        build_recommendation,
         best_cluster,
     )
     return reply, StepType.show, recommendation
@@ -219,7 +221,7 @@ async def _persist_turn_and_profile(
     await asyncio.to_thread(
         api_sessions.update_preference_profile,
         ctx.session_id,
-        new_profile.model_dump(),
+        new_profile,
     )
     log.debug(
         "profile updated",

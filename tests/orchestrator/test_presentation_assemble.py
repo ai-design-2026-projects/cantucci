@@ -1,50 +1,41 @@
 """Unit tests for ``assemble_session_dto`` — the projection from
 ``SessionRow`` (internal read-side dataclass) to ``SessionDto`` (HTTP DTO).
 
-Pure Python, no DB, no Docker, no LLM. ``api_movies.fetch_movies_dto`` is
+Pure Python, no DB, no Docker, no LLM. ``api_movies.fetch_movie_details`` is
 monkeypatched so we can also assert the batching contract.
 """
 
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from types import SimpleNamespace
 from uuid import UUID, uuid4
 
 import pytest
 
-from backend.api.types import (
-    ClusterAssignment,
-    ClusterRow,
-    SessionRow,
-    StepType,
-    TurnRow,
-)
-from backend.orchestrator.utils import presentation
+from backend.cluster.domain import ClusterAssignment
+from backend.orchestrator.domain import StepType
+from backend.repository.movies.types import MovieDetailsRow
+from backend.repository.sessions.types import ClusterRow, SessionRow, TurnRow
+from backend.routers.dto.sessions import builders as presentation
 
 
-def _cfg(top_k: int = 3) -> SimpleNamespace:
-    """Minimal stand-in for ``Settings`` — only ``cfg.session.recommendation_top_k`` is read."""
-    return SimpleNamespace(session=SimpleNamespace(recommendation_top_k=top_k))
-
-
-def _movie_dict(movie_id: int) -> dict:
-    """Shape matches ``api_movies.fetch_movies_dto`` output (one dict per movie)."""
-    return {
-        "id": movie_id,
-        "title": f"Movie {movie_id}",
-        "release_year": 2024,
-        "runtime": 100.0,
-        "vote_average": 7.0,
-        "vote_count": 100,
-        "bayesian_rating": 7.0,
-        "overview": "",
-        "poster_url": None,
-        "genres": [],
-        "director": None,
-        "top_cast": [],
-        "original_language": "en",
-    }
+def _movie_details_row(movie_id: int) -> MovieDetailsRow:
+    """Minimal ``MovieDetailsRow`` for tests."""
+    return MovieDetailsRow(
+        id=movie_id,
+        title=f"Movie {movie_id}",
+        release_year=2024,
+        runtime=100.0,
+        vote_average=7.0,
+        vote_count=100,
+        bayesian_rating=7.0,
+        overview="",
+        poster_url=None,
+        genres=[],
+        director=None,
+        top_cast=[],
+        original_language="en",
+    )
 
 
 def _cluster(movie_ids: list[int]) -> ClusterRow:
@@ -105,13 +96,13 @@ def test_empty_session_yields_empty_turns(monkeypatch: pytest.MonkeyPatch) -> No
     """No turns ⇒ no movie fetch and an empty SessionDto.turns list."""
     calls: list[list[int]] = []
 
-    def _fake_fetch(ids: list[int]) -> list[dict]:
+    def _fake_fetch(ids: list[int]) -> list[MovieDetailsRow]:
         calls.append(ids)
         return []
 
-    monkeypatch.setattr(presentation.api_movies, "fetch_movies_dto", _fake_fetch)
+    monkeypatch.setattr(presentation.api_movies, "fetch_movie_details", _fake_fetch)
 
-    state = presentation.assemble_session_dto(_full([]), _cfg())
+    state = presentation.assemble_session_dto(_full([]))
 
     assert state.turns == []
     assert calls == []  # no movies to fetch ⇒ no call
@@ -126,11 +117,11 @@ def test_show_turn_hydrates_recommendation_in_score_order(
 
     monkeypatch.setattr(
         presentation.api_movies,
-        "fetch_movies_dto",
-        lambda ids: [_movie_dict(mid) for mid in ids],
+        "fetch_movie_details",
+        lambda ids: [_movie_details_row(mid) for mid in ids],
     )
 
-    state = presentation.assemble_session_dto(_full([turn]), _cfg(top_k=3))
+    state = presentation.assemble_session_dto(_full([turn]))
 
     assert len(state.turns) == 1
     rec = state.turns[0].recommendation
@@ -147,11 +138,11 @@ def test_stop_turn_inherits_last_show_recommendation(
 
     monkeypatch.setattr(
         presentation.api_movies,
-        "fetch_movies_dto",
-        lambda ids: [_movie_dict(mid) for mid in ids],
+        "fetch_movie_details",
+        lambda ids: [_movie_details_row(mid) for mid in ids],
     )
 
-    state = presentation.assemble_session_dto(_full([show, stop]), _cfg())
+    state = presentation.assemble_session_dto(_full([show, stop]))
 
     show_rec = state.turns[0].recommendation
     stop_rec = state.turns[1].recommendation
@@ -165,11 +156,11 @@ def test_ask_turn_carries_no_recommendation(monkeypatch: pytest.MonkeyPatch) -> 
     ask = _turn(StepType.ask)
     monkeypatch.setattr(
         presentation.api_movies,
-        "fetch_movies_dto",
-        lambda ids: [_movie_dict(mid) for mid in ids],
+        "fetch_movie_details",
+        lambda ids: [_movie_details_row(mid) for mid in ids],
     )
 
-    state = presentation.assemble_session_dto(_full([ask]), _cfg())
+    state = presentation.assemble_session_dto(_full([ask]))
 
     assert state.turns[0].recommendation is None
 
@@ -184,13 +175,13 @@ def test_movie_fetch_is_batched_once_across_all_show_turns(
 
     calls: list[list[int]] = []
 
-    def _fake_fetch(ids: list[int]) -> list[dict]:
+    def _fake_fetch(ids: list[int]) -> list[MovieDetailsRow]:
         calls.append(list(ids))
-        return [_movie_dict(mid) for mid in ids]
+        return [_movie_details_row(mid) for mid in ids]
 
-    monkeypatch.setattr(presentation.api_movies, "fetch_movies_dto", _fake_fetch)
+    monkeypatch.setattr(presentation.api_movies, "fetch_movie_details", _fake_fetch)
 
-    presentation.assemble_session_dto(_full([show_a, show_b, ask]), _cfg(top_k=2))
+    presentation.assemble_session_dto(_full([show_a, show_b, ask]))
 
     assert len(calls) == 1
     # Deduplicated union of every show turn's top-K ids
@@ -202,10 +193,10 @@ def test_session_dto_exposes_public_fields(
 ) -> None:
     """SessionDto exposes turn_count, first_user_message, and cluster_snapshot."""
     monkeypatch.setattr(
-        presentation.api_movies, "fetch_movies_dto", lambda ids: [],
+        presentation.api_movies, "fetch_movie_details", lambda ids: [],
     )
 
-    state = presentation.assemble_session_dto(_full([]), _cfg())
+    state = presentation.assemble_session_dto(_full([]))
 
     serialized = state.model_dump()
     assert "turn_count" in serialized

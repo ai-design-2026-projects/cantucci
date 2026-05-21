@@ -1,18 +1,3 @@
-"""Cluster Agent — groups retrieved candidates into named, soft-assigned clusters.
-
-Two paths, both driven explicitly by the Orchestrator:
-
-Fresh path (Scenario A):
-  1. ``soft_cluster``:      fetch embeddings + HDBSCAN → ``SoftClusterResult`` (no LLM).
-  2. ``describe_clusters``: LLM-name each cluster → ``list[ClusterRow]``.
-
-Refinement path (Scenario B):
-  ``refine``: thin wrapper over ``cluster_refiner.refine``.
-
-The Orchestrator calls retrieval itself and passes the result to ``soft_cluster``.
-Retrieval and clustering are fully decoupled.
-"""
-
 import logging
 from dataclasses import dataclass
 from uuid import UUID, uuid4
@@ -25,8 +10,10 @@ from backend.cluster.tools import (
     embedding_fetcher,
     soft_cluster_engine,
 )
-from backend.api.types import ClusterAssignment, ClusterRow
+from backend.cluster.domain import ClusterAssignment, ClusterPayload
+from backend.repository.sessions.types import ClusterRow
 from backend.retrieval.types import RetrievalResult
+from backend.repository.movies.types import MovieRow
 from backend.settings import get_settings
 
 log = logging.getLogger(__name__)
@@ -47,8 +34,8 @@ class SoftClusterResult:
 
     kept_ids: list[int]
     membership: np.ndarray
-    meta_by_id: dict
-    clusters_payload: list[dict]
+    meta_by_id: dict[int, MovieRow]
+    clusters_payload: list[ClusterPayload]
 
 
 def soft_cluster(
@@ -117,7 +104,7 @@ def soft_cluster(
     membership: np.ndarray = result.membership
     top_n: int = cfg.clustering.top_titles_per_cluster
 
-    clusters_payload: list[dict] = []
+    clusters_payload: list[ClusterPayload] = []
     for ci in range(result.n_clusters):
         scores = membership[:, ci]
         order = np.argsort(scores)[::-1][:top_n]
@@ -129,12 +116,12 @@ def soft_cluster(
                     genres.append(g)
         overviews = [m.overview for m in top_metas if m.overview]
         clusters_payload.append(
-            {
-                "cluster_index": ci,
-                "top_titles": [m.title for m in top_metas],
-                "top_genres": genres[:6],
-                "sample_overviews": overviews[:2],
-            }
+            ClusterPayload(
+                cluster_index=ci,
+                top_titles=[m.title for m in top_metas],
+                top_genres=genres[:6],
+                sample_overviews=overviews[:2],
+            )
         )
 
     return SoftClusterResult(

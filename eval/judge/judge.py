@@ -34,9 +34,9 @@ from pathlib import Path
 from uuid import UUID
 from pydantic import BaseModel
 
-from backend.api.eval import upsert_session_metrics, write_judge_score
-from backend.llm.prompts import make_prompt_loader
-from backend.routers.dtos import SessionDto, TurnDto
+from backend.repository.eval import upsert_session_metrics, write_judge_score
+from backend.llm.utils.prompts import make_prompt_loader
+from backend.routers.dto.sessions.dtos import SessionDto, TurnDto
 from eval.shared.ground_truths import GroundTruth
 from eval.shared.llm_gateway import LLMGateway
 from eval.judge.metrics import cognitive_load, ndcg_at_k, precision_at_k, recall_at_k

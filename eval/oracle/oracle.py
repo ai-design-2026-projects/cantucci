@@ -23,8 +23,8 @@ from uuid import UUID
 
 from pydantic import BaseModel
 
-from backend.llm.prompts import make_prompt_loader
-from backend.routers.dtos import ClusterDto, TurnDto
+from backend.llm.utils.prompts import make_prompt_loader
+from backend.routers.dto.sessions.dtos import ClusterDto, TurnDto
 from eval.oracle.utils.behavior import BehaviorRng
 from eval.oracle.utils.memory import OracleMemory
 from eval.shared.ground_truths import OracleGroundTruthView

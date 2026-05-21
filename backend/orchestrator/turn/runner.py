@@ -15,6 +15,7 @@ from backend.orchestrator.turn import finalize as finalize_mod
 from backend.orchestrator.turn.context import TurnContext
 from backend.orchestrator.turn.tasks import TurnTasks
 from backend.orchestrator.turn import terminal_paths
+from backend.profile.types import UserProfile
 from backend.orchestrator.turn.progress import (
     NullProgressCallback,
     ProgressCallback,
@@ -22,8 +23,8 @@ from backend.orchestrator.turn.progress import (
     ProgressStep,
     make_progress_event,
 )
-from backend.orchestrator.utils import presentation
-from backend.routers.dtos import TurnDto
+from backend.routers.dto.sessions.builders import emit_cluster_snapshot, last_show_recommendation
+from backend.routers.dto.sessions.dtos import TurnDto
 from backend.state import state_agent
 from backend.state.types import StateAction, StateDecision
 
@@ -98,7 +99,7 @@ class TurnRunner:
             return await self._empty_clusters()
 
         # If we have clusters, emit a snapshot for the frontend before finalizing the turn
-        presentation.emit_cluster_snapshot(clusters, ctx.progress_cb)
+        emit_cluster_snapshot(clusters, ctx.progress_cb)
         return await finalize_mod.finalize(ctx, clusters, new_profile)
 
 
@@ -110,7 +111,7 @@ class TurnRunner:
         ctx = self.ctx
         # Retrieve the last-shown recommendation to use as a fallback
         last_show = await asyncio.to_thread(
-            presentation.last_show_recommendation,
+            last_show_recommendation,
             ctx.full_session,
         )
         async with self._wrap_up():
@@ -131,7 +132,7 @@ class TurnRunner:
         self._emit(ProgressStep.UNDERSTAND, "end")
         # Retrieve the last-shown recommendation to use as a fallback, in case the finalizer needs it to construct the natural end response
         last_show = await asyncio.to_thread(
-            presentation.last_show_recommendation,
+            last_show_recommendation,
             ctx.full_session,
         )
         async with self._wrap_up():
@@ -142,7 +143,7 @@ class TurnRunner:
                 turn_number=ctx.turn_number,
                 user_message=ctx.user_message,
                 decision=decision,
-                preference_profile=ctx.prior_profile or {},
+                preference_profile=ctx.prior_profile or UserProfile(constraints=[], preferences=[], attitudes=[], summary=""),
                 recommendation=last_show,
             )
 

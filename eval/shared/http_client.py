@@ -24,7 +24,7 @@ from backend.orchestrator.turn.progress import (
     ResultEvent,
     StreamEvent,
 )
-from backend.routers.dtos import SessionDto
+from backend.routers.dto.sessions.dtos import SessionDto
 
 log = logging.getLogger(__name__)
 

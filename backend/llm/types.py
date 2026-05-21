@@ -1,14 +1,11 @@
-"""LLM-related types: response type and domain exceptions for the harness."""
-
 from dataclasses import dataclass
-
 from pydantic import BaseModel
 
 
 @dataclass
 class LLMResponse:
-    """Result of a single LLM call, returned by ``backend.llm_harness.call()``.
-
+    """
+    Result of a single LLM call, returned by ``backend.llm_harness.call()``.
     Attributes:
         content:       Raw text produced by the model.
         input_tokens:  Prompt tokens consumed (billed separately from output).
@@ -18,7 +15,6 @@ class LLMResponse:
         parsed:        Pydantic-validated payload when ``response_schema`` was set
                        on the call; ``None`` when the caller asked for raw text only.
     """
-
     content: str
     input_tokens: int
     output_tokens: int
@@ -28,16 +24,14 @@ class LLMResponse:
 
 
 class CostLimitExceeded(Exception):
-    """Raised by ``llm_harness.call()`` when the session cost budget is exhausted.
-
+    """
+    Raised by ``llm_harness.call()`` when the session cost budget is exhausted.
     The check is performed *before* making the API call so the session never
     silently overruns its budget.
-
     Attributes:
         accumulated: Total USD spent so far in the session.
         limit:       The configured ``cost_limit_usd`` ceiling.
     """
-
     def __init__(self, accumulated: float, limit: float) -> None:
         self.accumulated = accumulated
         self.limit = limit
@@ -47,17 +41,15 @@ class CostLimitExceeded(Exception):
 
 
 class LLMParseError(Exception):
-    """Raised by an agent after exhausting parse retries on an LLM response.
-
+    """
+    Raised by an agent after exhausting parse retries on an LLM response.
     The harness always returns the raw content string; it is the agent's
     responsibility to parse it (e.g. as JSON).  If all retry attempts fail,
     the agent raises this exception rather than silently returning stale data.
-
     Attributes:
         step_type: The ``f_*`` function or agent step that triggered the call.
         raw:       The unparseable string returned by the model.
     """
-
     def __init__(self, step_type: str, raw: str) -> None:
         self.step_type = step_type
         self.raw = raw
@@ -65,19 +57,17 @@ class LLMParseError(Exception):
 
 
 class ReplayDriftError(Exception):
-    """Raised by ``llm_harness.call()`` when the incoming ``step_type`` does not
+    """
+    Raised by ``llm_harness.call()`` when the incoming ``step_type`` does not
     match the next entry in the recorded manifest.
-
     This indicates that the call sequence has diverged from the recording —
     typically because the config, prompt, or seed changed after the manifest
     was captured.  Re-record the manifest to fix this.
-
     Attributes:
         expected: The ``step_type`` stored in the next manifest entry.
         got:      The ``step_type`` of the incoming harness call.
         session_id: The session whose manifest queue is out of sync.
     """
-
     def __init__(self, expected: str, got: str, session_id: str) -> None:
         self.expected = expected
         self.got = got

@@ -1,59 +1,23 @@
-"""
-Read/write evaluation results: session_metrics and judge_scores.
-
-Write side: called by the eval harness after a session completes; never by the
-live conversational loop.
-
-Read side: called by backend/eval/aggregator.py to compute per-run statistics.
-"""
-
 import logging
 import uuid
-from dataclasses import dataclass
 from decimal import Decimal
 
-from backend.api.db import transaction
+from backend.repository.connection import transaction
+from backend.repository.eval.types import (
+    JudgeScoreRead,
+    SessionMetricsRead,
+)
 
 log = logging.getLogger(__name__)
 
 
-@dataclass
-class SessionMetricsRead:
-    """JOIN projection of session_metrics + sessions fields needed for aggregation."""
-
-    session_id: uuid.UUID
-    persona_id: str | None
-    ground_truth_id: str | None
-    converged: bool
-    turns_to_convergence: int | None
-    avg_cognitive_load: float | None
-    explicit_acceptance: bool
-    drift_events: int
-    total_cost_usd: float
-    precision_at_k: float | None
-    recall_at_k: float | None
-    ndcg_at_k: float | None
-
-
-@dataclass
-class JudgeScoreRead:
-    """Minimal judge_scores projection for aggregation — dimension + score per session."""
-
-    session_id: uuid.UUID
-    persona_id: str | None
-    dimension: str
-    score: int
-
-
 def list_session_metrics_for_run(run_id: uuid.UUID) -> list[SessionMetricsRead]:
-    """Return all session_metrics rows for sessions belonging to run_id.
-
+    """
+    Return all session_metrics rows for sessions belonging to run_id.
     Joins session_metrics with sessions to include persona_id and ground_truth_id
     required for per-persona aggregation.
-
     Args:
         run_id: Run UUID to filter by.
-
     Returns:
         List of SessionMetricsRead, one per session that has metrics. Sessions
         without a session_metrics row are excluded.
@@ -101,13 +65,11 @@ def list_session_metrics_for_run(run_id: uuid.UUID) -> list[SessionMetricsRead]:
 
 
 def list_judge_scores_for_run(run_id: uuid.UUID) -> list[JudgeScoreRead]:
-    """Return all judge_scores rows for sessions belonging to run_id.
-
+    """
+    Return all judge_scores rows for sessions belonging to run_id.
     Joins judge_scores with sessions to include persona_id for per-persona grouping.
-
     Args:
         run_id: Run UUID to filter by.
-
     Returns:
         List of JudgeScoreRead across all sessions and all judge dimensions.
     """
@@ -134,11 +96,10 @@ def list_judge_scores_for_run(run_id: uuid.UUID) -> list[JudgeScoreRead]:
 
 
 def count_sessions_per_run(run_ids: list[uuid.UUID]) -> dict[uuid.UUID, int]:
-    """Return the session count for each requested run_id.
-
+    """
+    Return the session count for each requested run_id.
     Args:
         run_ids: List of run UUIDs to count sessions for.
-
     Returns:
         Dict mapping run_id to session count. Runs with no sessions are absent.
     """
@@ -173,11 +134,10 @@ def upsert_session_metrics(
     recall_at_k: float | None = None,
     ndcg_at_k: float | None = None,
 ) -> None:
-    """Insert or update the session_metrics row for a session.
-
+    """
+    Insert or update the session_metrics row for a session.
     Safe to call multiple times for the same session; later calls overwrite
     earlier values so metrics can be recomputed after post-processing.
-
     Args:
         session_id: Session to attach metrics to.
         converged: Whether the session reached convergence.
@@ -233,11 +193,10 @@ def write_judge_score(
     judge_prompt_hash: str,
     rationale: str | None = None,
 ) -> uuid.UUID:
-    """Append a judge_scores row.
-
+    """
+    Append a judge_scores row.
     Idempotent per (session_id, dimension, judge_prompt_hash) — inserting the
     same row twice raises IntegrityError rather than creating a duplicate.
-
     Args:
         session_id: Session that was scored.
         dimension: One of clustering_coherence | question_quality | profile_fidelity.
@@ -245,7 +204,6 @@ def write_judge_score(
         judge_model: Model identifier used for the judge call.
         judge_prompt_hash: SHA-256 hex of the judge prompt file.
         rationale: One-sentence rationale returned by the judge.
-
     Returns:
         UUID of the inserted row.
     """

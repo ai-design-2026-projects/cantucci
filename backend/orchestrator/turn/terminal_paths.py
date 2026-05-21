@@ -25,9 +25,10 @@ import logging
 from datetime import datetime, timezone
 from uuid import UUID
 
-import backend.api.sessions as api_sessions
-from backend.api.types import StepType
-from backend.routers.dtos import RecommendationDto, TurnDto
+import backend.repository.sessions as api_sessions
+from backend.orchestrator.domain import StepType
+from backend.profile.types import UserProfile
+from backend.routers.dto.sessions.dtos import RecommendationDto, TurnDto
 from backend.state.types import StateDecision
 
 log = logging.getLogger(__name__)
@@ -108,7 +109,7 @@ def natural_end_turn(
     turn_number: int,
     user_message: str,
     decision: StateDecision,
-    preference_profile: dict,
+    preference_profile: UserProfile,
     recommendation: RecommendationDto | None = None,
 ) -> TurnDto:
     """Persist and return a natural-end turn detected by the LLM gate.

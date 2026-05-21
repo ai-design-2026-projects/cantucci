@@ -8,7 +8,7 @@ The Orchestrator owns three endpoints worth of behaviour:
         atching all movie-metadata fetches into one DB call.
 
 The class itself is stateless — no in-memory session state, no module-level
-caches. All persistence flows through ``backend.api``; every turn is
+caches. All persistence flows through ``backend.repository``; every turn is
 replayable from its stored seed + config snapshot + turn history alone.
 """
 import asyncio
@@ -17,16 +17,16 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from uuid import UUID
 
-import backend.api.movies as api_movies
-import backend.api.retrieval as api_retrieval
-import backend.api.runs as api_runs
-import backend.api.sessions as api_sessions
-from backend.api.types import SessionStatus
+import backend.repository.movies as api_movies
+import backend.repository.runs as api_runs
+import backend.repository.sessions as api_sessions
+from backend.orchestrator.domain import SessionStatus
 from backend.exceptions import SessionNotFound
-from backend.orchestrator.utils import presentation
 from backend.orchestrator.turn.progress import NullProgressCallback, ProgressCallback
-from backend.orchestrator.turn import TurnRunner
-from backend.routers.dtos import MovieDto, SessionDto, TurnDto
+from backend.orchestrator.turn.runner import TurnRunner
+from backend.routers.dto.movies.dtos import MovieDto
+from backend.routers.dto.sessions.builders import assemble_session_dto, row_to_session_dto
+from backend.routers.dto.sessions.dtos import SessionDto, TurnDto
 from backend.settings import get_config_hash, get_config_snapshot, get_settings
 
 log = logging.getLogger(__name__)
@@ -111,7 +111,7 @@ class Orchestrator:
             LLMParseError:     If any agent LLM call returns malformed JSON.
         """
 
-        full_session = await asyncio.to_thread(api_retrieval.get_session_full, session_id)
+        full_session = await asyncio.to_thread(api_sessions.get_session_full, session_id)
         runner = TurnRunner(
             session_id=session_id,
             user_message=user_message,
@@ -130,7 +130,7 @@ class Orchestrator:
             List of ``SessionDto`` with ``turns=[]``, ordered by updated_at DESC.
         """
         rows = api_sessions.list_sessions_by_user(user_id)
-        return [presentation.row_to_session_dto(r) for r in rows]
+        return [row_to_session_dto(r) for r in rows]
 
     def delete_session(self, session_id: UUID, user_id: UUID) -> bool:
         """Delete a session if it exists and is owned by user_id.
@@ -159,10 +159,25 @@ class Orchestrator:
         Returns:
             A ``MovieDto`` or ``None`` when the id is unknown.
         """
-        rows = api_movies.fetch_movies_dto([movie_id])
+        rows = api_movies.fetch_movie_details([movie_id])
         if not rows:
             return None
-        return MovieDto(**rows[0])
+        row = rows[0]
+        return MovieDto(
+            id=row.id,
+            title=row.title,
+            release_year=row.release_year,
+            runtime=row.runtime,
+            vote_average=row.vote_average,
+            vote_count=row.vote_count,
+            bayesian_rating=row.bayesian_rating,
+            overview=row.overview,
+            poster_url=row.poster_url,
+            genres=row.genres,
+            director=row.director,
+            top_cast=row.top_cast,
+            original_language=row.original_language,
+        )
 
     def get_session(self, session_id: UUID) -> SessionDto:
         """Return full session state including all turns from the DB.
@@ -174,7 +189,7 @@ class Orchestrator:
             SessionNotFound: If *session_id* does not exist in the DB.
         """
         try:
-            full_session = api_retrieval.get_session_full(session_id)
+            full_session = api_sessions.get_session_full(session_id)
         except ValueError as exc:
             raise SessionNotFound(session_id) from exc
-        return presentation.assemble_session_dto(full_session)
+        return assemble_session_dto(full_session)

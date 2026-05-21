@@ -1,34 +1,27 @@
-"""Read-only catalogue queries: vector search, metadata enrichment, and embedding fetch.
-
-``vector_search`` and ``fetch_metadata`` are called by the Retrieval System tools
-(backend/retrieval/tools/).  ``fetch_embeddings`` is called exclusively by the
-Cluster Agent embedding_fetcher tool (backend/cluster/tools/embedding_fetcher.py).
-No other modules should call these directly.
-"""
-
 import logging
 from typing import Union
 
 import numpy as np
 
-from backend.api.db import transaction
-from backend.api.types import MovieHit, MovieRow
+from backend.repository.connection import transaction
+from backend.repository.movies.types import MovieDetailsRow, MovieRow, MovieStubRow
+from backend.retrieval.types import MovieHit
 from backend.settings import get_settings
 
 log = logging.getLogger(__name__)
 
-_TMDB_BASE = "https://image.tmdb.org/t/p/w500"
+_TMDB_POSTER_BASE = "https://image.tmdb.org/t/p/w500"
+
 
 def vector_search(
-    embedding: Union[list[float], "np.ndarray"],  # type: ignore[type-arg]
+    embedding: Union[list[float], "np.ndarray"],
     k: int,
     exclude_ids: list[int] | None = None,
 ) -> list[MovieHit]:
-    """Return top-k films ordered by cosine similarity to *embedding*.
-
+    """
+    Return top-k films ordered by cosine similarity to *embedding*.
     The pgvector ``<=>`` operator computes cosine distance; similarity is
     ``1 - distance`` so the list is descending by relevance.
-
     Args:
         embedding:   Query vector of dimension 1024 (must match movies.embedding).
         k:           Maximum number of results to return.
@@ -36,11 +29,9 @@ def vector_search(
                      filter is applied in SQL (``id <> ALL(...)``) so the LIMIT
                      still yields up to *k* rows after exclusion. ``None`` or
                      ``[]`` skips the filter entirely.
-
     Returns:
         List of MovieHit ordered by descending similarity. May be shorter than
         *k* if the catalogue has fewer rows.
-
     Raises:
         ValueError: If *k* is not a positive integer.
     """
@@ -93,23 +84,17 @@ def vector_search(
 
 
 def resolve_titles_to_ids(titles: list[str]) -> list[int]:
-    """Fuzzy-match *titles* against ``movies.title`` and return the union of matching IDs.
-
+    """
+    Fuzzy-match *titles* against ``movies.title`` and return the union of matching IDs.
+    
     Each input string becomes an ``ILIKE '%<title>%'`` predicate, so series or
     franchise stems expand to every catalogue entry whose title contains them
     (``"Lord of the Rings"`` → all three films, ``"Spider-Man"`` → every
     Spider-Man release).  Matching is case-insensitive.  An optional leading
     ``"The "`` is stripped from each input so utterances like ``"The Dark Knight"``
     still match titles stored without the article.
-
-    Titles that match nothing are simply absent from the returned list — the
-    LLM can hallucinate or mis-spell titles and that is not an error condition
-    for the retrieval pipeline. The miss is logged at INFO so the noise stays
-    visible in dev.
-
     Args:
         titles: List of film titles or series roots emitted by the reformulator.
-
     Returns:
         Deduplicated list of catalogue ``movie_id`` values matching any input
         title; empty list when *titles* is empty.
@@ -150,15 +135,10 @@ def resolve_titles_to_ids(titles: list[str]) -> list[int]:
 
 
 def fetch_metadata(movie_ids: list[int]) -> list[MovieRow]:
-    """Return enriched metadata for each movie in *movie_ids*.
-
-    Joins movies ← movie_genres → genres and crew_members (Director only).
-    The return order matches the input *movie_ids* order; missing IDs are
-    silently omitted (the catalogue is the authoritative source).
-
+    """
+    Return enriched metadata for each movie in *movie_ids*.
     Args:
         movie_ids: TMDB integer IDs to look up.
-
     Returns:
         List of MovieRow in the same order as *movie_ids*, with missing
         IDs dropped.
@@ -213,19 +193,18 @@ def fetch_metadata(movie_ids: list[int]) -> list[MovieRow]:
     return result
 
 
-def fetch_stubs(movie_ids: list[int]) -> list[dict]:
-    """Return lightweight movie stubs for cluster snapshot payloads.
-
+def fetch_stubs(movie_ids: list[int]) -> list[MovieStubRow]:
+    """
+    Return lightweight movie stubs for cluster snapshot payloads.
     Fetches only the fields needed for ``ClusterFilmStub``: id, title,
     poster_url (built from poster_path), release_year, and vote_average.
     Missing IDs are silently omitted.
 
     Args:
         movie_ids: TMDB integer IDs to look up.
-
     Returns:
-        List of dicts with keys ``id``, ``title``, ``poster_url``,
-        ``release_year``, ``vote_average``.  Order matches *movie_ids*.
+        List of ``MovieStubRow`` in the same order as *movie_ids*, with
+        missing IDs dropped.
     """
     if not movie_ids:
         return []
@@ -241,13 +220,13 @@ def fetch_stubs(movie_ids: list[int]) -> list[dict]:
         ).fetchall()
 
     by_id = {
-        r[0]: {
-            "id": r[0],
-            "title": r[1],
-            "poster_url": f"{_TMDB_BASE}{r[2]}" if r[2] else None,
-            "release_year": r[3],
-            "vote_average": r[4],
-        }
+        r[0]: MovieStubRow(
+            id=r[0],
+            title=r[1],
+            poster_url=f"{_TMDB_POSTER_BASE}{r[2]}" if r[2] else None,
+            release_year=r[3],
+            vote_average=r[4],
+        )
         for r in rows
     }
     result = [by_id[mid] for mid in movie_ids if mid in by_id]
@@ -255,19 +234,17 @@ def fetch_stubs(movie_ids: list[int]) -> list[dict]:
     return result
 
 
-def fetch_movies_dto(movie_ids: list[int]) -> list[dict]:
-    """Return full MovieDto-shaped dicts for the given movie IDs.
-
+def fetch_movie_details(movie_ids: list[int]) -> list[MovieDetailsRow]:
+    """
+    Return full movie details for the given movie IDs.
     Joins movies ← movie_genres → genres, crew_members (Director), and
     cast_members (top 3 by cast_order) in one query.  Missing IDs are silently
     omitted.  Order matches *movie_ids*.
-
     Args:
         movie_ids: TMDB integer IDs to look up.
-
     Returns:
-        List of dicts with keys matching the ``MovieDto`` DTO fields.
-        ``poster_url`` is a full TMDB URL.  Order matches *movie_ids*.
+        List of ``MovieDetailsRow`` in the same order as *movie_ids*, with
+        missing IDs dropped.  ``poster_url`` is a full TMDB URL.
     """
     if not movie_ids:
         return []
@@ -315,26 +292,26 @@ def fetch_movies_dto(movie_ids: list[int]) -> list[dict]:
             (movie_ids,),
         ).fetchall()
 
-    by_id: dict[int, dict] = {
-        r[0]: {
-            "id": r[0],
-            "title": r[1],
-            "release_year": r[2],
-            "runtime": r[3],
-            "vote_average": r[4],
-            "vote_count": r[5],
-            "bayesian_rating": r[6],
-            "overview": r[7],
-            "poster_url": (f"{_TMDB_BASE}{r[8]}" if r[8] else None),
-            "original_language": r[9],
-            "genres": list(r[10]) if r[10] else [],
-            "director": r[11],
-            "top_cast": list(r[12]) if r[12] else [],
-        }
+    by_id: dict[int, MovieDetailsRow] = {
+        r[0]: MovieDetailsRow(
+            id=r[0],
+            title=r[1],
+            release_year=r[2],
+            runtime=r[3],
+            vote_average=r[4],
+            vote_count=r[5],
+            bayesian_rating=r[6],
+            overview=r[7],
+            poster_url=(f"{_TMDB_POSTER_BASE}{r[8]}" if r[8] else None),
+            original_language=r[9],
+            genres=list(r[10]) if r[10] else [],
+            director=r[11],
+            top_cast=list(r[12]) if r[12] else [],
+        )
         for r in rows
     }
     result = [by_id[mid] for mid in movie_ids if mid in by_id]
-    log.debug("fetch_movies_dto", extra={"requested": len(movie_ids), "returned": len(result)})
+    log.debug("fetch_movie_details", extra={"requested": len(movie_ids), "returned": len(result)})
     return result
 
 

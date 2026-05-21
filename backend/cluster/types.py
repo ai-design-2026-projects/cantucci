@@ -1,27 +1,3 @@
-"""Structured output schemas for the Cluster Agent's LLM calls.
-
-Two response objects, one per scenario:
-
-- ``ClusterDescribeResponse`` — for the fresh path (Scenario A). The describer
-  receives HDBSCAN's clusters keyed by ``cluster_index`` and the model returns
-  a ``(name, description)`` pair per cluster, addressed back by the same index
-  so we can re-align if the model reorders the list.
-
-- ``ClusterRefineResponse`` — for the refinement path (Scenario B). The refiner
-  hands the model the prior clusters plus the clarifying Q&A and the model
-  returns a new clustering: names, descriptions, and per-film soft assignments.
-  Cluster identity is LLM-determined (clusters can be dropped, split, merged),
-  so there is no input-keyed index — only a list.
-
-The harness validates both schemas through ``response_schema=`` and retries on
-parse/validation failures (see ``backend.llm.llm_harness._validate_response``).
-
-Pool-membership of ``movie_id`` values in the refine response is NOT enforced
-here — the schema has no access to the allowed pool. The caller in
-``backend.cluster.tools.cluster_refiner.refine`` does that semantic check
-after the schema validates.
-"""
-
 from pydantic import BaseModel, Field, model_validator
 
 

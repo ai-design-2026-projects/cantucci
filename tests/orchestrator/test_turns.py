@@ -10,7 +10,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from backend.api.types import StepType
+from backend.orchestrator.domain import StepType
 from backend.orchestrator.turn.terminal_paths import (
     emit_drift_clarification,
     emit_early_clarification,

@@ -14,19 +14,13 @@ from __future__ import annotations
 
 import asyncio
 import uuid
-from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from backend.api.types import (
-    ClusterAssignment,
-    ClusterRow,
-    SessionRow,
-    SessionStatus,
-    StepType,
-    TurnRow,
-)
+from backend.cluster.domain import ClusterAssignment
+from backend.orchestrator.domain import SessionStatus, StepType
+from backend.repository.sessions.types import ClusterRow, SessionRow, TurnRow
 from backend.retrieval.types import RetrievalResult
 from backend.state.types import StateAction, StateDecision
 from backend.decision.types import DecisionAction, DecisionResult
@@ -69,7 +63,7 @@ def _turn(step_type: str = "ask", assistant_message: str = "What genre?", cluste
 
 def _full(
     turns: list | None = None,
-    preference_profile: dict[str, Any] | None = None,
+    preference_profile: UserProfile | None = None,
 ) -> MagicMock:
     f = MagicMock(spec=SessionRow)
     f.session_id = uuid.uuid4()
@@ -163,7 +157,7 @@ class _Patches:
             return p.start()
 
         self.get_session_full = _patch(
-            "backend.api.retrieval.get_session_full",
+            "backend.repository.sessions.get_session_full",
             return_value=self._full,
         )
         self.get_settings = _patch(
@@ -189,37 +183,38 @@ class _Patches:
             "backend.retrieval.agent.retrieve_from_profile",
             return_value=mock_rr,
         )
+        from backend.repository.movies.types import MovieDetailsRow, MovieStubRow
         self.fetch_stubs = _patch(
-            "backend.api.movies.fetch_stubs",
+            "backend.repository.movies.fetch_stubs",
             side_effect=lambda ids: [
-                {
-                    "id": mid,
-                    "title": f"Film {mid}",
-                    "poster_url": None,
-                    "release_year": 2000 + mid,
-                    "vote_average": 7.0,
-                }
+                MovieStubRow(
+                    id=mid,
+                    title=f"Film {mid}",
+                    poster_url=None,
+                    release_year=2000 + mid,
+                    vote_average=7.0,
+                )
                 for mid in ids
             ],
         )
         self.fetch_movies_dto = _patch(
-            "backend.api.movies.fetch_movies_dto",
+            "backend.repository.movies.fetch_movie_details",
             side_effect=lambda ids: [
-                {
-                    "id": mid,
-                    "title": f"Film {mid}",
-                    "release_year": 2000 + mid,
-                    "runtime": 100.0,
-                    "vote_average": 7.0,
-                    "vote_count": 100,
-                    "bayesian_rating": 7.0,
-                    "overview": None,
-                    "poster_url": None,
-                    "genres": [],
-                    "director": None,
-                    "top_cast": [],
-                    "original_language": "en",
-                }
+                MovieDetailsRow(
+                    id=mid,
+                    title=f"Film {mid}",
+                    release_year=2000 + mid,
+                    runtime=100.0,
+                    vote_average=7.0,
+                    vote_count=100,
+                    bayesian_rating=7.0,
+                    overview=None,
+                    poster_url=None,
+                    genres=[],
+                    director=None,
+                    top_cast=[],
+                    original_language="en",
+                )
                 for mid in ids
             ],
         )
@@ -245,19 +240,19 @@ class _Patches:
             return_value=self._profile,
         )
         self.append_turn = _patch(
-            "backend.api.sessions.append_turn",
+            "backend.repository.sessions.append_turn",
         )
         self.update_turn = _patch(
-            "backend.api.sessions.update_turn",
+            "backend.repository.sessions.update_turn",
         )
         self.snapshot_clusters = _patch(
-            "backend.api.sessions.snapshot_clusters",
+            "backend.repository.sessions.snapshot_clusters",
         )
         self.write_feedback = _patch(
-            "backend.api.sessions.write_feedback",
+            "backend.repository.sessions.write_feedback",
         )
         self.update_profile = _patch(
-            "backend.api.sessions.update_preference_profile",
+            "backend.repository.sessions.update_preference_profile",
         )
         return self
 
@@ -345,10 +340,10 @@ class TestProfileAgentFlow:
         p.update_profile.assert_called_once()
         call_args = p.update_profile.call_args
         persisted = call_args.args[1] if call_args.args else call_args.kwargs.get("preference_profile") or call_args.kwargs.get("profile_jsonb")
-        assert persisted == profile.model_dump()
+        assert persisted == profile
 
     def test_profile_extract_receives_prior_profile(self) -> None:
-        prior = {"constraints": ["no horror"], "preferences": [], "attitudes": [], "summary": ""}
+        prior = UserProfile(constraints=["no horror"], preferences=[], attitudes=[], summary="")
         full = _full(turns=[], preference_profile=prior)
         with _Patches(full=full) as p:
             orch = Orchestrator()
@@ -408,8 +403,8 @@ class TestStateShortCircuits:
         )
         with _Patches(full=full) as p:
             with patch("backend.state.state_agent.check_hard_limits", return_value=terminate), \
-                 patch("backend.api.sessions.mark_abandoned"), \
-                 patch("backend.api.sessions.append_turn"):
+                 patch("backend.repository.sessions.mark_abandoned"), \
+                 patch("backend.repository.sessions.append_turn"):
                 orch = Orchestrator()
                 result = asyncio.run(orch.run_turn(full.session_id, "hi"))
         assert result.step_type == StepType.stop
@@ -423,8 +418,8 @@ class TestStateShortCircuits:
             reply="Goodbye!",
         )
         with _Patches(full=full, conv_decision=conv) as p:
-            with patch("backend.api.sessions.mark_converged"), \
-                 patch("backend.api.sessions.append_turn"):
+            with patch("backend.repository.sessions.mark_converged"), \
+                 patch("backend.repository.sessions.append_turn"):
                 orch = Orchestrator()
                 result = asyncio.run(orch.run_turn(full.session_id, "bye"))
         # Profile result must NOT be persisted on natural_end (speculative run is discarded)
@@ -453,7 +448,7 @@ class TestDecisionAgentReceivesProfile:
     """Decision agent is called with the N-1 preference profile."""
 
     def test_decision_receives_prior_profile(self) -> None:
-        prior = {"constraints": ["no horror"], "preferences": [], "attitudes": [], "summary": ""}
+        prior = UserProfile(constraints=["no horror"], preferences=[], attitudes=[], summary="")
         full = _full(turns=[], preference_profile=prior)
         with _Patches(full=full) as p:
             orch = Orchestrator()
@@ -526,8 +521,8 @@ class TestProgressCallback:
         rec = _Recorder()
         with _Patches(full=full):
             with patch("backend.state.state_agent.check_hard_limits", return_value=terminate), \
-                 patch("backend.api.sessions.mark_abandoned"), \
-                 patch("backend.api.sessions.append_turn"):
+                 patch("backend.repository.sessions.mark_abandoned"), \
+                 patch("backend.repository.sessions.append_turn"):
                 orch = Orchestrator()
                 asyncio.run(orch.run_turn(full.session_id, "hi", progress_cb=rec))
         assert rec.events == [
@@ -544,9 +539,9 @@ class TestProgressCallback:
         )
         rec = _Recorder()
         with _Patches(full=full, conv_decision=conv):
-            with patch("backend.api.sessions.mark_converged"), \
-                 patch("backend.api.sessions.append_turn"), \
-                 patch("backend.api.sessions.write_feedback"):
+            with patch("backend.repository.sessions.mark_converged"), \
+                 patch("backend.repository.sessions.append_turn"), \
+                 patch("backend.repository.sessions.write_feedback"):
                 orch = Orchestrator()
                 asyncio.run(orch.run_turn(full.session_id, "bye", progress_cb=rec))
         assert rec.events == [
@@ -665,10 +660,10 @@ class TestDriftConfirmAndDismiss:
 
     def test_drift_confirmed_passes_seen_films_as_excluded_films(self) -> None:
         full = self._drift_full()
-        full.preference_profile = {
-            "constraints": [], "preferences": [], "attitudes": [], "summary": "Likes drama",
-            "seen_films": ["Film X", "Film Y"], "anchor_films": [],
-        }
+        full.preference_profile = UserProfile(
+            constraints=[], preferences=[], attitudes=[], summary="Likes drama",
+            seen_films=["Film X", "Film Y"],
+        )
         conv = StateDecision(
             action=StateAction.drift_confirmed,
             reason="oracle confirmed genre change",
@@ -730,8 +725,8 @@ class TestTerminalStateTolerance:
         )
         with _Patches(full=full, conv_decision=conv) as p:
             p.cluster_soft.side_effect = RuntimeError("retrieval reformulation failed")
-            with patch("backend.api.sessions.mark_converged"), \
-                 patch("backend.api.sessions.append_turn"):
+            with patch("backend.repository.sessions.mark_converged"), \
+                 patch("backend.repository.sessions.append_turn"):
                 orch = Orchestrator()
                 result = asyncio.run(orch.run_turn(full.session_id, "that's all, thanks"))
         assert result.step_type == StepType.stop
@@ -746,8 +741,8 @@ class TestTerminalStateTolerance:
         )
         with _Patches(full=full):
             with patch("backend.state.state_agent.check_hard_limits", return_value=terminate), \
-                 patch("backend.api.sessions.mark_abandoned"), \
-                 patch("backend.api.sessions.append_turn"):
+                 patch("backend.repository.sessions.mark_abandoned"), \
+                 patch("backend.repository.sessions.append_turn"):
                 orch = Orchestrator()
                 result = asyncio.run(orch.run_turn(full.session_id, "done"))
         assert result.step_type == StepType.stop
@@ -794,14 +789,13 @@ class TestReRetrieve:
 
     def test_re_retrieve_passes_seen_films_as_excluded_films(self) -> None:
         prior_show = _turn("show", "Here are some films", clusters=[_cluster()])
-        full = _full(turns=[prior_show], preference_profile={
-            "constraints": [],
-            "preferences": [],
-            "attitudes": [],
-            "summary": "Likes slow drama",
-            "seen_films": ["Film A", "Film B"],
-            "anchor_films": [],
-        })
+        full = _full(turns=[prior_show], preference_profile=UserProfile(
+            constraints=[],
+            preferences=[],
+            attitudes=[],
+            summary="Likes slow drama",
+            seen_films=["Film A", "Film B"],
+        ))
         conv = StateDecision(action=StateAction.re_retrieve, reason="all seen")
         profile = UserProfile(
             constraints=[],
@@ -831,8 +825,8 @@ class TestSeenFilmsAccumulation:
         p.update_profile.assert_called_once()
         call_args = p.update_profile.call_args
         persisted = call_args.args[1] if call_args.args else call_args.kwargs.get("preference_profile") or call_args.kwargs.get("profile_jsonb")
-        assert "seen_films" in persisted
-        assert len(persisted["seen_films"]) > 0
+        assert hasattr(persisted, "seen_films")
+        assert len(persisted.seen_films) > 0
 
     def test_anchor_films_merged_into_seen(self) -> None:
         full = _full(turns=[], preference_profile=None)
@@ -849,4 +843,4 @@ class TestSeenFilmsAccumulation:
         p.update_profile.assert_called_once()
         call_args = p.update_profile.call_args
         persisted = call_args.args[1] if call_args.args else call_args.kwargs.get("preference_profile") or call_args.kwargs.get("profile_jsonb")
-        assert "Interstellar" in persisted.get("seen_films", [])
+        assert "Interstellar" in persisted.seen_films

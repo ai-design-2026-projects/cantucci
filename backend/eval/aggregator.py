@@ -11,7 +11,7 @@ No SQL here — all DB access goes through backend/api/eval.
 import uuid
 from dataclasses import dataclass
 
-from backend.api.eval import (
+from backend.repository.eval import (
     SessionMetricsRead,
     JudgeScoreRead,
     list_judge_scores_for_run,

@@ -5,32 +5,27 @@ No LLM calls, no DB access.
 
 from typing import Any
 
-from backend.api.types import TurnRow
+from backend.profile.types import UserProfile
+from backend.repository.sessions.types import TurnRow
 
 
 def build_prompt_vars(
     *,
     user_message: str,
-    prior_profile: dict[str, Any] | None,
+    prior_profile: UserProfile | None,
     recent_turns: list[TurnRow],
 ) -> dict[str, Any]:
     """Build template variables for the profile_extract_v2.j2 prompt.
 
     Args:
         user_message:  Oracle's message for the current turn.
-        prior_profile: Previously persisted profile dict, or None on the first
-                       turn (no prior profile exists yet).
+        prior_profile: Previously persisted profile, or None on the first turn.
         recent_turns:  Up to 2 most recent completed turns (short history).
 
     Returns:
         Dict of template variables ready for Jinja2 rendering.
     """
-    prior: dict[str, Any] = prior_profile or {
-        "constraints": [],
-        "preferences": [],
-        "attitudes": [],
-        "summary": "",
-    }
+    prior = (prior_profile or UserProfile(constraints=[], preferences=[], attitudes=[], summary="")).model_dump()
     turns_for_prompt = [
         {
             "user": t.user_message,

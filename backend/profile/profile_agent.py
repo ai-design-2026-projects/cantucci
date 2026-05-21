@@ -14,12 +14,11 @@ No DB writes — the orchestrator owns all persistence.
 
 import logging
 from pathlib import Path
-from typing import Any
 from uuid import UUID
 
-from backend.api.types import TurnRow
+from backend.repository.sessions.types import TurnRow
 from backend.llm import llm_harness
-from backend.llm.prompts import make_prompt_loader
+from backend.llm.utils.prompts import make_prompt_loader
 from backend.profile.tools.profile_merger import build_prompt_vars
 from backend.profile.types import UserProfile
 from backend.settings import get_config_hash, get_settings
@@ -36,7 +35,7 @@ async def extract(
     turn_id: UUID,
     turn_number: int,
     user_message: str,
-    prior_profile: dict[str, Any] | None,
+    prior_profile: UserProfile | None,
     recent_turns: list[TurnRow],
     accumulated_cost_usd: float = 0.0,
     dry_run: bool = False,

@@ -38,7 +38,7 @@ if "DOCKER_HOST" not in os.environ:
 import pytest
 from testcontainers.postgres import PostgresContainer
 
-from backend.api.db import close_pool
+from backend.repository.connection import close_pool
 from db.apply import apply
 from db.ingest import run_from_artifact
 from testcontainers.core.container import Reaper

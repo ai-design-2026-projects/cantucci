@@ -23,7 +23,7 @@ from pathlib import Path
 from uuid import UUID
 
 from backend.llm import llm_harness
-from backend.llm.prompts import make_prompt_loader
+from backend.llm.utils.prompts import make_prompt_loader
 from backend.retrieval.types import ReformulatedProfileQuery, ReformulatedQuery
 from backend.settings import get_config_hash, get_settings
 

@@ -1,28 +1,56 @@
-"""
-Recommendation rendering and DTO assembly for the orchestrator. All the
-enrichment and formatting logic lives here so the orchestrator and
-router can stay focused on their respective responsibilities of turn flow.
-"""
 import logging
-import backend.api.movies as api_movies
-from backend.api.types import ClusterRow, SessionRow, SessionStatus, StepType
-from backend.api.sessions import SessionListRow
-from backend.orchestrator.turn.progress import (
-    ClusterFilmStub,
-    ClusterSnapshotEvent,
-    ClusterSnapshotPayload,
-    ProgressCallback,
-)
-from backend.routers.dtos import (
+from dataclasses import dataclass
+from typing import TYPE_CHECKING
+from uuid import UUID
+
+import backend.repository.movies as api_movies
+from backend.orchestrator.domain import SessionStatus, StepType
+
+if TYPE_CHECKING:
+    from backend.orchestrator.turn.progress import ProgressCallback
+from backend.repository.movies.types import MovieDetailsRow
+from backend.repository.sessions.types import ClusterRow, SessionListRow, SessionRow
+from backend.routers.dto.movies.dtos import MovieDto
+from backend.routers.dto.sessions.dtos import (
     ClusterDto,
-    MovieDto,
     RecommendationDto,
     SessionDto,
     SoftScore,
     TurnDto,
 )
+from backend.routers.dto.sessions.streaming import (
+    ClusterFilmStub,
+    ClusterSnapshotEvent,
+    ClusterSnapshotPayload,
+)
 
 log = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class ShowTurnInfo:
+    """Cached per-show-turn data used while assembling a SessionDto."""
+    best: ClusterRow
+    top_ids: list[int]
+
+
+def _details_to_movie_dto(row: MovieDetailsRow) -> MovieDto:
+    """Convert a MovieDetailsRow to the HTTP-facing MovieDto."""
+    return MovieDto(
+        id=row.id,
+        title=row.title,
+        release_year=row.release_year,
+        runtime=row.runtime,
+        vote_average=row.vote_average,
+        vote_count=row.vote_count,
+        bayesian_rating=row.bayesian_rating,
+        overview=row.overview,
+        poster_url=row.poster_url,
+        genres=row.genres,
+        director=row.director,
+        top_cast=row.top_cast,
+        original_language=row.original_language,
+    )
 
 
 def _cluster_to_dto(cluster: ClusterRow) -> ClusterDto:
@@ -69,18 +97,18 @@ def pick_best_cluster(clusters: list[ClusterRow]) -> ClusterRow:
 def make_recommendation_dto(
     cluster: ClusterRow,
     top_ids: list[int],
-    movie_data: dict[int, dict],
+    movie_data: dict[int, MovieDetailsRow],
 ) -> RecommendationDto:
     """
     Assemble a RecommendationDto from pre-fetched movie data.
     Args:
         cluster:    The cluster to include in the payload.
         top_ids:    Ordered list of movie_ids (descending score) to include.
-        movie_data: Dict mapping movie_id → MovieDto-shaped dict.
+        movie_data: Dict mapping movie_id → ``MovieDetailsRow``.
     Returns:
         A ``RecommendationDto`` DTO.
     """
-    films = [MovieDto(**movie_data[movie_id]) for movie_id in top_ids if movie_id in movie_data]
+    films = [_details_to_movie_dto(movie_data[movie_id]) for movie_id in top_ids if movie_id in movie_data]
     cluster_pub = _cluster_to_dto(cluster)
     cluster_pub = cluster_pub.model_copy(update={"top_titles": top_ids})
     return RecommendationDto(cluster=cluster_pub, films=films)
@@ -103,8 +131,8 @@ def build_recommendation(
         reverse=True,
     )
     top_ids = [a.movie_id for a in top_assignments]
-    movie_dicts = api_movies.fetch_movies_dto(top_ids)
-    movie_data = {m["id"]: m for m in movie_dicts}
+    movie_rows = api_movies.fetch_movie_details(top_ids)
+    movie_data = {m.id: m for m in movie_rows}
     return make_recommendation_dto(cluster, top_ids, movie_data)
 
 
@@ -157,7 +185,7 @@ def render_recommendation(*, best_cluster: ClusterRow) -> str:
 
 def emit_cluster_snapshot(
     clusters: list[ClusterRow],
-    progress_cb: ProgressCallback,
+    progress_cb: "ProgressCallback",
 ) -> None:
     """Enrich clusters with poster/rating stubs and emit a ClusterSnapshotEvent.
 
@@ -175,9 +203,7 @@ def emit_cluster_snapshot(
         all_ids.extend(a.movie_id for a in ordered)
 
     unique_ids = list(dict.fromkeys(all_ids))
-    stubs_by_id: dict[int, dict] = {
-        s["id"]: s for s in api_movies.fetch_stubs(unique_ids)
-    }
+    stubs_by_id = {s.id: s for s in api_movies.fetch_stubs(unique_ids)}
 
     payloads: list[ClusterSnapshotPayload] = []
     for c in clusters:
@@ -185,10 +211,10 @@ def emit_cluster_snapshot(
         films = [
             ClusterFilmStub(
                 id=a.movie_id,
-                title=stubs_by_id[a.movie_id]["title"],
-                poster_url=stubs_by_id[a.movie_id]["poster_url"],
-                release_year=stubs_by_id[a.movie_id]["release_year"],
-                vote_average=stubs_by_id[a.movie_id]["vote_average"],
+                title=stubs_by_id[a.movie_id].title,
+                poster_url=stubs_by_id[a.movie_id].poster_url,
+                release_year=stubs_by_id[a.movie_id].release_year,
+                vote_average=stubs_by_id[a.movie_id].vote_average,
             )
             for a in ordered
             if a.movie_id in stubs_by_id
@@ -227,7 +253,7 @@ def assemble_session_dto(full: SessionRow) -> SessionDto:
     Returns:
         A ``SessionDto`` ready to serialize to the HTTP client.
     """
-    show_turn_info: dict = {}
+    show_turn_info: dict[UUID, ShowTurnInfo] = {}
     for t in full.turns:
         if t.step_type == StepType.show.value and t.clusters:
             best = pick_best_cluster(t.clusters)
@@ -239,13 +265,13 @@ def assemble_session_dto(full: SessionRow) -> SessionDto:
                     reverse=True,
                 )
             ]
-            show_turn_info[t.id] = (best, top_ids)
+            show_turn_info[t.id] = ShowTurnInfo(best=best, top_ids=top_ids)
 
     all_ids = list(
-        dict.fromkeys(mid for _, (_, ids) in show_turn_info.items() for mid in ids)
+        dict.fromkeys(mid for info in show_turn_info.values() for mid in info.top_ids)
     )
-    movie_data: dict[int, dict] = (
-        {m["id"]: m for m in api_movies.fetch_movies_dto(all_ids)}
+    movie_data: dict[int, MovieDetailsRow] = (
+        {m.id: m for m in api_movies.fetch_movie_details(all_ids)}
         if all_ids
         else {}
     )
@@ -256,8 +282,8 @@ def assemble_session_dto(full: SessionRow) -> SessionDto:
         recommendation: RecommendationDto | None = None
         step = StepType(t.step_type) if t.step_type else StepType.show
         if step == StepType.show and t.id in show_turn_info:
-            best, top_ids = show_turn_info[t.id]
-            recommendation = make_recommendation_dto(best, top_ids, movie_data)
+            info = show_turn_info[t.id]
+            recommendation = make_recommendation_dto(info.best, info.top_ids, movie_data)
             last_rec = recommendation
         elif step == StepType.stop:
             recommendation = last_rec

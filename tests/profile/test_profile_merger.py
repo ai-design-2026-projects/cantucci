@@ -5,6 +5,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 
 from backend.profile.tools.profile_merger import build_prompt_vars
+from backend.profile.types import UserProfile
 
 
 def _turn(user: str, assistant: str = "", step_type: str = "ask") -> MagicMock:
@@ -46,22 +47,24 @@ class TestFirstTurn:
 
 
 class TestWithPriorProfile:
-    """When prior_profile is a dict it is forwarded as-is."""
+    """When prior_profile is a UserProfile it is serialized to a dict for the template."""
 
     def test_prior_profile_forwarded(self) -> None:
-        profile = {
-            "constraints": ["no horror"],
-            "preferences": ["slow burn"],
-            "attitudes": ["decisive"],
-            "summary": "Likes slow drama",
-        }
+        profile = UserProfile(
+            constraints=["no horror"],
+            preferences=["slow burn"],
+            attitudes=["decisive"],
+            summary="Likes slow drama",
+        )
         result = build_prompt_vars(
             user_message="something new", prior_profile=profile, recent_turns=[]
         )
-        assert result["prior_profile"] is profile
+        assert result["prior_profile"]["constraints"] == ["no horror"]
+        assert result["prior_profile"]["preferences"] == ["slow burn"]
+        assert result["prior_profile"]["summary"] == "Likes slow drama"
 
     def test_prior_profile_partial_dict_not_overwritten(self) -> None:
-        profile = {"constraints": ["no subtitles"], "preferences": [], "attitudes": [], "summary": ""}
+        profile = UserProfile(constraints=["no subtitles"], preferences=[], attitudes=[], summary="")
         result = build_prompt_vars(
             user_message="x", prior_profile=profile, recent_turns=[]
         )

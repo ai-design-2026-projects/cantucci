@@ -1,6 +1,20 @@
+from __future__ import annotations
+
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
+
 from pydantic import BaseModel, Field
-from backend.api.types import MovieRow
+
+if TYPE_CHECKING:
+    from backend.repository.movies.types import MovieRow
+
+
+@dataclass
+class MovieHit:
+    """A single vector-search result before metadata enrichment."""
+    movie_id: int
+    title: str
+    score: float
 
 
 class ReformulatedQuery(BaseModel):

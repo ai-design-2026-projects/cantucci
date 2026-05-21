@@ -1,24 +1,12 @@
-"""cluster_describer — assign a name and description to each cluster via LLM.
-
-A single batched call sends all clusters' top titles, genres, and overviews to
-the model, which returns a JSON object whose ``clusters`` field has one
-``{cluster_index, name, description}`` per HDBSCAN cluster.  One call per turn
-is cheaper and lets the model differentiate cluster names by contrast.
-
-JSON parsing and Pydantic validation (with retry) are delegated to
-``backend.llm.llm_harness``; this tool only renders the prompt, hands it to
-the harness with ``response_schema=ClusterDescribeResponse``, and then aligns
-the validated entries back to the input cluster order by ``cluster_index``.
-"""
-
 import logging
 from uuid import UUID
 
 from pathlib import Path
 
+from backend.cluster.domain import ClusterPayload
 from backend.cluster.types import ClusterDescribeResponse
 from backend.llm import llm_harness
-from backend.llm.prompts import make_prompt_loader
+from backend.llm.utils.prompts import make_prompt_loader
 from backend.llm.types import LLMParseError
 from backend.settings import get_config_hash, get_settings
 
@@ -31,7 +19,7 @@ _STEP_TYPE = "cluster_describe"
 
 async def describe(
     *,
-    clusters_payload: list[dict],
+    clusters_payload: list[ClusterPayload],
     user_query: str,
     reformulated_query: str,
     session_id: UUID,
@@ -43,9 +31,9 @@ async def describe(
     """
     Return ``[(name, description), ...]`` aligned with *clusters_payload*.
     Args:
-        clusters_payload:     List of dicts, one per cluster, each containing
-                              ``cluster_index``, ``top_titles``, ``top_genres``,
-                              and ``sample_overviews``.
+        clusters_payload:     List of ``ClusterPayload``, one per cluster, each
+                              containing ``cluster_index``, ``top_titles``,
+                              ``top_genres``, and ``sample_overviews``.
         user_query:           Oracle's original utterance.
         reformulated_query:   Enriched query from the reformulator step.
         session_id:           UUID of the current session.
