@@ -1,139 +1,56 @@
-# CinePal — default experimental condition config
-# Loaded by backend/settings.py:get_settings().
-# Override path: set CONFIG_PATH env var to point to a different file.
-# All secrets (API keys, DB URL) remain in .env — never put them here.
-
 models:
-  # Two-tier LLM configuration.
-  # `strong` is the default model used by every judgment-heavy agent (decision
-  # routing, profile extraction, cluster refinement, state check) and is
-  # recorded as the canonical model on the runs / sessions rows.
-  # `fast` is a smaller/cheaper model used by mechanical prompts: retrieval
-  # query reformulation and cluster naming.
   strong:
-    # LLM model identifier. For openai: must match a key prefix in
-    # llm_harness._COST_PER_M for cost estimation. For openrouter: cost
-    # estimation logs a warning and charges 0.
     name: "openrouter/owl-alpha"
-    # API provider: "openai" or "openrouter".
-    # "openai" sends to https://api.openai.com/v1 and requires OPENAI_API_KEY.
-    # "openrouter" sends to https://openrouter.ai/api/v1 and requires OPENROUTER_API_KEY.
     provider: openrouter
-    # RNG seed passed to the chat completion API. Only sent for provider=openai;
-    # omitted for openrouter since most models ignore or reject it.
     seed: 42
-    # Maximum completion tokens per LLM call.
     max_tokens: 1024
   fast:
     name: "openrouter/owl-alpha"
     provider: openrouter
     seed: 42
-    max_tokens: 1024
-
-session:
-  # Hard turn budget. The state hard-limit gate abandons the session after
-  # this many turns, before any LLM call for that turn.
-  max_turns: 15
-  # Kept for replay compatibility; the LLM gate owns end-detection now.
-  state_turns: 2
-  # Per-session USD spend ceiling. CostLimitExceeded is raised before any call
-  # that would push accumulated cost past this threshold.
-  cost_limit_usd: 5.0
-  # Maximum number of show-type turns allowed per session. The hard-limit gate
-  # terminates the session when this cap is reached, before any LLM call.
-  max_recommendations: 5
+    max_tokens: 512
 
 retrieval:
-  # Maximum number of candidate films fetched from pgvector per turn.
-  # Larger values improve recall but slow down HDBSCAN and increase token counts.
   top_k: 50
-  # Number of IVFFlat lists probed per vector_search query. The index is built
-  # with lists = 100 (db/migrations/003_catalogue.sql); pgvector's default is 1,
-  # which limits recall to ~1% of the catalogue. Rule of thumb: sqrt(lists) = 10
-  # for ~99% recall. Applied via SET LOCAL ivfflat.probes in
-  # backend/api/movies.py:vector_search.
   ivfflat_probes: 10
 
 split:
-  # Number of rows retained in the mini subset (strict subset of main).
   mini_size: 3000
-  # Fraction of the dataset held out before main/mini generation.
   eval_frac: 0.10
-  # Random seed for the dataset split.
   seed: 42
 
 representation:
-  # Sentence-transformer model used to embed oracle queries and catalogue films.
-  # Must match the model used during ingestion (db/ingest.py).
   model: BAAI/bge-large-en-v1.5
-  # Embedding dimensionality — must match the pgvector column size in clusters.centroid.
   embedding_dim: 1024
 
 clustering:
-  # HDBSCAN minimum cluster size. Smaller values create more fine-grained clusters
-  # but increase noise sensitivity.
-  min_cluster_size: 3
-  # HDBSCAN min_samples — controls how conservative the algorithm is about noise.
-  min_samples: 1
-  # Cluster selection method: "eom" (excess of mass) tends to produce fewer,
-  # larger clusters; "leaf" produces smaller, tighter ones.
-  cluster_selection_method: leaf
-  # Soft-assignment threshold: films below this score are excluded from a cluster's
-  # assignment list. Used in cluster_agent.py to filter low-confidence assignments.
-  assignment_threshold: 0.05
-  # How many top-scoring films to pass to cluster_describer per cluster.
-  # Keeps prompt size bounded; the describer sees at most this many titles.
-  top_titles_per_cluster: 8
-  # Minimum number of candidates required before the all-noise fallback was
-  # considered. Now unused (fallback removed); kept for config schema stability.
-  min_singleton_floor: 3
-  # UMAP dim-reduction applied before HDBSCAN. Raw 1024-d embeddings make HDBSCAN
-  # collapse to all-noise on ~50-point pools (curse of dimensionality); reducing
-  # to a handful of dims first is the standard BERTopic-style remedy.
-  # Disable with `enabled: false` to fall back to raw embeddings.
-  umap:
-    enabled: true
-    n_components: 5
-    n_neighbors: 15
-    min_dist: 0.0
-    metric: cosine
+  base:
+    algorithm: hdbscan
+    min_cluster_size: 50
+    min_samples: 10
+    cluster_selection_method: eom
+    cluster_selection_epsilon: 0.0
+    prob_threshold: 0.01
+  online:
+    drilldown_min_cluster_size: 10
+    recut_min_cluster_size: 30
+
+fusion:
+  text_weight: 0.6
+  review_weight: 0.4
+
+umap:
+  n_neighbors: 15
+  min_dist: 0.1
+
+conversation:
+  cost_limit_usd: 5.0
+  max_messages: 100
 
 ingestion:
-  # Source of the catalogue artifacts. Snapshots are produced in two stages:
-  #   1. `python -m db.scrape --upload` (local) writes snapshots/snapshot_*.parquet
-  #   2. `notebooks/embed_in_colab.ipynb` (GPU) consumes the snapshot above,
-  #      splits + embeds + writes embeddings/{main,mini,eval_holdout}_*.parquet
-  # To switch snapshots, bump the four paths here — the new dataset is then
-  # part of `config_hash`, so existing runs remain replayable.
   hf_repo: "446f6e6e79/CinePal-embeddings"
   artifacts:
     snapshot: snapshots/snapshot_20260517.parquet
     main: embeddings/main_20260517.parquet
     mini: embeddings/mini_20260517.parquet
     eval_holdout: embeddings/eval_holdout_20260517.parquet
-
-eval:
-  oracle:
-    # LLM model used to drive the Oracle agent during automated eval sessions.
-    # Independent budget from the system's session.cost_limit_usd.
-    model:
-      name: "openrouter/owl-alpha"
-      provider: openrouter
-      seed: 42
-      max_tokens: 512
-    # USD ceiling for total Oracle LLM spend across a single eval run.
-    cost_limit_usd: 5.0
-  judge:
-    # LLM model used by the post-session judge to score clustering_coherence,
-    # question_quality, and profile_fidelity (1–5 per dimension).
-    model:
-      name: "openrouter/owl-alpha"
-      provider: openrouter
-      seed: 42
-      max_tokens: 512
-    # USD ceiling for total Judge LLM spend across a single eval run.
-    cost_limit_usd: 2.0
-  metrics:
-    # K for precision@K, recall@K, and NDCG@K against the ground-truth film set.
-    k: 5
-

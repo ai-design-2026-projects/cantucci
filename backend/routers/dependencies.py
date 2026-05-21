@@ -5,7 +5,7 @@ from fastapi import Depends, Header, HTTPException, Request
 
 from backend.auth.tokens import decode_token
 from backend.auth.types import User
-from backend.repository.users.queries import get_user_by_id
+from backend.data_access.users.queries import get_user_by_id
 
 log = logging.getLogger(__name__)
 _auth_log = logging.getLogger("auth")

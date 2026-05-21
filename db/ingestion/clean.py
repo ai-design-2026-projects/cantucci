@@ -131,8 +131,22 @@ def map_record(rec: dict[str, Any]) -> dict[str, Any]:
     return row
 
 
-def build_dataframe(records: list[dict[str, Any]]) -> pd.DataFrame:
-    """Map raw TMDB JSONs → cleaned DataFrame with composite_text + bayesian_rating."""
+def build_dataframe(
+    records: list[dict[str, Any]],
+    reviews: dict[int, str] | None = None,
+) -> pd.DataFrame:
+    """Map raw TMDB JSONs → cleaned DataFrame with composite_text + bayesian_rating.
+
+    Args:
+        records: Raw TMDB movie JSON dicts from ``tmdb_fetch``.
+        reviews: Optional mapping of ``{movie_id: reviews_text}`` from
+                 ``reviews_fetch.fetch_all_reviews``.  Movies absent from the
+                 mapping get a ``None`` (stored as NULL in the DB).
+
+    Returns:
+        Cleaned DataFrame with all columns expected by
+        ``db/ingestion/load.ingest``.
+    """
     rows = [map_record(r) for r in records]
     df = pd.DataFrame(rows)
 
@@ -146,6 +160,7 @@ def build_dataframe(records: list[dict[str, Any]]) -> pd.DataFrame:
     df["bayesian_rating"] = (vc * va + m * prior_mean) / (vc + m)
 
     df["composite_text"] = df.apply(_composite_text, axis=1)
+    df["reviews_text"] = df["id"].map(reviews) if reviews else None
 
     assert df["id"].isna().sum() == 0, "NaN ids in snapshot"
     assert df["id"].is_unique, "Duplicate ids in snapshot"

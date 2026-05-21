@@ -62,14 +62,9 @@ _STDLIB_ATTRS = frozenset(logging.LogRecord("", 0, "", 0, "", (), None).__dict__
 _COMPONENTS: tuple[tuple[str, str], ...] = (
     ("app", "backend.app"),
     ("routers", "backend.routers"),
-    ("repository", "backend.repository"),
-    ("orchestrator", "backend.orchestrator"),
-    ("state", "backend.state"),
-    ("profile", "backend.profile"),
-    ("cluster", "backend.cluster"),
-    ("decision", "backend.decision"),
-    ("retrieval", "backend.retrieval"),
-    ("prompts", "backend.llm.prompts"),
+    ("data_access", "backend.data_access"),
+    ("agents", "backend.agents"),
+    ("cluster_engine", "backend.cluster_engine"),
     ("llm", "backend.llm.llm_harness"),
     ("auth", "auth"),
 )
@@ -240,8 +235,8 @@ def log_llm_call(
     logger: logging.Logger,
     *,
     run_id: str | UUID,
-    session_id: str | UUID,
-    turn_id: str | UUID,
+    conversation_id: str | UUID,
+    message_id: str | UUID,
     seed: int,
     config_hash: str,
     model_and_version: str,
@@ -253,30 +248,30 @@ def log_llm_call(
 ) -> None:
     """Emit a structured INFO record capturing every required LLM call field.
 
-    This helper enforces the field set mandated by CLAUDE.md so individual
+    This helper enforces the field set required by CLAUDE.md so individual
     callers cannot accidentally omit fields. All parameters are keyword-only
     to prevent positional mistakes.
 
     Args:
-        logger:           The module-level logger of the calling module.
-        run_id:           Identifier for the top-level experiment run.
-        session_id:       Identifier for the current conversation session.
-        turn_id:          Identifier for the turn that triggered this call.
-        seed:             RNG seed used for this call (from session config).
-        config_hash:      SHA-256 prefix of the YAML config file in effect.
+        logger:            The module-level logger of the calling module.
+        run_id:            Identifier for the top-level experiment run.
+        conversation_id:   Identifier for the current conversation.
+        message_id:        Identifier for the message that triggered this call.
+        seed:              RNG seed used for this call (from config).
+        config_hash:       SHA-256 prefix of the YAML config file in effect.
         model_and_version: Full model string, e.g. ``"gpt-4o-2024-08-06"``.
-        prompt_hash:      SHA-256 prefix of the rendered prompt file.
-        step_type:        The ``f_*`` function or agent step (e.g. ``"f_output"``).
-        input_tokens:     Prompt tokens consumed.
-        output_tokens:    Completion tokens produced.
-        latency_ms:       Wall-clock time for the LLM call in milliseconds.
+        prompt_hash:       SHA-256 prefix of the rendered prompt file.
+        step_type:         The agent step name (e.g. ``"intent_agent"``).
+        input_tokens:      Prompt tokens consumed.
+        output_tokens:     Completion tokens produced.
+        latency_ms:        Wall-clock time for the LLM call in milliseconds.
     """
     logger.info(
         "llm_call",
         extra={
             "run_id": str(run_id),
-            "session_id": str(session_id),
-            "turn_id": str(turn_id),
+            "conversation_id": str(conversation_id),
+            "message_id": str(message_id),
             "seed": seed,
             "config_hash": config_hash,
             "model_and_version": model_and_version,

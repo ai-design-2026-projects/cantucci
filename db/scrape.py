@@ -35,7 +35,7 @@ from tqdm.auto import tqdm
 
 from backend.logging_setup import configure_logging
 from backend.settings import get_settings
-from db.ingestion import clean, tmdb_fetch, upload
+from db.ingestion import clean, reviews_fetch, tmdb_fetch, upload
 
 log = logging.getLogger(__name__)
 
@@ -132,6 +132,8 @@ def _parse_args() -> argparse.Namespace:
                    help="Upload the final parquet to the HF dataset repo under snapshots/.")
     p.add_argument("--repo-id", default=None,
                    help="HF repo id for --upload. Defaults to ingestion.hf_repo from configs/default.yaml.")
+    p.add_argument("--skip-reviews", action="store_true",
+                   help="Skip TMDB review fetching (faster; produces NULL reviews_text).")
     return p.parse_args()
 
 
@@ -175,7 +177,20 @@ def main() -> None:
     if not raw_records:
         raise SystemExit("no records on disk to build a parquet from")
 
-    df = clean.build_dataframe(raw_records)
+    fetched_reviews: dict[int, str] = {}
+    if not args.skip_reviews:
+        movie_ids = [int(r["id"]) for r in raw_records]
+        fetched_reviews = reviews_fetch.fetch_all_reviews(
+            args.api_key,
+            movie_ids,
+            concurrency=args.concurrency,
+        )
+        log.info(
+            "reviews_ready",
+            extra={"with_reviews": len(fetched_reviews), "total": len(movie_ids)},
+        )
+
+    df = clean.build_dataframe(raw_records, reviews=fetched_reviews or None)
     before = len(df)
     df = df[df["vote_count"].fillna(0) >= args.min_vote_count].reset_index(drop=True)
     log.info(

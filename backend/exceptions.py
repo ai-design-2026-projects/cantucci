@@ -1,44 +1,32 @@
-"""Domain exceptions raised by the orchestrator and caught by the HTTP layer."""
-
 from uuid import UUID
 
 
-class SessionNotFound(Exception):
-    """Raised by the orchestrator when a session_id does not exist.
-
-    The HTTP layer catches this and returns 404.
+class ConversationNotFound(Exception):
+    """Raised when a conversation_id does not exist in the DB.
 
     Attributes:
-        session_id: The UUID that was looked up and not found.
+        conversation_id: The UUID that was looked up and not found.
     """
 
-    def __init__(self, session_id: UUID) -> None:
-        self.session_id = session_id
-        super().__init__(f"Session {session_id} not found")
+    def __init__(self, conversation_id: UUID) -> None:
+        self.conversation_id = conversation_id
+        super().__init__(f"Conversation {conversation_id} not found")
 
 
-class SessionNotConverged(Exception):
-    """Raised when the converged-cluster endpoint is called on an active session.
-
-    The HTTP layer catches this and returns 409.
+class ClusterSnapshotNotFound(Exception):
+    """Raised when a cluster_snapshot_id does not exist in the DB.
 
     Attributes:
-        session_id: The session that has not yet converged.
-        status:     The current status string (e.g. ``"active"``).
+        cluster_snapshot_id: The UUID that was looked up and not found.
     """
 
-    def __init__(self, session_id: UUID, status: str) -> None:
-        self.session_id = session_id
-        self.status = status
-        super().__init__(
-            f"Session {session_id} has not converged (status={status})"
-        )
+    def __init__(self, cluster_snapshot_id: UUID) -> None:
+        self.cluster_snapshot_id = cluster_snapshot_id
+        super().__init__(f"Cluster snapshot {cluster_snapshot_id} not found")
 
 
 class MovieNotFound(Exception):
     """Raised when a movie_id is not present in the catalogue.
-
-    The HTTP layer catches this and returns 404.
 
     Attributes:
         movie_id: The TMDB integer ID that was not found.
@@ -47,3 +35,15 @@ class MovieNotFound(Exception):
     def __init__(self, movie_id: int) -> None:
         self.movie_id = movie_id
         super().__init__(f"Movie {movie_id} not found in catalogue")
+
+
+class ConceptParseError(Exception):
+    """Raised when the concept agent cannot parse a user-supplied concept string.
+
+    Attributes:
+        raw: The raw concept string that could not be parsed.
+    """
+
+    def __init__(self, raw: str) -> None:
+        self.raw = raw
+        super().__init__(f"Could not parse concept: {raw!r}")

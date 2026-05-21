@@ -21,8 +21,8 @@ log = logging.getLogger(__name__)
 async def call(
     *,
     run_id: str | UUID,
-    session_id: str | UUID,
-    turn_id: str | UUID,
+    conversation_id: str | UUID,
+    message_id: str | UUID,
     config_hash: str,
     model_and_version: str,
     provider: str = "openai",
@@ -47,18 +47,18 @@ async def call(
 
     Args:
         run_id:               Experiment run identifier for logging.
-        session_id:           Conversation session identifier for logging.
-        turn_id:              Turn identifier for logging.
+        conversation_id:      Conversation identifier for logging.
+        message_id:           Message identifier for logging.
         config_hash:          SHA-256 prefix of the YAML config in effect.
         model_and_version:    Full model string from config, e.g. ``"gpt-4o-2024-08-06"``.
         provider:             API provider — ``"openai"`` (default) or ``"openrouter"``.
-        seed:                 RNG seed from session config (for reproducibility).
+        seed:                 RNG seed from config (for reproducibility).
         max_tokens:           Maximum completion tokens from config.
-        step_type:            Name of the calling agent step, e.g. ``"cluster_agent"``.
+        step_type:            Name of the calling agent step, e.g. ``"intent_agent"``.
         messages:             Chat messages in ``[{"role": ..., "content": ...}]`` form.
-        prompt_hash:          SHA-256 prefix of the rendered prompt (from ``backend.prompts``).
-        cost_limit_usd:       Per-session cost ceiling from config.
-        accumulated_cost_usd: Total USD spent so far this session (caller-tracked).
+        prompt_hash:          SHA-256 prefix of the rendered prompt.
+        cost_limit_usd:       Per-conversation cost ceiling from config.
+        accumulated_cost_usd: Total USD spent so far this conversation (caller-tracked).
         dry_run:              If ``True``, skip the API call and return a canned response.
         response_schema:      Optional Pydantic model the response must validate against.
                               When set, JSON-mode is enabled and the harness owns parse
@@ -84,8 +84,8 @@ async def call(
             step_type=step_type,
             response_schema=response_schema,
             run_id=run_id,
-            session_id=session_id,
-            turn_id=turn_id,
+            session_id=conversation_id,
+            turn_id=message_id,
             seed=seed,
             config_hash=config_hash,
             model_and_version=model_and_version,
@@ -94,10 +94,10 @@ async def call(
 
     if is_replay_mode():
         return await replay_next(
-            session_id=str(session_id),
+            session_id=str(conversation_id),
             step_type=step_type,
             run_id=run_id,
-            turn_id=turn_id,
+            turn_id=message_id,
             seed=seed,
             config_hash=config_hash,
             model_and_version=model_and_version,
@@ -108,8 +108,8 @@ async def call(
     log.debug(
         "llm_call pre-call",
         extra={
-            "session_id": str(session_id),
-            "turn_id": str(turn_id),
+            "conversation_id": str(conversation_id),
+            "message_id": str(message_id),
             "step_type": step_type,
             "prompt_hash": prompt_hash,
             "model": model_and_version,
@@ -137,7 +137,7 @@ async def call(
                 extra={
                     "attempt": attempt + 1,
                     "step_type": step_type,
-                    "session_id": str(session_id),
+                    "conversation_id": str(conversation_id),
                     "error": str(last_exc),
                 },
             )
@@ -182,8 +182,8 @@ async def call(
                 log_llm_call(
                     log,
                     run_id=run_id,
-                    session_id=session_id,
-                    turn_id=turn_id,
+                    conversation_id=conversation_id,
+                    message_id=message_id,
                     seed=seed,
                     config_hash=config_hash,
                     model_and_version=model_and_version,
@@ -199,8 +199,8 @@ async def call(
         log_llm_call(
             log,
             run_id=run_id,
-            session_id=session_id,
-            turn_id=turn_id,
+            conversation_id=conversation_id,
+            message_id=message_id,
             seed=seed,
             config_hash=config_hash,
             model_and_version=model_and_version,
@@ -221,7 +221,7 @@ async def call(
             parsed=parsed,
         )
         if is_record_mode():
-            record_append(str(session_id), step_type, str(turn_id), resp)
+            record_append(str(conversation_id), step_type, str(message_id), resp)
         return resp
 
     if isinstance(last_exc, LLMParseError):

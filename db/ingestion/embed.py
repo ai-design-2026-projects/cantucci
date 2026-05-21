@@ -29,6 +29,20 @@ def _load(model_name: str) -> "SentenceTransformer":
     return _cache[model_name]
 
 
+def embed_texts(texts: list[str]) -> np.ndarray:
+    """Encode texts using the configured model with no query prefix.
+
+    Convenience wrapper for online concept-axis and prototype building.
+
+    Args:
+        texts: List of strings to embed.
+
+    Returns:
+        Float32 ndarray of shape (len(texts), embedding_dim), L2-normalized.
+    """
+    return encode_all(texts)
+
+
 def preload_model() -> None:
     """Preload the configured embedding model into cache at startup.
 

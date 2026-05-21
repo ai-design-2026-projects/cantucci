@@ -1,0 +1,70 @@
+import uuid
+from dataclasses import dataclass, field
+from datetime import datetime
+from typing import Any
+
+
+@dataclass
+class ClusterSnapshotRow:
+    """A row from the cluster_snapshots table.
+
+    Attributes:
+        id:              Cluster snapshot UUID.
+        conversation_id: Parent conversation UUID, or None for the root cluster snapshot.
+        parent_id:       Parent cluster snapshot UUID, or None for the root.
+        operation:       Operation that produced this snapshot (e.g. ``"base"``, ``"drill_down"``).
+        params:          JSONB dict capturing algorithm + inputs for replayability.
+        created_at:      UTC creation timestamp.
+    """
+    id: uuid.UUID
+    conversation_id: uuid.UUID | None
+    parent_id: uuid.UUID | None
+    operation: str
+    params: dict[str, Any]
+    created_at: datetime
+
+
+@dataclass
+class ClusterRow:
+    """A row from the clusters table.
+
+    Attributes:
+        id:                 Cluster UUID.
+        cluster_snapshot_id: Parent cluster snapshot UUID.
+        label:              Human-readable cluster label.
+        summary:            One-sentence LLM-generated summary.
+        exemplar_movie_ids: Top-N movie IDs with highest membership probability.
+        parent_cluster_id:  UUID of the cluster this was split from, if any.
+    """
+    id: uuid.UUID
+    cluster_snapshot_id: uuid.UUID
+    label: str
+    summary: str | None
+    exemplar_movie_ids: list[int]
+    parent_cluster_id: uuid.UUID | None
+
+
+@dataclass
+class ClusterMembershipRow:
+    """A row from the cluster_memberships table.
+
+    Attributes:
+        cluster_id:  Cluster UUID.
+        movie_id:    TMDB integer ID.
+        probability: Soft membership probability in (0, 1].
+    """
+    cluster_id: uuid.UUID
+    movie_id: int
+    probability: float
+
+
+@dataclass
+class ClusterSnapshotWithClusters:
+    """A cluster snapshot combined with its cluster list (no membership rows).
+
+    Attributes:
+        cluster_snapshot: The cluster snapshot row.
+        clusters:         All clusters belonging to this snapshot.
+    """
+    cluster_snapshot: ClusterSnapshotRow
+    clusters: list[ClusterRow] = field(default_factory=list)

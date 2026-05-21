@@ -1,8 +1,9 @@
 import logging
-from fastapi import APIRouter, Depends, HTTPException, Request
 
+from fastapi import APIRouter, HTTPException
+
+from backend.data_access.movies.queries import fetch_movie_details
 from backend.exceptions import MovieNotFound
-from backend.orchestrator.orchestrator import Orchestrator
 from backend.routers.dto.movies.dtos import MovieDto
 
 log = logging.getLogger(__name__)
@@ -10,31 +11,35 @@ log = logging.getLogger(__name__)
 router = APIRouter(prefix="/movies", tags=["movies"])
 
 
-def _orchestrator(request: Request) -> Orchestrator:
-    """Return the app-scoped orchestrator instance bound in app.state."""
-    return request.app.state.orchestrator  # type: ignore[return-value]
-
-
-@router.get("/get_movie/{movie_id}", response_model=MovieDto)
-def get_movie(
-    movie_id: int,
-    orchestrator: Orchestrator = Depends(_orchestrator),
-) -> MovieDto:
-    """Return full metadata for a single movie from the catalogue.
+@router.get("/{movie_id}", response_model=MovieDto)
+def get_movie(movie_id: int) -> MovieDto:
+    """Return full metadata for a single movie.
 
     Args:
-        movie_id:     TMDB integer ID (path parameter).
-        orchestrator: Injected via ``_orchestrator`` dependency.
+        movie_id: TMDB integer ID.
 
     Returns:
-        Full ``MovieDto`` payload (HTTP 200).
+        ``MovieDto`` on success.
 
     Raises:
         HTTPException(404): If the movie is not in the catalogue.
     """
-    dto = orchestrator.get_movie(movie_id)
-    if dto is None:
-        log.debug("movie not found", extra={"movie_id": movie_id})
+    rows = fetch_movie_details([movie_id])
+    if not rows:
         raise HTTPException(status_code=404, detail=str(MovieNotFound(movie_id)))
-    log.debug("GET /movies/{id}", extra={"movie_id": movie_id})
-    return dto
+    r = rows[0]
+    return MovieDto(
+        id=r.id,
+        title=r.title,
+        release_year=r.release_year,
+        runtime=r.runtime,
+        vote_average=r.vote_average,
+        vote_count=r.vote_count,
+        bayesian_rating=r.bayesian_rating,
+        overview=r.overview,
+        poster_url=r.poster_url,
+        genres=r.genres,
+        director=r.director,
+        top_cast=r.top_cast,
+        original_language=r.original_language,
+    )
