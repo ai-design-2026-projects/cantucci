@@ -16,6 +16,7 @@ from uuid import UUID
 
 from pathlib import Path
 
+from backend.cluster.domain import ClusterPayload
 from backend.cluster.types import ClusterDescribeResponse
 from backend.llm import llm_harness
 from backend.llm.prompts import make_prompt_loader
@@ -31,7 +32,7 @@ _STEP_TYPE = "cluster_describe"
 
 async def describe(
     *,
-    clusters_payload: list[dict],
+    clusters_payload: list[ClusterPayload],
     user_query: str,
     reformulated_query: str,
     session_id: UUID,
@@ -43,9 +44,9 @@ async def describe(
     """
     Return ``[(name, description), ...]`` aligned with *clusters_payload*.
     Args:
-        clusters_payload:     List of dicts, one per cluster, each containing
-                              ``cluster_index``, ``top_titles``, ``top_genres``,
-                              and ``sample_overviews``.
+        clusters_payload:     List of ``ClusterPayload``, one per cluster, each
+                              containing ``cluster_index``, ``top_titles``,
+                              ``top_genres``, and ``sample_overviews``.
         user_query:           Oracle's original utterance.
         reformulated_query:   Enriched query from the reformulator step.
         session_id:           UUID of the current session.

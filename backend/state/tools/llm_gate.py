@@ -7,9 +7,9 @@ the Profile Agent runs AFTER this gate and updates the profile for the next turn
 
 import json
 import logging
-from typing import Any
 from uuid import UUID
 
+from backend.profile.types import UserProfile
 from backend.repository.sessions import TurnRow
 from backend.state.types import (
     StateAction,
@@ -56,7 +56,7 @@ async def check_llm_state(
     turn_id: UUID,
     turn_number: int,
     user_message: str,
-    preference_profile: dict[str, Any] | None,
+    preference_profile: UserProfile | None,
     recent_turns: list[TurnRow],
     show_count: int,
     cfg: Settings,
@@ -107,12 +107,7 @@ async def check_llm_state(
         LLMParseError:     If all retry attempts return malformed JSON.
         CostLimitExceeded: If the accumulated cost already exceeds the limit.
     """
-    profile = preference_profile or {
-        "constraints": [],
-        "preferences": [],
-        "attitudes": [],
-        "summary": "",
-    }
+    profile = preference_profile or UserProfile(constraints=[], preferences=[], attitudes=[], summary="")
 
     text, prompt_hash = load_prompt(
         "state_check_v2",
@@ -121,7 +116,7 @@ async def check_llm_state(
             "max_turns": cfg.session.max_turns,
             "max_recommendations": cfg.session.max_recommendations,
             "recommendations_so_far": show_count,
-            "preference_profile": profile,
+            "preference_profile": profile.model_dump(),
             "recent_turns": [
                 {
                     "user": t.user_message,

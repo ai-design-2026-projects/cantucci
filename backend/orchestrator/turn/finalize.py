@@ -221,7 +221,7 @@ async def _persist_turn_and_profile(
     await asyncio.to_thread(
         api_sessions.update_preference_profile,
         ctx.session_id,
-        new_profile.model_dump(),
+        new_profile,
     )
     log.debug(
         "profile updated",

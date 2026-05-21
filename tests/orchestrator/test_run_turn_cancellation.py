@@ -217,7 +217,7 @@ class _GraphPatches:
             return_value=[],
         )
         self.fetch_movies_dto = _p(
-            "backend.repository.movies.fetch_movies_dto",
+            "backend.repository.movies.fetch_movie_details",
             return_value=[],
         )
         return self

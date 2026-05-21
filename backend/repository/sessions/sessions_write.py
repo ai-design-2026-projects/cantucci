@@ -2,8 +2,8 @@ import json
 import logging
 import uuid
 from decimal import Decimal
-from typing import Any
 
+from backend.profile.types import UserProfile
 from backend.repository.connection import transaction
 
 log = logging.getLogger(__name__)
@@ -109,7 +109,7 @@ def mark_abandoned(session_id: uuid.UUID, reason: str) -> None:
 
 def mark_converged(
     session_id: uuid.UUID,
-    preference_profile: dict[str, Any],
+    preference_profile: UserProfile,
 ) -> None:
     """
     Set session status to 'converged' and store the preference profile.
@@ -126,14 +126,14 @@ def mark_converged(
                 updated_at = NOW()
             WHERE id = %s
             """,
-            (json.dumps(preference_profile), session_id),
+            (json.dumps(preference_profile.model_dump(mode="json")), session_id),
         )
     log.info("session %s marked converged", session_id)
 
 
 def update_preference_profile(
     session_id: uuid.UUID,
-    preference_profile: dict[str, Any],
+    preference_profile: UserProfile,
 ) -> None:
     """Overwrite sessions.preference_profile with the latest extracted profile.
 
@@ -142,7 +142,7 @@ def update_preference_profile(
 
     Args:
         session_id:         Session to update.
-        preference_profile: Fresh structured profile dict from the Profile Agent.
+        preference_profile: Fresh structured profile from the Profile Agent.
     """
     with transaction() as conn:
         conn.execute(
@@ -152,6 +152,6 @@ def update_preference_profile(
                 updated_at = NOW()
             WHERE id = %s
             """,
-            (json.dumps(preference_profile), session_id),
+            (json.dumps(preference_profile.model_dump(mode="json")), session_id),
         )
     log.debug("preference_profile updated for session %s", session_id)

@@ -3,6 +3,7 @@ import uuid
 from typing import Any
 
 from backend.cluster.domain import ClusterAssignment
+from backend.profile.types import UserProfile
 from backend.repository.connection import transaction
 from backend.repository.eval.types import JudgeScoreRow, SessionMetricsRow
 from backend.repository.sessions.types import (
@@ -272,6 +273,7 @@ def get_session_full(session_id: uuid.UUID) -> SessionRow:
         "get_session_full session=%s turns=%d clusters=%d",
         session_id, len(turns), len(cluster_rows),
     )
+    raw_profile = sess_row[6]
     return SessionRow(
         session_id=sess_row[0],
         run_id=sess_row[1],
@@ -279,7 +281,7 @@ def get_session_full(session_id: uuid.UUID) -> SessionRow:
         config_hash=sess_row[3],
         model_version=sess_row[4],
         status=sess_row[5],
-        preference_profile=sess_row[6],
+        preference_profile=UserProfile.model_validate(raw_profile) if raw_profile is not None else None,
         created_at=sess_row[7],
         updated_at=sess_row[8],
         max_turns=sess_row[9],

@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import asyncio
 import uuid
-from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -64,7 +63,7 @@ def _turn(step_type: str = "ask", assistant_message: str = "What genre?", cluste
 
 def _full(
     turns: list | None = None,
-    preference_profile: dict[str, Any] | None = None,
+    preference_profile: UserProfile | None = None,
 ) -> MagicMock:
     f = MagicMock(spec=SessionRow)
     f.session_id = uuid.uuid4()
@@ -184,37 +183,38 @@ class _Patches:
             "backend.retrieval.agent.retrieve_from_profile",
             return_value=mock_rr,
         )
+        from backend.repository.movies.types import MovieDetailsRow, MovieStubRow
         self.fetch_stubs = _patch(
             "backend.repository.movies.fetch_stubs",
             side_effect=lambda ids: [
-                {
-                    "id": mid,
-                    "title": f"Film {mid}",
-                    "poster_url": None,
-                    "release_year": 2000 + mid,
-                    "vote_average": 7.0,
-                }
+                MovieStubRow(
+                    id=mid,
+                    title=f"Film {mid}",
+                    poster_url=None,
+                    release_year=2000 + mid,
+                    vote_average=7.0,
+                )
                 for mid in ids
             ],
         )
         self.fetch_movies_dto = _patch(
-            "backend.repository.movies.fetch_movies_dto",
+            "backend.repository.movies.fetch_movie_details",
             side_effect=lambda ids: [
-                {
-                    "id": mid,
-                    "title": f"Film {mid}",
-                    "release_year": 2000 + mid,
-                    "runtime": 100.0,
-                    "vote_average": 7.0,
-                    "vote_count": 100,
-                    "bayesian_rating": 7.0,
-                    "overview": None,
-                    "poster_url": None,
-                    "genres": [],
-                    "director": None,
-                    "top_cast": [],
-                    "original_language": "en",
-                }
+                MovieDetailsRow(
+                    id=mid,
+                    title=f"Film {mid}",
+                    release_year=2000 + mid,
+                    runtime=100.0,
+                    vote_average=7.0,
+                    vote_count=100,
+                    bayesian_rating=7.0,
+                    overview=None,
+                    poster_url=None,
+                    genres=[],
+                    director=None,
+                    top_cast=[],
+                    original_language="en",
+                )
                 for mid in ids
             ],
         )
@@ -340,10 +340,10 @@ class TestProfileAgentFlow:
         p.update_profile.assert_called_once()
         call_args = p.update_profile.call_args
         persisted = call_args.args[1] if call_args.args else call_args.kwargs.get("preference_profile") or call_args.kwargs.get("profile_jsonb")
-        assert persisted == profile.model_dump()
+        assert persisted == profile
 
     def test_profile_extract_receives_prior_profile(self) -> None:
-        prior = {"constraints": ["no horror"], "preferences": [], "attitudes": [], "summary": ""}
+        prior = UserProfile(constraints=["no horror"], preferences=[], attitudes=[], summary="")
         full = _full(turns=[], preference_profile=prior)
         with _Patches(full=full) as p:
             orch = Orchestrator()
@@ -448,7 +448,7 @@ class TestDecisionAgentReceivesProfile:
     """Decision agent is called with the N-1 preference profile."""
 
     def test_decision_receives_prior_profile(self) -> None:
-        prior = {"constraints": ["no horror"], "preferences": [], "attitudes": [], "summary": ""}
+        prior = UserProfile(constraints=["no horror"], preferences=[], attitudes=[], summary="")
         full = _full(turns=[], preference_profile=prior)
         with _Patches(full=full) as p:
             orch = Orchestrator()
@@ -660,10 +660,10 @@ class TestDriftConfirmAndDismiss:
 
     def test_drift_confirmed_passes_seen_films_as_excluded_films(self) -> None:
         full = self._drift_full()
-        full.preference_profile = {
-            "constraints": [], "preferences": [], "attitudes": [], "summary": "Likes drama",
-            "seen_films": ["Film X", "Film Y"], "anchor_films": [],
-        }
+        full.preference_profile = UserProfile(
+            constraints=[], preferences=[], attitudes=[], summary="Likes drama",
+            seen_films=["Film X", "Film Y"],
+        )
         conv = StateDecision(
             action=StateAction.drift_confirmed,
             reason="oracle confirmed genre change",
@@ -789,14 +789,13 @@ class TestReRetrieve:
 
     def test_re_retrieve_passes_seen_films_as_excluded_films(self) -> None:
         prior_show = _turn("show", "Here are some films", clusters=[_cluster()])
-        full = _full(turns=[prior_show], preference_profile={
-            "constraints": [],
-            "preferences": [],
-            "attitudes": [],
-            "summary": "Likes slow drama",
-            "seen_films": ["Film A", "Film B"],
-            "anchor_films": [],
-        })
+        full = _full(turns=[prior_show], preference_profile=UserProfile(
+            constraints=[],
+            preferences=[],
+            attitudes=[],
+            summary="Likes slow drama",
+            seen_films=["Film A", "Film B"],
+        ))
         conv = StateDecision(action=StateAction.re_retrieve, reason="all seen")
         profile = UserProfile(
             constraints=[],
@@ -826,8 +825,8 @@ class TestSeenFilmsAccumulation:
         p.update_profile.assert_called_once()
         call_args = p.update_profile.call_args
         persisted = call_args.args[1] if call_args.args else call_args.kwargs.get("preference_profile") or call_args.kwargs.get("profile_jsonb")
-        assert "seen_films" in persisted
-        assert len(persisted["seen_films"]) > 0
+        assert hasattr(persisted, "seen_films")
+        assert len(persisted.seen_films) > 0
 
     def test_anchor_films_merged_into_seen(self) -> None:
         full = _full(turns=[], preference_profile=None)
@@ -844,4 +843,4 @@ class TestSeenFilmsAccumulation:
         p.update_profile.assert_called_once()
         call_args = p.update_profile.call_args
         persisted = call_args.args[1] if call_args.args else call_args.kwargs.get("preference_profile") or call_args.kwargs.get("profile_jsonb")
-        assert "Interstellar" in persisted.get("seen_films", [])
+        assert "Interstellar" in persisted.seen_films

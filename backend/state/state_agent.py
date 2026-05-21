@@ -16,10 +16,10 @@ No DB writes — the orchestrator owns all persistence.
 """
 
 import logging
-from typing import Any
 from uuid import UUID
 
 from backend.orchestrator.domain import StepType
+from backend.profile.types import UserProfile
 from backend.repository.sessions import SessionRow, TurnRow
 from backend.state.tools.hard_limits import check_hard_limits as _check_hard_limits
 from backend.state.tools.llm_gate import check_llm_state
@@ -40,7 +40,7 @@ async def check_session_state(
     turn_number: int,
     user_message: str,
     full: SessionRow,
-    preference_profile: dict[str, Any] | None,
+    preference_profile: UserProfile | None,
     cfg: Settings,
     accumulated_cost_usd: float = 0.0,
     recommended_last_turn: list[str] | None = None,

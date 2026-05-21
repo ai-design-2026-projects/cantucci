@@ -3,9 +3,9 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
 from decimal import Decimal
-from typing import Any
 
 from backend.cluster.domain import ClusterAssignment, ClusterSpecification
+from backend.profile.types import UserProfile
 from backend.repository.eval.types import JudgeScoreRow, SessionMetricsRow
 
 
@@ -114,7 +114,7 @@ class SessionRow:
     config_hash: str
     model_version: str
     status: str
-    preference_profile: dict[str, Any] | None
+    preference_profile: UserProfile | None
     turns: list[TurnRow]
     cluster_snapshot: list[ClusterRow]
     feedback: list[FeedbackRow]

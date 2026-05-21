@@ -15,6 +15,7 @@ from backend.orchestrator.turn import finalize as finalize_mod
 from backend.orchestrator.turn.context import TurnContext
 from backend.orchestrator.turn.tasks import TurnTasks
 from backend.orchestrator.turn import terminal_paths
+from backend.profile.types import UserProfile
 from backend.orchestrator.turn.progress import (
     NullProgressCallback,
     ProgressCallback,
@@ -142,7 +143,7 @@ class TurnRunner:
                 turn_number=ctx.turn_number,
                 user_message=ctx.user_message,
                 decision=decision,
-                preference_profile=ctx.prior_profile or {},
+                preference_profile=ctx.prior_profile or UserProfile(constraints=[], preferences=[], attitudes=[], summary=""),
                 recommendation=last_show,
             )
 

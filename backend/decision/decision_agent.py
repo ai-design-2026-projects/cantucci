@@ -13,11 +13,10 @@ import logging
 from pathlib import Path
 from uuid import UUID
 
-from typing import Any
-
 from backend.decision.tools import entropy_calculator, relevance_scorer
 from backend.llm import llm_harness
 from backend.llm.prompts import make_prompt_loader
+from backend.profile.types import UserProfile
 from backend.settings import get_config_hash, get_settings
 from backend.repository.sessions import ClusterRow
 from backend.decision.types import DecisionAction, DecisionResponse, DecisionResult
@@ -37,7 +36,7 @@ async def decide(
     turn_number: int,
     user_query: str,
     clusters: list[ClusterRow],
-    preference_profile: dict[str, Any] | None = None,
+    preference_profile: UserProfile | None = None,
     accumulated_cost_usd: float = 0.0,
     prior_questions: list[str] | None = None,
 ) -> DecisionResult:
@@ -126,7 +125,7 @@ async def decide(
             "user_query": user_query,
             "clusters": cluster_vars,
             "entropy_score": entropy,
-            "preference_profile": preference_profile,
+            "preference_profile": preference_profile.model_dump() if preference_profile else None,
             "prior_questions": prior_questions or [],
         },
     )

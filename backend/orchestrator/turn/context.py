@@ -16,6 +16,7 @@ import logging
 from dataclasses import dataclass
 from uuid import UUID, uuid4
 
+from backend.profile.types import UserProfile
 from backend.repository.sessions import SessionRow, TurnRow
 from backend.orchestrator.utils import history
 from backend.orchestrator.turn.progress import NullProgressCallback, ProgressCallback
@@ -57,7 +58,7 @@ class TurnContext:
     turn_number: int
     cfg: Settings
     full_session: SessionRow
-    prior_profile: dict | None
+    prior_profile: UserProfile | None
     recent_turns: list[TurnRow]
     prior_clustered: TurnRow | None
     prior_seen: list[str]
@@ -85,9 +86,7 @@ class TurnContext:
         prior_profile = full_session.preference_profile
         recent_turns = full_session.turns[-2:]
         prior_clustered = history.last_clustered_turn(full_session.turns)
-        prior_seen = (
-            list(prior_profile.get("seen_films", [])) if prior_profile else []
-        )
+        prior_seen = list(prior_profile.seen_films) if prior_profile else []
         recommended_last_turn = history.recommended_titles_from_last_show(full_session)
 
         log.debug(

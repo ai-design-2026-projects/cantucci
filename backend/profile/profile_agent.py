@@ -14,7 +14,6 @@ No DB writes — the orchestrator owns all persistence.
 
 import logging
 from pathlib import Path
-from typing import Any
 from uuid import UUID
 
 from backend.repository.sessions import TurnRow
@@ -36,7 +35,7 @@ async def extract(
     turn_id: UUID,
     turn_number: int,
     user_message: str,
-    prior_profile: dict[str, Any] | None,
+    prior_profile: UserProfile | None,
     recent_turns: list[TurnRow],
     accumulated_cost_usd: float = 0.0,
     dry_run: bool = False,

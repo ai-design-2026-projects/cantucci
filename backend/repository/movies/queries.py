@@ -4,7 +4,7 @@ from typing import Union
 import numpy as np
 
 from backend.repository.connection import transaction
-from backend.repository.movies.types import MovieRow
+from backend.repository.movies.types import MovieDetailsRow, MovieRow, MovieStubRow
 from backend.retrieval.types import MovieHit
 from backend.settings import get_settings
 
@@ -193,7 +193,7 @@ def fetch_metadata(movie_ids: list[int]) -> list[MovieRow]:
     return result
 
 
-def fetch_stubs(movie_ids: list[int]) -> list[dict]:
+def fetch_stubs(movie_ids: list[int]) -> list[MovieStubRow]:
     """
     Return lightweight movie stubs for cluster snapshot payloads.
     Fetches only the fields needed for ``ClusterFilmStub``: id, title,
@@ -203,8 +203,8 @@ def fetch_stubs(movie_ids: list[int]) -> list[dict]:
     Args:
         movie_ids: TMDB integer IDs to look up.
     Returns:
-        List of dicts with keys ``id``, ``title``, ``poster_url``,
-        ``release_year``, ``vote_average``.  Order matches *movie_ids*.
+        List of ``MovieStubRow`` in the same order as *movie_ids*, with
+        missing IDs dropped.
     """
     if not movie_ids:
         return []
@@ -220,13 +220,13 @@ def fetch_stubs(movie_ids: list[int]) -> list[dict]:
         ).fetchall()
 
     by_id = {
-        r[0]: {
-            "id": r[0],
-            "title": r[1],
-            "poster_url": f"{_TMDB_POSTER_BASE}{r[2]}" if r[2] else None,
-            "release_year": r[3],
-            "vote_average": r[4],
-        }
+        r[0]: MovieStubRow(
+            id=r[0],
+            title=r[1],
+            poster_url=f"{_TMDB_POSTER_BASE}{r[2]}" if r[2] else None,
+            release_year=r[3],
+            vote_average=r[4],
+        )
         for r in rows
     }
     result = [by_id[mid] for mid in movie_ids if mid in by_id]
@@ -234,17 +234,17 @@ def fetch_stubs(movie_ids: list[int]) -> list[dict]:
     return result
 
 
-def fetch_movies_dto(movie_ids: list[int]) -> list[dict]:
+def fetch_movie_details(movie_ids: list[int]) -> list[MovieDetailsRow]:
     """
-    Return full MovieDto-shaped dicts for the given movie IDs.
+    Return full movie details for the given movie IDs.
     Joins movies ← movie_genres → genres, crew_members (Director), and
     cast_members (top 3 by cast_order) in one query.  Missing IDs are silently
     omitted.  Order matches *movie_ids*.
     Args:
         movie_ids: TMDB integer IDs to look up.
     Returns:
-        List of dicts with keys matching the ``MovieDto`` DTO fields.
-        ``poster_url`` is a full TMDB URL.  Order matches *movie_ids*.
+        List of ``MovieDetailsRow`` in the same order as *movie_ids*, with
+        missing IDs dropped.  ``poster_url`` is a full TMDB URL.
     """
     if not movie_ids:
         return []
@@ -292,26 +292,26 @@ def fetch_movies_dto(movie_ids: list[int]) -> list[dict]:
             (movie_ids,),
         ).fetchall()
 
-    by_id: dict[int, dict] = {
-        r[0]: {
-            "id": r[0],
-            "title": r[1],
-            "release_year": r[2],
-            "runtime": r[3],
-            "vote_average": r[4],
-            "vote_count": r[5],
-            "bayesian_rating": r[6],
-            "overview": r[7],
-            "poster_url": (f"{_TMDB_POSTER_BASE}{r[8]}" if r[8] else None),
-            "original_language": r[9],
-            "genres": list(r[10]) if r[10] else [],
-            "director": r[11],
-            "top_cast": list(r[12]) if r[12] else [],
-        }
+    by_id: dict[int, MovieDetailsRow] = {
+        r[0]: MovieDetailsRow(
+            id=r[0],
+            title=r[1],
+            release_year=r[2],
+            runtime=r[3],
+            vote_average=r[4],
+            vote_count=r[5],
+            bayesian_rating=r[6],
+            overview=r[7],
+            poster_url=(f"{_TMDB_POSTER_BASE}{r[8]}" if r[8] else None),
+            original_language=r[9],
+            genres=list(r[10]) if r[10] else [],
+            director=r[11],
+            top_cast=list(r[12]) if r[12] else [],
+        )
         for r in rows
     }
     result = [by_id[mid] for mid in movie_ids if mid in by_id]
-    log.debug("fetch_movies_dto", extra={"requested": len(movie_ids), "returned": len(result)})
+    log.debug("fetch_movie_details", extra={"requested": len(movie_ids), "returned": len(result)})
     return result
 
 

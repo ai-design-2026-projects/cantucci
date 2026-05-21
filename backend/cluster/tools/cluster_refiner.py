@@ -1,6 +1,10 @@
 import logging
 from pathlib import Path
+from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
+
+if TYPE_CHECKING:
+    from backend.repository.movies.types import MovieRow
 
 from backend.cluster.domain import ClusterAssignment
 from backend.repository.sessions import ClusterRow
@@ -216,7 +220,7 @@ async def refine(
     return snapshots
 
 
-def _overview_snippet(meta_by_id: dict, movie_id: int) -> str:
+def _overview_snippet(meta_by_id: dict[int, "MovieRow"], movie_id: int) -> str:
     """Return a truncated overview for *movie_id* suitable for prompt rendering."""
     meta = meta_by_id.get(movie_id)
     if meta is None or not meta.overview:

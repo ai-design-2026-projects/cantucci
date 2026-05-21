@@ -159,10 +159,25 @@ class Orchestrator:
         Returns:
             A ``MovieDto`` or ``None`` when the id is unknown.
         """
-        rows = api_movies.fetch_movies_dto([movie_id])
+        rows = api_movies.fetch_movie_details([movie_id])
         if not rows:
             return None
-        return MovieDto(**rows[0])
+        row = rows[0]
+        return MovieDto(
+            id=row.id,
+            title=row.title,
+            release_year=row.release_year,
+            runtime=row.runtime,
+            vote_average=row.vote_average,
+            vote_count=row.vote_count,
+            bayesian_rating=row.bayesian_rating,
+            overview=row.overview,
+            poster_url=row.poster_url,
+            genres=row.genres,
+            director=row.director,
+            top_cast=row.top_cast,
+            original_language=row.original_language,
+        )
 
     def get_session(self, session_id: UUID) -> SessionDto:
         """Return full session state including all turns from the DB.
