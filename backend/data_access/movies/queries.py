@@ -201,6 +201,8 @@ def fetch_movie_details(movie_ids: list[int]) -> list[MovieDetailsRow]:
                 m.poster_path,
                 m.original_language,
                 m.trailer_youtube_key,
+                m.umap_x,
+                m.umap_y,
                 COALESCE(
                     ARRAY_AGG(DISTINCT g.name ORDER BY g.name)
                         FILTER (WHERE g.name IS NOT NULL),
@@ -234,3 +236,20 @@ def fetch_movie_details(movie_ids: list[int]) -> list[MovieDetailsRow]:
     result = [by_id[mid] for mid in movie_ids if mid in by_id]
     log.debug("fetch_movie_details", extra={"requested": len(movie_ids), "returned": len(result)})
     return result
+
+
+def get_movies_by_ids(ids: list[int]) -> list[MovieDetailsRow]:
+    """Return full movie details for a batch of IDs in a single query.
+
+    Silently omits IDs not present in the catalogue. The returned list order
+    mirrors the input *ids* order; unknown IDs are dropped without error.
+
+    Args:
+        ids: Up to 200 TMDB integer IDs to look up.
+
+    Returns:
+        List of ``MovieDetailsRow`` in the same order as *ids*, with missing IDs dropped.
+    """
+    if not ids:
+        return []
+    return fetch_movie_details(ids)

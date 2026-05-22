@@ -1,0 +1,29 @@
+import { GitBranch } from 'lucide-react'
+import { Button } from '@/components/ui/button'
+
+interface EvolutionMapButtonProps {
+  onClick: () => void
+  disabled?: boolean
+}
+
+/**
+ * Button that opens the cluster snapshot evolution map modal.
+ *
+ * @param onClick   - Handler to open the evolution map dialog.
+ * @param disabled  - Disables the button when no conversation is active.
+ * @returns Ghost icon button with label.
+ */
+export function EvolutionMapButton({ onClick, disabled }: EvolutionMapButtonProps) {
+  return (
+    <Button
+      variant="ghost"
+      size="sm"
+      onClick={onClick}
+      disabled={disabled}
+      className="gap-1.5"
+    >
+      <GitBranch className="h-4 w-4" />
+      <span className="hidden sm:inline text-xs">Evolution</span>
+    </Button>
+  )
+}

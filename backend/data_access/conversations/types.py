@@ -4,6 +4,32 @@ from datetime import datetime
 
 
 @dataclass(frozen=True, slots=True)
+class ConversationSummaryRow:
+    """A lightweight conversation summary for listing purposes.
+
+    Attributes:
+        id:                          Conversation UUID.
+        current_cluster_snapshot_id: UUID of the currently active cluster snapshot, or None.
+        created_at:                  UTC creation timestamp.
+        preview:                     First user message content truncated to 80 chars, or None.
+    """
+    id: uuid.UUID
+    current_cluster_snapshot_id: uuid.UUID | None
+    created_at: datetime
+    preview: str | None
+
+    @classmethod
+    def from_row(cls, r: dict) -> "ConversationSummaryRow":
+        """Construct from a psycopg dict_row result of the list_conversations_for_user query."""
+        return cls(
+            id=r["id"],
+            current_cluster_snapshot_id=r["current_cluster_snapshot_id"],
+            created_at=r["created_at"],
+            preview=r["preview"],
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class ConversationRow:
     """A row from the conversations table.
 

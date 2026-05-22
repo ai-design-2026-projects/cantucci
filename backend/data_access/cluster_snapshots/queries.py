@@ -387,6 +387,56 @@ def create_root_snapshot_from_assignments(
     return snapshot_id
 
 
+def count_snapshot_children(snapshot_id: uuid.UUID) -> int:
+    """Return the number of cluster snapshots that reference *snapshot_id* as their parent.
+
+    Args:
+        snapshot_id: Cluster snapshot UUID to check.
+
+    Returns:
+        Count of child snapshots (0 if leaf).
+    """
+    with transaction() as conn:
+        row = conn.execute(
+            "SELECT COUNT(*) AS n FROM cluster_snapshots WHERE parent_id = %s",
+            (snapshot_id,),
+        ).fetchone()
+    return int(row["n"])
+
+
+def delete_cluster_snapshot(snapshot_id: uuid.UUID) -> None:
+    """Hard-delete a leaf cluster snapshot.
+
+    Updates any conversation whose ``current_cluster_snapshot_id`` points to
+    the deleted snapshot to point at the snapshot's parent instead (or NULL for
+    root snapshots). Cascade FK constraints remove ``clusters``,
+    ``cluster_memberships``, and ``conversation_snapshot_refs`` rows automatically
+    (defined in migrations 006 and 009).
+
+    Callers must verify the snapshot has no children before calling (e.g. via
+    ``count_snapshot_children``), since child snapshots reference this ID as
+    their ``parent_id``.
+
+    Args:
+        snapshot_id: Cluster snapshot UUID to delete.
+    """
+    with transaction() as conn:
+        parent_row = conn.execute(
+            "SELECT parent_id FROM cluster_snapshots WHERE id = %s",
+            (snapshot_id,),
+        ).fetchone()
+        if parent_row is not None:
+            conn.execute(
+                "UPDATE conversations SET current_cluster_snapshot_id = %s WHERE current_cluster_snapshot_id = %s",
+                (parent_row["parent_id"], snapshot_id),
+            )
+        conn.execute(
+            "DELETE FROM cluster_snapshots WHERE id = %s",
+            (snapshot_id,),
+        )
+    log.info("cluster_snapshot_deleted", extra={"snapshot_id": str(snapshot_id)})
+
+
 def get_memberships(cluster_id: uuid.UUID) -> list[ClusterMembershipRow]:
     """Return all membership rows for a cluster.
 

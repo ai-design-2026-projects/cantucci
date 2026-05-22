@@ -1,20 +1,23 @@
 import logging
 import uuid
 from typing import Annotated
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 
 from backend.agents.coordinator import Coordinator
 from backend.auth.types import User
 from backend.data_access.conversations.queries import (
     append_message,
     create_conversation,
+    delete_conversation,
     get_conversation,
     get_messages,
+    list_conversations_for_user,
 )
-from backend.exceptions import ConversationNotFound
+from backend.exceptions import ConversationNotFound, NotConversationOwner
 from backend.routers.auth_deps import get_current_user
 from backend.routers.dto.conversations.dtos import (
     ConversationDto,
+    ConversationSummaryDto,
     MessageDto,
     SendMessageRequest,
     SendMessageResponse,
@@ -24,6 +27,62 @@ from backend.settings import get_config_snapshot
 log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/conversations", tags=["conversations"])
+
+
+@router.get("", response_model=list[ConversationSummaryDto])
+def list_conversations_endpoint(
+    user: Annotated[User | None, Depends(get_current_user)],
+) -> list[ConversationSummaryDto]:
+    """Return all conversations owned by the authenticated user, newest first.
+
+    Args:
+        user: Authenticated user. Anonymous callers receive 401.
+
+    Returns:
+        List of ``ConversationSummaryDto`` ordered by creation time descending.
+
+    Raises:
+        HTTPException(401): If the request is anonymous.
+    """
+    if user is None:
+        raise HTTPException(status_code=401, detail="Authentication required.")
+    rows = list_conversations_for_user(user.id)
+    return [
+        ConversationSummaryDto(
+            id=r.id,
+            current_cluster_snapshot_id=r.current_cluster_snapshot_id,
+            created_at=r.created_at,
+            preview=r.preview,
+        )
+        for r in rows
+    ]
+
+
+@router.delete("/{conversation_id}", status_code=204)
+def delete_conversation_endpoint(
+    conversation_id: uuid.UUID,
+    user: Annotated[User | None, Depends(get_current_user)],
+) -> None:
+    """Delete a conversation owned by the authenticated user.
+
+    Args:
+        conversation_id: Conversation UUID to delete.
+        user:            Authenticated user. Anonymous callers receive 401.
+
+    Raises:
+        HTTPException(401):      If the request is anonymous.
+        ConversationNotFound:    If the conversation does not exist.
+        NotConversationOwner:    If the authenticated user does not own the conversation.
+    """
+    if user is None:
+        raise HTTPException(status_code=401, detail="Authentication required.")
+    row = get_conversation(conversation_id)
+    if row is None:
+        raise ConversationNotFound(conversation_id)
+    if row.user_id != user.id:
+        raise NotConversationOwner(conversation_id)
+    delete_conversation(conversation_id)
+    log.info("conversation_deleted_by_user", extra={"conversation_id": str(conversation_id), "user_id": str(user.id)})
 
 
 @router.post("", response_model=ConversationDto, status_code=201)

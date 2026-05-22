@@ -1,15 +1,19 @@
 import logging
 import uuid
-from typing import Any
+from typing import Annotated, Any
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends, HTTPException
 
+from backend.auth.types import User
 from backend.data_access.cluster_snapshots.queries import (
+    count_snapshot_children,
+    delete_cluster_snapshot,
     get_cluster_snapshot_with_clusters,
     get_conversation_cluster_snapshots,
     get_memberships,
 )
-from backend.exceptions import ClusterSnapshotNotFound
+from backend.exceptions import ClusterSnapshotNotFound, SnapshotHasChildren
+from backend.routers.auth_deps import get_current_user
 from backend.routers.dto.cluster_snapshots.dtos import ClusterDto, ClusterSnapshotDto, ClusterSnapshotGraphDto
 
 log = logging.getLogger(__name__)
@@ -58,6 +62,38 @@ def get_cluster_snapshot_endpoint(cluster_snapshot_id: uuid.UUID) -> ClusterSnap
         clusters=cluster_dtos,
         created_at=s.created_at,
     )
+
+
+@router.delete("/cluster-snapshots/{cluster_snapshot_id}", status_code=204)
+def delete_cluster_snapshot_endpoint(
+    cluster_snapshot_id: uuid.UUID,
+    user: Annotated[User | None, Depends(get_current_user)],
+) -> None:
+    """Delete a leaf cluster snapshot.
+
+    The snapshot must have no child snapshots referencing it as a parent.
+    Conversations currently pointing to the deleted snapshot are updated to
+    point at its parent (or NULL for root snapshots).
+
+    Args:
+        cluster_snapshot_id: Cluster snapshot UUID to delete.
+        user:                Authenticated user. Anonymous callers receive 401.
+
+    Raises:
+        HTTPException(401):       If the request is anonymous.
+        ClusterSnapshotNotFound:  If the snapshot does not exist.
+        SnapshotHasChildren:      If the snapshot still has child snapshots.
+    """
+    if user is None:
+        raise HTTPException(status_code=401, detail="Authentication required.")
+    result = get_cluster_snapshot_with_clusters(cluster_snapshot_id)
+    if result is None:
+        raise ClusterSnapshotNotFound(cluster_snapshot_id)
+    n_children = count_snapshot_children(cluster_snapshot_id)
+    if n_children > 0:
+        raise SnapshotHasChildren(cluster_snapshot_id)
+    delete_cluster_snapshot(cluster_snapshot_id)
+    log.info("cluster_snapshot_deleted", extra={"snapshot_id": str(cluster_snapshot_id), "user_id": str(user.id)})
 
 
 @router.get("/conversations/{conversation_id}/cluster-snapshots", response_model=ClusterSnapshotGraphDto)

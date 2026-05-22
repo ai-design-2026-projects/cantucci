@@ -79,6 +79,40 @@ class ConceptParseError(ParseError):
         super().__init__(f"Could not parse concept: {raw!r}")
 
 
+class ForbiddenError(DomainError):
+    """Base for authorization failures (authenticated but not permitted). Maps to HTTP 403."""
+    http_status: int = 403
+
+
+class ConflictError(DomainError):
+    """Base for conflict failures (state precondition not met). Maps to HTTP 409."""
+    http_status: int = 409
+
+
+class NotConversationOwner(ForbiddenError):
+    """Raised when an authenticated user attempts to modify a conversation they do not own.
+
+    Attributes:
+        conversation_id: The conversation UUID that was accessed without permission.
+    """
+
+    def __init__(self, conversation_id: UUID) -> None:
+        self.conversation_id = conversation_id
+        super().__init__(f"Not authorized to modify conversation {conversation_id}")
+
+
+class SnapshotHasChildren(ConflictError):
+    """Raised when a cluster snapshot cannot be deleted because child snapshots reference it.
+
+    Attributes:
+        cluster_snapshot_id: The snapshot UUID that still has children.
+    """
+
+    def __init__(self, cluster_snapshot_id: UUID) -> None:
+        self.cluster_snapshot_id = cluster_snapshot_id
+        super().__init__(f"Cluster snapshot {cluster_snapshot_id} has child snapshots and cannot be deleted")
+
+
 class TokenExpired(AuthError):
     """Raised when a JWT has passed its ``exp`` claim."""
 

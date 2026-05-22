@@ -3,7 +3,7 @@ import uuid
 from typing import Any
 
 from backend.data_access.connection import transaction
-from backend.data_access.conversations.types import ConversationRow, MessageRow
+from backend.data_access.conversations.types import ConversationRow, ConversationSummaryRow, MessageRow
 
 log = logging.getLogger(__name__)
 
@@ -113,6 +113,61 @@ def append_message(
             (conversation_id, role, content),
         ).fetchone()
     return row["id"]
+
+
+def list_conversations_for_user(user_id: uuid.UUID) -> list[ConversationSummaryRow]:
+    """Return all conversations owned by *user_id*, newest first, with a preview snippet.
+
+    The preview is the first user message truncated to 80 characters, or None
+    if the conversation has no messages yet.
+
+    Args:
+        user_id: Owner user UUID.
+
+    Returns:
+        List of ``ConversationSummaryRow`` ordered by ``created_at`` descending.
+    """
+    with transaction() as conn:
+        rows = conn.execute(
+            """
+            SELECT
+                c.id,
+                c.current_cluster_snapshot_id,
+                c.created_at,
+                LEFT(first_msg.content, 80) AS preview
+            FROM conversations c
+            LEFT JOIN LATERAL (
+                SELECT content
+                FROM messages
+                WHERE conversation_id = c.id AND role = 'user'
+                ORDER BY created_at ASC
+                LIMIT 1
+            ) AS first_msg ON true
+            WHERE c.user_id = %s
+            ORDER BY c.created_at DESC
+            """,
+            (user_id,),
+        ).fetchall()
+    result = [ConversationSummaryRow.from_row(r) for r in rows]
+    log.debug("list_conversations_for_user", extra={"user_id": str(user_id), "returned": len(result)})
+    return result
+
+
+def delete_conversation(conversation_id: uuid.UUID) -> None:
+    """Hard-delete a conversation and its cascade dependents.
+
+    Cascade FK constraints remove ``messages`` and ``conversation_snapshot_refs``
+    rows automatically (defined in migrations 005 and 009).
+
+    Args:
+        conversation_id: Conversation UUID to delete.
+    """
+    with transaction() as conn:
+        conn.execute(
+            "DELETE FROM conversations WHERE id = %s",
+            (conversation_id,),
+        )
+    log.info("conversation_deleted", extra={"conversation_id": str(conversation_id)})
 
 
 def get_messages(conversation_id: uuid.UUID, limit: int = 20) -> list[MessageRow]:

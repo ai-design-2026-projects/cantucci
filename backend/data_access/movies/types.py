@@ -109,6 +109,8 @@ class MovieDetailsRow:
         director:            Director name, or None.
         top_cast:            Up to 3 leading cast names.
         trailer_youtube_key: YouTube video key for the official trailer, or None.
+        umap_x:              UMAP 2D projection x-coordinate, or None if not yet computed.
+        umap_y:              UMAP 2D projection y-coordinate, or None if not yet computed.
     """
     id: int
     title: str
@@ -124,6 +126,8 @@ class MovieDetailsRow:
     director: str | None
     top_cast: list[str]
     trailer_youtube_key: str | None
+    umap_x: float | None
+    umap_y: float | None
 
     @classmethod
     def from_row(cls, r: dict) -> "MovieDetailsRow":
@@ -143,4 +147,6 @@ class MovieDetailsRow:
             director=r["director"],
             top_cast=list(r["top_cast"]) if r["top_cast"] else [],
             trailer_youtube_key=r["trailer_youtube_key"],
+            umap_x=r["umap_x"],
+            umap_y=r["umap_y"],
         )
