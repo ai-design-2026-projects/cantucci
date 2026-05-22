@@ -15,7 +15,10 @@ def _ydl_opts(
     cookiefile: str | None = None,
     cookies_from_browser: str | None = None,
 ) -> dict:
-    """yt-dlp options favouring a small, single-file mp4.
+    """yt-dlp options targeting the smallest video-bearing format available.
+
+    Uses ``wv*`` (worstvideo*), which matches any format with a video track
+    regardless of audio presence. Audio is irrelevant — only frames are used.
 
     Args:
         outdir:               Directory to write the downloaded file.
@@ -24,7 +27,12 @@ def _ydl_opts(
                               ``"firefox"``). Ignored when *cookiefile* is set.
     """
     opts: dict = {
-        "format": "worstvideo[height>=360][ext=mp4]/worst[ext=mp4]/worst",
+        "format": "wv*[height>=240][ext=mp4]/wv*[ext=mp4]/wv*/best",
+        "extractor_args": {
+            "youtube": {
+                "player_client": ["tv", "mweb", "web_safari", "web"],
+            },
+        },
         "outtmpl": str(outdir / "%(id)s.%(ext)s"),
         "quiet": True,
         "no_warnings": True,
