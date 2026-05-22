@@ -13,9 +13,9 @@ sidesteps the issue entirely.
 
 Usage:
     export TMDB_API_KEY=...
-    python -m dataset.scrape --limit 500 --concurrency 5           # local smoke
-    python -m dataset.scrape                                       # full local run, no upload
-    python -m dataset.scrape --upload                              # full local run + push to HF
+    python -m dataset.scrape.scraper --limit 500 --concurrency 5   # local smoke
+    python -m dataset.scrape.scraper                               # full local run, no upload
+    python -m dataset.scrape.scraper --upload                      # full local run + push to HF
 
 Re-runs of the same command resume from ``data/local_scrape/tmdb_raw.jsonl``,
 so a crash mid-run loses at most the in-flight requests.
@@ -23,7 +23,6 @@ so a crash mid-run loses at most the in-flight requests.
 import argparse
 import json
 import logging
-import os
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
@@ -34,7 +33,7 @@ import httpx
 from tqdm.auto import tqdm
 
 from backend.logging_setup import configure_logging
-from backend.settings import get_settings
+from backend.settings import get_env, get_settings
 from dataset.io import upload
 from dataset.scrape import tmdb_fetch
 from dataset.scrape import clean
@@ -42,8 +41,8 @@ from dataset.scrape import clean
 log = logging.getLogger(__name__)
 
 _DEFAULT_CONCURRENCY = 8
-_DEFAULT_MIN_VOTE_COUNT = 5
-_DEFAULT_MIN_POPULARITY = 0.4
+_DEFAULT_MIN_VOTE_COUNT = 10
+_DEFAULT_MIN_POPULARITY = 5
 _DEFAULT_OUTPUT_DIR = Path("data/local_scrape")
 
 
@@ -128,7 +127,7 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--min-popularity", type=float, default=_DEFAULT_MIN_POPULARITY,
                    help="Pre-filter on the export's popularity field before fetching.")
     p.add_argument("--output-dir", type=Path, default=_DEFAULT_OUTPUT_DIR)
-    p.add_argument("--api-key", default=os.environ.get("TMDB_API_KEY"),
+    p.add_argument("--api-key", default=get_env().tmdb_api_key or None,
                    help="TMDB v3 API key (falls back to TMDB_API_KEY env var).")
     p.add_argument("--upload", action="store_true",
                    help="Upload the final parquet to the HF dataset repo under snapshots/.")
@@ -142,43 +141,47 @@ def _parse_args() -> argparse.Namespace:
 def main() -> None:
     """CLI entry point — see module docstring."""
     configure_logging()
-    # Per-request httpx INFO logs spam one line per movie; quiet them so the
-    # tqdm bar stays readable. Our own __main__ INFO + the WARNING on 429
-    # still come through.
     logging.getLogger("httpx").setLevel(logging.WARNING)
 
+    # If no API key for TMDB is provided, abort immediately
     args = _parse_args()
     if not args.api_key:
         raise SystemExit("TMDB API key required: set TMDB_API_KEY or pass --api-key")
 
+    # Paths for the raw JSONL export and the cleaned parquet snapshot
     jsonl_path = args.output_dir / "tmdb_raw.jsonl"
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d")
     parquet_path = args.output_dir / f"snapshot_{stamp}.parquet"
 
+    # Fetch the TMDB id export, filter it down to our candidates
     export = tmdb_fetch.download_id_export()
     candidate_ids = tmdb_fetch.filter_export(export, min_popularity=args.min_popularity)
     if args.limit is not None:
         candidate_ids = candidate_ids[: args.limit]
 
-    already = _already_fetched(jsonl_path)
-    to_fetch = [mid for mid in candidate_ids if mid not in already]
+    # Subract the ids we've already fetched and persisted in the JSONL file
+    already_fetched = _already_fetched(jsonl_path)
+    to_fetch = [movie_id for movie_id in candidate_ids if movie_id not in already_fetched]
     log.info(
         "scrape plan",
         extra={
             "candidates": len(candidate_ids),
-            "already_fetched": len(already),
+            "already_fetched": len(already_fetched),
             "to_fetch": len(to_fetch),
         },
     )
-
+    
+    # Fetch the missing ids and append them to the JSONL file as we go
     if to_fetch:
         wrote = _scrape(args.api_key, to_fetch, jsonl_path, args.concurrency)
         log.info("scrape complete", extra={"appended": wrote})
 
+    # Validate that we have some records to build a parquet from, otherwise abort instantly
     raw_records = _read_jsonl(jsonl_path)
     if not raw_records:
         raise SystemExit("no records on disk to build a parquet from")
 
+    # For each movie record, fetch the reviews text
     fetched_reviews: dict[int, str] = {}
     if not args.skip_reviews:
         movie_ids = [int(r["id"]) for r in raw_records]
@@ -192,6 +195,7 @@ def main() -> None:
             extra={"with_reviews": len(fetched_reviews), "total": len(movie_ids)},
         )
 
+    # Build the cleaned-schema dataframe, applying the vote_count filter, and write it out as parquet
     df = clean.build_dataframe(raw_records, reviews=fetched_reviews or None)
     before = len(df)
     df = df[df["vote_count"].fillna(0) >= args.min_vote_count].reset_index(drop=True)

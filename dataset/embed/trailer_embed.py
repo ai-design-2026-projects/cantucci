@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 
 import numpy as np
+from tqdm.auto import tqdm
 
 from backend.settings import get_settings
 from core.image_encoder import encode_images
@@ -53,27 +54,32 @@ def encode_trailers(
     n_done = 0
     n_skipped = 0
     n_failed = 0
-    for i, (movie_id, key) in enumerate(movie_keys):
-        if not key:
-            n_skipped += 1
-            continue
-        try:
-            vec = _encode_one(key, n_frames=n_frames, batch_size=batch_size)
-        except Exception as exc:
-            log.warning(
-                "trailer_encode_failed",
-                extra={"movie_id": movie_id, "youtube_key": key, "error": str(exc)},
-            )
-            n_failed += 1
-            continue
-        if vec.shape != (dim,):
-            raise RuntimeError(
-                f"CLIP output dim {vec.shape[0]} does not match configured "
-                f"embedding_dim {dim}. Pick a CLIP backbone whose native output "
-                f"matches configs/default.yaml:representation.embedding_dim."
-            )
-        out[i] = vec
-        n_done += 1
+    with tqdm(total=len(movie_keys), desc="trailer embed", unit="movie") as bar:
+        for i, (movie_id, key) in enumerate(movie_keys):
+            if not key:
+                n_skipped += 1
+                bar.update(1)
+                continue
+            try:
+                vec = _encode_one(key, n_frames=n_frames, batch_size=batch_size)
+            except Exception as exc:
+                log.warning(
+                    "trailer_encode_failed",
+                    extra={"movie_id": movie_id, "youtube_key": key, "error": str(exc)},
+                )
+                n_failed += 1
+                bar.update(1)
+                continue
+            if vec.shape != (dim,):
+                raise RuntimeError(
+                    f"CLIP output dim {vec.shape[0]} does not match configured "
+                    f"embedding_dim {dim}. Pick a CLIP backbone whose native output "
+                    f"matches configs/default.yaml:representation.embedding_dim."
+                )
+            out[i] = vec
+            n_done += 1
+            bar.set_postfix(ok=n_done, skip=n_skipped, fail=n_failed)
+            bar.update(1)
 
     log.info(
         "encode_trailers_complete",

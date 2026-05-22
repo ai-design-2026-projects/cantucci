@@ -16,6 +16,7 @@ _TMDB_API_BASE = "https://api.themoviedb.org/3"
 _TMDB_EXPORTS_BASE = "http://files.tmdb.org/p/exports"
 _REQUEST_TIMEOUT = 30.0
 _RETRY_429_SLEEP = 10.0
+_RETRY_TIMEOUT_SLEEP = 2.0
 _MAX_429_RETRIES = 3
 
 _TOP_K_REVIEWS = 10
@@ -48,7 +49,18 @@ def _tmdb_get(
     """
     url = f"{_TMDB_API_BASE}/{path}"
     for attempt in range(_MAX_429_RETRIES + 1):
-        resp = client.get(url, params=params, timeout=_REQUEST_TIMEOUT)
+        try:
+            resp = client.get(url, params=params, timeout=_REQUEST_TIMEOUT)
+        except httpx.TimeoutException:
+            if attempt >= _MAX_429_RETRIES:
+                raise
+            sleep = _RETRY_TIMEOUT_SLEEP * (2 ** attempt)
+            log.warning(
+                "TMDB request timed out, retrying",
+                extra={"path": path, "attempt": attempt, "sleep_for": sleep},
+            )
+            time.sleep(sleep)
+            continue
         if resp.status_code == 404:
             return None
         if resp.status_code == 429:
