@@ -130,84 +130,6 @@ wheels = [
 ]
 
 [[package]]
-name = "cantucci"
-version = "0.1.0"
-source = { virtual = "." }
-dependencies = [
-    { name = "bcrypt" },
-    { name = "fastapi" },
-    { name = "hdbscan" },
-    { name = "httpx" },
-    { name = "jinja2" },
-    { name = "numpy" },
-    { name = "openai" },
-    { name = "pgvector" },
-    { name = "psycopg", extra = ["binary", "pool"] },
-    { name = "pydantic", extra = ["email"] },
-    { name = "pydantic-settings" },
-    { name = "pyjwt" },
-    { name = "pyyaml" },
-    { name = "umap-learn" },
-    { name = "uvicorn", extra = ["standard"] },
-]
-
-[package.optional-dependencies]
-dataset = [
-    { name = "huggingface-hub" },
-    { name = "open-clip-torch" },
-    { name = "pandas" },
-    { name = "pillow" },
-    { name = "pyarrow" },
-    { name = "sentence-transformers" },
-    { name = "tqdm" },
-    { name = "yt-dlp" },
-]
-test = [
-    { name = "pytest" },
-    { name = "pytest-asyncio" },
-    { name = "testcontainers" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "ipykernel" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "bcrypt", specifier = ">=4.0" },
-    { name = "fastapi", specifier = ">=0.115" },
-    { name = "hdbscan", specifier = ">=0.8.40" },
-    { name = "httpx", specifier = ">=0.28" },
-    { name = "huggingface-hub", marker = "extra == 'dataset'", specifier = ">=0.23,<0.27" },
-    { name = "jinja2", specifier = ">=3.1" },
-    { name = "numpy", specifier = ">=1.26" },
-    { name = "open-clip-torch", marker = "extra == 'dataset'", specifier = ">=2.24" },
-    { name = "openai", specifier = ">=1.0" },
-    { name = "pandas", marker = "extra == 'dataset'", specifier = ">=2.2" },
-    { name = "pgvector", specifier = ">=0.3.6" },
-    { name = "pillow", marker = "extra == 'dataset'", specifier = ">=10" },
-    { name = "psycopg", extras = ["binary", "pool"], specifier = ">=3.2.0" },
-    { name = "pyarrow", marker = "extra == 'dataset'", specifier = ">=16" },
-    { name = "pydantic", extras = ["email"], specifier = ">=2.0" },
-    { name = "pydantic-settings", specifier = ">=2.0" },
-    { name = "pyjwt", specifier = ">=2.9" },
-    { name = "pytest", marker = "extra == 'test'", specifier = ">=9.0" },
-    { name = "pytest-asyncio", marker = "extra == 'test'", specifier = ">=1.0" },
-    { name = "pyyaml", specifier = ">=6.0" },
-    { name = "sentence-transformers", marker = "extra == 'dataset'", specifier = ">=2.7" },
-    { name = "testcontainers", extras = ["postgres"], marker = "extra == 'test'", specifier = ">=4.0.0" },
-    { name = "tqdm", marker = "extra == 'dataset'", specifier = ">=4" },
-    { name = "umap-learn", specifier = ">=0.5.6" },
-    { name = "uvicorn", extras = ["standard"], specifier = ">=0.30" },
-    { name = "yt-dlp", marker = "extra == 'dataset'", specifier = ">=2024.10" },
-]
-provides-extras = ["test", "dataset"]
-
-[package.metadata.requires-dev]
-dev = [{ name = "ipykernel", specifier = ">=7" }]
-
-[[package]]
 name = "certifi"
 version = "2026.5.20"
 source = { registry = "https://pypi.org/simple" }
@@ -374,6 +296,84 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/de/32/d92444ad05c7a6e41fb2036749777c163baf7a0301a040cb672d6b2b1ae9/charset_normalizer-3.4.7-cp314-cp314t-win_arm64.whl", hash = "sha256:c35abb8bfff0185efac5878da64c45dafd2b37fb0383add1be155a763c1f083d", size = 153018, upload-time = "2026-04-02T09:27:51.116Z" },
     { url = "https://files.pythonhosted.org/packages/db/8f/61959034484a4a7c527811f4721e75d02d653a35afb0b6054474d8185d4c/charset_normalizer-3.4.7-py3-none-any.whl", hash = "sha256:3dce51d0f5e7951f8bb4900c257dad282f49190fdbebecd4ba99bcc41fef404d", size = 61958, upload-time = "2026-04-02T09:28:37.794Z" },
 ]
+
+[[package]]
+name = "cinepal"
+version = "0.1.0"
+source = { virtual = "." }
+dependencies = [
+    { name = "bcrypt" },
+    { name = "fastapi" },
+    { name = "hdbscan" },
+    { name = "httpx" },
+    { name = "jinja2" },
+    { name = "numpy" },
+    { name = "openai" },
+    { name = "pgvector" },
+    { name = "psycopg", extra = ["binary", "pool"] },
+    { name = "pydantic", extra = ["email"] },
+    { name = "pydantic-settings" },
+    { name = "pyjwt" },
+    { name = "pyyaml" },
+    { name = "umap-learn" },
+    { name = "uvicorn", extra = ["standard"] },
+]
+
+[package.optional-dependencies]
+dataset = [
+    { name = "huggingface-hub" },
+    { name = "open-clip-torch" },
+    { name = "pandas" },
+    { name = "pillow" },
+    { name = "pyarrow" },
+    { name = "sentence-transformers" },
+    { name = "tqdm" },
+    { name = "yt-dlp" },
+]
+test = [
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+    { name = "testcontainers" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "ipykernel" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "bcrypt", specifier = ">=4.0" },
+    { name = "fastapi", specifier = ">=0.115" },
+    { name = "hdbscan", specifier = ">=0.8.40" },
+    { name = "httpx", specifier = ">=0.28" },
+    { name = "huggingface-hub", marker = "extra == 'dataset'", specifier = ">=0.23,<0.27" },
+    { name = "jinja2", specifier = ">=3.1" },
+    { name = "numpy", specifier = ">=1.26" },
+    { name = "open-clip-torch", marker = "extra == 'dataset'", specifier = ">=2.24" },
+    { name = "openai", specifier = ">=1.0" },
+    { name = "pandas", marker = "extra == 'dataset'", specifier = ">=2.2" },
+    { name = "pgvector", specifier = ">=0.3.6" },
+    { name = "pillow", marker = "extra == 'dataset'", specifier = ">=10" },
+    { name = "psycopg", extras = ["binary", "pool"], specifier = ">=3.2.0" },
+    { name = "pyarrow", marker = "extra == 'dataset'", specifier = ">=16" },
+    { name = "pydantic", extras = ["email"], specifier = ">=2.0" },
+    { name = "pydantic-settings", specifier = ">=2.0" },
+    { name = "pyjwt", specifier = ">=2.9" },
+    { name = "pytest", marker = "extra == 'test'", specifier = ">=9.0" },
+    { name = "pytest-asyncio", marker = "extra == 'test'", specifier = ">=1.0" },
+    { name = "pyyaml", specifier = ">=6.0" },
+    { name = "sentence-transformers", marker = "extra == 'dataset'", specifier = ">=2.7" },
+    { name = "testcontainers", extras = ["postgres"], marker = "extra == 'test'", specifier = ">=4.0.0" },
+    { name = "tqdm", marker = "extra == 'dataset'", specifier = ">=4" },
+    { name = "umap-learn", specifier = ">=0.5.6" },
+    { name = "uvicorn", extras = ["standard"], specifier = ">=0.30" },
+    { name = "yt-dlp", marker = "extra == 'dataset'", specifier = ">=2024.10" },
+]
+provides-extras = ["test", "dataset"]
+
+[package.metadata.requires-dev]
+dev = [{ name = "ipykernel", specifier = ">=7" }]
 
 [[package]]
 name = "click"

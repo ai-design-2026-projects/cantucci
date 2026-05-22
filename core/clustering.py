@@ -1,6 +1,5 @@
 import logging
 from dataclasses import dataclass
-
 import numpy as np
 
 log = logging.getLogger(__name__)
@@ -8,8 +7,8 @@ log = logging.getLogger(__name__)
 
 @dataclass
 class SoftClusterResult:
-    """Output of HDBSCAN soft clustering.
-
+    """
+    Output of HDBSCAN soft clustering.
     Attributes:
         labels:       Hard cluster label per point (−1 = noise before soft assignment).
         probabilities: Soft membership matrix of shape (n_points, n_clusters).
@@ -28,24 +27,19 @@ def hdbscan_soft(
     cluster_selection_method: str = "eom",
     cluster_selection_epsilon: float = 0.0,
 ) -> SoftClusterResult:
-    """Run HDBSCAN with soft membership vectors on L2-normalized embeddings.
-
-    Uses euclidean metric on L2-normalized vectors, which is cosine-equivalent
-    for unit-norm inputs, while avoiding HDBSCAN's precomputed-cosine overhead.
-
+    """
+    Run HDBSCAN with soft membership vectors on L2-normalized embeddings.
+    
     Noise points (label −1) have their soft membership spread across nearest
     clusters via ``hdbscan.all_points_membership_vectors``.
-
     Args:
         embeddings:               Float32 array of shape (n, 1024), L2-normalized.
         min_cluster_size:         HDBSCAN minimum cluster size.
         min_samples:              HDBSCAN min_samples (noise tolerance).
         cluster_selection_method: ``"eom"`` or ``"leaf"``.
         cluster_selection_epsilon: Distance threshold for cluster merging.
-
     Returns:
         ``SoftClusterResult`` with labels, soft probability matrix, and cluster count.
-
     Raises:
         ValueError: If embeddings array is empty.
         RuntimeError: If HDBSCAN finds zero clusters (all noise).

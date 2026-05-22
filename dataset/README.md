@@ -6,17 +6,19 @@ This directory owns everything between raw TMDB data and the HuggingFace embeddi
 
 ## Two-stage pipeline
 
-The pipeline is split across two machines because TMDB throttles per IP and Colab's shared egress makes sustained scraping unreliable.
+The pipeline is split across two machines for two main reasons:
+1) The embedding stage is GPU-accelerated and can be sped up by using a Colab T4 instance;
+2) TMDB throttles requests per IP and Colab's shared egress makes sustained scraping unreliable.
 
-### Stage 1 — local scrape (`dataset.scrape`)
+### Stage 1 — local scrape (`dataset/scrape/scraper.py`)
 
 Run on your machine with `TMDB_API_KEY` set in the environment.
 
-Pulls the TMDB daily ID export, drops adult titles and entries below `--min-popularity` (default `0.4`), then fetches `/movie/{id}?append_to_response=credits,keywords` for each surviving ID. After cleaning, rows with `vote_count < --min-vote-count` (default `5`) are dropped before the parquet is written.
+Pulls the TMDB daily ID export, drops adult titles and entries below `--min-popularity` (default `5`), then fetches `/movie/{id}?append_to_response=credits,keywords` for each surviving ID. After cleaning, rows with `vote_count < --min-vote-count` (default `10`) are dropped before the parquet is written.
 
 ```bash
-python -m dataset.scrape --limit 500 --concurrency 5   # smoke test first
-python -m dataset.scrape --upload                      # full run + push to HF snapshots/
+python -m dataset.scrape.scraper --limit 500 --concurrency 5   # smoke test first
+python -m dataset.scrape.scraper --upload                      # full run + push to HF snapshots/
 ```
 
 Writes raw JSONL to `data/local_scrape/tmdb_raw.jsonl` (resumes on restart) and a cleaned `snapshot_YYYYMMDD.parquet` to the same directory. With `--upload` the parquet is pushed to the HF dataset repo under `snapshots/`. Paste the printed path into `configs/default.yaml` under `ingestion.artifacts.snapshot`.
@@ -65,14 +67,3 @@ the live backend.
 | `embeddings/eval_holdout_YYYYMMDD.parquet` | Disjoint slice for evaluation (never written to DB) |
 
 All ingestion inserts are idempotent (upsert), so re-running with newer artifacts is safe.
-
----
-
-## Key env vars
-
-| Variable | Stage | Description |
-|---|---|---|
-| `TMDB_API_KEY` | Stage 1 | TMDB v3 read access token |
-| `CINEPAL_ARTIFACTS_REPO` | Both | HuggingFace dataset repo ID |
-| `HF_TOKEN` | Both | Only required for private HF repos |
-| `KAGGLE_USERNAME` / `KAGGLE_KEY` | Alternative | Local artifact generation via Kaggle; not the primary path |
