@@ -27,16 +27,17 @@ core/                  Shared primitives imported by both backend/ and dataset/:
                        text_encoder.py (sentence-transformers), image_encoder.py (open_clip),
                        fusion.py (fuse_batch), clustering.py (HDBSCAN soft-cluster)
 dataset/
-  scrape/              Stage-1 (local): TMDB fetch + clean → cleaned parquet
-  embed/               Stage-2 (Colab): split.py + trailer_fetch.py + trailer_embed.py
-                       (text/image encoders live in core/)
-  io/                  HF Hub fetch (fetch.py) and upload (upload.py)
-  postprocess/         Offline pipeline run at ingest: offline.py orchestrates UMAP
-                       on top of core.fusion + core.clustering
+  scraper.py           Stage-1 CLI entry point: TMDB scrape → cleaned parquet → HF snapshots/
+  fetch/               External-source fetchers: tmdb.py (TMDB API), trailer.py (yt-dlp/YouTube)
+  embed/               Vector encoders: trailer.py (frames → CLIP → mean-pool)
+                       (text/image encoder primitives live in core/)
+  transform/           DataFrame transformations: clean.py, split.py, offline.py
+                       (offline.py orchestrates UMAP on top of core.fusion + core.clustering)
+  hub/                 HF Hub I/O: fetch.py (download artifact), upload.py (push parquets)
 db/
   migrations/00X_*.sql Numbered SQL; apply.py runs them; never edit applied files
   apply.py             Migration runner (idempotent)
-  ingest.py            Stage-3 entry point (local): HF embedded parquet → Postgres → dataset.postprocess.offline
+  ingest.py            Stage-3 entry point (local): HF embedded parquet → Postgres → dataset.transform.offline
   utils/load.py        Low-level upsert helpers used by ingest.py
 demo/
   demo_record.sh       Record a live session to a JSONL manifest
@@ -61,8 +62,8 @@ uv run python -m db.apply              # apply migrations (idempotent)
 uv run python -m db.ingest             # fetch pre-built HF artifacts → ingest mini (dev default)
 uv run python -m db.ingest --set main  # ingest full ~40k set
 
-uv run python -m dataset.scrape --limit 500 --concurrency 5  # stage-1 smoke (local TMDB scrape)
-uv run python -m dataset.scrape --upload                     # stage-1 full run + push to HF snapshots/
+uv run python -m dataset.scraper --limit 500 --concurrency 5  # stage-1 smoke (local TMDB scrape)
+uv run python -m dataset.scraper --upload                     # stage-1 full run + push to HF snapshots/
 
 uv run uvicorn backend.app:app --reload   # API server; Swagger at /docs
 

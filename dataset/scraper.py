@@ -13,12 +13,9 @@ sidesteps the issue entirely.
 
 Usage:
     export TMDB_API_KEY=...
-    python -m dataset.scrape.scraper --limit 500 --concurrency 5   # local smoke
-    python -m dataset.scrape.scraper                               # full local run, no upload
-    python -m dataset.scrape.scraper --upload                      # full local run + push to HF
-
-Re-runs of the same command resume from ``data/local_scrape/tmdb_raw.jsonl``,
-so a crash mid-run loses at most the in-flight requests.
+    python -m dataset.scraper --limit 500 --concurrency 5   # local smoke
+    python -m dataset.scraper                               # full local run, no upload
+    python -m dataset.scraper --upload                      # full local run + push to HF
 """
 import argparse
 import json
@@ -34,9 +31,9 @@ from tqdm.auto import tqdm
 
 from backend.logging_setup import configure_logging
 from backend.settings import get_env, get_settings
-from dataset.io import upload
-from dataset.scrape import tmdb_fetch
-from dataset.scrape import clean
+from dataset.hub import upload
+from dataset.fetch import tmdb
+from dataset.transform import clean
 
 log = logging.getLogger(__name__)
 
@@ -89,7 +86,7 @@ def _scrape(
         ThreadPoolExecutor(max_workers=concurrency) as pool,
         tqdm(total=len(ids), desc="TMDB scrape", unit="movie") as bar,
     ):
-        futures = {pool.submit(tmdb_fetch.fetch_movie, client, api_key, mid): mid for mid in ids}
+        futures = {pool.submit(tmdb.fetch_movie, client, api_key, mid): mid for mid in ids}
         for fut in as_completed(futures):
             rec = fut.result()
             if rec is not None:
@@ -154,8 +151,8 @@ def main() -> None:
     parquet_path = args.output_dir / f"snapshot_{stamp}.parquet"
 
     # Fetch the TMDB id export, filter it down to our candidates
-    export = tmdb_fetch.download_id_export()
-    candidate_ids = tmdb_fetch.filter_export(export, min_popularity=args.min_popularity)
+    export = tmdb.download_id_export()
+    candidate_ids = tmdb.filter_export(export, min_popularity=args.min_popularity)
     if args.limit is not None:
         candidate_ids = candidate_ids[: args.limit]
 
@@ -170,7 +167,7 @@ def main() -> None:
             "to_fetch": len(to_fetch),
         },
     )
-    
+
     # Fetch the missing ids and append them to the JSONL file as we go
     if to_fetch:
         wrote = _scrape(args.api_key, to_fetch, jsonl_path, args.concurrency)
@@ -185,7 +182,7 @@ def main() -> None:
     fetched_reviews: dict[int, str] = {}
     if not args.skip_reviews:
         movie_ids = [int(r["id"]) for r in raw_records]
-        fetched_reviews = tmdb_fetch.fetch_all_reviews(
+        fetched_reviews = tmdb.fetch_all_reviews(
             args.api_key,
             movie_ids,
             concurrency=args.concurrency,

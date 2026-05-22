@@ -7,7 +7,7 @@ from tqdm.auto import tqdm
 
 from backend.settings import get_settings
 from core.image_encoder import encode_images
-from dataset.embed.trailer_fetch import fetch_frames
+from dataset.fetch.trailer import fetch_frames
 
 log = logging.getLogger(__name__)
 

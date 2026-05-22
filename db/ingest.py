@@ -8,7 +8,7 @@ Usage:
 
 The repo and per-split filenames are pinned in ``configs/default.yaml`` under
 the ``ingestion:`` block. Producing a new snapshot is a two-stage workflow:
-``python -m dataset.scrape --upload`` (local TMDB scrape) followed by
+``python -m dataset.scraper --upload`` (local TMDB scrape) followed by
 ``notebooks/embed_in_colab.ipynb`` (GPU embed + upload). The ``eval_holdout``
 slice is intentionally never written to the DB.
 
@@ -30,8 +30,8 @@ from backend.data_access.cluster_snapshots.queries import create_root_snapshot_f
 from backend.logging_setup import configure_logging
 from backend.settings import get_settings
 from db.utils import load
-from dataset.io.fetch import fetch_artifact
-from dataset.postprocess.offline import compute_offline_columns
+from dataset.hub.fetch import fetch_artifact
+from dataset.transform.offline import compute_offline_columns
 
 log = logging.getLogger(__name__)
 
