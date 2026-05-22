@@ -8,8 +8,8 @@ log = logging.getLogger(__name__)
 
 @dataclass
 class OfflineResult:
-    """Output of the offline embedding pipeline.
-
+    """
+    Output of the offline embedding pipeline.
     Attributes:
         fused_embeddings: Float32 array of shape (n, dim), row-wise L2-normalized.
         umap_coords:      Float64 array of shape (n, 2) with (x, y) projections.
@@ -28,17 +28,19 @@ def compute_offline_columns(
     movie_ids: list[int],
     text_embeddings: np.ndarray,
     review_embeddings: np.ndarray | None,
+    trailer_embeddings: np.ndarray | None = None,
 ) -> OfflineResult:
-    """Compute fused embeddings, UMAP 2D coordinates, and HDBSCAN cluster assignments.
-
+    """
+    Compute fused embeddings, UMAP 2D coordinates, and HDBSCAN cluster assignments.
     Pure computation — no DB access, no LLM calls. All parameters come from the
     active YAML config. Called from ``db/ingest.py`` after catalogue rows are loaded.
-
     Args:
-        movie_ids:         TMDB IDs in row order (used only for logging).
-        text_embeddings:   Float32 array of shape (n, dim), L2-normalized.
-        review_embeddings: Float32 array of shape (n, dim) with zero rows for movies
-                           lacking reviews, or None to skip fusion.
+        movie_ids:          TMDB IDs in row order (used only for logging).
+        text_embeddings:    Float32 array of shape (n, dim), L2-normalized.
+        review_embeddings:  Float32 array of shape (n, dim) with zero rows for movies
+                            lacking reviews, or None to skip fusion.
+        trailer_embeddings: Float32 array of shape (n, dim) with zero rows for movies
+                            lacking trailers, or None to skip trailer fusion.
 
     Returns:
         ``OfflineResult`` with fused embeddings, UMAP 2D coords, and primary cluster
@@ -46,9 +48,9 @@ def compute_offline_columns(
     """
     from umap import UMAP
 
-    from backend.cluster_engine.fusion import fuse_batch
-    from backend.cluster_engine.soft_cluster import hdbscan_soft
     from backend.settings import get_settings
+    from core.clustering import hdbscan_soft
+    from core.fusion import fuse_batch
 
     cfg = get_settings()
     fusion_cfg = cfg.fusion
@@ -56,7 +58,14 @@ def compute_offline_columns(
     umap_cfg = cfg.umap
 
     log.info("offline_fuse", extra={"n_movies": len(movie_ids)})
-    fused = fuse_batch(text_embeddings, review_embeddings, fusion_cfg.text_weight, fusion_cfg.review_weight)
+    fused = fuse_batch(
+        text_embeddings,
+        review_embeddings,
+        fusion_cfg.text_weight,
+        fusion_cfg.review_weight,
+        trailer_embeddings,
+        fusion_cfg.trailer_weight,
+    )
 
     log.info("offline_umap")
     reducer = UMAP(

@@ -42,4 +42,5 @@ def get_movie(movie_id: int) -> MovieDto:
         director=r.director,
         top_cast=r.top_cast,
         original_language=r.original_language,
+        trailer_youtube_key=r.trailer_youtube_key,
     )

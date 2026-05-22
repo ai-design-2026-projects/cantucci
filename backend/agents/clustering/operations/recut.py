@@ -7,7 +7,7 @@ from backend.agents.clustering.operations._helpers import _LABEL_PLACEHOLDER, ex
 from backend.agents.clustering.types import ClusterDraft, ClusterSnapshotDraft
 from backend.agents.concept.agent import score_movies
 from backend.agents.concept.types import ConceptRep
-from backend.cluster_engine.soft_cluster import subcluster
+from backend.agents.clustering.operations.subcluster import subcluster
 from backend.data_access.movies.queries import fetch_fused_embeddings
 from backend.settings import get_settings
 

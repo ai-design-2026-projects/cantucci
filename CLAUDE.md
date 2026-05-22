@@ -21,23 +21,29 @@ backend/
   data_access/         ONLY layer that runs SQL — movies, conversations, cluster_snapshots, concepts, users
   agents/              LLM-backed agents: intent, clustering, explanation, concept
   llm/                 LLM harness + types + exceptions (CostLimitExceeded, LLMParseError, ReplayDriftError)
-  cluster_engine/      Offline deterministic clustering pipeline
   routers/             HTTP endpoints; dto/ holds Pydantic wire models
 configs/default.yaml   Active experimental condition (model, session, retrieval, clustering, …)
+core/                  Shared primitives imported by both backend/ and dataset/:
+                       text_encoder.py (sentence-transformers), image_encoder.py (open_clip),
+                       fusion.py (fuse_batch), clustering.py (HDBSCAN soft-cluster)
 dataset/
-  scrape.py            Stage-1 entry point (local): TMDB → cleaned parquet → HF snapshots/
-  clean.py / split.py / embed.py / upload.py / fetch.py / tmdb_fetch.py / reviews_fetch.py
+  scrape/              Stage-1 (local): TMDB fetch + clean → cleaned parquet
+  embed/               Stage-2 (Colab): split.py + trailer_fetch.py + trailer_embed.py
+                       (text/image encoders live in core/)
+  io/                  HF Hub fetch (fetch.py) and upload (upload.py)
+  postprocess/         Offline pipeline run at ingest: offline.py orchestrates UMAP
+                       on top of core.fusion + core.clustering
 db/
   migrations/00X_*.sql Numbered SQL; apply.py runs them; never edit applied files
   apply.py             Migration runner (idempotent)
-  ingest.py            Stage-3 entry point (local): HF embedded parquet → Postgres
-  load.py              Low-level upsert helpers used by ingest.py
+  ingest.py            Stage-3 entry point (local): HF embedded parquet → Postgres → dataset.postprocess.offline
+  utils/load.py        Low-level upsert helpers used by ingest.py
 demo/
   demo_record.sh       Record a live session to a JSONL manifest
   demo_replay.sh       Replay a recorded manifest with zero live LLM calls
   manifests/           JSONL manifests produced by demo_record.sh
 frontend/              React + Vite + TypeScript; zustand + react-query; vitest
-tests/                 agents/, data_access/, cluster_engine/ — Postgres via testcontainers
+tests/                 agents/, data_access/, postprocess/ — Postgres via testcontainers
 notebooks/embed_in_colab.ipynb  Stage-2 GPU embedding; reads HF snapshot, uploads embeddings/ back
 ```
 

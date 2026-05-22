@@ -28,9 +28,11 @@ CREATE TABLE movies (
     original_language TEXT,
     composite_text    TEXT,
     reviews_text      TEXT,
-    text_embedding    VECTOR(1024),
-    review_embedding  VECTOR(1024),
-    fused_embedding   VECTOR(1024),
+    text_embedding        VECTOR(1024),
+    review_embedding      VECTOR(1024),
+    trailer_youtube_key   TEXT,
+    trailer_embedding     VECTOR(1024),
+    fused_embedding       VECTOR(1024),
     umap_x            FLOAT,
     umap_y            FLOAT
 );

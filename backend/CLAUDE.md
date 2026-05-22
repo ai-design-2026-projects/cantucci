@@ -162,14 +162,23 @@ cluster is surfaced in a conversation — `agents/coordinator.py:_label_unlabele
 calls `agents/labeling/agent.py:label_cluster` for each unlabeled cluster and
 persists the result via `update_cluster_label`.
 
-### Content-addressed snapshot caching and conversation seeding are not wired
+### Content-addressed snapshot cache (wired)
 
-The broader design intent is that any clustering operation deterministic given
-`(parent_snapshot_id, operation, params, seed)` should be precomputed once and
-reused across conversations. The missing pieces are:
+Any clustering operation deterministic given `(parent_snapshot_id, operation,
+params, config_hash)` is computed once and reused across conversations:
 
-1. **Content-addressed lookup** — a `find_cached_snapshot(parent_id, operation, params, seed)` helper in `data_access/cluster_snapshots/queries.py` that returns an existing snapshot when all four inputs match, rather than computing a new one.
-2. **Conversation seeding** — `create_conversation` (or a post-create call) should auto-populate `current_cluster_snapshot_id` from the global root when one exists (`get_root_cluster_snapshot()` already exists in `queries.py`).
-3. **`_handle_reset` fallback** — after exhausting conversation-scoped snapshots, fall back to the global root via `get_root_cluster_snapshot()`.
+- `find_cached_snapshot(...)` in `data_access/cluster_snapshots/queries.py`
+  returns an existing snapshot when all four inputs match. Uniqueness is
+  enforced by a `NULLS NOT DISTINCT` unique index on
+  `(parent_id, operation, params, config_hash)`.
+- `canonicalize_params(...)` normalises dict ordering and float precision so
+  equal-meaning params hash to identical JSONB bytes.
+- `create_conversation` seeds `current_cluster_snapshot_id` from
+  `get_root_cluster_snapshot()` and records a `conversation_snapshot_refs`
+  row. `_handle_reset` does the same.
+- `cluster_snapshots.conversation_id` is gone; the `conversation_snapshot_refs`
+  join table records which conversations have touched which snapshots, so
+  shared snapshots are not nuked by a single conversation's deletion.
 
-Explicitly out of scope for the current PR. Until wired, each conversation starts from the root snapshot lazily labeled on demand.
+`backend/agents/clustering/agent.py:_persist_and_label` does the cache lookup
+before computing; on a hit it skips both clustering and LLM labeling.

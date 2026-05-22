@@ -95,19 +95,20 @@ class MovieDetailsRow:
     """Full movie projection returned by fetch_movie_details.
 
     Attributes:
-        id:                TMDB integer ID.
-        title:             Movie title.
-        release_year:      Release year.
-        runtime:           Runtime in minutes.
-        vote_average:      TMDB vote average.
-        vote_count:        Number of TMDB votes.
-        bayesian_rating:   Bayesian-smoothed rating.
-        overview:          Plot synopsis.
-        poster_url:        Full TMDB poster URL, or None.
-        original_language: ISO 639-1 language code.
-        genres:            List of genre names.
-        director:          Director name, or None.
-        top_cast:          Up to 3 leading cast names.
+        id:                  TMDB integer ID.
+        title:               Movie title.
+        release_year:        Release year.
+        runtime:             Runtime in minutes.
+        vote_average:        TMDB vote average.
+        vote_count:          Number of TMDB votes.
+        bayesian_rating:     Bayesian-smoothed rating.
+        overview:            Plot synopsis.
+        poster_url:          Full TMDB poster URL, or None.
+        original_language:   ISO 639-1 language code.
+        genres:              List of genre names.
+        director:            Director name, or None.
+        top_cast:            Up to 3 leading cast names.
+        trailer_youtube_key: YouTube video key for the official trailer, or None.
     """
     id: int
     title: str
@@ -122,6 +123,7 @@ class MovieDetailsRow:
     genres: list[str]
     director: str | None
     top_cast: list[str]
+    trailer_youtube_key: str | None
 
     @classmethod
     def from_row(cls, r: dict) -> "MovieDetailsRow":
@@ -140,4 +142,5 @@ class MovieDetailsRow:
             genres=list(r["genres"]) if r["genres"] else [],
             director=r["director"],
             top_cast=list(r["top_cast"]) if r["top_cast"] else [],
+            trailer_youtube_key=r["trailer_youtube_key"],
         )

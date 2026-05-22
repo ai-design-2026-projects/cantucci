@@ -32,6 +32,9 @@ dataset = [
     "pyarrow>=16",
     "sentence-transformers>=2.7",
     "tqdm>=4",
+    "yt-dlp>=2024.10",
+    "open-clip-torch>=2.24",
+    "Pillow>=10",
 ]
 
 [dependency-groups]

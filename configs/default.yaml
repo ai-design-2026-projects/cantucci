@@ -38,6 +38,7 @@ clustering:
 fusion:
   text_weight: 0.6
   review_weight: 0.4
+  trailer_weight: 0.0
 
 umap:
   n_neighbors: 15

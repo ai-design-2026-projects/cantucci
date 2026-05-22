@@ -51,10 +51,10 @@ def get_cluster_snapshot_endpoint(cluster_snapshot_id: uuid.UUID) -> ClusterSnap
     s = result.cluster_snapshot
     return ClusterSnapshotDto(
         id=s.id,
-        conversation_id=s.conversation_id,
         parent_id=s.parent_id,
         operation=s.operation,
         params=s.params,
+        config_hash=s.config_hash,
         clusters=cluster_dtos,
         created_at=s.created_at,
     )

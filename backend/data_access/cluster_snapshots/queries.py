@@ -11,23 +11,62 @@ from backend.data_access.cluster_snapshots.types import (
     ClusterSnapshotRow,
     ClusterSnapshotWithClusters,
 )
+from backend.settings import get_config_hash
 
 log = logging.getLogger(__name__)
+
+_FLOAT_PRECISION = 8
+
+
+def canonicalize_params(params: dict[str, Any]) -> dict[str, Any]:
+    """Return a deterministic, JSON-stable copy of *params* for cache keying.
+
+    Recursively sorts dict keys, rounds floats to a fixed precision, and
+    coerces numpy scalars / tuples / sets into native JSON-friendly types so
+    that two equal-meaning param dicts hash to the same JSONB bytes in the
+    unique cache-key index.
+
+    Args:
+        params: Operation parameters dict.
+
+    Returns:
+        A new dict with stable ordering and normalized scalar types.
+    """
+    def _walk(value: Any) -> Any:
+        if isinstance(value, dict):
+            return {k: _walk(value[k]) for k in sorted(value.keys())}
+        if isinstance(value, (list, tuple)):
+            return [_walk(v) for v in value]
+        if isinstance(value, set):
+            return sorted(_walk(v) for v in value)
+        if isinstance(value, float):
+            return round(float(value), _FLOAT_PRECISION)
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, int):
+            return int(value)
+        return value
+
+    return _walk(params)
 
 
 def create_cluster_snapshot(
     operation: str,
     params: dict[str, Any],
-    conversation_id: uuid.UUID | None = None,
+    config_hash: str,
     parent_id: uuid.UUID | None = None,
 ) -> uuid.UUID:
     """Insert a new cluster snapshot row and return its UUID.
 
+    The caller is responsible for canonicalizing *params* (via
+    ``canonicalize_params``) before calling, so the unique cache-key index
+    can detect duplicates.
+
     Args:
-        operation:       Name of the operation that produced this snapshot.
-        params:          Replayability parameters as a dict.
-        conversation_id: Parent conversation UUID, or None for the root snapshot.
-        parent_id:       Parent cluster snapshot UUID, or None for the root.
+        operation:   Name of the operation that produced this snapshot.
+        params:      Replayability parameters as a dict (already canonicalized).
+        config_hash: Active YAML config hash (matches ``backend.settings.get_config_hash``).
+        parent_id:   Parent cluster snapshot UUID, or None for the root.
 
     Returns:
         UUID of the newly created cluster snapshot.
@@ -35,15 +74,83 @@ def create_cluster_snapshot(
     with transaction() as conn:
         row = conn.execute(
             """
-            INSERT INTO cluster_snapshots (conversation_id, parent_id, operation, params)
+            INSERT INTO cluster_snapshots (parent_id, operation, params, config_hash)
             VALUES (%s, %s, %s, %s)
             RETURNING id
             """,
-            (conversation_id, parent_id, operation, json.dumps(params)),
+            (parent_id, operation, json.dumps(params), config_hash),
         ).fetchone()
     cluster_snapshot_id: uuid.UUID = row["id"]
     log.debug("cluster_snapshot_created", extra={"cluster_snapshot_id": str(cluster_snapshot_id), "operation": operation})
     return cluster_snapshot_id
+
+
+def find_cached_snapshot(
+    parent_id: uuid.UUID | None,
+    operation: str,
+    params: dict[str, Any],
+    config_hash: str,
+) -> uuid.UUID | None:
+    """Look up an existing snapshot with the same ``(parent, operation, params, config_hash)``.
+
+    Caller must pass *params* through ``canonicalize_params`` first; the
+    underlying unique index is byte-equal on the JSONB column.
+
+    Args:
+        parent_id:   Parent snapshot UUID, or None for a root-level lookup.
+        operation:   Operation name (e.g. ``"drill_down"``).
+        params:      Canonicalized params dict.
+        config_hash: Active YAML config hash.
+
+    Returns:
+        UUID of the cached snapshot if it exists, else None.
+    """
+    with transaction() as conn:
+        if parent_id is None:
+            row = conn.execute(
+                """
+                SELECT id FROM cluster_snapshots
+                WHERE parent_id IS NULL
+                  AND operation = %s
+                  AND params = %s::jsonb
+                  AND config_hash = %s
+                LIMIT 1
+                """,
+                (operation, json.dumps(params), config_hash),
+            ).fetchone()
+        else:
+            row = conn.execute(
+                """
+                SELECT id FROM cluster_snapshots
+                WHERE parent_id = %s
+                  AND operation = %s
+                  AND params = %s::jsonb
+                  AND config_hash = %s
+                LIMIT 1
+                """,
+                (parent_id, operation, json.dumps(params), config_hash),
+            ).fetchone()
+    return row["id"] if row else None
+
+
+def record_conversation_snapshot_ref(conversation_id: uuid.UUID, snapshot_id: uuid.UUID) -> None:
+    """Record that *conversation_id* has touched *snapshot_id*.
+
+    Idempotent: re-recording the same pair is a no-op.
+
+    Args:
+        conversation_id: Conversation UUID.
+        snapshot_id:     Cluster snapshot UUID.
+    """
+    with transaction() as conn:
+        conn.execute(
+            """
+            INSERT INTO conversation_snapshot_refs (conversation_id, snapshot_id)
+            VALUES (%s, %s)
+            ON CONFLICT DO NOTHING
+            """,
+            (conversation_id, snapshot_id),
+        )
 
 
 def create_cluster(
@@ -110,7 +217,7 @@ def update_cluster_label(cluster_id: uuid.UUID, label: str, summary: str | None)
 
 
 def get_root_cluster_snapshot() -> ClusterSnapshotRow | None:
-    """Return the global root cluster snapshot (conversation_id IS NULL, operation = 'base').
+    """Return the most recent root cluster snapshot (``parent_id IS NULL, operation = 'base'``).
 
     Returns:
         The most recently created root ``ClusterSnapshotRow``, or None if none exists.
@@ -118,9 +225,9 @@ def get_root_cluster_snapshot() -> ClusterSnapshotRow | None:
     with transaction() as conn:
         row = conn.execute(
             """
-            SELECT id, conversation_id, parent_id, operation, params, created_at
+            SELECT id, parent_id, operation, params, config_hash, created_at
             FROM cluster_snapshots
-            WHERE conversation_id IS NULL AND parent_id IS NULL AND operation = 'base'
+            WHERE parent_id IS NULL AND operation = 'base'
             ORDER BY created_at DESC
             LIMIT 1
             """,
@@ -139,7 +246,7 @@ def get_cluster_snapshot(cluster_snapshot_id: uuid.UUID) -> ClusterSnapshotRow |
     """
     with transaction() as conn:
         row = conn.execute(
-            "SELECT id, conversation_id, parent_id, operation, params, created_at FROM cluster_snapshots WHERE id = %s",
+            "SELECT id, parent_id, operation, params, config_hash, created_at FROM cluster_snapshots WHERE id = %s",
             (cluster_snapshot_id,),
         ).fetchone()
     if row is None:
@@ -176,21 +283,26 @@ def get_cluster_snapshot_with_clusters(cluster_snapshot_id: uuid.UUID) -> Cluste
 
 
 def get_conversation_cluster_snapshots(conversation_id: uuid.UUID) -> list[ClusterSnapshotRow]:
-    """Return all cluster snapshots for a conversation ordered by creation time.
+    """Return all snapshots that *conversation_id* has touched, ordered by ref creation time.
+
+    Joins through ``conversation_snapshot_refs`` so that snapshots reused
+    from the global cache (and therefore not directly "owned" by this
+    conversation) are still included in the listing.
 
     Args:
-        conversation_id: Parent conversation UUID.
+        conversation_id: Conversation UUID.
 
     Returns:
-        List of ``ClusterSnapshotRow`` ordered by created_at ascending.
+        List of ``ClusterSnapshotRow`` ordered by ref ``created_at`` ascending.
     """
     with transaction() as conn:
         rows = conn.execute(
             """
-            SELECT id, conversation_id, parent_id, operation, params, created_at
-            FROM cluster_snapshots
-            WHERE conversation_id = %s
-            ORDER BY created_at
+            SELECT cs.id, cs.parent_id, cs.operation, cs.params, cs.config_hash, cs.created_at
+            FROM cluster_snapshots cs
+            JOIN conversation_snapshot_refs r ON r.snapshot_id = cs.id
+            WHERE r.conversation_id = %s
+            ORDER BY r.created_at
             """,
             (conversation_id,),
         ).fetchall()
@@ -209,7 +321,8 @@ def create_root_snapshot_from_assignments(
     Creates the snapshot, all clusters (without labels), and all primary-assignment
     memberships in a single transaction. Called at ingest time after the offline
     embedding pipeline has produced cluster_ids and cluster_probs columns in the
-    parquet artifact.
+    parquet artifact. The active config hash is stamped on the snapshot so the
+    snapshot cache can key on it.
 
     Args:
         movie_ids:    TMDB IDs in row order (must match array row order).
@@ -222,6 +335,8 @@ def create_root_snapshot_from_assignments(
     Returns:
         UUID of the newly created root cluster snapshot.
     """
+    canon_params = canonicalize_params(params)
+    config_hash = get_config_hash()
     buckets: dict[int, list[tuple[int, float]]] = defaultdict(list)
     for movie_id, cid, prob in zip(movie_ids, cluster_ids, cluster_probs):
         buckets[cid].append((movie_id, prob))
@@ -229,11 +344,11 @@ def create_root_snapshot_from_assignments(
     with transaction() as conn:
         row = conn.execute(
             """
-            INSERT INTO cluster_snapshots (conversation_id, parent_id, operation, params)
-            VALUES (NULL, NULL, 'base', %s)
+            INSERT INTO cluster_snapshots (parent_id, operation, params, config_hash)
+            VALUES (NULL, 'base', %s, %s)
             RETURNING id
             """,
-            (json.dumps(params),),
+            (json.dumps(canon_params), config_hash),
         ).fetchone()
         snapshot_id: uuid.UUID = row["id"]
 
@@ -266,6 +381,7 @@ def create_root_snapshot_from_assignments(
             "snapshot_id": str(snapshot_id),
             "n_clusters": len(buckets),
             "n_memberships": len(membership_rows),
+            "config_hash": config_hash,
         },
     )
     return snapshot_id

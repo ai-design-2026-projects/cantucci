@@ -200,6 +200,7 @@ def fetch_movie_details(movie_ids: list[int]) -> list[MovieDetailsRow]:
                 m.overview,
                 m.poster_path,
                 m.original_language,
+                m.trailer_youtube_key,
                 COALESCE(
                     ARRAY_AGG(DISTINCT g.name ORDER BY g.name)
                         FILTER (WHERE g.name IS NOT NULL),

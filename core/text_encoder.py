@@ -9,7 +9,6 @@ from backend.settings import get_settings
 
 log = logging.getLogger(__name__)
 
-# Implement a SINGLETON cache for loaded models to avoid redundant loading and memory usage
 _cache: dict[str, "SentenceTransformer"] = {}
 
 

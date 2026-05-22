@@ -26,12 +26,12 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from backend.cluster_engine.offline import compute_offline_columns
 from backend.data_access.cluster_snapshots.queries import create_root_snapshot_from_assignments
 from backend.logging_setup import configure_logging
 from backend.settings import get_settings
 from db.utils import load
 from dataset.io.fetch import fetch_artifact
+from dataset.postprocess.offline import compute_offline_columns
 
 log = logging.getLogger(__name__)
 
@@ -42,20 +42,24 @@ _NESTED_COLS = (
 )
 
 
-def _load_artifact(path: Path) -> tuple[pd.DataFrame, np.ndarray, np.ndarray | None]:
-    """Load a parquet artifact; return ``(df, text_embeddings, review_embeddings)``.
+def _load_artifact(
+    path: Path,
+) -> tuple[pd.DataFrame, np.ndarray, np.ndarray | None, np.ndarray | None]:
+    """Load a parquet artifact; return ``(df, text_embeddings, review_embeddings, trailer_embeddings)``.
 
     Handles both the new format (``text_embedding`` + optional ``review_embedding``
-    columns) and the legacy format (single ``embedding`` column treated as
-    ``text_embedding``).
+    and ``trailer_embedding`` columns) and the legacy format (single ``embedding``
+    column treated as ``text_embedding``).
 
     Args:
         path: Local path to the parquet file.
 
     Returns:
-        Tuple of ``(df, text_embeddings, review_embeddings)`` where
-        ``review_embeddings`` is an all-zero array for rows without reviews,
-        or ``None`` if no ``review_embedding`` column exists in the file.
+        Tuple of ``(df, text_embeddings, review_embeddings, trailer_embeddings)``.
+        ``review_embeddings`` is an all-zero array for rows without reviews, or
+        ``None`` if no ``review_embedding`` column exists in the file.
+        ``trailer_embeddings`` is an all-zero array for rows without trailers, or
+        ``None`` if no ``trailer_embedding`` column exists in the file.
 
     Raises:
         ValueError: If the parquet has neither ``text_embedding`` nor
@@ -72,20 +76,30 @@ def _load_artifact(path: Path) -> tuple[pd.DataFrame, np.ndarray, np.ndarray | N
             f"Parquet at {path} has no 'text_embedding' or 'embedding' column"
         )
 
+    dim = text_embeddings.shape[1]
+
     review_embeddings: np.ndarray | None = None
     if "review_embedding" in df.columns:
         rev_series = df.pop("review_embedding")
-        dim = text_embeddings.shape[1]
         review_array = np.zeros((len(df), dim), dtype=np.float32)
         for i, val in enumerate(rev_series):
             if val is not None:
                 review_array[i] = np.array(val, dtype=np.float32)
         review_embeddings = review_array
 
+    trailer_embeddings: np.ndarray | None = None
+    if "trailer_embedding" in df.columns:
+        trailer_series = df.pop("trailer_embedding")
+        trailer_array = np.zeros((len(df), dim), dtype=np.float32)
+        for i, val in enumerate(trailer_series):
+            if val is not None:
+                trailer_array[i] = np.array(val, dtype=np.float32)
+        trailer_embeddings = trailer_array
+
     for col in _NESTED_COLS:
         if col in df.columns:
             df[col] = df[col].apply(json.loads)
-    return df, text_embeddings, review_embeddings
+    return df, text_embeddings, review_embeddings, trailer_embeddings
 
 
 def _build_snapshot_params(n_movies: int, n_clusters: int) -> dict[str, Any]:
@@ -145,13 +159,15 @@ def run_from_artifact(name: str) -> None:
     all_movie_ids: list[int] = []
     all_text_embs: list[np.ndarray] = []
     all_review_embs: list[np.ndarray] = []
+    all_trailer_embs: list[np.ndarray] = []
     has_any_review = False
+    has_any_trailer = False
     seen_ids: set[int] = set()
 
     for n in names:
         local_path = fetch_artifact(cfg.ingestion.hf_repo, filenames[n])
-        df, text_embeddings, review_embeddings = _load_artifact(local_path)
-        load.ingest(df, text_embeddings, review_embeddings)
+        df, text_embeddings, review_embeddings, trailer_embeddings = _load_artifact(local_path)
+        load.ingest(df, text_embeddings, review_embeddings, trailer_embeddings)
 
         dim = text_embeddings.shape[1]
         for i, mid in enumerate(df["id"].tolist()):
@@ -165,12 +181,18 @@ def run_from_artifact(name: str) -> None:
                 has_any_review = True
             else:
                 all_review_embs.append(np.zeros(dim, dtype=np.float32))
+            if trailer_embeddings is not None:
+                all_trailer_embs.append(trailer_embeddings[i])
+                has_any_trailer = True
+            else:
+                all_trailer_embs.append(np.zeros(dim, dtype=np.float32))
 
     text_arr = np.stack(all_text_embs)
     review_arr = np.stack(all_review_embs) if has_any_review else None
+    trailer_arr = np.stack(all_trailer_embs) if has_any_trailer else None
 
     log.info("offline_pipeline_start", extra={"n_movies": len(all_movie_ids)})
-    result = compute_offline_columns(all_movie_ids, text_arr, review_arr)
+    result = compute_offline_columns(all_movie_ids, text_arr, review_arr, trailer_arr)
 
     load.upsert_offline_columns(all_movie_ids, result.fused_embeddings, result.umap_coords)
 

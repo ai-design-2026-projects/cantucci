@@ -38,14 +38,20 @@ Run on a Colab T4 GPU instance.
 
 | Module | Description |
 |---|---|
-| `scrape.py` | Stage-1 entry point: TMDB scrape → cleaned parquet → HF snapshots/ |
-| `tmdb_fetch.py` | TMDB API client: daily export, `/movie/{id}` bulk fetch |
-| `reviews_fetch.py` | Optional: fetch review text for sentiment features |
-| `clean.py` | Filter, deduplicate, and normalise raw TMDB JSONL |
-| `split.py` | Produce mini / main / eval-holdout splits |
-| `embed.py` | Embed text fields using a sentence-transformer model |
-| `upload.py` | Push timestamped parquets to HuggingFace Hub |
-| `fetch.py` | Download a pinned artifact from HuggingFace Hub (shared with `db.ingest`) |
+| `scrape/scrape.py` | Stage-1 entry point: TMDB scrape → cleaned parquet → HF snapshots/ |
+| `scrape/tmdb_fetch.py` | TMDB API client: daily export, `/movie/{id}` bulk fetch |
+| `scrape/reviews_fetch.py` | Optional: fetch review text for sentiment features |
+| `scrape/clean.py` | Filter, deduplicate, and normalise raw TMDB JSONL |
+| `embed/split.py` | Produce mini / main / eval-holdout splits |
+| `embed/trailer_fetch.py` | Download a YouTube trailer via yt-dlp and sample evenly-spaced frames |
+| `embed/trailer_embed.py` | Trailer-specific orchestration: frames → `core.image_encoder.encode_images` → mean-pool |
+| `io/upload.py` | Push timestamped parquets to HuggingFace Hub |
+| `io/fetch.py` | Download a pinned artifact from HuggingFace Hub (shared with `db.ingest`) |
+| `postprocess/offline.py` | Offline pipeline: `core.fusion.fuse_batch` → UMAP 2D → `core.clustering.hdbscan_soft`. Called by `db.ingest` |
+
+The text encoder, image encoder, fusion, and HDBSCAN primitives live in the
+top-level `core/` package and are imported by both this offline pipeline and
+the live backend.
 
 ---
 

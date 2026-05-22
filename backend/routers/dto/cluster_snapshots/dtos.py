@@ -28,19 +28,19 @@ class ClusterSnapshotDto(BaseModel):
     """A cluster snapshot with its full cluster list.
 
     Attributes:
-        id:              Cluster snapshot UUID.
-        conversation_id: Parent conversation UUID, or None for the root snapshot.
-        parent_id:       Parent cluster snapshot UUID, or None for the root.
-        operation:       Operation that produced this snapshot.
-        params:          Replayability parameters.
-        clusters:        All clusters in this snapshot.
-        created_at:      UTC creation timestamp.
+        id:          Cluster snapshot UUID.
+        parent_id:   Parent cluster snapshot UUID, or None for the root.
+        operation:   Operation that produced this snapshot.
+        params:      Replayability parameters.
+        config_hash: SHA-256 prefix of the YAML config that produced this snapshot.
+        clusters:    All clusters in this snapshot.
+        created_at:  UTC creation timestamp.
     """
     id: uuid.UUID
-    conversation_id: uuid.UUID | None
     parent_id: uuid.UUID | None
     operation: str
     params: dict[str, Any]
+    config_hash: str
     clusters: list[ClusterDto]
     created_at: datetime
 

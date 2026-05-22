@@ -125,14 +125,17 @@ class ClusteringConfig(BaseModel):
 
 
 class FusionConfig(BaseModel):
-    """Weights for fusing text and review embeddings.
+    """Weights for fusing text, review, and trailer embeddings.
 
     Attributes:
-        text_weight:   Weight applied to the composite_text embedding (0–1).
-        review_weight: Weight applied to the review embedding (0–1).
+        text_weight:    Weight applied to the composite_text embedding (0–1).
+        review_weight:  Weight applied to the review embedding (0–1).
+        trailer_weight: Weight applied to the CLIP trailer embedding (0–1).
+                        Set to 0.0 (default) to disable trailer fusion.
     """
     text_weight: float = 0.6
     review_weight: float = 0.4
+    trailer_weight: float = 0.0
 
 
 class UmapConfig(BaseModel):

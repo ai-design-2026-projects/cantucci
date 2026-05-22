@@ -51,7 +51,7 @@ async def build_concept(
     Raises:
         ConceptParseError: If the LLM response is invalid or exemplars cannot be resolved.
     """
-    from dataset.utils.embed import embed_texts
+    from core.text_encoder import embed_texts
 
     cfg = get_settings()
 

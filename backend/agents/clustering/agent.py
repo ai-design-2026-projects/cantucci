@@ -7,8 +7,16 @@ from backend.agents.clustering.operations.recut import recut
 from backend.agents.clustering.types import ClusterSnapshotDraft
 from backend.agents.concept.types import ConceptRep
 from backend.agents.labeling.agent import label_cluster
-from backend.data_access.cluster_snapshots.queries import create_cluster, create_cluster_snapshot, create_memberships
+from backend.data_access.cluster_snapshots.queries import (
+    canonicalize_params,
+    create_cluster,
+    create_cluster_snapshot,
+    create_memberships,
+    find_cached_snapshot,
+    record_conversation_snapshot_ref,
+)
 from backend.data_access.conversations.queries import set_current_cluster_snapshot
+from backend.settings import get_config_hash
 
 log = logging.getLogger(__name__)
 
@@ -90,6 +98,12 @@ async def _persist_and_label(
 ) -> uuid.UUID:
     """Persist a ClusterSnapshotDraft, generate LLM labels, and update the conversation pointer.
 
+    Looks up an existing snapshot with the same
+    ``(parent, operation, canonical params, config_hash)`` first. On a hit,
+    record the conversation reference and reuse the cached snapshot without
+    re-running the labeler. On a miss, build the snapshot, fire labels, and
+    record the reference.
+
     Args:
         draft:                       The cluster snapshot to persist.
         conversation_id:             Conversation to update.
@@ -97,12 +111,29 @@ async def _persist_and_label(
         accumulated_cost:            Running LLM cost this conversation.
 
     Returns:
-        UUID of the newly created cluster snapshot.
+        UUID of the cached-or-newly-created cluster snapshot.
     """
+    canon_params = canonicalize_params(draft.params)
+    config_hash = get_config_hash()
+
+    cached = find_cached_snapshot(parent_cluster_snapshot_id, draft.operation, canon_params, config_hash)
+    if cached is not None:
+        record_conversation_snapshot_ref(conversation_id, cached)
+        set_current_cluster_snapshot(conversation_id, cached)
+        log.info(
+            "snapshot_cache_hit",
+            extra={
+                "conversation_id": str(conversation_id),
+                "cluster_snapshot_id": str(cached),
+                "operation": draft.operation,
+            },
+        )
+        return cached
+
     cluster_snapshot_id = create_cluster_snapshot(
         operation=draft.operation,
-        params=draft.params,
-        conversation_id=conversation_id,
+        params=canon_params,
+        config_hash=config_hash,
         parent_id=parent_cluster_snapshot_id,
     )
 
@@ -134,6 +165,7 @@ async def _persist_and_label(
         ]
         create_memberships(memberships)
 
+    record_conversation_snapshot_ref(conversation_id, cluster_snapshot_id)
     set_current_cluster_snapshot(conversation_id, cluster_snapshot_id)
     log.info(
         "cluster_snapshot_persisted",

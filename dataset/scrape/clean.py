@@ -63,6 +63,32 @@ def _composite_text(row: dict[str, Any]) -> str:
     return " ".join(p for p in (str(p).strip() for p in parts) if p)
 
 
+def _trailer_youtube_key(rec: dict[str, Any]) -> str | None:
+    """Extract the first official YouTube trailer key from a TMDB video response.
+
+    Prefers entries where ``official == True``, then falls back to the first
+    YouTube trailer regardless of official status. Returns None when no
+    suitable trailer is found or the ``videos`` key is absent.
+
+    Args:
+        rec: Raw TMDB movie JSON dict, expected to include a ``videos`` key
+             when ``append_to_response=videos`` was requested.
+
+    Returns:
+        YouTube video key string (the ``?v=`` part of a watch URL), or None.
+    """
+    results: list[dict[str, Any]] = ((rec.get("videos") or {}).get("results") or [])
+    yt_trailers = [
+        r for r in results
+        if r.get("site") == "YouTube" and r.get("type") == "Trailer"
+    ]
+    if not yt_trailers:
+        return None
+    official = [r for r in yt_trailers if r.get("official")]
+    chosen = (official or yt_trailers)[0]
+    return chosen.get("key") or None
+
+
 def map_record(rec: dict[str, Any]) -> dict[str, Any]:
     """Map a raw TMDB JSON response into the cleaned-shape row dict.
 
@@ -119,6 +145,7 @@ def map_record(rec: dict[str, Any]) -> dict[str, Any]:
     }
     row["top3_cast"] = _top3_cast(cast)
     row["director"] = _director(crew)
+    row["trailer_youtube_key"] = _trailer_youtube_key(rec)
     return row
 
 

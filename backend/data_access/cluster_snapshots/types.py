@@ -8,19 +8,24 @@ from typing import Any
 class ClusterSnapshotRow:
     """A row from the cluster_snapshots table.
 
+    Snapshots are conversation-agnostic; the join table
+    ``conversation_snapshot_refs`` records which conversations have touched
+    a given snapshot.
+
     Attributes:
-        id:              Cluster snapshot UUID.
-        conversation_id: Parent conversation UUID, or None for the root cluster snapshot.
-        parent_id:       Parent cluster snapshot UUID, or None for the root.
-        operation:       Operation that produced this snapshot (e.g. ``"base"``, ``"drill_down"``).
-        params:          JSONB dict capturing algorithm + inputs for replayability.
-        created_at:      UTC creation timestamp.
+        id:          Cluster snapshot UUID.
+        parent_id:   Parent cluster snapshot UUID, or None for the root.
+        operation:   Operation that produced this snapshot (e.g. ``"base"``, ``"drill_down"``).
+        params:      JSONB dict capturing algorithm + inputs for replayability.
+        config_hash: SHA-256 prefix of the YAML config active when this snapshot
+                     was produced (matches ``backend.settings.get_config_hash``).
+        created_at:  UTC creation timestamp.
     """
     id: uuid.UUID
-    conversation_id: uuid.UUID | None
     parent_id: uuid.UUID | None
     operation: str
     params: dict[str, Any]
+    config_hash: str
     created_at: datetime
 
     @classmethod
@@ -28,10 +33,10 @@ class ClusterSnapshotRow:
         """Construct from a psycopg dict_row result."""
         return cls(
             id=r["id"],
-            conversation_id=r["conversation_id"],
             parent_id=r["parent_id"],
             operation=r["operation"],
             params=r["params"],
+            config_hash=r["config_hash"],
             created_at=r["created_at"],
         )
 

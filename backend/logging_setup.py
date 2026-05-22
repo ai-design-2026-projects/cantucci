@@ -40,7 +40,6 @@ _COMPONENTS: tuple[tuple[str, str], ...] = (
     ("routers", "backend.routers"),
     ("data_access", "backend.data_access"),
     ("agents", "backend.agents"),
-    ("cluster_engine", "backend.cluster_engine"),
     ("llm", "backend.llm.llm_harness"),
     ("auth", "auth"),
 )

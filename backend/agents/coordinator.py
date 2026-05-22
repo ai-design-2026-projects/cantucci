@@ -14,6 +14,8 @@ from backend.data_access.conversations.types import ConversationRow
 from backend.data_access.cluster_snapshots.queries import (
     get_cluster_snapshot_with_clusters,
     get_conversation_cluster_snapshots,
+    get_root_cluster_snapshot,
+    record_conversation_snapshot_ref,
     update_cluster_label,
 )
 from backend.data_access.cluster_snapshots.types import ClusterRow
@@ -189,14 +191,14 @@ class Coordinator:
         Returns:
             ``CoordinatorResult`` pointing at the root cluster snapshot.
         """
-        all_snapshots = get_conversation_cluster_snapshots(conversation_id)
-        root = next((s for s in all_snapshots if s.parent_id is None and s.operation == "base"), None)
+        root = get_root_cluster_snapshot()
         if root is None:
             return CoordinatorResult(
                 reply_text="No base cluster snapshot found yet. Ingest the catalogue first.",
                 cluster_snapshot_id=_sentinel_cluster_snapshot_id(),
             )
         set_current_cluster_snapshot(conversation_id, root.id)
+        record_conversation_snapshot_ref(conversation_id, root.id)
         cswc = get_cluster_snapshot_with_clusters(root.id)
         n = len(cswc.clusters) if cswc else 0
         return CoordinatorResult(

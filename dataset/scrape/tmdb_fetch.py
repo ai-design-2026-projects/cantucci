@@ -121,7 +121,7 @@ def fetch_movie(
         api_key:  TMDB v3 API key.
         movie_id: TMDB movie identifier.
     """
-    params = {"api_key": api_key, "append_to_response": "credits,keywords"}
+    params = {"api_key": api_key, "append_to_response": "credits,keywords,videos"}
     return _tmdb_get(client, f"movie/{movie_id}", params)
 
 
