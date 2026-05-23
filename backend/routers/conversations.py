@@ -17,7 +17,6 @@ from backend.exceptions import ConversationNotFound, NotConversationOwner
 from backend.routers.auth_deps import get_current_user
 from backend.routers.dto.conversations.dtos import (
     ConversationDto,
-    ConversationSummaryDto,
     MessageDto,
     SendMessageRequest,
     SendMessageResponse,
@@ -29,17 +28,20 @@ log = logging.getLogger(__name__)
 router = APIRouter(prefix="/conversations", tags=["conversations"])
 
 
-@router.get("", response_model=list[ConversationSummaryDto])
+@router.get("", response_model=list[ConversationDto])
 def list_conversations_endpoint(
     user: Annotated[User | None, Depends(get_current_user)],
-) -> list[ConversationSummaryDto]:
+) -> list[ConversationDto]:
     """Return all conversations owned by the authenticated user, newest first.
+
+    Each entry includes the first user message in ``messages`` so callers can
+    derive a preview snippet without a separate fetch.
 
     Args:
         user: Authenticated user. Anonymous callers receive 401.
 
     Returns:
-        List of ``ConversationSummaryDto`` ordered by creation time descending.
+        List of ``ConversationDto`` ordered by creation time descending.
 
     Raises:
         HTTPException(401): If the request is anonymous.
@@ -48,11 +50,14 @@ def list_conversations_endpoint(
         raise HTTPException(status_code=401, detail="Authentication required.")
     rows = list_conversations_for_user(user.id)
     return [
-        ConversationSummaryDto(
+        ConversationDto(
             id=r.id,
             current_cluster_snapshot_id=r.current_cluster_snapshot_id,
             created_at=r.created_at,
-            preview=r.preview,
+            messages=[
+                MessageDto(id=m.id, role=m.role, content=m.content, created_at=m.created_at)
+                for m in get_messages(r.id)
+            ],
         )
         for r in rows
     ]

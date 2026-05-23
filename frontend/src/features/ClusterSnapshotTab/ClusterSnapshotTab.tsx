@@ -4,7 +4,6 @@ import { useClusterSnapshot } from './hooks/useClusterSnapshot'
 import { useExemplarMovies } from './hooks/useExemplarMovies'
 import { useScatterData } from './hooks/useScatterData'
 import { SnapshotPlot } from './components/SnapshotPlot'
-import { ClusterList } from './components/ClusterList'
 import { MoviePopup } from './components/MoviePopup'
 import { EmptySnapshotState } from './components/EmptySnapshotState'
 import { EvolutionMapButton } from '@/features/Header/components/EvolutionMapButton'
@@ -24,7 +23,7 @@ interface ClusterSnapshotTabProps {
  * @returns Right-panel content with header, scatter plot, cluster list, and movie popup.
  */
 export function ClusterSnapshotTab({ conversationId }: ClusterSnapshotTabProps) {
-  const { activeSnapshotId, selectedClusterId, setSelectedClusterId } = useSnapshotStore()
+  const { activeSnapshotId, selectedClusterId } = useSnapshotStore()
   const [selectedMovieId, setSelectedMovieId] = useState<number | null>(null)
   const [evolutionOpen, setEvolutionOpen] = useState(false)
   const [inspectOpen, setInspectOpen] = useState(false)
