@@ -9,6 +9,9 @@ from tqdm.auto import tqdm
 
 from backend.settings import get_settings
 from core.image_encoder import encode_images
+# dataset.fetch.trailer is an external-source fetcher; it stays in dataset/fetch/
+# alongside tmdb.py. This is the only core → dataset dependency — accepted
+# because fetch_frames is the sole I/O boundary for YouTube and belongs there.
 from dataset.fetch.trailer import fetch_frames
 
 log = logging.getLogger(__name__)

@@ -25,12 +25,11 @@ backend/
 configs/default.yaml   Active experimental condition (model, session, retrieval, clustering, …)
 core/                  Shared primitives imported by both backend/ and dataset/:
                        text_encoder.py (sentence-transformers), image_encoder.py (open_clip),
+                       trailer_encoder.py (yt-dlp frames → CLIP → mean-pool; sharded Drive cache),
                        fusion.py (fuse_batch), clustering.py (HDBSCAN soft-cluster)
 dataset/
   scraper.py           Stage-1 CLI entry point: TMDB scrape → cleaned parquet → HF snapshots/
   fetch/               External-source fetchers: tmdb.py (TMDB API), trailer.py (yt-dlp/YouTube)
-  embed/               Vector encoders: trailer.py (frames → CLIP → mean-pool)
-                       (text/image encoder primitives live in core/)
   transform/           DataFrame transformations: clean.py, split.py, offline.py
                        (offline.py orchestrates UMAP on top of core.fusion + core.clustering)
   hub/                 HF Hub I/O: fetch.py (download artifact), upload.py (push parquets)
