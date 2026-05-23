@@ -58,22 +58,20 @@ export function SnapshotPlot({
 				<ScatterChart margin={{ top: 8, right: 8, bottom: 8, left: 8 }}>
 					<XAxis dataKey="x" type="number" domain={xDomain} hide />
 					<YAxis dataKey="y" type="number" domain={yDomain} hide />
-					{!dimmedAll && (
-						<Tooltip
-							content={({ active, payload }) => {
-								if (!active || !payload?.[0]) return null
-								const p = payload[0].payload as ScatterPoint
-								return (
-									<div className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded-lg px-3 py-1.5 text-xs text-[var(--color-text)] shadow-md">
-										<p className="font-medium">{p.title}</p>
-										{p.clusterLabel && (
-											<p className="text-[var(--color-muted)] mt-0.5">{p.clusterLabel}</p>
-										)}
-									</div>
-								)
-							}}
-						/>
-					)}
+					<Tooltip
+						content={({ active, payload }) => {
+							if (!active || !payload?.[0]) return null
+							const p = payload[0].payload as ScatterPoint
+							return (
+								<div className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded-lg px-3 py-1.5 text-xs text-[var(--color-text)] shadow-md">
+									<p className="font-medium">{p.title}</p>
+									{p.clusterLabel && (
+										<p className="text-[var(--color-muted)] mt-0.5">{p.clusterLabel}</p>
+									)}
+								</div>
+							)
+						}}
+					/>
 					{dimmedAll ? (
 						<Scatter
 							data={points}
