@@ -12,6 +12,15 @@ class CreateConversationRequest(BaseModel):
     """
 
 
+class UpdateConversationRequest(BaseModel):
+    """Body for ``PATCH /conversations/{id}``.
+
+    Attributes:
+        current_cluster_snapshot_id: New active cluster snapshot UUID.
+    """
+    current_cluster_snapshot_id: uuid.UUID
+
+
 class SendMessageRequest(BaseModel):
     """Body for ``POST /conversations/{id}/messages``.
 

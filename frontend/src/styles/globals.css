@@ -58,6 +58,29 @@
     }
 }
 
+.scrollbar-styled {
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+}
+
+.scrollbar-styled::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+
+.scrollbar-styled::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.scrollbar-styled::-webkit-scrollbar-thumb {
+    background: var(--border);
+    border-radius: 3px;
+}
+
+.scrollbar-styled::-webkit-scrollbar-thumb:hover {
+    background: var(--muted);
+}
+
 @theme {
     --color-bg: var(--bg);
     --color-surface: var(--surface);

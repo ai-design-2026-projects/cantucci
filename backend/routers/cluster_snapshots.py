@@ -11,14 +11,57 @@ from backend.data_access.cluster_snapshots.queries import (
     get_cluster_snapshot_with_clusters,
     get_conversation_cluster_snapshots,
     get_memberships,
+    get_root_cluster_snapshot,
 )
-from backend.exceptions import ClusterSnapshotNotFound, SnapshotHasChildren
+from backend.exceptions import ClusterSnapshotNotFound, NotFoundError, SnapshotHasChildren
 from backend.routers.auth_deps import get_current_user
 from backend.routers.dto.cluster_snapshots.dtos import ClusterDto, ClusterSnapshotDto, ClusterSnapshotGraphDto
 
 log = logging.getLogger(__name__)
 
 router = APIRouter(tags=["cluster-snapshots"])
+
+
+@router.get("/cluster-snapshots/root", response_model=ClusterSnapshotDto)
+def get_root_cluster_snapshot_endpoint() -> ClusterSnapshotDto:
+    """Return the most recent root cluster snapshot.
+
+    Used to show the full corpus silhouette before any conversation is active.
+    No authentication required — the base corpus is public.
+
+    Returns:
+        ``ClusterSnapshotDto`` for the root snapshot.
+
+    Raises:
+        ClusterSnapshotNotFound: If no root snapshot has been ingested yet.
+    """
+    root = get_root_cluster_snapshot()
+    if root is None:
+        raise NotFoundError("No root cluster snapshot has been ingested yet")
+    result = get_cluster_snapshot_with_clusters(root.id)
+    if result is None:
+        raise ClusterSnapshotNotFound(root.id)
+    cluster_dtos = []
+    for c in result.clusters:
+        memberships = get_memberships(c.id)
+        cluster_dtos.append(ClusterDto(
+            id=c.id,
+            label=c.label,
+            summary=c.summary,
+            exemplar_movie_ids=c.exemplar_movie_ids,
+            parent_cluster_id=c.parent_cluster_id,
+            size=len(memberships),
+        ))
+    s = result.cluster_snapshot
+    return ClusterSnapshotDto(
+        id=s.id,
+        parent_id=s.parent_id,
+        operation=s.operation,
+        params=s.params,
+        config_hash=s.config_hash,
+        clusters=cluster_dtos,
+        created_at=s.created_at,
+    )
 
 
 @router.get("/cluster-snapshots/{cluster_snapshot_id}", response_model=ClusterSnapshotDto)

@@ -12,14 +12,20 @@ from backend.data_access.conversations.queries import (
     get_conversation,
     get_messages,
     list_conversations_for_user,
+    set_current_cluster_snapshot,
 )
-from backend.exceptions import ConversationNotFound, NotConversationOwner
+from backend.data_access.cluster_snapshots.queries import (
+    get_cluster_snapshot,
+    record_conversation_snapshot_ref,
+)
+from backend.exceptions import ClusterSnapshotNotFound, ConversationNotFound, NotConversationOwner
 from backend.routers.auth_deps import get_current_user
 from backend.routers.dto.conversations.dtos import (
     ConversationDto,
     MessageDto,
     SendMessageRequest,
     SendMessageResponse,
+    UpdateConversationRequest,
 )
 from backend.settings import get_config_snapshot
 
@@ -141,6 +147,60 @@ def get_conversation_endpoint(conversation_id: uuid.UUID) -> ConversationDto:
     return ConversationDto(
         id=row.id,
         current_cluster_snapshot_id=row.current_cluster_snapshot_id,
+        messages=[
+            MessageDto(id=m.id, role=m.role, content=m.content, created_at=m.created_at)
+            for m in messages
+        ],
+        created_at=row.created_at,
+    )
+
+
+@router.patch("/{conversation_id}", response_model=ConversationDto)
+def update_conversation_endpoint(
+    conversation_id: uuid.UUID,
+    body: UpdateConversationRequest,
+    user: Annotated[User | None, Depends(get_current_user)],
+) -> ConversationDto:
+    """Set the active cluster snapshot for a conversation.
+
+    Updates ``current_cluster_snapshot_id`` and records a snapshot ref so the
+    conversation_snapshot_refs join table stays consistent.
+
+    Args:
+        conversation_id: Conversation UUID.
+        body:            Body with the new ``current_cluster_snapshot_id``.
+        user:            Authenticated user. Anonymous callers receive 401.
+
+    Returns:
+        Updated ``ConversationDto``.
+
+    Raises:
+        HTTPException(401):       If the request is anonymous.
+        ConversationNotFound:     If the conversation does not exist.
+        ClusterSnapshotNotFound:  If the requested snapshot does not exist.
+    """
+    if user is None:
+        raise HTTPException(status_code=401, detail="Authentication required.")
+    row = get_conversation(conversation_id)
+    if row is None:
+        raise ConversationNotFound(conversation_id)
+    snapshot = get_cluster_snapshot(body.current_cluster_snapshot_id)
+    if snapshot is None:
+        raise ClusterSnapshotNotFound(body.current_cluster_snapshot_id)
+    set_current_cluster_snapshot(conversation_id, body.current_cluster_snapshot_id)
+    record_conversation_snapshot_ref(conversation_id, body.current_cluster_snapshot_id)
+    log.info(
+        "active_snapshot_set",
+        extra={
+            "conversation_id": str(conversation_id),
+            "snapshot_id": str(body.current_cluster_snapshot_id),
+            "user_id": str(user.id),
+        },
+    )
+    messages = get_messages(conversation_id, limit=20)
+    return ConversationDto(
+        id=conversation_id,
+        current_cluster_snapshot_id=body.current_cluster_snapshot_id,
         messages=[
             MessageDto(id=m.id, role=m.role, content=m.content, created_at=m.created_at)
             for m in messages

@@ -113,7 +113,7 @@ export function ClusterInspectModal({
           </p>
         </DialogHeader>
         <TooltipProvider delayDuration={300}>
-          <div className="flex-1 overflow-y-auto px-6 py-4 space-y-3">
+          <div className="flex-1 overflow-y-auto scrollbar-styled px-6 py-4 space-y-3">
             {snapshot.clusters.map((cluster) => (
               <ClusterInspectCard
                 key={cluster.id}

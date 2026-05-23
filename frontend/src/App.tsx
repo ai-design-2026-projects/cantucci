@@ -1,8 +1,7 @@
 import { useEffect } from 'react'
-import { useParams, useSearchParams } from 'react-router-dom'
+import { useParams, useNavigate } from 'react-router-dom'
 import { useAuthStore } from './store/useAuthStore'
 import { useThemeStore } from './store/useThemeStore'
-import { useSnapshotStore } from './store/useSnapshotStore'
 import { useConversationStore } from './store/useConversationStore'
 import { meFetcher } from './api/services/auth'
 import { getConversationFetcher } from './api/services/conversations'
@@ -10,25 +9,23 @@ import { Header } from './features/Header/Header'
 import { ChatPanel } from './features/Chat/ChatPanel'
 import { ClusterSnapshotTab } from './features/ClusterSnapshotTab/ClusterSnapshotTab'
 import { WelcomePage } from './features/Welcome/WelcomePage'
-import { FloatingMascot } from './components/mascot'
 import { HistorySidebar } from './features/History/HistorySidebar'
 
 /**
- * Root application layout. Handles auth hydration, theme init, anonymous
- * conversation restoration, and snapshot URL sync. Renders either the
- * Welcome screen or the two-column chat + snapshot layout.
+ * Root application layout. Handles auth hydration, theme init, and anonymous
+ * conversation restoration. Always renders the two-column layout — left panel
+ * shows the welcome screen or chat; right panel shows the scatter plot (grey
+ * silhouette when no conversation is active, colored clusters when one is).
  *
  * @returns Application shell.
  */
 export default function App() {
   const { conversationId } = useParams<{ conversationId: string }>()
-  const [searchParams] = useSearchParams()
-  const snapshotParam = searchParams.get('snapshot')
+  const navigate = useNavigate()
 
   const { setUser, setStatus } = useAuthStore()
   const { initTheme } = useThemeStore()
-  const { setActiveSnapshotId } = useSnapshotStore()
-  const { activeConversationId, setActiveConversationId, loadAnonConversationId, saveAnonConversationId } = useConversationStore()
+  const { setActiveConversationId, loadAnonConversationId, saveAnonConversationId, clearAnonConversationId } = useConversationStore()
 
   useEffect(() => {
     initTheme()
@@ -40,12 +37,6 @@ export default function App() {
   }, [setUser, setStatus])
 
   useEffect(() => {
-    if (snapshotParam) {
-      setActiveSnapshotId(snapshotParam)
-    }
-  }, [snapshotParam, setActiveSnapshotId])
-
-  useEffect(() => {
     if (conversationId) {
       setActiveConversationId(conversationId)
       return
@@ -55,14 +46,13 @@ export default function App() {
       getConversationFetcher(storedId)
         .then(() => {
           saveAnonConversationId(storedId)
+          navigate(`/c/${storedId}`, { replace: true })
         })
         .catch(() => {
-          localStorage.removeItem('cinepal_anon_conv_id')
+          clearAnonConversationId()
         })
     }
-  }, [conversationId, setActiveConversationId, loadAnonConversationId, saveAnonConversationId])
-
-  const currentConversationId = conversationId ?? activeConversationId
+  }, [conversationId, setActiveConversationId, loadAnonConversationId, saveAnonConversationId, clearAnonConversationId, navigate])
 
   return (
     <div className="flex flex-col h-screen overflow-hidden bg-[var(--color-bg)]">
@@ -71,24 +61,20 @@ export default function App() {
       <div className="flex flex-1 pt-14">
         <HistorySidebar />
 
-        {!currentConversationId ? (
-          <WelcomePage />
-        ) : (
-          <>
-            {/* Left: scrollable chat (40%) */}
-            <div className="flex flex-col basis-2/5 min-w-0 shrink-0 border-r border-[var(--color-border)] overflow-hidden">
-              <ChatPanel conversationId={currentConversationId} />
-            </div>
+        {/* Left: chat or welcome (40%) */}
+        <div className="flex flex-col basis-2/5 min-w-0 shrink-0 border-r border-[var(--color-border)] overflow-hidden">
+          {conversationId ? (
+            <ChatPanel conversationId={conversationId} />
+          ) : (
+            <WelcomePage />
+          )}
+        </div>
 
-            {/* Right: snapshot panel (60%) */}
-            <div className="basis-3/5 bg-[var(--color-surface)]">
-              <ClusterSnapshotTab conversationId={currentConversationId} />
-            </div>
-          </>
-        )}
+        {/* Right: snapshot scatter plot (60%) — always visible */}
+        <div className="basis-3/5 bg-[var(--color-surface)] overflow-hidden">
+          <ClusterSnapshotTab conversationId={conversationId} />
+        </div>
       </div>
-
-      {currentConversationId && <FloatingMascot />}
     </div>
   )
 }

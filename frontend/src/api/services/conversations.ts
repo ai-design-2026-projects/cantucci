@@ -56,3 +56,20 @@ export async function sendMessageFetcher(
 export async function deleteConversationFetcher(conversationId: string): Promise<void> {
     return apiClient<void>(`/conversations/${conversationId}`, { method: 'DELETE' })
 }
+
+/**
+ * Update a conversation's active cluster snapshot.
+ *
+ * @param conversationId          - Conversation UUID.
+ * @param currentClusterSnapshotId - New active snapshot UUID.
+ * @returns Updated ConversationDto.
+ */
+export async function patchConversationFetcher(
+    conversationId: string,
+    currentClusterSnapshotId: string,
+): Promise<ConversationDto> {
+    return apiClient<ConversationDto>(`/conversations/${conversationId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ current_cluster_snapshot_id: currentClusterSnapshotId }),
+    })
+}

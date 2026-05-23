@@ -12,6 +12,16 @@ export async function getSnapshotFetcher(snapshotId: string): Promise<ClusterSna
 }
 
 /**
+ * Fetch the most recent root (base HDBSCAN) cluster snapshot.
+ * Returns 404 if no snapshot has been ingested yet.
+ *
+ * @returns ClusterSnapshotDto for the root snapshot.
+ */
+export async function getRootSnapshotFetcher(): Promise<ClusterSnapshotDto> {
+    return apiClient<ClusterSnapshotDto>('/cluster-snapshots/root')
+}
+
+/**
  * Fetch all cluster snapshot nodes for a conversation as a DAG.
  *
  * @param conversationId - Conversation UUID.
