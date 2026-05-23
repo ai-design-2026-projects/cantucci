@@ -18,6 +18,7 @@ interface SnapshotPlotProps {
 	selectedClusterId: string | null
 	onPointClick: (movieId: number) => void
 	dimmedAll?: boolean
+	baseDomain?: { x: [number, number]; y: [number, number] }
 }
 
 interface CustomDotProps {
@@ -55,10 +56,10 @@ function CustomDot({ cx = 0, cy = 0, fill = '#ccc', payload, onPointClick, dimme
  * @param dimmedAll         - When true, renders all points in muted grey (welcome screen).
  * @returns Responsive scatter chart with dot-grid background.
  */
-export function SnapshotPlot({ points, snapshot, selectedClusterId, onPointClick, dimmedAll = false }: SnapshotPlotProps) {
+export function SnapshotPlot({ points, snapshot, selectedClusterId, onPointClick, dimmedAll = false, baseDomain }: SnapshotPlotProps) {
 	const isDark = useThemeStore((s) => s.theme === 'dark')
 
-	const { xDomain, yDomain } = useMemo(() => {
+	const perSnapshotDomain = useMemo(() => {
 		if (points.length === 0) return { xDomain: [0, 1] as [number, number], yDomain: [0, 1] as [number, number] }
 		const xs = points.map((p) => p.x)
 		const ys = points.map((p) => p.y)
@@ -73,6 +74,9 @@ export function SnapshotPlot({ points, snapshot, selectedClusterId, onPointClick
 			yDomain: [yMin - yPad, yMax + yPad] as [number, number],
 		}
 	}, [points])
+
+	const xDomain = baseDomain?.x ?? perSnapshotDomain.xDomain
+	const yDomain = baseDomain?.y ?? perSnapshotDomain.yDomain
 
 	const byCluster = snapshot.clusters.reduce<Record<string, ScatterPoint[]>>((acc, c) => {
 		acc[c.id] = points.filter((p) => p.clusterId === c.id)

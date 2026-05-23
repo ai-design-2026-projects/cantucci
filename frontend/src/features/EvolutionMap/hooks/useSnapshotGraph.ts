@@ -10,10 +10,10 @@ import type { ClusterSnapshotGraphDto } from '@/api/dto/snapshots'
  * @returns TanStack Query result wrapping ClusterSnapshotGraphDto.
  */
 export function useSnapshotGraph(conversationId: string | undefined) {
-  return useQuery<ClusterSnapshotGraphDto>({
-    queryKey: ['snapshot-graph', conversationId],
-    queryFn: () => getSnapshotGraphFetcher(conversationId!),
-    enabled: !!conversationId,
-    staleTime: 10_000,
-  })
+	return useQuery<ClusterSnapshotGraphDto>({
+		queryKey: ['snapshot-graph', conversationId],
+		queryFn: () => getSnapshotGraphFetcher(conversationId!),
+		enabled: !!conversationId,
+		staleTime: 10_000,
+	})
 }

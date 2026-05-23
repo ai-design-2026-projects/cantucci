@@ -11,20 +11,20 @@ import { deleteSnapshotFetcher } from '@/api/services/snapshots'
  * @returns Mutation object with mutate, isPending.
  */
 export function useDeleteSnapshot(conversationId: string) {
-  const queryClient = useQueryClient()
+	const queryClient = useQueryClient()
 
-  return useMutation({
-    mutationFn: (snapshotId: string) => deleteSnapshotFetcher(snapshotId),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['snapshot-graph', conversationId] })
-      toast.success('Snapshot deleted')
-    },
-    onError: (err: Error) => {
-      if (err.message.includes('child')) {
-        toast.error('This snapshot has children — delete those first 🥺')
-      } else {
-        toast.error(err.message || 'Could not delete snapshot')
-      }
-    },
-  })
+	return useMutation({
+		mutationFn: (snapshotId: string) => deleteSnapshotFetcher(snapshotId),
+		onSuccess: () => {
+			queryClient.invalidateQueries({ queryKey: ['snapshot-graph', conversationId] })
+			toast.success('Snapshot deleted')
+		},
+		onError: (err: Error) => {
+			if (err.message.includes('child')) {
+				toast.error('This snapshot has children — delete those first 🥺')
+			} else {
+				toast.error(err.message || 'Could not delete snapshot')
+			}
+		},
+	})
 }

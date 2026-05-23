@@ -3,11 +3,11 @@ import { Button } from '@/components/button'
 import type { LayoutNode } from '../layout/radialLayout'
 
 interface DeleteSnapshotDialogProps {
-  node: LayoutNode | null
-  childCount: number
-  isPending: boolean
-  onConfirm: () => void
-  onClose: () => void
+	node: LayoutNode | null
+	childCount: number
+	isPending: boolean
+	onConfirm: () => void
+	onClose: () => void
 }
 
 /**
@@ -21,63 +21,63 @@ interface DeleteSnapshotDialogProps {
  * @param onClose    - Called when the dialog is dismissed.
  */
 export function DeleteSnapshotDialog({
-  node,
-  childCount,
-  isPending,
-  onConfirm,
-  onClose,
+	node,
+	childCount,
+	isPending,
+	onConfirm,
+	onClose,
 }: DeleteSnapshotDialogProps) {
-  if (!node) return null
+	if (!node) return null
 
-  const label =
-    node.operation === 'base'
-      ? 'Base snapshot'
-      : `${node.operation.replace('_', ' ')} #${node.sopIndex}`
+	const label =
+		node.operation === 'base'
+			? 'Base snapshot'
+			: `${node.operation.replace('_', ' ')} #${node.sopIndex}`
 
-  const createdAt = new Date(node.created_at).toLocaleString(undefined, {
-    dateStyle: 'medium',
-    timeStyle: 'short',
-  })
+	const createdAt = new Date(node.created_at).toLocaleString(undefined, {
+		dateStyle: 'medium',
+		timeStyle: 'short',
+	})
 
-  const hasChildren = childCount > 0
+	const hasChildren = childCount > 0
 
-  return (
-    <Dialog open={!!node} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-w-sm">
-        <DialogHeader>
-          <DialogTitle>Delete snapshot?</DialogTitle>
-        </DialogHeader>
-        <div className="space-y-3 text-sm text-[var(--color-text)]">
-          <p>
-            <span className="font-medium capitalize">{label}</span>
-            <span className="text-[var(--color-muted)]"> — created {createdAt}</span>
-          </p>
-          {hasChildren ? (
-            <p className="text-[var(--color-muted)]">
-              This snapshot has {childCount} child snapshot{childCount !== 1 ? 's' : ''}.
-              Delete those first before deleting this one.
-            </p>
-          ) : (
-            <p className="text-[var(--color-muted)]">
-              This will permanently remove the snapshot and all its cluster memberships.
-              Conversations pointing here will be moved to its parent.
-            </p>
-          )}
-        </div>
-        <div className="flex justify-end gap-2 mt-2">
-          <Button variant="ghost" size="sm" onClick={onClose} disabled={isPending}>
-            Cancel
-          </Button>
-          <Button
-            variant="destructive"
-            size="sm"
-            onClick={onConfirm}
-            disabled={hasChildren || isPending}
-          >
-            {isPending ? 'Deleting…' : 'Delete'}
-          </Button>
-        </div>
-      </DialogContent>
-    </Dialog>
-  )
+	return (
+		<Dialog open={!!node} onOpenChange={(open) => !open && onClose()}>
+			<DialogContent className="max-w-sm">
+				<DialogHeader>
+					<DialogTitle>Delete snapshot?</DialogTitle>
+				</DialogHeader>
+				<div className="space-y-3 text-sm text-[var(--color-text)]">
+					<p>
+						<span className="font-medium capitalize">{label}</span>
+						<span className="text-[var(--color-muted)]"> — created {createdAt}</span>
+					</p>
+					{hasChildren ? (
+						<p className="text-[var(--color-muted)]">
+							This snapshot has {childCount} child snapshot{childCount !== 1 ? 's' : ''}.
+							Delete those first before deleting this one.
+						</p>
+					) : (
+						<p className="text-[var(--color-muted)]">
+							This will permanently remove the snapshot and all its cluster memberships.
+							Conversations pointing here will be moved to its parent.
+						</p>
+					)}
+				</div>
+				<div className="flex justify-end gap-2 mt-2">
+					<Button variant="ghost" size="sm" onClick={onClose} disabled={isPending}>
+						Cancel
+					</Button>
+					<Button
+						variant="destructive"
+						size="sm"
+						onClick={onConfirm}
+						disabled={hasChildren || isPending}
+					>
+						{isPending ? 'Deleting…' : 'Delete'}
+					</Button>
+				</div>
+			</DialogContent>
+		</Dialog>
+	)
 }

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { useSnapshotStore } from '@/store/useSnapshotStore'
 import { useConversation } from '@/features/Chat/hooks/useConversation'
 import { useSyncConversationSnapshot } from '@/features/Chat/hooks/useSyncConversationSnapshot'
@@ -50,6 +50,31 @@ export function ClusterSnapshotTab({ conversationId }: ClusterSnapshotTabProps) 
 	const { data: movieMap } = useExemplarMovies(snapshot)
 	const scatterPoints = useScatterData(snapshot, movieMap)
 
+	const baseDomain = useMemo(() => {
+		if (!rootSnapshot) return undefined
+		const exemplarIds = rootSnapshot.clusters.flatMap((c) => c.exemplar_movie_ids)
+		const xs: number[] = []
+		const ys: number[] = []
+		for (const id of exemplarIds) {
+			const movie = movieMap?.get(id)
+			if (movie?.umap_x != null && movie?.umap_y != null) {
+				xs.push(movie.umap_x)
+				ys.push(movie.umap_y)
+			}
+		}
+		if (xs.length === 0) return undefined
+		const xMin = Math.min(...xs)
+		const xMax = Math.max(...xs)
+		const yMin = Math.min(...ys)
+		const yMax = Math.max(...ys)
+		const xPad = (xMax - xMin) * 0.05 || 1
+		const yPad = (yMax - yMin) * 0.05 || 1
+		return {
+			x: [xMin - xPad, xMax + xPad] as [number, number],
+			y: [yMin - yPad, yMax + yPad] as [number, number],
+		}
+	}, [rootSnapshot, movieMap])
+
 	return (
 		<div className="flex flex-col h-full w-full">
 			<div className="flex items-center justify-between px-4 py-2.5 border-b border-[var(--color-border)] flex-shrink-0">
@@ -68,6 +93,7 @@ export function ClusterSnapshotTab({ conversationId }: ClusterSnapshotTabProps) 
 						selectedClusterId={selectedClusterId}
 						onPointClick={setSelectedMovieId}
 						dimmedAll={dimmedAll}
+						baseDomain={baseDomain}
 					/>
 				) : (
 					<div className="h-full flex items-center justify-center text-sm text-[var(--color-muted)]">

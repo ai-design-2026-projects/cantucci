@@ -13,20 +13,20 @@ import { useSnapshotStore } from '@/store/useSnapshotStore'
  * @returns Mutation object with mutate, isPending.
  */
 export function useSetActiveSnapshot(conversationId: string) {
-  const queryClient = useQueryClient()
-  const { setActiveSnapshotId } = useSnapshotStore()
-  const [, setSearchParams] = useSearchParams()
+	const queryClient = useQueryClient()
+	const { setActiveSnapshotId } = useSnapshotStore()
+	const [, setSearchParams] = useSearchParams()
 
-  return useMutation({
-    mutationFn: (snapshotId: string) =>
-      patchConversationFetcher(conversationId, snapshotId),
-    onSuccess: (_, snapshotId) => {
-      setActiveSnapshotId(snapshotId)
-      setSearchParams({ snapshot: snapshotId }, { replace: true })
-      queryClient.invalidateQueries({ queryKey: ['conversation', conversationId] })
-    },
-    onError: (err: Error) => {
-      toast.error(err.message || 'Could not switch snapshot')
-    },
-  })
+	return useMutation({
+		mutationFn: (snapshotId: string) =>
+			patchConversationFetcher(conversationId, snapshotId),
+		onSuccess: (_, snapshotId) => {
+			setActiveSnapshotId(snapshotId)
+			setSearchParams({ snapshot: snapshotId }, { replace: true })
+			queryClient.invalidateQueries({ queryKey: ['conversation', conversationId] })
+		},
+		onError: (err: Error) => {
+			toast.error(err.message || 'Could not switch snapshot')
+		},
+	})
 }
