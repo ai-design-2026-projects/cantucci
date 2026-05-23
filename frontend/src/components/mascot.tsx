@@ -195,3 +195,16 @@ export function Mascot({ expression = 'happy', size = 'sm', className }: MascotP
     </motion.div>
   )
 }
+
+/**
+ * Fixed-position ambient mascot shown while a conversation is active.
+ *
+ * @returns Floating decorative mascot anchored to bottom-right.
+ */
+export function FloatingMascot() {
+  return (
+    <div className="pointer-events-none fixed bottom-4 right-4 z-40">
+      <Mascot expression="happy" size="md" className="opacity-90" />
+    </div>
+  )
+}

@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { LOADING_MESSAGES, LOADING_EXPRESSIONS, LOADING_ROTATE_MS } from '@/lib/constants'
-import type { MascotExpression } from '@/components/mascot/Mascot'
+import type { MascotExpression } from '@/components/mascot'
 
 interface LoadingStatus {
   message: string

@@ -9,7 +9,7 @@ import { useConversationsList } from './hooks/useConversationsList'
 import { useDeleteConversation } from './hooks/useDeleteConversation'
 import { ConversationListItem } from './components/ConversationListItem'
 import { AuthGatePrompt } from './components/AuthGatePrompt'
-import { Button } from '@/components/ui/button'
+import { Button } from '@/components/button'
 
 const STORAGE_KEY = 'cinepal_history_open'
 

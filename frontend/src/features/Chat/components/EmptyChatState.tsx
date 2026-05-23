@@ -1,4 +1,4 @@
-import { Mascot } from '@/components/mascot/Mascot'
+import { Mascot } from '@/components/mascot'
 
 /**
  * Placeholder shown inside an empty conversation before the first message.

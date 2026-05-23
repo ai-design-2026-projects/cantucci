@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom'
-import { Mascot } from '@/components/mascot/Mascot'
+import { Mascot } from '@/components/mascot'
 import { AuthForm } from './components/AuthForm'
 import { useLogin } from './hooks/useLogin'
 

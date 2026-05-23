@@ -1,5 +1,4 @@
 import { Link } from 'react-router-dom'
-import { Mascot } from '@/components/mascot/Mascot'
 
 /**
  * CinePal brand logo — small Poppy icon + app name in display font.
@@ -9,8 +8,7 @@ import { Mascot } from '@/components/mascot/Mascot'
 export function BrandMark() {
   return (
     <Link to="/" className="flex items-center gap-2 hover:opacity-80 transition-opacity">
-      <Mascot expression="happy" size="sm" />
-      <span className="text-xl font-display text-[var(--color-text)]">CinePal</span>
+      <span className="text-3xl font-display text-[var(--color-primary)]">CinePal</span>
     </Link>
   )
 }

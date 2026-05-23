@@ -10,7 +10,7 @@ import { Header } from './features/Header/Header'
 import { ChatPanel } from './features/Chat/ChatPanel'
 import { ClusterSnapshotTab } from './features/ClusterSnapshotTab/ClusterSnapshotTab'
 import { WelcomePage } from './features/Welcome/WelcomePage'
-import { FloatingMascot } from './components/mascot/FloatingMascot'
+import { FloatingMascot } from './components/mascot'
 import { HistorySidebar } from './features/History/HistorySidebar'
 
 /**

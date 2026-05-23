@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom'
-import { Mascot } from '@/components/mascot/Mascot'
-import { Button } from '@/components/ui/button'
+import { Mascot } from '@/components/mascot'
+import { Button } from '@/components/button'
 
 /**
  * Shown in the history drawer when the user is not authenticated.

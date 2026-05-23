@@ -1,5 +1,5 @@
 import { LayoutGrid } from 'lucide-react'
-import { Button } from '@/components/ui/button'
+import { Button } from '@/components/button'
 
 interface InspectButtonProps {
   onClick: () => void

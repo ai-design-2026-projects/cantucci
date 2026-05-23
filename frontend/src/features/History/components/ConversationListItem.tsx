@@ -1,5 +1,5 @@
 import { Trash2 } from 'lucide-react'
-import { Button } from '@/components/ui/button'
+import { Button } from '@/components/button'
 import { relativeTime } from '@/lib/utils'
 import type { ConversationDto } from '@/lib/types'
 

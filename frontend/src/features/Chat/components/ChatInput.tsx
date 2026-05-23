@@ -1,6 +1,6 @@
 import { useState, useRef } from 'react'
 import { Send } from 'lucide-react'
-import { Button } from '@/components/ui/button'
+import { Button } from '@/components/button'
 
 interface ChatInputProps {
   onSend: (content: string) => void
