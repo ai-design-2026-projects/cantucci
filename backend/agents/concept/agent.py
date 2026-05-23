@@ -6,7 +6,7 @@ from jinja2 import Environment, FileSystemLoader
 from pydantic import BaseModel
 
 from backend.agents.concept.types import ConceptRep, LinearAxisRep, PrototypeRep
-from backend.data_access.movies.queries import fetch_fused_embeddings, vector_search
+from backend.data_access.movies.queries import fetch_text_embeddings, vector_search
 from backend.exceptions import ConceptParseError
 from backend.llm import llm_harness
 from backend.settings import get_config_hash, get_settings, prompts_dir
@@ -103,7 +103,7 @@ async def build_concept(
         if not exemplar_ids:
             raise ConceptParseError(concept_name)
 
-        emb_map = fetch_fused_embeddings(exemplar_ids)
+        emb_map = fetch_text_embeddings(exemplar_ids)
         if not emb_map:
             raise ConceptParseError(concept_name)
 

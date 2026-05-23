@@ -159,9 +159,7 @@ def run_from_artifact(name: str) -> None:
     all_movie_ids: list[int] = []
     all_text_embs: list[np.ndarray] = []
     all_review_embs: list[np.ndarray] = []
-    all_trailer_embs: list[np.ndarray] = []
     has_any_review = False
-    has_any_trailer = False
     seen_ids: set[int] = set()
 
     for n in names:
@@ -181,20 +179,14 @@ def run_from_artifact(name: str) -> None:
                 has_any_review = True
             else:
                 all_review_embs.append(np.zeros(dim, dtype=np.float32))
-            if trailer_embeddings is not None:
-                all_trailer_embs.append(trailer_embeddings[i])
-                has_any_trailer = True
-            else:
-                all_trailer_embs.append(np.zeros(dim, dtype=np.float32))
 
     text_arr = np.stack(all_text_embs)
     review_arr = np.stack(all_review_embs) if has_any_review else None
-    trailer_arr = np.stack(all_trailer_embs) if has_any_trailer else None
 
     log.info("offline_pipeline_start", extra={"n_movies": len(all_movie_ids)})
-    result = compute_offline_columns(all_movie_ids, text_arr, review_arr, trailer_arr)
+    result = compute_offline_columns(all_movie_ids, text_arr, review_arr)
 
-    load.upsert_offline_columns(all_movie_ids, result.fused_embeddings, result.umap_coords)
+    load.upsert_offline_columns(all_movie_ids, result.umap_coords)
 
     params = _build_snapshot_params(len(all_movie_ids), result.n_clusters)
     snapshot_id = create_root_snapshot_from_assignments(

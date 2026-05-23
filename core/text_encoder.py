@@ -59,8 +59,9 @@ def encode_optional_texts(
     """Encode texts that may be absent, leaving missing rows as zero vectors.
 
     Rows where ``texts[i]`` is ``None``, ``NaN``, or blank are left as
-    all-zero in the output — matching the "missing modality" semantics
-    expected by ``core.fusion.fuse_batch`` and the DB ingest layer.
+    all-zero in the output. Zero rows are treated as "missing modality" by
+    ``core.fusion.fuse_batch`` (BGE fusion) and are excluded from
+    multi-modal distance matrices built by ``core.fusion.combined_distance_matrix``.
 
     Args:
         texts:      List of strings or ``None``/``NaN`` values, one per row.

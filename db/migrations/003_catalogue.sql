@@ -32,7 +32,6 @@ CREATE TABLE movies (
     review_embedding      VECTOR(1024),
     trailer_youtube_key   TEXT,
     trailer_embedding     VECTOR(1024),
-    fused_embedding       VECTOR(1024),
     umap_x            FLOAT,
     umap_y            FLOAT
 );
@@ -65,9 +64,6 @@ CREATE TABLE movie_keywords (
 
 CREATE INDEX movies_text_embedding_idx
     ON movies USING ivfflat (text_embedding vector_cosine_ops) WITH (lists = 100);
-
-CREATE INDEX movies_fused_embedding_idx
-    ON movies USING ivfflat (fused_embedding vector_cosine_ops) WITH (lists = 100);
 
 CREATE INDEX movies_review_embedding_idx
     ON movies USING ivfflat (review_embedding vector_cosine_ops) WITH (lists = 100)

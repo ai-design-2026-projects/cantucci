@@ -11,13 +11,11 @@ class OfflineResult:
     """
     Output of the offline embedding pipeline.
     Attributes:
-        fused_embeddings: Float32 array of shape (n, dim), row-wise L2-normalized.
         umap_coords:      Float64 array of shape (n, 2) with (x, y) projections.
         cluster_ids:      Primary cluster index per movie (0-based, argmax of soft membership).
         cluster_probs:    Soft-membership probability of the primary cluster per movie.
         n_clusters:       Total number of clusters found.
     """
-    fused_embeddings: np.ndarray
     umap_coords: np.ndarray
     cluster_ids: list[int]
     cluster_probs: list[float]
@@ -28,23 +26,29 @@ def compute_offline_columns(
     movie_ids: list[int],
     text_embeddings: np.ndarray,
     review_embeddings: np.ndarray | None,
-    trailer_embeddings: np.ndarray | None = None,
 ) -> OfflineResult:
     """
-    Compute fused embeddings, UMAP 2D coordinates, and HDBSCAN cluster assignments.
+    Compute UMAP 2D coordinates and HDBSCAN cluster assignments from BGE embeddings.
+
+    Fuses text and review embeddings (both in BGE space) in memory, then runs
+    UMAP and HDBSCAN on the result. The fused vector is never stored in the DB —
+    only the UMAP coordinates and cluster assignments are persisted. For
+    multi-modal clustering that mixes incompatible embedding spaces (e.g. BGE
+    text + CLIP trailer), use ``core.fusion.combined_distance_matrix`` at
+    runtime instead.
+
     Pure computation — no DB access, no LLM calls. All parameters come from the
-    active YAML config. Called from ``db/ingest.py`` after catalogue rows are loaded.
+    active YAML config. Called from ``db/ingest.py`` after catalogue rows are
+    loaded.
+
     Args:
-        movie_ids:          TMDB IDs in row order (used only for logging).
-        text_embeddings:    Float32 array of shape (n, dim), L2-normalized.
-        review_embeddings:  Float32 array of shape (n, dim) with zero rows for movies
-                            lacking reviews, or None to skip fusion.
-        trailer_embeddings: Float32 array of shape (n, dim) with zero rows for movies
-                            lacking trailers, or None to skip trailer fusion.
+        movie_ids:         TMDB IDs in row order (used only for logging).
+        text_embeddings:   Float32 array of shape (n, dim), L2-normalized.
+        review_embeddings: Float32 array of shape (n, dim) with zero rows for
+                           movies lacking reviews, or None to use text only.
 
     Returns:
-        ``OfflineResult`` with fused embeddings, UMAP 2D coords, and primary cluster
-        assignments for every movie.
+        ``OfflineResult`` with UMAP 2D coords and primary cluster assignments.
     """
     from umap import UMAP
 
@@ -63,8 +67,6 @@ def compute_offline_columns(
         review_embeddings,
         fusion_cfg.text_weight,
         fusion_cfg.review_weight,
-        trailer_embeddings,
-        fusion_cfg.trailer_weight,
     )
 
     log.info("offline_umap")
@@ -97,7 +99,6 @@ def compute_offline_columns(
         extra={"n_movies": len(movie_ids), "n_clusters": result.n_clusters},
     )
     return OfflineResult(
-        fused_embeddings=fused,
         umap_coords=coords,
         cluster_ids=cluster_ids,
         cluster_probs=cluster_probs,

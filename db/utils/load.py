@@ -217,26 +217,24 @@ def _upsert_movie_keywords(cur, df: pd.DataFrame) -> None:
 
 def upsert_offline_columns(
     movie_ids: list[int],
-    fused_embeddings: "np.ndarray",
     umap_coords: "np.ndarray",
 ) -> None:
-    """Update movies with fused_embedding and UMAP coordinates from the offline pipeline.
+    """Update movies with UMAP coordinates from the offline pipeline.
 
     Args:
-        movie_ids:        TMDB IDs in row order (must match array row order).
-        fused_embeddings: Float32 array of shape (n, dim), L2-normalized.
-        umap_coords:      Float64 array of shape (n, 2) with (x, y) columns.
+        movie_ids:   TMDB IDs in row order (must match array row order).
+        umap_coords: Float64 array of shape (n, 2) with (x, y) columns.
     """
     url = get_env().database_url
     rows = [
-        (fused_embeddings[i].tolist(), float(umap_coords[i, 0]), float(umap_coords[i, 1]), movie_ids[i])
+        (float(umap_coords[i, 0]), float(umap_coords[i, 1]), movie_ids[i])
         for i in range(len(movie_ids))
     ]
     with psycopg.connect(url) as conn:
         pgvector.psycopg.register_vector(conn)
         with conn.cursor() as cur:
             cur.executemany(
-                "UPDATE movies SET fused_embedding = %s::vector, umap_x = %s, umap_y = %s WHERE id = %s",
+                "UPDATE movies SET umap_x = %s, umap_y = %s WHERE id = %s",
                 rows,
             )
     log.info("offline_columns_upserted", extra={"n": len(movie_ids)})

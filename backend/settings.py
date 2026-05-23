@@ -125,17 +125,22 @@ class ClusteringConfig(BaseModel):
 
 
 class FusionConfig(BaseModel):
-    """Weights for fusing text, review, and trailer embeddings.
+    """Embedding fusion weights for the BGE offline pipeline and runtime modality combination.
 
     Attributes:
-        text_weight:    Weight applied to the composite_text embedding (0–1).
-        review_weight:  Weight applied to the review embedding (0–1).
-        trailer_weight: Weight applied to the CLIP trailer embedding (0–1).
-                        Set to 0.0 (default) to disable trailer fusion.
+        text_weight:     Weight for composite_text embedding in the offline BGE
+                         text+review fusion (used at ingest for UMAP/HDBSCAN).
+        review_weight:   Weight for review embedding in the offline BGE fusion.
+        runtime_weights: Per-modality weights used when combining multiple
+                         embedding spaces at runtime via
+                         ``core.fusion.combined_distance_matrix``. Keys are
+                         modality names (``"text"``, ``"review"``,
+                         ``"trailer"``). Weights are normalised internally;
+                         values reflect relative importance.
     """
     text_weight: float = 0.6
     review_weight: float = 0.4
-    trailer_weight: float = 0.0
+    runtime_weights: dict[str, float] = {"text": 0.6, "trailer": 0.4}
 
 
 class UmapConfig(BaseModel):

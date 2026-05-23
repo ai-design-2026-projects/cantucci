@@ -7,6 +7,12 @@ from backend.data_access.connection import transaction
 from backend.data_access.movies.types import MovieDetailsRow, MovieRow, MovieSearchHitRow, MovieStubRow
 from backend.settings import get_settings
 
+_MODALITY_COLUMN: dict[str, str] = {
+    "text": "text_embedding",
+    "review": "review_embedding",
+    "trailer": "trailer_embedding",
+}
+
 log = logging.getLogger(__name__)
 
 
@@ -26,10 +32,13 @@ def vector_search(
     k: int,
     exclude_ids: list[int] | None = None,
 ) -> list[MovieSearchHitRow]:
-    """Return top-k movies ordered by cosine similarity to *embedding* using fused_embedding.
+    """Return top-k movies ordered by cosine similarity to *embedding* using text_embedding.
+
+    Searches the BGE text embedding space. Use this for text-driven queries
+    such as title resolution or semantic similarity by description.
 
     Args:
-        embedding:   Query vector of dimension 1024.
+        embedding:   BGE query vector of dimension 1024.
         k:           Maximum number of results to return.
         exclude_ids: Movie IDs to omit from results.
 
@@ -50,11 +59,11 @@ def vector_search(
         if exclude_ids:
             rows = conn.execute(
                 """
-                SELECT id, title, 1 - (fused_embedding <=> %s::vector) AS score
+                SELECT id, title, 1 - (text_embedding <=> %s::vector) AS score
                 FROM movies
-                WHERE fused_embedding IS NOT NULL
+                WHERE text_embedding IS NOT NULL
                   AND id <> ALL(%s)
-                ORDER BY fused_embedding <=> %s::vector
+                ORDER BY text_embedding <=> %s::vector
                 LIMIT %s
                 """,
                 (vec, exclude_ids, vec, k),
@@ -62,10 +71,10 @@ def vector_search(
         else:
             rows = conn.execute(
                 """
-                SELECT id, title, 1 - (fused_embedding <=> %s::vector) AS score
+                SELECT id, title, 1 - (text_embedding <=> %s::vector) AS score
                 FROM movies
-                WHERE fused_embedding IS NOT NULL
-                ORDER BY fused_embedding <=> %s::vector
+                WHERE text_embedding IS NOT NULL
+                ORDER BY text_embedding <=> %s::vector
                 LIMIT %s
                 """,
                 (vec, vec, k),
@@ -76,8 +85,8 @@ def vector_search(
     return hits
 
 
-def fetch_fused_embeddings(movie_ids: list[int]) -> dict[int, list[float]]:
-    """Return fused_embedding vectors keyed by movie_id.
+def fetch_text_embeddings(movie_ids: list[int]) -> dict[int, list[float]]:
+    """Return text_embedding vectors keyed by movie_id.
 
     Args:
         movie_ids: TMDB integer IDs to look up.
@@ -90,16 +99,68 @@ def fetch_fused_embeddings(movie_ids: list[int]) -> dict[int, list[float]]:
 
     with transaction() as conn:
         rows = conn.execute(
-            "SELECT id, fused_embedding FROM movies WHERE id = ANY(%s) AND fused_embedding IS NOT NULL",
+            "SELECT id, text_embedding FROM movies WHERE id = ANY(%s) AND text_embedding IS NOT NULL",
             (movie_ids,),
         ).fetchall()
 
     result: dict[int, list[float]] = {}
     for r in rows:
-        emb = r["fused_embedding"]
+        emb = r["text_embedding"]
         result[r["id"]] = list(emb) if not isinstance(emb, list) else emb
 
-    log.debug("fetch_fused_embeddings", extra={"requested": len(movie_ids), "returned": len(result)})
+    log.debug("fetch_text_embeddings", extra={"requested": len(movie_ids), "returned": len(result)})
+    return result
+
+
+def fetch_modality_embeddings(
+    movie_ids: list[int],
+    modalities: list[str],
+) -> dict[str, dict[int, np.ndarray]]:
+    """Return per-modality embedding arrays keyed by movie_id.
+
+    Fetches all requested modality columns in a single SQL pass and returns
+    only movies that have a non-null value for every requested modality.
+
+    Valid modality names: ``"text"``, ``"review"``, ``"trailer"``.
+
+    Args:
+        movie_ids:  TMDB integer IDs to look up.
+        modalities: Modality names to fetch.
+
+    Returns:
+        Dict mapping modality name → ``{movie_id: np.ndarray}``. Only movie
+        IDs present in all requested modalities are included in each sub-dict.
+
+    Raises:
+        ValueError: If *modalities* is empty or contains an unknown name.
+    """
+    if not modalities:
+        raise ValueError("modalities must not be empty")
+    unknown = [m for m in modalities if m not in _MODALITY_COLUMN]
+    if unknown:
+        raise ValueError(f"Unknown modalities: {unknown}. Valid: {list(_MODALITY_COLUMN)}")
+    if not movie_ids:
+        return {m: {} for m in modalities}
+
+    cols = [_MODALITY_COLUMN[m] for m in modalities]
+    null_checks = " AND ".join(f"{c} IS NOT NULL" for c in cols)
+    select_cols = ", ".join(["id"] + cols)
+    sql = f"SELECT {select_cols} FROM movies WHERE id = ANY(%s) AND {null_checks}"
+
+    with transaction() as conn:
+        rows = conn.execute(sql, (movie_ids,)).fetchall()
+
+    result: dict[str, dict[int, np.ndarray]] = {m: {} for m in modalities}
+    for r in rows:
+        mid = r["id"]
+        for modality, col in zip(modalities, cols):
+            emb = r[col]
+            result[modality][mid] = np.array(emb, dtype=np.float32)
+
+    log.debug(
+        "fetch_modality_embeddings",
+        extra={"modalities": modalities, "requested": len(movie_ids), "returned": len(rows)},
+    )
     return result
 
 

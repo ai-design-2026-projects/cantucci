@@ -43,8 +43,8 @@ def encode_trailers(
     extracted, each frame is encoded by ``core.image_encoder.encode_images``,
     the per-frame embeddings are mean-pooled and L2-normalized. Rows for
     movies with no ``youtube_key`` (None) or whose trailer fetch fails end up
-    as all-zero — this matches the "missing modality" semantics expected by
-    ``core.fusion.fuse_batch``.
+    as all-zero — they are excluded from multi-modal distance matrices when
+    using ``core.fusion.combined_distance_matrix``.
 
     Args:
         movie_keys: List of ``(movie_id, youtube_key)`` pairs. ``movie_id``

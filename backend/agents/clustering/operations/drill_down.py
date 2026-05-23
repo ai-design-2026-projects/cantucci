@@ -8,8 +8,9 @@ from backend.agents.concept.agent import score_movies
 from backend.agents.concept.types import ConceptRep
 from backend.agents.clustering.operations.subcluster import subcluster
 from backend.data_access.cluster_snapshots.queries import get_memberships
-from backend.data_access.movies.queries import fetch_fused_embeddings
+from backend.data_access.movies.queries import fetch_text_embeddings, fetch_modality_embeddings
 from backend.settings import get_settings
+from core.fusion import combined_distance_matrix
 
 log = logging.getLogger(__name__)
 
@@ -18,6 +19,7 @@ async def drill_down(
     source_cluster_id: uuid.UUID,
     concept: ConceptRep | None,
     parent_cluster_snapshot_id: uuid.UUID,
+    modalities: list[str] | None = None,
 ) -> ClusterSnapshotDraft:
     """Sub-cluster the movies in one cluster, optionally concept-sorted.
 
@@ -25,22 +27,43 @@ async def drill_down(
     and split at the median before re-clustering each half.
     Otherwise, HDBSCAN is run directly on the cluster's movies.
 
+    The default modality is ``["text"]`` (BGE text_embedding). Pass multiple
+    modalities (e.g. ``["text", "trailer"]``) to cluster using a combined
+    distance matrix across the specified embedding spaces.  Only movies that
+    have a non-null embedding for every requested modality are included.
+
     Args:
         source_cluster_id:          Cluster to split.
         concept:                    Optional concept to guide the split.
         parent_cluster_snapshot_id: Cluster snapshot the source cluster belongs to.
+        modalities:                 Embedding spaces to use. Defaults to ``["text"]``.
 
     Returns:
         ``ClusterSnapshotDraft`` ready to be persisted.
     """
+    if modalities is None:
+        modalities = ["text"]
+
     cfg = get_settings()
     memberships = get_memberships(source_cluster_id)
     if not memberships:
         raise ValueError(f"Cluster {source_cluster_id} has no members")
 
     movie_ids = [m.movie_id for m in memberships]
-    emb_map = fetch_fused_embeddings(movie_ids)
-    available_ids = [mid for mid in movie_ids if mid in emb_map]
+
+    if len(modalities) == 1 and modalities[0] == "text":
+        emb_map = fetch_text_embeddings(movie_ids)
+        available_ids = [mid for mid in movie_ids if mid in emb_map]
+        multi_modal = False
+    else:
+        modal_data = fetch_modality_embeddings(movie_ids, modalities)
+        available_ids = [
+            mid for mid in movie_ids
+            if all(mid in modal_data[m] for m in modalities)
+        ]
+        multi_modal = True
+        emb_map = {mid: modal_data["text"][mid].tolist() for mid in available_ids if "text" in modal_data}
+
     if not available_ids:
         raise ValueError(f"No embeddings found for cluster {source_cluster_id}")
 
@@ -49,7 +72,21 @@ async def drill_down(
         "source_cluster_id": str(source_cluster_id),
         "parent_cluster_snapshot_id": str(parent_cluster_snapshot_id),
         "concept": concept.concept_name if concept else None,
+        "modalities": modalities,
     }
+
+    def _cluster_group(group_ids: list[int]) -> "SoftClusterResult":  # type: ignore[name-defined]
+        if multi_modal:
+            embs_by_modality = {
+                m: np.array([modal_data[m][mid] for mid in group_ids], dtype=np.float32)
+                for m in modalities
+            }
+            runtime_weights = cfg.fusion.runtime_weights
+            dist_mat = combined_distance_matrix(embs_by_modality, runtime_weights)
+            return subcluster(None, cfg.clustering.online.drilldown_min_cluster_size, 1, distance_matrix=dist_mat)
+        else:
+            group_embs = np.array([emb_map[mid] for mid in group_ids], dtype=np.float32)
+            return subcluster(group_embs, cfg.clustering.online.drilldown_min_cluster_size, 1)
 
     if concept is not None:
         concept_scores = score_movies(concept, available_ids, emb_map)
@@ -61,8 +98,7 @@ async def drill_down(
         for group_ids, label_suffix in [(high_ids, f"High {concept.concept_name}"), (low_ids, f"Low {concept.concept_name}")]:
             if len(group_ids) < 2:
                 continue
-            group_embs = np.array([emb_map[mid] for mid in group_ids], dtype=np.float32)
-            result = subcluster(group_embs, cfg.clustering.online.drilldown_min_cluster_size, 1)
+            result = _cluster_group(group_ids)
             for ci in range(result.n_clusters):
                 col = result.probabilities[:, ci]
                 members = [(group_ids[i], float(col[i])) for i in range(len(group_ids)) if col[i] > 0]
@@ -76,8 +112,7 @@ async def drill_down(
                     memberships=members,
                 ))
     else:
-        vecs = np.array([emb_map[mid] for mid in available_ids], dtype=np.float32)
-        result = subcluster(vecs, cfg.clustering.online.drilldown_min_cluster_size, 1)
+        result = _cluster_group(available_ids)
         clusters = []
         for ci in range(result.n_clusters):
             col = result.probabilities[:, ci]

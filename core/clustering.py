@@ -21,43 +21,64 @@ class SoftClusterResult:
 
 
 def hdbscan_soft(
-    embeddings: np.ndarray,
+    data: np.ndarray,
     min_cluster_size: int,
     min_samples: int,
     cluster_selection_method: str = "eom",
     cluster_selection_epsilon: float = 0.0,
+    metric: str = "euclidean",
 ) -> SoftClusterResult:
     """
-    Run HDBSCAN with soft membership vectors on L2-normalized embeddings.
-    
-    Noise points (label −1) have their soft membership spread across nearest
-    clusters via ``hdbscan.all_points_membership_vectors``.
+    Run HDBSCAN with soft membership vectors.
+
+    Accepts either L2-normalised embedding vectors (``metric="euclidean"``) or
+    a precomputed square distance matrix (``metric="precomputed"``). The
+    precomputed path is the correct way to cluster when combining distances
+    from multiple embedding spaces via ``core.fusion.combined_distance_matrix``.
+
+    Noise points (label −1) have their soft membership spread uniformly across
+    all clusters. When using a precomputed distance matrix, soft assignment
+    falls back to hard labels (1.0 for the assigned cluster, uniform for noise)
+    because HDBSCAN's ``all_points_membership_vectors`` requires an indexable
+    metric.
+
     Args:
-        embeddings:               Float32 array of shape (n, 1024), L2-normalized.
+        data:                     For ``metric="euclidean"``: float32 (n, dim)
+                                  L2-normalised embeddings. For
+                                  ``metric="precomputed"``: float32 (n, n)
+                                  symmetric distance matrix with values in
+                                  [0, 2] (e.g. cosine distances).
         min_cluster_size:         HDBSCAN minimum cluster size.
         min_samples:              HDBSCAN min_samples (noise tolerance).
         cluster_selection_method: ``"eom"`` or ``"leaf"``.
         cluster_selection_epsilon: Distance threshold for cluster merging.
+        metric:                   ``"euclidean"`` (default) or ``"precomputed"``.
+
     Returns:
         ``SoftClusterResult`` with labels, soft probability matrix, and cluster count.
+
     Raises:
-        ValueError: If embeddings array is empty.
+        ValueError: If data array is empty or metric is unsupported.
         RuntimeError: If HDBSCAN finds zero clusters (all noise).
     """
     import hdbscan
 
-    if embeddings.shape[0] == 0:
-        raise ValueError("embeddings array is empty")
+    if data.shape[0] == 0:
+        raise ValueError("data array is empty")
+    if metric not in ("euclidean", "precomputed"):
+        raise ValueError(f"Unsupported metric '{metric}'; use 'euclidean' or 'precomputed'")
+
+    use_soft = metric != "precomputed"
 
     clusterer = hdbscan.HDBSCAN(
         min_cluster_size=min_cluster_size,
         min_samples=min_samples,
         cluster_selection_method=cluster_selection_method,
         cluster_selection_epsilon=cluster_selection_epsilon,
-        metric="euclidean",
-        prediction_data=True,
+        metric=metric,
+        prediction_data=use_soft,
     )
-    clusterer.fit(embeddings)
+    clusterer.fit(data)
 
     n_clusters = int(clusterer.labels_.max()) + 1
     if n_clusters == 0:
@@ -67,8 +88,15 @@ def hdbscan_soft(
             "Reduce min_cluster_size or check the embedding quality."
         )
 
-    probs = hdbscan.all_points_membership_vectors(clusterer)
-    probs = np.array(probs, dtype=np.float32)
+    n_points = data.shape[0]
+    if use_soft:
+        probs = hdbscan.all_points_membership_vectors(clusterer)
+        probs = np.array(probs, dtype=np.float32)
+    else:
+        probs = np.zeros((n_points, n_clusters), dtype=np.float32)
+        for i, label in enumerate(clusterer.labels_):
+            if label >= 0:
+                probs[i, label] = 1.0
 
     row_sums = probs.sum(axis=1, keepdims=True)
     zero_rows = (row_sums == 0).flatten()
@@ -81,9 +109,10 @@ def hdbscan_soft(
     log.info(
         "hdbscan_soft_complete",
         extra={
-            "n_points": embeddings.shape[0],
+            "n_points": n_points,
             "n_clusters": n_clusters,
             "noise_points": int((clusterer.labels_ == -1).sum()),
+            "metric": metric,
         },
     )
     return SoftClusterResult(labels=clusterer.labels_, probabilities=probs, n_clusters=n_clusters)
