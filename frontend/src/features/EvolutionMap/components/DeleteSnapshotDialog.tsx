@@ -1,14 +1,6 @@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/dialog'
 import { Button } from '@/components/button'
-import type { LayoutNode } from '../layout/radialLayout'
-
-interface DeleteSnapshotDialogProps {
-	node: LayoutNode | null
-	childCount: number
-	isPending: boolean
-	onConfirm: () => void
-	onClose: () => void
-}
+import type { LayoutNode } from '../lib/radialLayout'
 
 /**
  * Confirmation dialog for deleting a cluster snapshot.
@@ -26,7 +18,13 @@ export function DeleteSnapshotDialog({
 	isPending,
 	onConfirm,
 	onClose,
-}: DeleteSnapshotDialogProps) {
+}: {
+	node: LayoutNode | null
+	childCount: number
+	isPending: boolean
+	onConfirm: () => void
+	onClose: () => void
+}) {
 	if (!node) return null
 
 	const label =

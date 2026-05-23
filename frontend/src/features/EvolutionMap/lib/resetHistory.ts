@@ -1,5 +1,5 @@
 import { deleteSnapshotFetcher } from '@/api/services/snapshots'
-import type { LayoutNode } from '../layout/radialLayout'
+import type { LayoutNode } from './radialLayout'
 
 /**
  * Delete every non-base snapshot in the evolution tree, leaves first.

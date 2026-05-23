@@ -1,14 +1,6 @@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/dialog'
 import { Button } from '@/components/button'
 
-interface ResetHistoryDialogProps {
-    open: boolean
-    snapshotCount: number
-    isPending: boolean
-    onConfirm: () => void
-    onClose: () => void
-}
-
 /**
  * Confirmation dialog for wiping all non-base snapshots.
  *
@@ -18,7 +10,19 @@ interface ResetHistoryDialogProps {
  * @param onConfirm      - Called when the user confirms.
  * @param onClose        - Called when the dialog is dismissed.
  */
-export function ResetHistoryDialog({ open, snapshotCount, isPending, onConfirm, onClose }: ResetHistoryDialogProps) {
+export function ResetHistoryDialog({
+    open,
+    snapshotCount,
+    isPending,
+    onConfirm,
+    onClose,
+}: {
+    open: boolean
+    snapshotCount: number
+    isPending: boolean
+    onConfirm: () => void
+    onClose: () => void
+}) {
     return (
         <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
             <DialogContent className="max-w-sm">

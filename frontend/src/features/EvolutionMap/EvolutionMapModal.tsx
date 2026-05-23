@@ -10,12 +10,12 @@ import { useSetActiveSnapshot } from './hooks/useSetActiveSnapshot'
 import { SnapshotGraph } from './components/SnapshotGraph'
 import { DeleteSnapshotDialog } from './components/DeleteSnapshotDialog'
 import { ResetHistoryDialog } from './components/ResetHistoryDialog'
-import { radialLayout } from './layout/radialLayout'
+import { radialLayout } from './lib/radialLayout'
 import { resetHistory } from './lib/resetHistory'
 import { getSnapshotFetcher } from '@/api/services/snapshots'
 import { Button } from '@/components/button'
 import type { SnapshotGraphHandle } from './components/SnapshotGraph'
-import type { LayoutNode } from './layout/radialLayout'
+import type { LayoutNode } from './lib/radialLayout'
 
 interface EvolutionMapModalProps {
 	open: boolean

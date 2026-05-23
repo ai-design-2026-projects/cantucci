@@ -1,5 +1,9 @@
-import { useState, useCallback, forwardRef, useImperativeHandle, useEffect, useMemo } from 'react'
-import type { LayoutNode } from '../layout/radialLayout'
+import { forwardRef, useImperativeHandle } from 'react'
+import type { LayoutNode } from '../lib/radialLayout'
+import { relativeTime } from '@/lib/utils'
+import { LABEL_LINE_HEIGHT, NODE_R, formatSnapshotIndexLabel, formatSnapshotOperationLabel, formatSnapshotTooltipTitle } from '../lib/snapshotGraph.ts'
+import { useSnapshotGraphData } from '../hooks/useSnapshotGraphData.ts'
+import { useSnapshotGraphHandlers } from '../hooks/useSnapshotGraphHandlers.ts'
 
 interface SnapshotGraphProps {
   layout: LayoutNode[]
@@ -12,19 +16,6 @@ interface SnapshotGraphProps {
 
 export interface SnapshotGraphHandle {
   reset: () => void
-}
-
-const NODE_R = 32
-const LABEL_LINE_HEIGHT = 11
-
-function formatRelativeTime(iso: string): string {
-  const diff = Date.now() - new Date(iso).getTime()
-  const m = Math.floor(diff / 60_000)
-  if (m < 1) return 'just now'
-  if (m < 60) return `${m}m ago`
-  const h = Math.floor(m / 60)
-  if (h < 24) return `${h}h ago`
-  return `${Math.floor(h / 24)}d ago`
 }
 
 /**
@@ -46,53 +37,12 @@ export const SnapshotGraph = forwardRef<SnapshotGraphHandle, SnapshotGraphProps>
     { layout, activeSnapshotId, clusterCounts, onNodeClick, width, height },
     ref,
   ) {
-    const [scale, setScale] = useState(1)
-    const [hoveredId, setHoveredId] = useState<string | null>(null)
-
-    const bounds = useMemo(() => {
-      if (layout.length === 0) {
-        return { minX: 0, maxX: 1, minY: 0, maxY: 1 }
-      }
-
-      const labelPadding = NODE_R + 8
-      const xs = layout.map((node) => node.x)
-      const ys = layout.map((node) => node.y)
-
-      return {
-        minX: Math.min(...xs) - labelPadding,
-        maxX: Math.max(...xs) + labelPadding,
-        minY: Math.min(...ys) - NODE_R - 4,
-        maxY: Math.max(...ys) + NODE_R + LABEL_LINE_HEIGHT + 4,
-      }
-    }, [layout])
-
-    const graphWidth = Math.max(bounds.maxX - bounds.minX, 1)
-    const graphHeight = Math.max(bounds.maxY - bounds.minY, 1)
-    const fitScale = Math.min(width / graphWidth, height / graphHeight)
-
-    const transform = useMemo(() => {
-      const x = (width - graphWidth * scale) / 2 - bounds.minX * scale
-      const y = (height - graphHeight * scale) / 2 - bounds.minY * scale
-      return { x, y }
-    }, [bounds.minX, bounds.minY, graphHeight, graphWidth, height, scale, width])
-
-    useEffect(() => {
-      setScale(fitScale)
-    }, [fitScale])
+    const { fitScale, transform } = useSnapshotGraphData(layout, width, height)
+    const { scale, hoveredId, hoveredNode, setHoveredId, handleWheel, resetScale } = useSnapshotGraphHandlers(layout, fitScale)
 
     useImperativeHandle(ref, () => ({
-      reset: () => setScale(fitScale),
+      reset: resetScale,
     }))
-
-    const handleWheel = useCallback((e: React.WheelEvent) => {
-      e.preventDefault()
-      setScale((current) => {
-        const next = current * (e.deltaY < 0 ? 1.1 : 0.9)
-        return Math.max(0.05, Math.min(fitScale, next))
-      })
-    }, [fitScale])
-
-    const hoveredNode = hoveredId ? layout.find((n) => n.id === hoveredId) : null
 
     return (
       <div className="relative select-none overflow-hidden" style={{ width, height }}>
@@ -126,8 +76,8 @@ export const SnapshotGraph = forwardRef<SnapshotGraphHandle, SnapshotGraphProps>
             {layout.map((n) => {
               const isActive = n.id === activeSnapshotId
               const isHovered = n.id === hoveredId
-              const opLabel = n.operation === 'base' ? 'base' : n.operation.replace('_', ' ')
-              const indexLabel = n.operation === 'base' ? '' : `#${n.sopIndex}`
+              const opLabel = formatSnapshotOperationLabel(n.operation)
+              const indexLabel = formatSnapshotIndexLabel(n.operation, n.sopIndex)
 
               return (
                 <g
@@ -193,12 +143,8 @@ export const SnapshotGraph = forwardRef<SnapshotGraphHandle, SnapshotGraphProps>
               onMouseLeave={() => setHoveredId(null)}
             >
               <div className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded-lg px-3 py-2 shadow-lg text-xs min-w-[130px]">
-                <p className="font-medium text-[var(--color-text)] capitalize">
-                  {hoveredNode.operation === 'base'
-                    ? 'Base snapshot'
-                    : `${hoveredNode.operation.replace('_', ' ')} #${hoveredNode.sopIndex}`}
-                </p>
-                <p className="text-[var(--color-muted)] mt-0.5">{formatRelativeTime(hoveredNode.created_at)}</p>
+                <p className="font-medium text-[var(--color-text)] capitalize">{formatSnapshotTooltipTitle(hoveredNode)}</p>
+                <p className="text-[var(--color-muted)] mt-0.5">{relativeTime(hoveredNode.created_at)}</p>
                 <p className="text-[var(--color-muted)]">{clusterCounts.get(hoveredNode.id) ?? 0} clusters</p>
               </div>
             </div>
