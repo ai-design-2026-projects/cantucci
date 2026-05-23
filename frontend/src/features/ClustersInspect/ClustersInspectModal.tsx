@@ -6,14 +6,6 @@ import type { ClusterSnapshotDto } from '@/api/dto/snapshots'
 import type { MovieDto } from '@/api/dto/movies'
 import { ClusterInspectCard } from './components/ClusterInspectCard'
 
-interface ClusterInspectModalProps {
-	open: boolean
-	onClose: () => void
-	snapshot: ClusterSnapshotDto
-	movieMap: Map<number, MovieDto>
-	onMovieClick: (movieId: number) => void
-}
-
 /**
  * Modal popup showing all clusters in the active snapshot as rich cards.
  * Each card has a color stripe, title, description, and exemplar thumbnails.
@@ -31,7 +23,13 @@ export function ClusterInspectModal({
 	snapshot,
 	movieMap,
 	onMovieClick,
-}: ClusterInspectModalProps) {
+}: {
+	open: boolean
+	onClose: () => void
+	snapshot: ClusterSnapshotDto
+	movieMap: Map<number, MovieDto>
+	onMovieClick: (movieId: number) => void
+}) {
 	const isDark = useThemeStore((s) => s.theme === 'dark')
 
 	return (

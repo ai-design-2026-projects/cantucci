@@ -1,11 +1,6 @@
 import { LayoutGrid } from 'lucide-react'
 import { Button } from '@/components/button'
 
-interface InspectButtonProps {
-	onClick: () => void
-	disabled?: boolean
-}
-
 /**
  * Button that opens the cluster inspect modal.
  *
@@ -13,7 +8,13 @@ interface InspectButtonProps {
  * @param disabled - Disables the button when no snapshot is active.
  * @returns Ghost icon button with label.
  */
-export function InspectButton({ onClick, disabled }: InspectButtonProps) {
+export function InspectButton({
+	onClick,
+	disabled,
+}: {
+	onClick: () => void
+	disabled?: boolean
+}) {
 	return (
 		<Button
 			variant="ghost"

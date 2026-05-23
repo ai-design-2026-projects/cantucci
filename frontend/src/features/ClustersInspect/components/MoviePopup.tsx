@@ -5,12 +5,6 @@ import { clusterColorFromUuid } from '@/styles/theme'
 import { useThemeStore } from '@/store/useThemeStore'
 import type { ClusterSnapshotDto } from '@/api/dto/snapshots'
 
-interface MoviePopupProps {
-	movieId: number | null
-	snapshot: ClusterSnapshotDto | undefined
-	onClose: () => void
-}
-
 /**
  * Movie detail dialog showing poster, overview, metadata, and trailer.
  * When the movie is an exemplar of a cluster in the active snapshot, a
@@ -21,7 +15,15 @@ interface MoviePopupProps {
  * @param onClose  - Called when the dialog is dismissed.
  * @returns Radix Dialog with full movie metadata.
  */
-export function MoviePopup({ movieId, snapshot, onClose }: MoviePopupProps) {
+export function MoviePopup({
+	movieId,
+	snapshot,
+	onClose,
+}: {
+	movieId: number | null
+	snapshot: ClusterSnapshotDto | undefined
+	onClose: () => void
+}) {
 	const { data: movie, isLoading } = useMovieDetails(movieId)
 	const isDark = useThemeStore((s) => s.theme === 'dark')
 

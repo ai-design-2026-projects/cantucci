@@ -4,9 +4,9 @@ import { useSnapshotStore } from '@/store/useSnapshotStore'
 import { SnapshotPlot } from './components/SnapshotPlot'
 import { EvolutionMapButton } from './components/EvolutionMapButton'
 import { EvolutionMapModal } from '@/features/EvolutionMap/EvolutionMapModal'
-import { InspectButton } from '@/features/ClusterInspect/components/InspectButton'
-import { ClusterInspectModal } from '@/features/ClusterInspect/ClusterInspectModal'
-import { MoviePopup } from '@/features/ClusterInspect/components/MoviePopup'
+import { InspectButton } from '@/features/ClustersInspect/components/InspectButton'
+import { ClusterInspectModal } from '@/features/ClustersInspect/ClustersInspectModal'
+import { MoviePopup } from '@/features/ClustersInspect/components/MoviePopup'
 
 /**
  * Fixed right-panel showing the scatter plot of the active cluster snapshot.
@@ -81,7 +81,7 @@ export function ClusterSnapshotTab({ conversationId }: { conversationId: string 
 							onClose={() => setInspectOpen(false)}
 							snapshot={conversationSnapshot}
 							movieMap={movieMap ?? new Map()}
-							onMovieClick={(id) => setSelectedMovieId(id)}
+							onMovieClick={(id: number) => setSelectedMovieId(id)}
 						/>
 					)}
 				</>
