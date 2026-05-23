@@ -223,7 +223,7 @@ def encode_trailers_sharded(
                 bar.set_postfix(ok=n_done, fail=n_failed)
                 bar.update(1)
 
-        tmp_path = shard_path.with_suffix(".npz.tmp")
+        tmp_path = shard_path.with_suffix(".tmp.npz")
         np.savez(tmp_path, movie_ids=expected_ids, vectors=vectors)
         os.replace(tmp_path, shard_path)
 
