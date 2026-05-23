@@ -1,10 +1,5 @@
 import type { MovieDto } from '@/api/dto/movies'
 
-interface ExemplarCardProps {
-	movie: MovieDto
-	onClick: (movieId: number) => void
-}
-
 /**
  * Compact movie card showing poster thumbnail, title, and year.
  * Used in the cluster detail expanded view.
@@ -13,7 +8,13 @@ interface ExemplarCardProps {
  * @param onClick - Called with the movie ID when the card is clicked.
  * @returns Clickable movie card.
  */
-export function ExemplarCard({ movie, onClick }: ExemplarCardProps) {
+export function ExemplarCard({
+	movie,
+	onClick,
+}: {
+	movie: MovieDto
+	onClick: (movieId: number) => void
+}) {
 	return (
 		<button
 			className="flex flex-col gap-1 cursor-pointer text-left hover:opacity-80 transition-opacity"

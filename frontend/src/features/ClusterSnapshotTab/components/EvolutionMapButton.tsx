@@ -1,11 +1,6 @@
 import { GitBranch } from 'lucide-react'
 import { Button } from '@/components/button'
 
-interface EvolutionMapButtonProps {
-	onClick: () => void
-	disabled?: boolean
-}
-
 /**
  * Button that opens the cluster snapshot evolution map modal.
  *
@@ -13,7 +8,13 @@ interface EvolutionMapButtonProps {
  * @param disabled  - Disables the button when no conversation is active.
  * @returns Ghost icon button with label.
  */
-export function EvolutionMapButton({ onClick, disabled }: EvolutionMapButtonProps) {
+export function EvolutionMapButton({
+	onClick,
+	disabled,
+}: {
+	onClick: () => void
+	disabled?: boolean
+}) {
 	return (
 		<Button
 			variant="ghost"
