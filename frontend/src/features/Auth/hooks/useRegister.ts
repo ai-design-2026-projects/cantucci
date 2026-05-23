@@ -10,15 +10,15 @@ import { useAuthStore } from '@/store/useAuthStore'
  * @returns Mutation object with mutate, isPending, error.
  */
 export function useRegister() {
-  const setUser = useAuthStore((s) => s.setUser)
-  const navigate = useNavigate()
+	const setUser = useAuthStore((s) => s.setUser)
+	const navigate = useNavigate()
 
-  return useMutation({
-    mutationFn: ({ email, password }: { email: string; password: string }) =>
-      registerFetcher(email, password),
-    onSuccess: (data) => {
-      setUser(data.user)
-      navigate('/')
-    },
-  })
+	return useMutation({
+		mutationFn: ({ email, password }: { email: string; password: string }) =>
+			registerFetcher(email, password),
+		onSuccess: (data) => {
+			setUser(data.user)
+			navigate('/')
+		},
+	})
 }
