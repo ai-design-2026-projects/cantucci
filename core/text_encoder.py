@@ -51,6 +51,43 @@ def preload_model() -> None:
     log.info("embedding model preloaded", extra={"model": model_name})
 
 
+def encode_optional_texts(
+    texts: list[str | None],
+    *,
+    batch_size: int = 256,
+) -> np.ndarray:
+    """Encode texts that may be absent, leaving missing rows as zero vectors.
+
+    Rows where ``texts[i]`` is ``None``, ``NaN``, or blank are left as
+    all-zero in the output — matching the "missing modality" semantics
+    expected by ``core.fusion.fuse_batch`` and the DB ingest layer.
+
+    Args:
+        texts:      List of strings or ``None``/``NaN`` values, one per row.
+        batch_size: Encoding batch size forwarded to ``encode_all``.
+
+    Returns:
+        Float32 ndarray of shape ``(len(texts), embedding_dim)``, L2-normalised
+        for present rows, all-zero for absent rows.
+    """
+    representation = get_settings().representation
+    dim = representation.embedding_dim
+    out = np.zeros((len(texts), dim), dtype=np.float32)
+
+    present_idx = [
+        i for i, t in enumerate(texts)
+        if isinstance(t, str) and t.strip()
+    ]
+    if not present_idx:
+        return out
+
+    present_texts = [texts[i] for i in present_idx]  # type: ignore[index]
+    emb = encode_all(present_texts, batch_size=batch_size)
+    for dest, src_row in zip(present_idx, emb):
+        out[dest] = src_row
+    return out
+
+
 def encode_all(
     texts: list[str],
     *,
