@@ -213,6 +213,8 @@ def encode_trailers_sharded(
 
     n_shards = (n_total + shard_size - 1) // shard_size
     new_shards_embedded = 0
+    total_zeros_retried = 0
+    total_zeros_filled = 0
     all_complete = True
 
     for shard_idx in range(n_shards):
@@ -233,10 +235,52 @@ def encode_trailers_sharded(
                     f"have changed between runs. Delete the shard directory and "
                     f"restart embedding from scratch."
                 )
-            out[start:end] = data["vectors"]
+            vectors = data["vectors"].copy()
+            zero_indices = np.where(np.abs(vectors).sum(axis=1) == 0)[0]
+            if zero_indices.size == 0:
+                out[start:end] = vectors
+                log.info(
+                    "shard_skipped_existing",
+                    extra={"shard_idx": shard_idx, "n_shards": n_shards, "shard_path": str(shard_path)},
+                )
+                continue
+            n_filled = 0
+            n_poster_retry = 0
+            for j in zero_indices:
+                movie_id, key, poster_path = shard_keys[j]
+                vec: np.ndarray | None = None
+                if key:
+                    try:
+                        vec = _encode_one(key, n_frames, batch_size)
+                    except Exception as exc:
+                        log.warning(
+                            "trailer_encode_failed",
+                            extra={"movie_id": movie_id, "youtube_key": key, "error": str(exc)},
+                        )
+                if vec is None:
+                    vec = _encode_poster_one(poster_path)
+                    if vec is not None:
+                        n_poster_retry += 1
+                if vec is not None:
+                    vectors[j] = vec
+                    n_filled += 1
+            if n_filled > 0:
+                tmp_path = shard_path.with_suffix(".tmp.npz")
+                np.savez(tmp_path, movie_ids=expected_ids, vectors=vectors)
+                os.replace(tmp_path, shard_path)
+            total_zeros_retried += zero_indices.size
+            total_zeros_filled += n_filled
+            out[start:end] = vectors
             log.info(
-                "shard_skipped_existing",
-                extra={"shard_idx": shard_idx, "n_shards": n_shards, "shard_path": str(shard_path)},
+                "shard_zeros_retried",
+                extra={
+                    "shard_idx": shard_idx,
+                    "n_shards": n_shards,
+                    "n_zeros": zero_indices.size,
+                    "n_filled": n_filled,
+                    "n_poster_fallback": n_poster_retry,
+                    "shard_path": str(shard_path),
+                },
             )
             continue
 
@@ -313,6 +357,8 @@ def encode_trailers_sharded(
             "n_total": n_total,
             "n_shards": n_shards,
             "new_shards_embedded": new_shards_embedded,
+            "zeros_retried": total_zeros_retried,
+            "zeros_filled": total_zeros_filled,
             "complete": all_complete,
         },
     )
