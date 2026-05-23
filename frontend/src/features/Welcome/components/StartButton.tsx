@@ -1,10 +1,5 @@
 import { Button } from '@/components/button'
 
-interface StartButtonProps {
-  onClick: () => void
-  isLoading: boolean
-}
-
 /**
  * Primary CTA button on the welcome screen.
  *
@@ -12,15 +7,21 @@ interface StartButtonProps {
  * @param isLoading - Shows a loading label while the conversation is being created.
  * @returns Styled start button.
  */
-export function StartButton({ onClick, isLoading }: StartButtonProps) {
-  return (
-    <Button
-      onClick={onClick}
-      disabled={isLoading}
-      size="lg"
-      className="px-10 text-base"
-    >
-      {isLoading ? 'Starting…' : 'Start with Poppy'}
-    </Button>
-  )
+export function StartButton({
+	onClick,
+	isLoading,
+}: {
+	onClick: () => void
+	isLoading: boolean
+}) {
+	return (
+		<Button
+			onClick={onClick}
+			disabled={isLoading}
+			size="lg"
+			className="px-10 text-base"
+		>
+			{isLoading ? 'Starting…' : 'Start with Poppy'}
+		</Button>
+	)
 }
