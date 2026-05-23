@@ -193,10 +193,11 @@ def create_memberships(memberships: list[tuple[uuid.UUID, int, float]]) -> None:
     if not memberships:
         return
     with transaction() as conn:
-        conn.executemany(
-            "INSERT INTO cluster_memberships (cluster_id, movie_id, probability) VALUES (%s, %s, %s)",
-            memberships,
-        )
+        with conn.cursor() as cur:
+            cur.executemany(
+                "INSERT INTO cluster_memberships (cluster_id, movie_id, probability) VALUES (%s, %s, %s)",
+                memberships,
+            )
     log.debug("memberships_inserted", extra={"count": len(memberships)})
 
 
@@ -370,10 +371,11 @@ def create_root_snapshot_from_assignments(
             (cluster_uuid_map[cid], movie_id, prob)
             for movie_id, cid, prob in zip(movie_ids, cluster_ids, cluster_probs)
         ]
-        conn.executemany(
-            "INSERT INTO cluster_memberships (cluster_id, movie_id, probability) VALUES (%s, %s, %s)",
-            membership_rows,
-        )
+        with conn.cursor() as cur:
+            cur.executemany(
+                "INSERT INTO cluster_memberships (cluster_id, movie_id, probability) VALUES (%s, %s, %s)",
+                membership_rows,
+            )
 
     log.info(
         "root_snapshot_created",

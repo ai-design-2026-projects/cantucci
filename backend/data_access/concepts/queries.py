@@ -41,14 +41,15 @@ def upsert_concept_scores(concept_id: uuid.UUID, scores: dict[int, float]) -> No
         return
     rows = [(concept_id, movie_id, score) for movie_id, score in scores.items()]
     with transaction() as conn:
-        conn.executemany(
-            """
-            INSERT INTO concept_scores (concept_id, movie_id, score)
-            VALUES (%s, %s, %s)
-            ON CONFLICT (concept_id, movie_id) DO UPDATE SET score = EXCLUDED.score
-            """,
-            rows,
-        )
+        with conn.cursor() as cur:
+            cur.executemany(
+                """
+                INSERT INTO concept_scores (concept_id, movie_id, score)
+                VALUES (%s, %s, %s)
+                ON CONFLICT (concept_id, movie_id) DO UPDATE SET score = EXCLUDED.score
+                """,
+                rows,
+            )
     log.debug("concept_scores_upserted", extra={"concept_id": str(concept_id), "count": len(rows)})
 
 
