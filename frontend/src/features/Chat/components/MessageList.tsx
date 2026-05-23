@@ -23,7 +23,7 @@ export function MessageList({ messages, isLoading, isError }: MessageListProps) 
   const scrollRef = useChatScroll(messages.length + (isLoading ? 1 : 0))
 
   return (
-    <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-4 flex flex-col gap-3">
+    <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto scrollbar-styled px-4 py-4 flex flex-col gap-3">
       {messages.length === 0 && !isLoading ? (
         <EmptyChatState />
       ) : (

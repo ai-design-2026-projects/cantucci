@@ -24,7 +24,7 @@ export function ChatPanel({ conversationId }: ChatPanelProps) {
   const messages = conversation?.messages ?? []
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full min-h-0">
       <MessageList
         messages={messages}
         isLoading={isPending || convLoading}

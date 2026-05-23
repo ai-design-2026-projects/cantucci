@@ -73,8 +73,12 @@ export function EvolutionMapModal({ open, onClose, conversationId }: EvolutionMa
 
   function handleDeleteConfirm() {
     if (!deleteTarget) return
+    const parentId = deleteTarget.parent_id
     deleteSnapshot(deleteTarget.id, {
-      onSuccess: () => setDeleteTarget(null),
+      onSuccess: () => {
+        setDeleteTarget(null)
+        if (parentId) setActiveSnapshot(parentId)
+      },
     })
   }
 

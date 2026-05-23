@@ -58,11 +58,11 @@ export default function App() {
     <div className="flex flex-col h-screen overflow-hidden bg-[var(--color-bg)]">
       <Header />
 
-      <div className="flex flex-1 pt-14">
+      <div className="flex flex-1 min-h-0 pt-14">
         <HistorySidebar />
 
         {/* Left: chat or welcome (40%) */}
-        <div className="flex flex-col basis-2/5 min-w-0 shrink-0 border-r border-[var(--color-border)] overflow-hidden">
+        <div className="flex flex-col basis-2/5 min-w-0 shrink-0 min-h-0 border-r border-[var(--color-border)] overflow-hidden">
           {conversationId ? (
             <ChatPanel conversationId={conversationId} />
           ) : (
