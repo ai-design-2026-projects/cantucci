@@ -1,4 +1,5 @@
-import { motion } from 'framer-motion'
+import { motion, AnimatePresence } from 'framer-motion'
+import { cn } from '@/lib/utils'
 
 export type MascotExpression = 'happy' | 'focused' | 'excited' | 'sleepy' | 'sad'
 export type MascotSize = 'sm' | 'md' | 'lg'
@@ -11,169 +12,186 @@ interface MascotProps {
 
 const SIZES: Record<MascotSize, number> = { sm: 32, md: 56, lg: 120 }
 
-/** Eye shapes per expression: [leftEye, rightEye] as path d strings (relative to eye center) */
-const EYES: Record<MascotExpression, { left: string; right: string; offsetY: number }> = {
-  happy: {
-    left: 'M-5,-3 Q-2,-7 1,-3 Q-2,0 -5,-3 Z',
-    right: 'M-1,-3 Q2,-7 5,-3 Q2,0 -1,-3 Z',
-    offsetY: 0,
-  },
-  focused: {
-    left: 'M-5,-1 L1,-1',
-    right: 'M-1,-1 L5,-1',
-    offsetY: 0,
-  },
-  excited: {
-    left: 'M-5,-4 A5,5 0 0,1 1,-4 A5,5 0 0,1 -5,-4 Z',
-    right: 'M-1,-4 A5,5 0 0,1 5,-4 A5,5 0 0,1 -1,-4 Z',
-    offsetY: -2,
-  },
-  sleepy: {
-    left: 'M-5,0 Q-2,-2 1,0',
-    right: 'M-1,0 Q2,-2 5,0',
-    offsetY: 3,
-  },
-  sad: {
-    left: 'M-5,-3 Q-2,-1 1,-3',
-    right: 'M-1,-3 Q2,-1 5,-3',
-    offsetY: 2,
-  },
+type Pose = 'idle' | 'bob' | 'celebrate' | 'slumped'
+
+const EXPRESSION_TO_POSE: Record<MascotExpression, Pose> = {
+  happy:   'idle',
+  focused: 'bob',
+  excited: 'celebrate',
+  sleepy:  'slumped',
+  sad:     'slumped',
 }
 
-/** Mouth path per expression */
-const MOUTHS: Record<MascotExpression, string> = {
-  happy: 'M-8,0 Q0,8 8,0',
-  focused: 'M-6,0 Q0,3 6,0',
-  excited: 'M-9,0 Q0,12 9,0',
-  sleepy: 'M-6,0 L6,0',
-  sad: 'M-8,0 Q0,-8 8,0',
+function BucketBody() {
+  return (
+    <>
+      <defs>
+        <clipPath id="bc">
+          <path d="M 10 32 Q 8 68 18 74 L 62 74 Q 72 68 70 32 Z" />
+        </clipPath>
+      </defs>
+      <path d="M 10 32 Q 8 68 18 74 L 62 74 Q 72 68 70 32 Z" fill="white" />
+      <rect x="10" y="30" width="11" height="46" fill="#CC2929" clipPath="url(#bc)" />
+      <rect x="31" y="30" width="11" height="46" fill="#CC2929" clipPath="url(#bc)" />
+      <rect x="52" y="30" width="11" height="46" fill="#CC2929" clipPath="url(#bc)" />
+      <rect x="7" y="28" width="66" height="6" rx="3" fill="#B02020" />
+    </>
+  )
 }
 
-/** Eyebrow y-offset nudge (positive = lower = less raised) per expression */
-const EYEBROW_Y: Record<MascotExpression, number> = {
-  happy: 0,
-  focused: 4,
-  excited: -3,
-  sleepy: 5,
-  sad: 2,
+function Popcorn() {
+  return (
+    <>
+      <circle cx="22" cy="22" r="7.5" fill="#F5D35E" />
+      <circle cx="40" cy="17" r="9" fill="#F5D35E" />
+      <circle cx="58" cy="22" r="7.5" fill="#F5D35E" />
+      <circle cx="31" cy="16" r="6" fill="#EAC94A" />
+      <circle cx="49" cy="16" r="6" fill="#EAC94A" />
+    </>
+  )
 }
 
-const TRANSITION = { duration: 0.3, ease: 'easeInOut' as const }
+function EyesNormal() {
+  return (
+    <>
+      <circle cx="32" cy="52" r="4.5" fill="#1a1a1c" />
+      <circle cx="48" cy="52" r="4.5" fill="#1a1a1c" />
+      <circle cx="33.5" cy="50.2" r="1.5" fill="white" />
+      <circle cx="49.5" cy="50.2" r="1.5" fill="white" />
+    </>
+  )
+}
+
+function EyesWide() {
+  return (
+    <>
+      <circle cx="32" cy="52" r="6" fill="#1a1a1c" />
+      <circle cx="48" cy="52" r="6" fill="#1a1a1c" />
+      <circle cx="34" cy="50" r="2" fill="white" />
+      <circle cx="50" cy="50" r="2" fill="white" />
+    </>
+  )
+}
+
+function EyesSleepy() {
+  return (
+    <>
+      <path d="M 27.5 54 Q 32 48 36.5 54 Z" fill="#1a1a1c" />
+      <path d="M 43.5 54 Q 48 48 52.5 54 Z" fill="#1a1a1c" />
+    </>
+  )
+}
+
+function MouthSmile() {
+  return <path d="M 30 62 Q 40 68 50 62" stroke="#1a1a1c" fill="none" strokeWidth="2" strokeLinecap="round" />
+}
+
+function MouthGrin() {
+  return <path d="M 28 61 Q 40 70 52 61" stroke="#1a1a1c" fill="none" strokeWidth="2.5" strokeLinecap="round" />
+}
+
+function MouthSad() {
+  return <path d="M 30 66 Q 40 60 50 66" stroke="#1a1a1c" fill="none" strokeWidth="2" strokeLinecap="round" />
+}
+
+function ArmsIdle() {
+  return (
+    <>
+      <path d="M 9 52 Q 3 45 5 37" stroke="#333" fill="none" strokeWidth="2.5" strokeLinecap="round" />
+      <path d="M 71 52 Q 77 45 75 37" stroke="#333" fill="none" strokeWidth="2.5" strokeLinecap="round" />
+    </>
+  )
+}
+
+function ArmsHighRaised() {
+  return (
+    <>
+      <path d="M 9 50 Q 0 34 6 20" stroke="#333" fill="none" strokeWidth="2.5" strokeLinecap="round" />
+      <path d="M 71 50 Q 80 34 74 20" stroke="#333" fill="none" strokeWidth="2.5" strokeLinecap="round" />
+    </>
+  )
+}
+
+function ArmsDown() {
+  return (
+    <>
+      <path d="M 9 52 Q 4 60 8 68" stroke="#333" fill="none" strokeWidth="2.5" strokeLinecap="round" />
+      <path d="M 71 52 Q 76 60 72 68" stroke="#333" fill="none" strokeWidth="2.5" strokeLinecap="round" />
+    </>
+  )
+}
+
+function Sparkles() {
+  return (
+    <>
+      <circle cx="6" cy="18" r="2" fill="#F5D35E" />
+      <circle cx="74" cy="18" r="2" fill="#F5D35E" />
+      <path d="M 6 12 L 6 24 M 0 18 L 12 18" stroke="#F5D35E" strokeWidth="1.5" strokeLinecap="round" />
+      <path d="M 74 12 L 74 24 M 68 18 L 80 18" stroke="#F5D35E" strokeWidth="1.5" strokeLinecap="round" />
+    </>
+  )
+}
+
+const BASE_SVG = { viewBox: '0 0 80 90', xmlns: 'http://www.w3.org/2000/svg', fill: 'none' } as const
+
+function IdleSvg() {
+  return (
+    <svg {...BASE_SVG}>
+      <Popcorn /><BucketBody /><EyesNormal /><MouthSmile /><ArmsIdle />
+    </svg>
+  )
+}
+
+function CelebrateSvg() {
+  return (
+    <svg {...BASE_SVG}>
+      <Sparkles /><Popcorn /><BucketBody /><EyesWide /><MouthGrin /><ArmsHighRaised />
+    </svg>
+  )
+}
+
+function SlumpedSvg() {
+  return (
+    <svg {...BASE_SVG}>
+      <Popcorn /><BucketBody /><EyesSleepy /><MouthSad /><ArmsDown />
+    </svg>
+  )
+}
 
 /**
- * Poppy the Popcorn Bucket mascot, rendered as inline SVG with Framer Motion
- * animated expression changes.
+ * Animated popcorn-bucket mascot with five emotional expressions.
  *
- * @param expression - Current emotional state.
- * @param size       - One of 'sm' (32px), 'md' (56px), 'lg' (120px).
- * @param className  - Additional class names.
- * @returns Animated SVG mascot element.
+ * @param expression - Emotional state driving the visual pose (default: "happy").
+ * @param size       - Render size: "sm" (32px), "md" (56px), "lg" (120px).
+ * @param className  - Optional extra wrapper classes.
+ * @returns Framer-motion animated SVG popcorn bucket.
  */
-export function Mascot({ expression = 'happy', size = 'md', className }: MascotProps) {
+export function Mascot({ expression = 'happy', size = 'sm', className }: MascotProps) {
+  const pose = EXPRESSION_TO_POSE[expression]
   const px = SIZES[size]
-  const eyes = EYES[expression]
-  const mouth = MOUTHS[expression]
-  const eyebrowY = EYEBROW_Y[expression]
+  const isBob = pose === 'bob'
 
   return (
-    <svg
-      width={px}
-      height={px}
-      viewBox="0 0 80 90"
-      fill="none"
-      xmlns="http://www.w3.org/2000/svg"
-      className={className}
-      aria-hidden="true"
+    <motion.div
+      className={cn('shrink-0 select-none', className)}
+      style={{ width: px, height: px }}
+      animate={isBob ? { y: [0, -6, 0] } : undefined}
+      transition={isBob ? { duration: 1.4, repeat: Infinity, ease: 'easeInOut' } : undefined}
     >
-      {/* Popcorn bucket body */}
-      <rect x="10" y="42" width="60" height="44" rx="6" fill="var(--color-primary)" />
-      {/* Bucket stripes */}
-      <rect x="25" y="42" width="8" height="44" fill="white" opacity="0.25" />
-      <rect x="47" y="42" width="8" height="44" fill="white" opacity="0.25" />
-      {/* Bucket top rim */}
-      <rect x="8" y="38" width="64" height="8" rx="4" fill="var(--color-accent)" />
-
-      {/* Popcorn puffs */}
-      <circle cx="20" cy="30" r="13" fill="#fff9e8" />
-      <circle cx="38" cy="22" r="16" fill="#fff9e8" />
-      <circle cx="58" cy="28" r="13" fill="#fff9e8" />
-      <circle cx="12" cy="38" r="10" fill="#fff9e8" />
-      <circle cx="66" cy="36" r="10" fill="#fff9e8" />
-      {/* Popcorn shading */}
-      <circle cx="20" cy="30" r="13" fill="#f4c842" opacity="0.35" />
-      <circle cx="38" cy="22" r="16" fill="#f4c842" opacity="0.3" />
-      <circle cx="58" cy="28" r="13" fill="#f4c842" opacity="0.35" />
-
-      {/* Face group — translated vertically for expression */}
-      <g transform="translate(0, 58)">
-        {/* Left eyebrow */}
-        <motion.line
-          x1="22" y1={-14 + eyebrowY} x2="32" y2={-16 + eyebrowY}
-          stroke="var(--color-text)" strokeWidth="2" strokeLinecap="round"
-          animate={{ y1: -14 + eyebrowY, y2: -16 + eyebrowY }}
-          transition={TRANSITION}
-        />
-        {/* Right eyebrow */}
-        <motion.line
-          x1="48" y1={-16 + eyebrowY} x2="58" y2={-14 + eyebrowY}
-          stroke="var(--color-text)" strokeWidth="2" strokeLinecap="round"
-          animate={{ y1: -16 + eyebrowY, y2: -14 + eyebrowY }}
-          transition={TRANSITION}
-        />
-
-        {/* Left eye */}
-        <g transform={`translate(27, ${-6 + eyes.offsetY})`}>
-          <motion.path
-            d={eyes.left}
-            stroke="var(--color-text)"
-            strokeWidth="2.5"
-            strokeLinecap="round"
-            fill="var(--color-text)"
-            animate={{ d: eyes.left }}
-            transition={TRANSITION}
-          />
-        </g>
-
-        {/* Right eye */}
-        <g transform={`translate(53, ${-6 + eyes.offsetY})`}>
-          <motion.path
-            d={eyes.right}
-            stroke="var(--color-text)"
-            strokeWidth="2.5"
-            strokeLinecap="round"
-            fill="var(--color-text)"
-            animate={{ d: eyes.right }}
-            transition={TRANSITION}
-          />
-        </g>
-
-        {/* Cheeks (shown for happy/excited) */}
-        {(expression === 'happy' || expression === 'excited') && (
-          <>
-            <circle cx="20" cy="0" r="5" fill="var(--color-primary)" opacity="0.35" />
-            <circle cx="60" cy="0" r="5" fill="var(--color-primary)" opacity="0.35" />
-          </>
-        )}
-
-        {/* Tear drops for sad expression */}
-        {expression === 'sad' && (
-          <>
-            <ellipse cx="27" cy="2" rx="1.5" ry="3" fill="#93c5fd" opacity="0.8" />
-            <ellipse cx="53" cy="2" rx="1.5" ry="3" fill="#93c5fd" opacity="0.8" />
-          </>
-        )}
-
-        {/* Mouth */}
-        <motion.path
-          d={`M${40 + mouth.slice(1)}`}
-          stroke="var(--color-text)"
-          strokeWidth="2.5"
-          strokeLinecap="round"
-          fill="none"
-          animate={{ d: `M${40 + mouth.slice(1)}` }}
-          transition={TRANSITION}
-        />
-      </g>
-    </svg>
+      <AnimatePresence mode="wait">
+        <motion.div
+          key={expression}
+          initial={{ opacity: 0, scale: 0.9 }}
+          animate={{ opacity: 1, scale: 1 }}
+          exit={{ opacity: 0, scale: 0.9 }}
+          transition={{ duration: 0.2 }}
+          style={{ width: px, height: px }}
+        >
+          {(pose === 'idle' || pose === 'bob') && <IdleSvg />}
+          {pose === 'celebrate' && <CelebrateSvg />}
+          {pose === 'slumped' && <SlumpedSvg />}
+        </motion.div>
+      </AnimatePresence>
+    </motion.div>
   )
 }

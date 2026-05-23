@@ -11,6 +11,7 @@ import { ChatPanel } from './features/Chat/ChatPanel'
 import { ClusterSnapshotTab } from './features/ClusterSnapshotTab/ClusterSnapshotTab'
 import { WelcomePage } from './features/Welcome/WelcomePage'
 import { FloatingMascot } from './components/mascot/FloatingMascot'
+import { HistorySidebar } from './features/History/HistorySidebar'
 
 /**
  * Root application layout. Handles auth hydration, theme init, anonymous
@@ -67,19 +68,21 @@ export default function App() {
     <div className="flex flex-col h-screen overflow-hidden bg-[var(--color-bg)]">
       <Header />
 
-      <div className="flex flex-1 overflow-hidden pt-14">
+      <div className="flex flex-1 pt-14">
+        <HistorySidebar />
+
         {!currentConversationId ? (
           <WelcomePage />
         ) : (
           <>
-            {/* Left: scrollable chat */}
-            <div className="flex flex-col flex-1 min-w-0 border-r border-[var(--color-border)] overflow-hidden">
+            {/* Left: scrollable chat (40%) */}
+            <div className="flex flex-col basis-2/5 min-w-0 shrink-0 border-r border-[var(--color-border)] overflow-hidden">
               <ChatPanel conversationId={currentConversationId} />
             </div>
 
-            {/* Right: fixed snapshot panel */}
-            <div className="w-[380px] flex-shrink-0 flex flex-col overflow-hidden bg-[var(--color-surface)]">
-              <ClusterSnapshotTab />
+            {/* Right: snapshot panel (60%) */}
+            <div className="basis-3/5 bg-[var(--color-surface)]">
+              <ClusterSnapshotTab conversationId={currentConversationId} />
             </div>
           </>
         )}

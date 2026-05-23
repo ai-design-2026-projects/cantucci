@@ -6,6 +6,7 @@ build/
 /.vscode
 __pycache__/
 data/
+.vite/
 logs/
 node_modules/
 dist/

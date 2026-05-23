@@ -40,13 +40,16 @@ export async function logoutFetcher(): Promise<void> {
 
 /**
  * Fetch the currently authenticated user from the session cookie.
+ * If the server rejects the token (401), the stale cookie is cleared via logout
+ * so subsequent anonymous requests aren't incorrectly rejected.
  *
  * @returns User object or null when the request is anonymous / cookie expired.
  */
 export async function meFetcher(): Promise<User | null> {
-  try {
-    return await apiClient<User>('/auth/me')
-  } catch {
-    return null
+  const res = await fetch('/auth/me', { credentials: 'include' })
+  if (res.ok) return res.json() as Promise<User>
+  if (res.status === 401) {
+    await fetch('/auth/logout', { method: 'POST', credentials: 'include' }).catch(() => {})
   }
+  return null
 }
