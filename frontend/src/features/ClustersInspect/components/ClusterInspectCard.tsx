@@ -2,23 +2,26 @@ import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/tooltip'
 import type { ClusterDto } from '@/api/dto/snapshots'
 import type { MovieDto } from '@/api/dto/movies'
 
-interface ClusterInspectCardProps {
-	cluster: ClusterDto
-	color: string
-	movieMap: Map<number, MovieDto>
-	onMovieClick: (movieId: number) => void
-}
-
 /**
  * Rich card used inside the cluster inspect dialog to show one cluster and its exemplar movies.
  *
  * @param cluster      - Cluster metadata shown in the card body.
  * @param color        - Accent stripe color for the cluster.
  * @param movieMap     - Map from movie ID to hydrated movie metadata.
- * @param onMovieClick - Opens the movie popup for a clicked exemplar.
+ * @param onMovieClick - Opens the mo  8  |  import { ClusterInspectModal } from "@/features/ClustersInspect/ClusterInspectModal";vie popup for a clicked exemplar.
  * @returns Clickable cluster summary card.
  */
-export function ClusterInspectCard({ cluster, color, movieMap, onMovieClick }: ClusterInspectCardProps) {
+export function ClusterInspectCard({
+	cluster,
+	color,
+	movieMap,
+	onMovieClick,
+}: {
+	cluster: ClusterDto
+	color: string
+	movieMap: Map<number, MovieDto>
+	onMovieClick: (movieId: number) => void
+}) {
 	const exemplars = cluster.exemplar_movie_ids
 		.map((id) => movieMap.get(id))
 		.filter((m): m is MovieDto => m !== undefined)

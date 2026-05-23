@@ -4,7 +4,7 @@ import { useSyncConversationSnapshot } from '@/features/Chat/hooks/useSyncConver
 import { useClusterSnapshot } from './useClusterSnapshot'
 import { useRootSnapshot } from './useRootSnapshot'
 import { useScatterData } from './useScatterData'
-import { useExemplarMovies } from '@/features/ClusterInspect/hooks/useExemplarMovies'
+import { useExemplarMovies } from '@/features/ClustersInspect/hooks/useExemplarMovies'
 
 /**
  * Collects the snapshot tab data, derived values, and query results.
