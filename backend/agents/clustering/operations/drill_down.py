@@ -2,7 +2,7 @@ import logging
 import uuid
 import numpy as np
 
-from backend.agents.clustering.operations._helpers import exemplars
+from backend.agents.clustering.operations._helpers import exemplars, reduce_for_clustering
 from backend.agents.clustering.types import ClusterDraft, ClusterSnapshotDraft
 from backend.agents.concept.scoring import score_movies
 from backend.agents.concept.types import ConceptRep
@@ -87,6 +87,7 @@ async def drill_down(
             return subcluster(None, cfg.clustering.online.drilldown_min_cluster_size, 1, distance_matrix=dist_mat)
         else:
             group_embs = np.array([emb_map[mid] for mid in group_ids], dtype=np.float32)
+            group_embs = reduce_for_clustering(group_embs, cfg.umap, cfg.split.seed)
             return subcluster(group_embs, cfg.clustering.online.drilldown_min_cluster_size, 1)
 
     if concept is not None:

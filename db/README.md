@@ -39,10 +39,15 @@ Re-running `apply` is safe — files already recorded in `schema_migrations` are
 | File | Contents |
 |---|---|
 | `001_extensions.sql` | `pgvector`, `pgcrypto` |
-| `002_runs.sql` | `runs` — experimental run registry |
-| `003_catalogue.sql` | Catalogue tables: `movies`, `collections`, `genres`, `people`, `cast_members`, `crew_members`, `keywords`, `production_companies`, `languages`, `countries` + join tables |
-| `004_sessions.sql` | Session-runtime tables: `sessions`, `turns`, `clusters`, `cluster_assignments`, `oracle_feedback` |
-| `005_eval_results.sql` | Evaluation tables: `session_metrics`, `judge_scores` |
+| `002_users.sql` | `users`, `roles`, `user_roles` — user registry and role-based access |
+| `003_catalogue.sql` | Catalogue tables: `movies`, `genres`, `people`, `keywords`, `cast_members`, `crew_members`, `movie_genres`, `movie_keywords` + IVFFlat vector indexes |
+| `004_runs.sql` | `runs` — experimental run registry keyed on config hash |
+| `005_conversations.sql` | `conversations`, `messages` — per-user conversation history |
+| `006_cluster_snapshots.sql` | `cluster_snapshots`, `clusters`, `cluster_memberships` — snapshot tree |
+| `007_concepts.sql` | `concepts`, `concept_scores` — oracle-derived linear axes and prototype concepts |
+| `008_nullable_cluster_label.sql` | Allow `clusters.label` to be NULL (labels generated lazily) |
+| `009_snapshot_cache.sql` | `config_hash` column, `conversation_snapshot_refs` join table, cache-key unique index on `cluster_snapshots` |
+| `010_trailer_embedding_index.sql` | IVFFlat index on `movies.trailer_embedding` for fast cosine-similarity search |
 
 ---
 
@@ -68,9 +73,8 @@ python -m db.ingest --set all   # ingest main + mini
 
 **Prerequisites:**
 
-- `TMDB_API_KEY` in `.env` — only when producing a fresh snapshot (stage 1
-  below). Ingesting an existing HF snapshot does not need it.
-- `HF_TOKEN` in `.env` — only when the HF dataset repo is private.
+- `HF_TOKEN` in `.env` — only when the HF dataset repo is private. Not needed for public repos.
+- `TMDB_API_KEY` — only needed when producing a fresh snapshot via `dataset.scraper`. Ingesting a pre-built HF artifact does not require it.
 
 **For dev/CI use the default `mini` set.** Mini is a strict subset of main, so
 ingesting main later with `--set main` is safe (upsert) and won't duplicate
@@ -86,7 +90,7 @@ The offline data pipeline (TMDB scrape → clean → Colab embed → HF upload) 
 ## Creating users
 
 A small helper script provisions a user row in the database. Roles must
-already exist in the `roles` table (seeded by migration `006`).
+already exist in the `roles` table (seeded by migration `002_users.sql`).
 
 Usage example (creates an admin):
 

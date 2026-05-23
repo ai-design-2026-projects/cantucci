@@ -49,7 +49,7 @@ Modules are grouped by *what they do*, not by which pipeline stage uses them.
 | `embed/trailer.py` | Trailer-specific orchestration: frames → `core.image_encoder.encode_images` → mean-pool |
 | `transform/clean.py` | Filter, deduplicate, and normalise raw TMDB JSONL into a cleaned DataFrame |
 | `transform/split.py` | Produce mini / main / eval-holdout splits |
-| `transform/offline.py` | Offline pipeline: `core.fusion.fuse_batch` → UMAP 2D → `core.clustering.hdbscan_soft`. Called by `db.ingest` |
+| `transform/offline.py` | Offline pipeline: `core.fusion.fuse_batch` → UMAP 50D → HDBSCAN → UMAP 2D (visualization). Called by `db.ingest` |
 | `hub/upload.py` | Push timestamped parquets to HuggingFace Hub |
 | `hub/fetch.py` | Download a pinned artifact from HuggingFace Hub (shared with `db.ingest`) |
 

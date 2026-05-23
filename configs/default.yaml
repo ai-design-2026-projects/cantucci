@@ -43,8 +43,14 @@ fusion:
     trailer: 0.4
 
 umap:
+  # 2D visualization projection
   n_neighbors: 15
   min_dist: 0.1
+  # Pre-clustering dimensionality reduction (applied before HDBSCAN)
+  clustering_n_components: 50
+  clustering_n_neighbors: 15
+  clustering_min_dist: 0.0
+  clustering_min_dataset_size: 150
 
 labeling:
   top_exemplars: 8
