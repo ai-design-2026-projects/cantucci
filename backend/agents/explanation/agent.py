@@ -55,7 +55,7 @@ async def explain_placement(
     exemplar_stubs = fetch_stubs(exemplar_ids)
     exemplar_titles = [s.title for s in exemplar_stubs if s.id != movie_id][:4]
 
-    template = _ENV.get_template("explain_v1.j2")
+    template = _ENV.get_template("explain_v2.j2")
     prompt = template.render(
         movie_title=movie.title,
         release_year=movie.release_year,

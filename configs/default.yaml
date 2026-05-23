@@ -49,6 +49,16 @@ umap:
 labeling:
   top_exemplars: 8
 
+intent:
+  confidence_threshold: 0.6
+
+suggestions:
+  enabled: true
+  similar_pair_distance_max: 0.25
+  dominance_fraction: 0.55
+  noise_fraction_floor: 0.20
+  top_n_signals: 2
+
 conversation:
   cost_limit_usd: 5.0
   max_messages: 100

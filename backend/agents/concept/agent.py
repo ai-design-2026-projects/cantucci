@@ -41,7 +41,7 @@ async def build_concept(
     """
     cfg = get_settings()
 
-    template = _ENV.get_template("parse_v2.j2")
+    template = _ENV.get_template("parse_v3.j2")
     prompt = template.render(concept=concept_name)
     messages = [{"role": "user", "content": prompt}]
 

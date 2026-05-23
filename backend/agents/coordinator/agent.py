@@ -2,6 +2,7 @@ import logging
 import uuid
 from dataclasses import replace
 
+from backend.agents.clarifier.agent import clarify
 from backend.agents.clustering.agent import apply_drill_down, apply_merge, apply_recut
 from backend.agents.concept.agent import build_concept
 from backend.agents.coordinator.types import CoordinatorResult
@@ -9,18 +10,35 @@ from backend.agents.explanation.agent import explain_placement
 from backend.agents.intent.agent import classify as classify_intent
 from backend.agents.intent.types import Modality, NavigationMode
 from backend.agents.labeling.agent import label_clusters
-from backend.data_access.conversations.queries import set_current_cluster_snapshot
-from backend.data_access.conversations.types import ConversationRow
+from backend.agents.suggester.agent import suggest
+from backend.agents.suggester.signals import (
+    compute_cluster_centroids,
+    find_dominant_cluster,
+    find_noise_fraction,
+    find_similar_pairs,
+)
+from backend.agents.suggester.types import SuggestionResult
 from backend.data_access.cluster_snapshots.queries import (
     get_cluster_snapshot_with_clusters,
+    get_memberships,
     get_root_cluster_snapshot,
     record_conversation_snapshot_ref,
     update_cluster_label,
 )
 from backend.data_access.cluster_snapshots.types import ClusterRow
-from backend.data_access.movies.queries import list_movie_ids
+from backend.data_access.conversations.queries import set_current_cluster_snapshot
+from backend.data_access.conversations.types import ConversationRow
+from backend.data_access.movies.queries import fetch_text_embeddings, list_movie_ids
+from backend.settings import get_settings
 
 log = logging.getLogger(__name__)
+
+_STATE_CHANGING = {
+    NavigationMode.DRILL_DOWN,
+    NavigationMode.MERGE,
+    NavigationMode.RECUT,
+    NavigationMode.RESET,
+}
 
 
 class Coordinator:
@@ -42,8 +60,11 @@ class Coordinator:
           1. Load current cluster snapshot + recent messages.
           2. Label any unlabeled clusters (single batched LLM call).
           3. Classify intent (Intent agent).
-          4. Branch on mode: concept → cluster op → persist, or explain, or direct reply.
-          5. Return reply and updated snapshot id.
+          4. If confidence is below threshold for a state-changing mode, call the
+             Clarifier agent and return a disambiguation question without modifying state.
+          5. Branch on mode: concept → cluster op → persist, or explain, or direct reply.
+          6. After state-changing ops, run the Suggester agent on the resulting snapshot.
+          7. Return reply, updated snapshot id, and optional suggestion.
 
         Args:
             conversation_id:   Conversation UUID.
@@ -51,7 +72,8 @@ class Coordinator:
             conversation_row:  Pre-loaded conversation row (avoids double DB hit).
 
         Returns:
-            ``CoordinatorResult`` with reply text and active cluster snapshot ID.
+            ``CoordinatorResult`` with reply text, active cluster snapshot ID, and
+            optional follow-up suggestion.
         """
         current_cluster_snapshot_id = conversation_row.current_cluster_snapshot_id
         accumulated_cost = 0.0
@@ -76,6 +98,35 @@ class Coordinator:
             accumulated_cost=accumulated_cost,
         )
         accumulated_cost += intent.cost
+
+        cfg = get_settings()
+        if (
+            intent.confidence < cfg.intent.confidence_threshold
+            and intent.navigationMode in _STATE_CHANGING
+        ):
+            log.info(
+                "coordinator_low_confidence_gate",
+                extra={
+                    "conversation_id": str(conversation_id),
+                    "navigation_mode": intent.navigationMode.value,
+                    "confidence": intent.confidence,
+                    "threshold": cfg.intent.confidence_threshold,
+                    "concept": intent.concept,
+                },
+            )
+            clarification = await clarify(
+                user_message=user_message,
+                clusters=clusters,
+                intent=intent,
+                conversation_id=conversation_id,
+                message_id=message_id,
+                accumulated_cost=accumulated_cost,
+            )
+            accumulated_cost += clarification.cost
+            return CoordinatorResult(
+                reply_text=clarification.text,
+                cluster_snapshot_id=current_cluster_snapshot_id or _sentinel_cluster_snapshot_id(),
+            )
 
         log.info(
             "coordinator_dispatch",
@@ -125,7 +176,20 @@ class Coordinator:
             n_new = len(new_cswc.clusters) if new_cswc else 0
             labels = [c.label for c in (new_cswc.clusters if new_cswc else [])]
             reply = f"Split into {n_new} sub-clusters: {', '.join(labels[:5])}{'…' if n_new > 5 else ''}."
-            return CoordinatorResult(reply_text=reply, cluster_snapshot_id=new_cluster_snapshot_id)
+            suggestion = await _maybe_suggest(
+                new_cluster_snapshot_id=new_cluster_snapshot_id,
+                new_clusters=new_cswc.clusters if new_cswc else [],
+                last_operation=reply,
+                conversation_id=conversation_id,
+                message_id=message_id,
+                accumulated_cost=accumulated_cost,
+            )
+            accumulated_cost += suggestion.cost if suggestion else 0.0
+            return CoordinatorResult(
+                reply_text=reply,
+                cluster_snapshot_id=new_cluster_snapshot_id,
+                suggestion=suggestion.text if suggestion else None,
+            )
 
         if intent.navigationMode == NavigationMode.MERGE:
             if len(clusters) < 2:
@@ -142,7 +206,21 @@ class Coordinator:
                 accumulated_cost=accumulated_cost,
             )
             reply = "Merged the selected clusters into one."
-            return CoordinatorResult(reply_text=reply, cluster_snapshot_id=new_cluster_snapshot_id)
+            new_cswc = get_cluster_snapshot_with_clusters(new_cluster_snapshot_id)
+            suggestion = await _maybe_suggest(
+                new_cluster_snapshot_id=new_cluster_snapshot_id,
+                new_clusters=new_cswc.clusters if new_cswc else [],
+                last_operation=reply,
+                conversation_id=conversation_id,
+                message_id=message_id,
+                accumulated_cost=accumulated_cost,
+            )
+            accumulated_cost += suggestion.cost if suggestion else 0.0
+            return CoordinatorResult(
+                reply_text=reply,
+                cluster_snapshot_id=new_cluster_snapshot_id,
+                suggestion=suggestion.text if suggestion else None,
+            )
 
         if intent.navigationMode == NavigationMode.RECUT:
             all_movie_ids = list_movie_ids()
@@ -161,7 +239,20 @@ class Coordinator:
             new_cswc = get_cluster_snapshot_with_clusters(new_cluster_snapshot_id)
             n_new = len(new_cswc.clusters) if new_cswc else 0
             reply = f"Re-clustered the catalogue into {n_new} new clusters."
-            return CoordinatorResult(reply_text=reply, cluster_snapshot_id=new_cluster_snapshot_id)
+            suggestion = await _maybe_suggest(
+                new_cluster_snapshot_id=new_cluster_snapshot_id,
+                new_clusters=new_cswc.clusters if new_cswc else [],
+                last_operation=reply,
+                conversation_id=conversation_id,
+                message_id=message_id,
+                accumulated_cost=accumulated_cost,
+            )
+            accumulated_cost += suggestion.cost if suggestion else 0.0
+            return CoordinatorResult(
+                reply_text=reply,
+                cluster_snapshot_id=new_cluster_snapshot_id,
+                suggestion=suggestion.text if suggestion else None,
+            )
 
         reply = (
             "I understood your request but couldn't perform that operation on the current cluster snapshot. "
@@ -287,6 +378,97 @@ async def _label_unlabeled_clusters(
         for c in clusters
     ]
     return labeled, batch_result.cost
+
+
+async def _maybe_suggest(
+    new_cluster_snapshot_id: uuid.UUID,
+    new_clusters: list[ClusterRow],
+    last_operation: str,
+    conversation_id: uuid.UUID,
+    message_id: uuid.UUID,
+    accumulated_cost: float,
+) -> SuggestionResult | None:
+    """Compute deterministic signals from the new snapshot and optionally call the suggester.
+
+    Returns None immediately when suggestions are disabled or no signal exceeds its
+    threshold, avoiding any LLM call in those cases.
+
+    Args:
+        new_cluster_snapshot_id: UUID of the freshly created cluster snapshot.
+        new_clusters:            Cluster list of the new snapshot.
+        last_operation:          Human-readable summary of the operation just completed.
+        conversation_id:         Conversation UUID for logging.
+        message_id:              Current message UUID for logging.
+        accumulated_cost:        Running LLM cost this conversation.
+
+    Returns:
+        ``SuggestionResult`` if the LLM was called, or None if suggestions were skipped.
+    """
+    cfg = get_settings()
+    if not cfg.suggestions.enabled:
+        return None
+    if not new_clusters:
+        return None
+
+    all_exemplar_ids = list({
+        mid
+        for cluster in new_clusters
+        for mid in cluster.exemplar_movie_ids
+    })
+    emb_map = fetch_text_embeddings(all_exemplar_ids)
+
+    centroids = compute_cluster_centroids(new_clusters, emb_map)
+
+    signals: list[str] = []
+
+    similar_pairs = find_similar_pairs(centroids, distance_max=cfg.suggestions.similar_pair_distance_max)
+    id_to_label = {c.id: (c.label or "Unlabeled") for c in new_clusters}
+    for a_id, b_id, dist in similar_pairs:
+        label_a = id_to_label.get(a_id, str(a_id))
+        label_b = id_to_label.get(b_id, str(b_id))
+        signals.append(
+            f"similar_pair: clusters '{label_a}' and '{label_b}' are very similar "
+            f"(cosine distance {dist:.2f})"
+        )
+        if len(signals) >= cfg.suggestions.top_n_signals:
+            break
+
+    if len(signals) < cfg.suggestions.top_n_signals:
+        memberships_by_cluster = {
+            c.id: get_memberships(c.id) for c in new_clusters
+        }
+
+        dominant_id = find_dominant_cluster(
+            memberships_by_cluster, dominance_fraction=cfg.suggestions.dominance_fraction
+        )
+        if dominant_id is not None:
+            label = id_to_label.get(dominant_id, str(dominant_id))
+            total = sum(len(rows) for rows in memberships_by_cluster.values())
+            count = len(memberships_by_cluster[dominant_id])
+            signals.append(
+                f"dominant_cluster: '{label}' holds {count}/{total} members "
+                f"({100 * count / total:.0f}%) — consider splitting it further"
+            )
+
+        if len(signals) < cfg.suggestions.top_n_signals:
+            noise_frac = find_noise_fraction(memberships_by_cluster, n_clusters=len(new_clusters))
+            if noise_frac >= cfg.suggestions.noise_fraction_floor:
+                signals.append(
+                    f"high_noise: {100 * noise_frac:.0f}% of memberships look like noise — "
+                    "consider re-clustering with a guiding concept"
+                )
+
+    if not signals:
+        return None
+
+    return await suggest(
+        last_operation=last_operation,
+        clusters=new_clusters,
+        signals=signals[:cfg.suggestions.top_n_signals],
+        conversation_id=conversation_id,
+        message_id=message_id,
+        accumulated_cost=accumulated_cost,
+    )
 
 
 def _sentinel_cluster_snapshot_id() -> uuid.UUID:

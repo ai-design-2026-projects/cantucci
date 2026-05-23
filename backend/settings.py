@@ -165,6 +165,40 @@ class LabelingConfig(BaseModel):
     top_exemplars: int = 15
 
 
+class IntentConfig(BaseModel):
+    """Intent agent parameters.
+
+    Attributes:
+        confidence_threshold: Minimum confidence below which the coordinator
+                              refuses to execute state-changing operations and
+                              defers to the clarifier agent instead.
+    """
+    confidence_threshold: float = 0.6
+
+
+class SuggestionsConfig(BaseModel):
+    """Post-turn suggestion parameters.
+
+    Attributes:
+        enabled:                  When False, the suggester is skipped entirely
+                                  (no LLM call, no suggestion field on the response).
+        similar_pair_distance_max: Cosine-distance threshold (range [0, 2]) below which
+                                   two cluster centroids are considered similar enough
+                                   to suggest a merge.
+        dominance_fraction:        Fraction of total members a single cluster must hold
+                                   to trigger a drill-down suggestion.
+        noise_fraction_floor:      Fraction of low-probability memberships above which a
+                                   recut suggestion is emitted (noise proxy).
+        top_n_signals:             Maximum number of deterministic signals forwarded to
+                                   the suggester LLM.
+    """
+    enabled: bool = True
+    similar_pair_distance_max: float = 0.25
+    dominance_fraction: float = 0.55
+    noise_fraction_floor: float = 0.20
+    top_n_signals: int = 2
+
+
 class ConversationConfig(BaseModel):
     """Per-conversation runtime limits.
 
@@ -214,6 +248,8 @@ class Settings(BaseModel):
         fusion:         Embedding fusion weights.
         umap:           UMAP 2D projection parameters.
         labeling:       Labeling agent parameters.
+        intent:         Intent agent parameters (confidence threshold).
+        suggestions:    Post-turn suggestion parameters.
         conversation:   Per-conversation limits.
         ingestion:      HF artifact source.
     """
@@ -225,6 +261,8 @@ class Settings(BaseModel):
     fusion: FusionConfig = FusionConfig()
     umap: UmapConfig = UmapConfig()
     labeling: LabelingConfig = LabelingConfig()
+    intent: IntentConfig = IntentConfig()
+    suggestions: SuggestionsConfig = SuggestionsConfig()
     conversation: ConversationConfig = ConversationConfig()
     ingestion: IngestionConfig
 

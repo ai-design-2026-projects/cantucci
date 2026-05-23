@@ -52,7 +52,7 @@ async def label_clusters(
         titles = [f"{s.title} ({s.release_year or '?'})" for s in stubs]
         clusters_for_prompt.append({"exemplar_titles": titles})
 
-    template = _ENV.get_template("label_v2.j2")
+    template = _ENV.get_template("label_v3.j2")
     prompt = template.render(clusters=clusters_for_prompt)
     messages = [{"role": "user", "content": prompt}]
 

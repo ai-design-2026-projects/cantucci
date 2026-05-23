@@ -38,11 +38,15 @@ class MessageDto(BaseModel):
         role:       ``"user"`` or ``"assistant"``.
         content:    Message text.
         created_at: UTC timestamp.
+        suggestion: Optional follow-up suggestion from the suggester agent.
+                    Present only on assistant messages produced after a state-changing
+                    operation; None for clarification replies, small_talk, and explain.
     """
     id: uuid.UUID
     role: str
     content: str
     created_at: datetime
+    suggestion: str | None = None
 
 
 class ConversationDto(BaseModel):

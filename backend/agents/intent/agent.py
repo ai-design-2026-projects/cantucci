@@ -35,7 +35,7 @@ async def classify(
     """
     cfg = get_settings()
 
-    template = _ENV.get_template("intent_v2.j2")
+    template = _ENV.get_template("intent_v4.j2")
     prompt = template.render(
         clusters=[{"id": str(c.id), "label": c.label} for c in clusters],
         user_message=user_message,

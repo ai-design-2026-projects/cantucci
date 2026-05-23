@@ -252,6 +252,7 @@ async def send_message(
             role="assistant",
             content=result.reply_text,
             created_at=row.created_at,
+            suggestion=result.suggestion,
         ),
         cluster_snapshot_id=result.cluster_snapshot_id,
     )
