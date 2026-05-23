@@ -1,6 +1,6 @@
 import { motion } from 'framer-motion'
 import { Mascot } from '@/components/mascot'
-import type { MessageDto } from '@/lib/types'
+import type { MessageDto } from '@/api/conversations'
 
 interface MessageBubbleProps {
   message: MessageDto

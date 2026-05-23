@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { getConversationFetcher } from '@/api/conversations'
-import type { ConversationDto } from '@/lib/types'
+import type { ConversationDto } from '@/api/conversations'
 
 /**
  * Fetch hook for loading a conversation with its recent messages.

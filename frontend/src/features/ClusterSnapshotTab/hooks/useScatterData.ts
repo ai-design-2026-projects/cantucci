@@ -1,5 +1,15 @@
 import { useMemo } from 'react'
-import type { ClusterSnapshotDto, MovieDto, ScatterPoint } from '@/lib/types'
+import type { ClusterSnapshotDto } from '@/api/snapshots'
+import type { MovieDto } from '@/api/movies'
+
+export interface ScatterPoint {
+  movieId: number
+  title: string
+  clusterId: string
+  clusterLabel: string | null
+  x: number
+  y: number
+}
 
 /**
  * Derives scatter plot data points from a snapshot and its enriched movie map.

@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { getSnapshotGraphFetcher } from '@/api/snapshots'
-import type { ClusterSnapshotGraphDto } from '@/lib/types'
+import type { ClusterSnapshotGraphDto } from '@/api/snapshots'
 
 /**
  * Fetch hook for loading all cluster snapshot nodes for a conversation.

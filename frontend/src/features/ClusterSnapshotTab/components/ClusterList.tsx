@@ -2,7 +2,8 @@ import { ChevronDown, ChevronRight } from 'lucide-react'
 import { clusterColorFromUuid } from '@/styles/theme'
 import { useThemeStore } from '@/store/useThemeStore'
 import { ClusterDetail } from './ClusterDetail'
-import type { ClusterDto, ClusterSnapshotDto, MovieDto } from '@/lib/types'
+import type { ClusterDto, ClusterSnapshotDto } from '@/api/snapshots'
+import type { MovieDto } from '@/api/movies'
 
 interface ClusterListProps {
   snapshot: ClusterSnapshotDto

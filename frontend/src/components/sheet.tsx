@@ -63,6 +63,5 @@ const SheetTitle = React.forwardRef<
     {...props}
   />
 ))
-SheetTitle.displayName = 'SheetTitle'
 
 export { Sheet, SheetTrigger, SheetContent, SheetHeader, SheetTitle, SheetClose }

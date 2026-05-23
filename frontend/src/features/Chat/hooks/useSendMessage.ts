@@ -3,7 +3,7 @@ import { toast } from 'sonner'
 import { sendMessageFetcher } from '@/api/conversations'
 import { useSnapshotStore } from '@/store/useSnapshotStore'
 import { OPERATION_LABELS } from '@/lib/constants'
-import type { ConversationDto, MessageDto } from '@/lib/types'
+import type { ConversationDto, MessageDto } from '@/api/conversations'
 
 /**
  * Mutation hook for sending a user message and handling the response.

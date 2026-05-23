@@ -1,5 +1,15 @@
 import { apiClient } from './client'
-import type { LoginResponse, User } from '@/lib/types'
+
+export interface User {
+  id: string
+  email: string
+  role: string
+}
+
+export interface LoginResponse {
+  token: string
+  user: User
+}
 
 /**
  * Authenticate an existing user and set the HttpOnly auth cookie.

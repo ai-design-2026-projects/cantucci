@@ -2,7 +2,7 @@ import { MessageBubble } from './MessageBubble'
 import { LoadingBubble } from './LoadingBubble'
 import { EmptyChatState } from './EmptyChatState'
 import { useChatScroll } from '../hooks/useChatScroll'
-import type { MessageDto } from '@/lib/types'
+import type { MessageDto } from '@/api/conversations'
 
 interface MessageListProps {
   messages: MessageDto[]

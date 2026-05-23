@@ -1,5 +1,6 @@
 import { ExemplarCard } from './ExemplarCard'
-import type { ClusterDto, MovieDto } from '@/lib/types'
+import type { ClusterDto } from '@/api/snapshots'
+import type { MovieDto } from '@/api/movies'
 
 interface ClusterDetailProps {
   cluster: ClusterDto

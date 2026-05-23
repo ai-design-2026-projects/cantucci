@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { getSnapshotFetcher } from '@/api/snapshots'
-import type { ClusterSnapshotDto } from '@/lib/types'
+import type { ClusterSnapshotDto } from '@/api/snapshots'
 
 /**
  * Fetch hook for loading a cluster snapshot with its full cluster list.
