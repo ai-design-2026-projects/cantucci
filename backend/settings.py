@@ -154,6 +154,17 @@ class UmapConfig(BaseModel):
     min_dist: float = 0.1
 
 
+class LabelingConfig(BaseModel):
+    """Labeling agent parameters.
+
+    Attributes:
+        top_exemplars: Maximum number of exemplar movies to pass to the
+                       labeling LLM. Truncates the exemplar list in both
+                       the online labeler and the clustering helpers.
+    """
+    top_exemplars: int = 15
+
+
 class ConversationConfig(BaseModel):
     """Per-conversation runtime limits.
 
@@ -202,6 +213,7 @@ class Settings(BaseModel):
         clustering:     HDBSCAN base + online parameters.
         fusion:         Embedding fusion weights.
         umap:           UMAP 2D projection parameters.
+        labeling:       Labeling agent parameters.
         conversation:   Per-conversation limits.
         ingestion:      HF artifact source.
     """
@@ -212,6 +224,7 @@ class Settings(BaseModel):
     clustering: ClusteringConfig = ClusteringConfig()
     fusion: FusionConfig = FusionConfig()
     umap: UmapConfig = UmapConfig()
+    labeling: LabelingConfig = LabelingConfig()
     conversation: ConversationConfig = ConversationConfig()
     ingestion: IngestionConfig
 
@@ -299,12 +312,6 @@ def get_settings() -> Settings:
     """
     path = os.environ.get("CONFIG_PATH", str(DEFAULT_CONFIG_PATH))
     data, _ = _load_raw(path)
-    representation = data.get("representation", {})
-    if isinstance(representation, dict):
-        if "model" not in representation and "strategy" in representation:
-            representation["model"] = representation.pop("strategy")
-        if "embedding_dim" not in representation and "dim" in representation:
-            representation["embedding_dim"] = representation.pop("dim")
     return Settings(**data)
 
 

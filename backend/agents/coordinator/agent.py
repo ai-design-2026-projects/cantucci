@@ -1,19 +1,18 @@
 import logging
 import uuid
-from dataclasses import dataclass, replace
+from dataclasses import replace
 
 from backend.agents.clustering.agent import apply_drill_down, apply_merge, apply_recut
-from backend.agents.common.strategy import select_mode
 from backend.agents.concept.agent import build_concept
+from backend.agents.coordinator.types import CoordinatorResult
 from backend.agents.explanation.agent import explain_placement
 from backend.agents.intent.agent import classify as classify_intent
-from backend.agents.intent.types import NavigationMode
-from backend.agents.labeling.agent import label_cluster
-from backend.data_access.conversations.queries import get_conversation, get_messages, set_current_cluster_snapshot
+from backend.agents.intent.types import Modality, NavigationMode
+from backend.agents.labeling.agent import label_clusters
+from backend.data_access.conversations.queries import set_current_cluster_snapshot
 from backend.data_access.conversations.types import ConversationRow
 from backend.data_access.cluster_snapshots.queries import (
     get_cluster_snapshot_with_clusters,
-    get_conversation_cluster_snapshots,
     get_root_cluster_snapshot,
     record_conversation_snapshot_ref,
     update_cluster_label,
@@ -22,18 +21,6 @@ from backend.data_access.cluster_snapshots.types import ClusterRow
 from backend.data_access.movies.queries import list_movie_ids
 
 log = logging.getLogger(__name__)
-
-
-@dataclass
-class CoordinatorResult:
-    """Output of a single Coordinator.handle_message call.
-
-    Attributes:
-        reply_text:          Text to send back to the user.
-        cluster_snapshot_id: UUID of the active cluster snapshot after this message.
-    """
-    reply_text: str
-    cluster_snapshot_id: uuid.UUID
 
 
 class Coordinator:
@@ -50,34 +37,37 @@ class Coordinator:
         conversation_row: ConversationRow,
     ) -> CoordinatorResult:
         """Process one user message and return the assistant reply with updated cluster snapshot.
+
         Pipeline:
           1. Load current cluster snapshot + recent messages.
-          2. Classify intent (Intent agent).
-          3. Branch on mode: concept → cluster op → persist, or explain, or direct reply.
-          4. Generate a reply summarizing what changed.
+          2. Label any unlabeled clusters (single batched LLM call).
+          3. Classify intent (Intent agent).
+          4. Branch on mode: concept → cluster op → persist, or explain, or direct reply.
+          5. Return reply and updated snapshot id.
+
         Args:
             conversation_id:   Conversation UUID.
             user_message:      Raw user message text.
             conversation_row:  Pre-loaded conversation row (avoids double DB hit).
+
         Returns:
             ``CoordinatorResult`` with reply text and active cluster snapshot ID.
         """
-        # Step 1: Load current state
         current_cluster_snapshot_id = conversation_row.current_cluster_snapshot_id
         accumulated_cost = 0.0
 
         current_snapshot = get_cluster_snapshot_with_clusters(current_cluster_snapshot_id) if current_cluster_snapshot_id else None
         current_clusters = current_snapshot.clusters if current_snapshot else []
-        all_snapshots = get_conversation_cluster_snapshots(conversation_id)
 
         message_id = uuid.uuid4()
-        
-        # If any clusters are unlabeled, label them before intent classification to ensure the intent agent sees labels.
-        if any(cluster.label is None for cluster in current_clusters):
-            clusters = await _label_unlabeled_clusters(current_clusters, conversation_id, message_id, accumulated_cost)
-            accumulated_cost += sum(cluster.cost for cluster in clusters if cluster.cost)
 
-        # Step 2: Classify intent and select mode
+        clusters = current_clusters
+        if any(cluster.label is None for cluster in current_clusters):
+            clusters, label_cost = await _label_unlabeled_clusters(
+                current_clusters, conversation_id, message_id, accumulated_cost
+            )
+            accumulated_cost += label_cost
+
         intent = await classify_intent(
             user_message=user_message,
             clusters=clusters,
@@ -87,13 +77,11 @@ class Coordinator:
         )
         accumulated_cost += intent.cost
 
-        mode = select_mode(len(all_snapshots), len(clusters))
         log.info(
             "coordinator_dispatch",
             extra={
                 "conversation_id": str(conversation_id),
                 "intent_mode": intent.navigationMode.value,
-                "strategy_mode": mode.value,
                 "n_clusters": len(clusters),
             },
         )
@@ -124,12 +112,14 @@ class Coordinator:
             concept = None
             if intent.concept:
                 concept = await build_concept(intent.concept, conversation_id, message_id, accumulated_cost)
+                accumulated_cost += concept.cost
             new_cluster_snapshot_id = await apply_drill_down(
                 source_cluster_id=target_id,
                 parent_cluster_snapshot_id=current_cluster_snapshot_id,
                 conversation_id=conversation_id,
                 concept=concept,
                 accumulated_cost=accumulated_cost,
+                embedding_spaces=intent.embedding_spaces,
             )
             new_cswc = get_cluster_snapshot_with_clusters(new_cluster_snapshot_id)
             n_new = len(new_cswc.clusters) if new_cswc else 0
@@ -155,18 +145,18 @@ class Coordinator:
             return CoordinatorResult(reply_text=reply, cluster_snapshot_id=new_cluster_snapshot_id)
 
         if intent.navigationMode == NavigationMode.RECUT:
-            all_movie_ids = list({mid for c in clusters for m in [] for mid in []})
-            if not all_movie_ids:
-                all_movie_ids = list_movie_ids()
+            all_movie_ids = list_movie_ids()
             concept = None
             if intent.concept:
                 concept = await build_concept(intent.concept, conversation_id, message_id, accumulated_cost)
+                accumulated_cost += concept.cost
             new_cluster_snapshot_id = await apply_recut(
                 movie_ids=all_movie_ids,
                 parent_cluster_snapshot_id=current_cluster_snapshot_id,
                 conversation_id=conversation_id,
                 concept=concept,
                 accumulated_cost=accumulated_cost,
+                embedding_spaces=intent.embedding_spaces,
             )
             new_cswc = get_cluster_snapshot_with_clusters(new_cluster_snapshot_id)
             n_new = len(new_cswc.clusters) if new_cswc else 0
@@ -257,11 +247,11 @@ async def _label_unlabeled_clusters(
     conversation_id: uuid.UUID,
     message_id: uuid.UUID,
     accumulated_cost: float,
-) -> list[ClusterRow]:
+) -> tuple[list[ClusterRow], float]:
     """Generate and persist labels for any cluster whose label is None.
 
     Root clusters arrive from ingest without labels; this function labels them
-    lazily on first conversation access.
+    lazily on first conversation access using a single batched LLM call.
 
     Args:
         clusters:         Current cluster list (may contain None-labeled entries).
@@ -270,30 +260,35 @@ async def _label_unlabeled_clusters(
         accumulated_cost: Running LLM cost this conversation.
 
     Returns:
-        Cluster list with all None labels replaced by generated ones.
+        Tuple of (cluster list with all None labels replaced, total labeling cost).
     """
-    labeled: list[ClusterRow] = []
-    for cluster in clusters:
-        if cluster.label is not None:
-            labeled.append(cluster)
-            continue
-        result = await label_cluster(
-            exemplar_movie_ids=cluster.exemplar_movie_ids,
-            conversation_id=str(conversation_id),
-            accumulated_cost=accumulated_cost,
-            message_id=str(message_id),
-        )
-        update_cluster_label(cluster.id, result.label, result.summary)
-        log.info(
-            "root_cluster_labeled",
-            extra={"cluster_id": str(cluster.id), "label": result.label},
-        )
-        labeled.append(replace(cluster, label=result.label, summary=result.summary))
-    return labeled
+    unlabeled = [c for c in clusters if c.label is None]
+    if not unlabeled:
+        return clusters, 0.0
+
+    exemplar_groups = [c.exemplar_movie_ids for c in unlabeled]
+    batch_result = await label_clusters(
+        exemplar_groups=exemplar_groups,
+        conversation_id=str(conversation_id),
+        accumulated_cost=accumulated_cost,
+        message_id=str(message_id),
+    )
+
+    label_by_id: dict[uuid.UUID, tuple[str, str | None]] = {}
+    for i, cluster in enumerate(unlabeled):
+        lr = batch_result.results[i]
+        update_cluster_label(cluster.id, lr.label, lr.summary)
+        label_by_id[cluster.id] = (lr.label, lr.summary)
+        log.info("root_cluster_labeled", extra={"cluster_id": str(cluster.id), "label": lr.label})
+
+    labeled = [
+        replace(c, label=label_by_id[c.id][0], summary=label_by_id[c.id][1])
+        if c.id in label_by_id else c
+        for c in clusters
+    ]
+    return labeled, batch_result.cost
 
 
 def _sentinel_cluster_snapshot_id() -> uuid.UUID:
     """Return a zero UUID as a sentinel when no cluster snapshot exists yet."""
     return uuid.UUID("00000000-0000-0000-0000-000000000000")
-
-

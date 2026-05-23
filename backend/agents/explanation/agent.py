@@ -1,11 +1,10 @@
 import logging
 import uuid
-
 from jinja2 import Environment, FileSystemLoader
 
 from backend.agents.explanation.types import ExplanationResult
 from backend.data_access.movies.queries import fetch_metadata, fetch_stubs
-from backend.data_access.cluster_snapshots.queries import get_memberships, get_cluster_snapshot_with_clusters
+from backend.data_access.cluster_snapshots.queries import get_cluster_snapshot_with_clusters
 from backend.llm import llm_harness
 from backend.settings import get_config_hash, get_settings, prompts_dir
 
@@ -86,4 +85,6 @@ async def explain_placement(
     )
 
     log.info("explanation_generated", extra={"movie_id": movie_id, "cluster_id": str(cluster_id)})
-    return ExplanationResult.from_llm_response(resp.content, movie_title=movie.title, cluster_label=cluster_label)
+    return ExplanationResult.from_llm_response(
+        resp.content, movie_title=movie.title, cluster_label=cluster_label, cost=resp.cost_usd
+    )

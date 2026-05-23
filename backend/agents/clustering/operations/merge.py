@@ -4,6 +4,7 @@ import uuid
 from backend.agents.clustering.operations._helpers import exemplars
 from backend.agents.clustering.types import ClusterDraft, ClusterSnapshotDraft
 from backend.data_access.cluster_snapshots.queries import get_cluster_snapshot_with_clusters, get_memberships
+from backend.settings import get_settings
 
 log = logging.getLogger(__name__)
 
@@ -46,12 +47,13 @@ async def merge_clusters(
                 memberships=members,
             ))
 
+    cfg = get_settings()
     mids = list(merged_memberships.keys())
     prbs = [merged_memberships[m] for m in mids]
     merged_draft = ClusterDraft(
         label=merged_label,
         summary=None,
-        exemplar_movie_ids=exemplars(mids, prbs),
+        exemplar_movie_ids=exemplars(mids, prbs, cfg.labeling.top_exemplars),
         parent_cluster_id=None,
         memberships=list(merged_memberships.items()),
     )

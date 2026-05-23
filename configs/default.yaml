@@ -46,6 +46,9 @@ umap:
   n_neighbors: 15
   min_dist: 0.1
 
+labeling:
+  top_exemplars: 15
+
 conversation:
   cost_limit_usd: 5.0
   max_messages: 100
