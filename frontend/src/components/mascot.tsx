@@ -33,6 +33,7 @@ function BucketBody({ clipId }: { clipId: string }) {
             <rect x="43" y="30" width="6"  height="46" fill="#CC2929" clipPath={`url(#${clipId})`} />
             <rect x="54" y="30" width="6"  height="46" fill="#CC2929" clipPath={`url(#${clipId})`} />
             <rect x="62" y="30" width="8"  height="46" fill="#CC2929" clipPath={`url(#${clipId})`} />
+            <rect x="16" y="70" width="48" height="5" rx="1.5" fill="#B02020" />
             <rect x="7"  y="28" width="66" height="6"  rx="3" fill="#B02020" />
         </>
     )
@@ -59,9 +60,9 @@ function EyesNormal() {
     return (
         <>
             <ellipse cx="32" cy="51" rx="5" ry="7"   fill="white" stroke="#1a1a1c" strokeWidth="1.5" />
-            <circle  cx="32" cy="56" r="3.5"          fill="#1a1a1c" />
+            <circle  cx="32" cy="54" r="3.5"          fill="#1a1a1c" />
             <ellipse cx="48" cy="51" rx="5" ry="7"   fill="white" stroke="#1a1a1c" strokeWidth="1.5" />
-            <circle  cx="48" cy="56" r="3.5"          fill="#1a1a1c" />
+            <circle  cx="48" cy="54" r="3.5"          fill="#1a1a1c" />
         </>
     )
 }
@@ -69,10 +70,10 @@ function EyesNormal() {
 function EyesWide() {
     return (
         <>
-            <ellipse cx="32" cy="50" rx="6" ry="8.5" fill="white" stroke="#1a1a1c" strokeWidth="1.5" />
-            <circle  cx="32" cy="56" r="4.5"          fill="#1a1a1c" />
-            <ellipse cx="48" cy="50" rx="6" ry="8.5" fill="white" stroke="#1a1a1c" strokeWidth="1.5" />
-            <circle  cx="48" cy="56" r="4.5"          fill="#1a1a1c" />
+            <ellipse cx="32" cy="50" rx="6" ry="8" fill="white" stroke="#1a1a1c" strokeWidth="1.5" />
+            <circle  cx="32" cy="52" r="5"          fill="#1a1a1c" />
+            <ellipse cx="48" cy="50" rx="6" ry="8" fill="white" stroke="#1a1a1c" strokeWidth="1.5" />
+            <circle  cx="48" cy="52" r="5"          fill="#1a1a1c" />
         </>
     )
 }
@@ -80,11 +81,7 @@ function EyesWide() {
 function EyesSleepy() {
     return (
         <>
-            <ellipse cx="32" cy="53" rx="4" ry="4"   fill="white" stroke="#1a1a1c" strokeWidth="1.5" />
-            <circle  cx="32" cy="55" r="2.5"          fill="#1a1a1c" />
             <path d="M 27 53 Q 32 46 37 53 Z" fill="#f5e6c8" stroke="#1a1a1c" strokeWidth="1.2" strokeLinecap="round" />
-            <ellipse cx="48" cy="53" rx="4" ry="4"   fill="white" stroke="#1a1a1c" strokeWidth="1.5" />
-            <circle  cx="48" cy="55" r="2.5"          fill="#1a1a1c" />
             <path d="M 43 53 Q 48 46 53 53 Z" fill="#f5e6c8" stroke="#1a1a1c" strokeWidth="1.2" strokeLinecap="round" />
         </>
     )
