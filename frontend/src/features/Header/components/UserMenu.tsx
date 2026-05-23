@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import { LogOut } from 'lucide-react'
 import { logoutFetcher } from '@/api/auth'
 import { useAuthStore } from '@/store/useAuthStore'
-import { Button } from '@/components/ui/button'
+import { Button } from '@/components/button'
 
 /**
  * Displays the authenticated user's email and a log-out button.

@@ -315,6 +315,7 @@ dependencies = [
     { name = "pydantic-settings" },
     { name = "pyjwt" },
     { name = "pyyaml" },
+    { name = "sentence-transformers" },
     { name = "umap-learn" },
     { name = "uvicorn", extra = ["standard"] },
 ]
@@ -363,6 +364,7 @@ requires-dist = [
     { name = "pytest", marker = "extra == 'test'", specifier = ">=9.0" },
     { name = "pytest-asyncio", marker = "extra == 'test'", specifier = ">=1.0" },
     { name = "pyyaml", specifier = ">=6.0" },
+    { name = "sentence-transformers", specifier = ">=2.7" },
     { name = "sentence-transformers", marker = "extra == 'dataset'", specifier = ">=2.7" },
     { name = "testcontainers", extras = ["postgres"], marker = "extra == 'test'", specifier = ">=4.0.0" },
     { name = "tqdm", marker = "extra == 'dataset'", specifier = ">=4" },

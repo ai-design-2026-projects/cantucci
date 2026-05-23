@@ -1,5 +1,5 @@
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { Badge } from '@/components/ui/badge'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/dialog'
+import { Badge } from '@/components/badge'
 import { useMovieDetails } from '../hooks/useMovieDetails'
 import type { ClusterSnapshotDto } from '@/lib/types'
 

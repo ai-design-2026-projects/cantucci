@@ -1,4 +1,4 @@
-import { Mascot } from '@/components/mascot/Mascot'
+import { Mascot } from '@/components/mascot'
 
 /**
  * Placeholder shown in the right panel when no cluster snapshot is loaded yet.

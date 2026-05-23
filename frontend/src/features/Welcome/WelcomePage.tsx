@@ -4,7 +4,7 @@ import { motion } from 'framer-motion'
 import { createConversationFetcher } from '@/api/conversations'
 import { useConversationStore } from '@/store/useConversationStore'
 import { useAuthStore } from '@/store/useAuthStore'
-import { Mascot } from '@/components/mascot/Mascot'
+import { Mascot } from '@/components/mascot'
 import { StartButton } from './components/StartButton'
 
 /**

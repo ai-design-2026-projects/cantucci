@@ -4,7 +4,7 @@ import { X } from 'lucide-react'
 import { useSnapshotStore } from '@/store/useSnapshotStore'
 import { useSnapshotGraph } from './hooks/useSnapshotGraph'
 import { ForceGraph } from './components/ForceGraph'
-import { Button } from '@/components/ui/button'
+import { Button } from '@/components/button'
 
 interface EvolutionMapModalProps {
   open: boolean

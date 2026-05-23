@@ -1,5 +1,5 @@
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '@/components/ui/tooltip'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/dialog'
+import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '@/components/tooltip'
 import { clusterColorFromUuid } from '@/styles/theme'
 import { useThemeStore } from '@/store/useThemeStore'
 import type { ClusterDto, ClusterSnapshotDto, MovieDto } from '@/lib/types'

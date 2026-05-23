@@ -1,5 +1,5 @@
 import { AnimatePresence, motion } from 'framer-motion'
-import { Mascot } from '@/components/mascot/Mascot'
+import { Mascot } from '@/components/mascot'
 import { useLoadingStatusRotation } from '../hooks/useLoadingStatusRotation'
 
 interface LoadingBubbleProps {

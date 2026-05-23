@@ -16,6 +16,7 @@ dependencies = [
     "openai>=1.0",
     "httpx>=0.28",
     "numpy>=1.26",
+    "sentence-transformers>=2.7",
     "hdbscan>=0.8.40",
     "umap-learn>=0.5.6",
 ]
