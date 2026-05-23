@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import logging
+import os
+from pathlib import Path
 
 import numpy as np
 from tqdm.auto import tqdm
@@ -16,16 +18,9 @@ def _encode_one(
     youtube_key: str,
     n_frames: int,
     batch_size: int,
-    cookiefile: str | None,
-    cookies_from_browser: str | None,
 ) -> np.ndarray:
     """Fetch frames for one movie and return a single L2-normalized 1024-d vector."""
-    images = fetch_frames(
-        youtube_key,
-        n_frames=n_frames,
-        cookiefile=cookiefile,
-        cookies_from_browser=cookies_from_browser,
-    )
+    images = fetch_frames(youtube_key, n_frames=n_frames)
     frame_feats = encode_images(images, batch_size=batch_size)
     pooled = frame_feats.mean(axis=0)
     norm = float(np.linalg.norm(pooled))
@@ -38,8 +33,6 @@ def encode_trailers(
     *,
     n_frames: int = 16,
     batch_size: int = 16,
-    cookiefile: str | None = None,
-    cookies_from_browser: str | None = None,
 ) -> np.ndarray:
     """Embed trailers for a batch of movies into a single (n, dim) float32 array.
 
@@ -51,14 +44,10 @@ def encode_trailers(
     ``core.fusion.fuse_batch``.
 
     Args:
-        movie_keys:           List of ``(movie_id, youtube_key)`` pairs. ``movie_id``
-                              is used only for logging; row alignment follows list order.
-        n_frames:             Number of frames to sample per trailer.
-        batch_size:           CLIP image-encoder batch size for the per-movie frame batch.
-        cookiefile:           Path to a Netscape-format cookies file, forwarded to
-                              yt-dlp to bypass YouTube bot-detection.
-        cookies_from_browser: Browser name to extract cookies from (e.g. ``"chrome"``).
-                              Ignored when *cookiefile* is set.
+        movie_keys: List of ``(movie_id, youtube_key)`` pairs. ``movie_id``
+                    is used only for logging; row alignment follows list order.
+        n_frames:   Number of frames to sample per trailer.
+        batch_size: CLIP image-encoder batch size for the per-movie frame batch.
 
     Returns:
         Float32 ndarray of shape ``(len(movie_keys), embedding_dim)``, where
@@ -78,7 +67,7 @@ def encode_trailers(
                 bar.update(1)
                 continue
             try:
-                vec = _encode_one(key, n_frames, batch_size, cookiefile, cookies_from_browser)
+                vec = _encode_one(key, n_frames, batch_size)
             except Exception as exc:
                 log.warning(
                     "trailer_encode_failed",
@@ -108,3 +97,153 @@ def encode_trailers(
         },
     )
     return out
+
+
+def encode_trailers_sharded(
+    movie_keys: list[tuple[int, str | None]],
+    shard_dir: Path,
+    *,
+    shard_size: int = 50,
+    n_frames: int = 16,
+    batch_size: int = 16,
+    max_shards_per_run: int | None = None,
+) -> tuple[np.ndarray, bool]:
+    """Resumable, sharded version of encode_trailers.
+
+    Splits ``movie_keys`` into contiguous shards of ``shard_size`` entries.
+    Each shard is persisted as ``shard_dir / shard_{idx:05d}.npz`` containing
+    arrays ``movie_ids`` (int64) and ``vectors`` (float32). Existing shards are
+    loaded and validated; missing shards are embedded and saved atomically.
+    When ``max_shards_per_run`` newly embedded shards have been produced the
+    function returns early so that partial progress is visible in the caller.
+
+    Designed to be called repeatedly across Colab sessions with the same
+    ``shard_dir`` backed by Google Drive. Each call resumes from where the
+    previous left off.
+
+    Args:
+        movie_keys:        List of ``(movie_id, youtube_key)`` pairs aligned to
+                           the split's row order.
+        shard_dir:         Directory in which shard ``.npz`` files are written
+                           and read. Must already exist.
+        shard_size:        Number of movies per shard.
+        n_frames:          Frames sampled per trailer (forwarded to
+                           ``_encode_one``).
+        batch_size:        CLIP encoder batch size (forwarded to ``_encode_one``).
+        max_shards_per_run: If set, stop after embedding this many new shards
+                            (existing shards are loaded but not counted). Pass
+                            ``None`` to process everything in one call.
+
+    Returns:
+        ``(out, complete)`` where ``out`` is a ``(n, dim)`` float32 array with
+        zero rows for any still-missing shards, and ``complete`` is ``True``
+        iff every shard was present or produced by this call.
+
+    Raises:
+        RuntimeError: If a loaded shard's stored ``movie_ids`` do not match
+                      the expected slice — indicates the snapshot changed
+                      between runs.
+        RuntimeError: If CLIP output dim does not match the configured
+                      ``embedding_dim``.
+    """
+    dim = get_settings().representation.embedding_dim
+    n_total = len(movie_keys)
+    out = np.zeros((n_total, dim), dtype=np.float32)
+
+    n_shards = (n_total + shard_size - 1) // shard_size
+    new_shards_embedded = 0
+    all_complete = True
+
+    for shard_idx in range(n_shards):
+        start = shard_idx * shard_size
+        end = min(start + shard_size, n_total)
+        shard_keys = movie_keys[start:end]
+        expected_ids = np.array([mid for mid, _ in shard_keys], dtype=np.int64)
+
+        shard_path = shard_dir / f"shard_{shard_idx:05d}.npz"
+
+        if shard_path.exists():
+            data = np.load(shard_path)
+            stored_ids = data["movie_ids"]
+            if not np.array_equal(stored_ids, expected_ids):
+                raise RuntimeError(
+                    f"Shard {shard_path} contains movie_ids that do not match "
+                    f"the current snapshot split. The snapshot or split seed may "
+                    f"have changed between runs. Delete the shard directory and "
+                    f"restart embedding from scratch."
+                )
+            out[start:end] = data["vectors"]
+            log.info(
+                "shard_skipped_existing",
+                extra={"shard_idx": shard_idx, "n_shards": n_shards, "shard_path": str(shard_path)},
+            )
+            continue
+
+        if max_shards_per_run is not None and new_shards_embedded >= max_shards_per_run:
+            all_complete = False
+            continue
+
+        log.info(
+            "shard_started",
+            extra={"shard_idx": shard_idx, "n_shards": n_shards, "movies": end - start},
+        )
+        vectors = np.zeros((end - start, dim), dtype=np.float32)
+        n_done = 0
+        n_failed = 0
+        with tqdm(
+            total=end - start,
+            desc=f"shard {shard_idx}/{n_shards - 1}",
+            unit="movie",
+            leave=False,
+        ) as bar:
+            for j, (movie_id, key) in enumerate(shard_keys):
+                if not key:
+                    bar.update(1)
+                    continue
+                try:
+                    vec = _encode_one(key, n_frames, batch_size)
+                except Exception as exc:
+                    log.warning(
+                        "trailer_encode_failed",
+                        extra={"movie_id": movie_id, "youtube_key": key, "error": str(exc)},
+                    )
+                    n_failed += 1
+                    bar.update(1)
+                    continue
+                if vec.shape != (dim,):
+                    raise RuntimeError(
+                        f"CLIP output dim {vec.shape[0]} does not match configured "
+                        f"embedding_dim {dim}."
+                    )
+                vectors[j] = vec
+                n_done += 1
+                bar.set_postfix(ok=n_done, fail=n_failed)
+                bar.update(1)
+
+        tmp_path = shard_path.with_suffix(".npz.tmp")
+        np.savez(tmp_path, movie_ids=expected_ids, vectors=vectors)
+        os.replace(tmp_path, shard_path)
+
+        out[start:end] = vectors
+        new_shards_embedded += 1
+        log.info(
+            "shard_completed",
+            extra={
+                "shard_idx": shard_idx,
+                "n_shards": n_shards,
+                "n_encoded": n_done,
+                "n_failed": n_failed,
+                "shard_path": str(shard_path),
+            },
+        )
+
+    log.info(
+        "encode_trailers_sharded_summary",
+        extra={
+            "n_total": n_total,
+            "n_shards": n_shards,
+            "new_shards_embedded": new_shards_embedded,
+            "complete": all_complete,
+        },
+    )
+    return out, all_complete

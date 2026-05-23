@@ -31,8 +31,8 @@ Run on a Colab T4 GPU instance.
 
 1. Open `notebooks/embed_in_colab.ipynb`.
 2. Add Colab secrets: `HF_TOKEN`, optional `GITHUB_TOKEN` for private repo clone.
-3. Export YouTube cookies (see the **YouTube cookies** cell in the notebook) and upload `youtube_cookies.txt` to the Colab working directory before running the trailer-embed step.
-4. Run all cells. The notebook downloads the snapshot pinned in `configs/default.yaml`, splits into mini/main/eval-holdout sets, embeds on GPU, and uploads three timestamped parquets via `dataset.hub.upload.upload_artifacts` under `embeddings/`.
+3. Mount Google Drive when prompted — trailer embedding shards are saved there so the job can resume if a Colab session ends before all trailers are embedded.
+4. Run all cells. The notebook downloads the snapshot pinned in `configs/default.yaml`, splits into mini/main/eval-holdout sets, embeds text on GPU, embeds trailers in resumable shards (persisted on Google Drive), and uploads three timestamped parquets via `dataset.hub.upload.upload_artifacts` under `embeddings/`.
 5. Paste the three printed paths into `configs/default.yaml` under `ingestion.artifacts.{main,mini,eval_holdout}`. The new artifact paths become part of `config_hash`, so existing conversations remain replayable against the snapshot they were created with.
 
 ---

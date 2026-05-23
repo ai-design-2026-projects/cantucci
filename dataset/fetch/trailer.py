@@ -10,23 +10,16 @@ from PIL import Image
 log = logging.getLogger(__name__)
 
 
-def _ydl_opts(
-    outdir: Path,
-    cookiefile: str | None = None,
-    cookies_from_browser: str | None = None,
-) -> dict:
+def _ydl_opts(outdir: Path) -> dict:
     """yt-dlp options targeting the smallest video-bearing format available.
 
     Uses ``wv*`` (worstvideo*), which matches any format with a video track
     regardless of audio presence. Audio is irrelevant — only frames are used.
 
     Args:
-        outdir:               Directory to write the downloaded file.
-        cookiefile:           Path to a Netscape-format cookies file.
-        cookies_from_browser: Browser name to extract cookies from (e.g. ``"chrome"``,
-                              ``"firefox"``). Ignored when *cookiefile* is set.
+        outdir: Directory to write the downloaded file.
     """
-    opts: dict = {
+    return {
         "format": "wv*[height>=240][ext=mp4]/wv*[ext=mp4]/wv*/best",
         "extractor_args": {
             "youtube": {
@@ -40,24 +33,14 @@ def _ydl_opts(
         "retries": 2,
         "fragment_retries": 2,
     }
-    if cookiefile:
-        opts["cookiefile"] = cookiefile
-    elif cookies_from_browser:
-        opts["cookiesfrombrowser"] = (cookies_from_browser,)
-    return opts
 
 
-def _download(
-    youtube_key: str,
-    outdir: Path,
-    cookiefile: str | None = None,
-    cookies_from_browser: str | None = None,
-) -> Path:
+def _download(youtube_key: str, outdir: Path) -> Path:
     """Download a single YouTube video to *outdir*; return the resulting file path."""
     import yt_dlp
 
     url = f"https://www.youtube.com/watch?v={youtube_key}"
-    with yt_dlp.YoutubeDL(_ydl_opts(outdir, cookiefile, cookies_from_browser)) as ydl:
+    with yt_dlp.YoutubeDL(_ydl_opts(outdir)) as ydl:
         info = ydl.extract_info(url, download=True)
         return Path(ydl.prepare_filename(info))
 
@@ -108,9 +91,6 @@ def _extract_frames(video: Path, n_frames: int, outdir: Path) -> list[Path]:
 def fetch_frames(
     youtube_key: str,
     n_frames: int = 16,
-    *,
-    cookiefile: str | None = None,
-    cookies_from_browser: str | None = None,
 ) -> list[Image.Image]:
     """Download a YouTube trailer and return *n_frames* evenly-spaced PIL images.
 
@@ -119,13 +99,9 @@ def fetch_frames(
     before returning.
 
     Args:
-        youtube_key:          The ``?v=`` portion of a YouTube watch URL.
-        n_frames:             Number of frames to sample evenly across the video,
-                              excluding the first/last 5%.
-        cookiefile:           Path to a Netscape-format cookies file, required when
-                              YouTube bot-detection blocks unauthenticated downloads.
-        cookies_from_browser: Browser name to extract cookies from (e.g. ``"chrome"``,
-                              ``"firefox"``). Ignored when *cookiefile* is set.
+        youtube_key: The ``?v=`` portion of a YouTube watch URL.
+        n_frames:    Number of frames to sample evenly across the video,
+                     excluding the first/last 5%.
 
     Returns:
         ``n_frames`` PIL images decoded into memory.
@@ -142,7 +118,7 @@ def fetch_frames(
     with tempfile.TemporaryDirectory(prefix="trailer_") as td:
         tmp = Path(td)
         try:
-            video = _download(youtube_key, tmp, cookiefile, cookies_from_browser)
+            video = _download(youtube_key, tmp)
         except Exception as exc:
             raise RuntimeError(f"yt-dlp download failed for {youtube_key}: {exc}") from exc
 
