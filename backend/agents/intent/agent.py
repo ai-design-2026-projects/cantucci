@@ -35,15 +35,13 @@ async def classify(
     """
     cfg = get_settings()
 
-    # Render the prompt with the user's message and current clusters for context.
-    template = _ENV.get_template("intent_v1.j2")
+    template = _ENV.get_template("intent_v2.j2")
     prompt = template.render(
         clusters=[{"id": str(c.id), "label": c.label} for c in clusters],
         user_message=user_message,
     )
     messages = [{"role": "user", "content": prompt}]
 
-    # Call the LLM harness with the rendered prompt
     resp = await llm_harness.call(
         run_id="online",
         conversation_id=str(conversation_id),
@@ -61,9 +59,8 @@ async def classify(
         response_schema=IntentLLMResponse,
     )
 
-    # Parse the LLM response into our structured format and convert to IntentResult
     parsed: IntentLLMResponse = resp.parsed  # type: ignore[assignment]
-    result = IntentResult.from_llm_response(parsed, raw_content=resp.content)
+    result = IntentResult.from_llm_response(parsed, raw_content=resp.content, cost=resp.cost_usd)
     
     log.info(
         "intent_classified",

@@ -2,7 +2,7 @@ import json
 import logging
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import numpy as np
 import pandas as pd
@@ -79,6 +79,71 @@ def _save_parquet(
     log.info("artifact saved", extra={"path": str(path), "rows": len(out)})
 
 
+def upload_split(
+    split_name: Literal["main", "mini", "eval_holdout"],
+    df: pd.DataFrame,
+    text_emb: np.ndarray,
+    *,
+    review_emb: np.ndarray | None = None,
+    trailer_emb: np.ndarray | None = None,
+    repo_id: str,
+    artifacts_dir: Path,
+    timestamp: str | None = None,
+    token: str | None = None,
+    commit_message: str | None = None,
+) -> str:
+    """Persist one embedded split as parquet and upload it to the HF dataset repo.
+
+    Allows individual splits to be published independently as each one finishes
+    its embedding stages, without waiting for the others.
+
+    Args:
+        split_name:     One of ``"main"``, ``"mini"``, or ``"eval_holdout"``.
+        df:             Cleaned DataFrame for this split.
+        text_emb:       Float32 array of shape (n, dim) — text embedding for every row.
+        review_emb:     Optional float32 (n, dim) review embeddings; zero rows for
+                        movies without reviews.
+        trailer_emb:    Optional float32 (n, dim) CLIP trailer/poster embeddings;
+                        zero rows for movies without visual embeddings.
+        repo_id:        Target HF dataset repo, e.g. ``"446f6e6e79/CinePal-embeddings"``.
+        artifacts_dir:  Local directory to write the parquet to before upload.
+        timestamp:      Filename suffix (``YYYYMMDD``). Defaults to today's UTC date.
+        token:          HF token. Falls back to ``get_env().hf_token``.
+        commit_message: HF commit message. Defaults to ``"<split_name> <stamp>"``.
+
+    Returns:
+        The ``path_in_repo`` of the uploaded file, e.g.
+        ``"embeddings/mini_20260522.parquet"``. Paste this into
+        ``configs/default.yaml`` under ``ingestion.artifacts.<split_name>``.
+    """
+    artifacts_dir.mkdir(parents=True, exist_ok=True)
+    stamp = timestamp or datetime.now(timezone.utc).strftime("%Y%m%d")
+    resolved_token = token or get_env().hf_token or None
+
+    local_name = f"{split_name}_{stamp}.parquet"
+    path_in_repo = f"embeddings/{local_name}"
+    local_path = artifacts_dir / local_name
+
+    _save_parquet(df, text_emb, local_path, review_emb=review_emb, trailer_emb=trailer_emb)
+
+    api = HfApi()
+    api.create_repo(repo_id=repo_id, repo_type="dataset", exist_ok=True, token=resolved_token)
+    log.info(
+        "uploading artifact",
+        extra={"split": split_name, "path_in_repo": path_in_repo, "repo": repo_id},
+    )
+    api.upload_file(
+        path_or_fileobj=str(local_path),
+        path_in_repo=path_in_repo,
+        repo_id=repo_id,
+        repo_type="dataset",
+        token=resolved_token,
+        commit_message=commit_message or f"{split_name} {stamp}",
+    )
+    log.info("upload complete", extra={"repo": repo_id, "path_in_repo": path_in_repo})
+    return path_in_repo
+
+
 def upload_artifacts(
     main_df: pd.DataFrame,
     mini_df: pd.DataFrame,
@@ -99,71 +164,40 @@ def upload_artifacts(
     token: str | None = None,
     commit_message: str | None = None,
 ) -> dict[str, str]:
-    """Write the three parquets locally and upload each to the HF dataset repo.
+    """Upload all three embedded splits to the HF dataset repo.
+
+    Thin wrapper around ``upload_split`` retained for back-compatibility.
+    Prefer ``upload_split`` directly when uploading splits incrementally.
 
     Args:
         main_df / mini_df / eval_df:       Cleaned DataFrames from ``split.three_way``.
         main_emb / mini_emb / eval_emb:    Aligned text embedding arrays (float32).
         main_review_emb / mini_review_emb / eval_review_emb:
-                                           Optional aligned review embedding arrays (float32).
-                                           Rows without reviews should be all-zero.
+                                           Optional aligned review embedding arrays.
         main_trailer_emb / mini_trailer_emb / eval_trailer_emb:
-                                           Optional aligned CLIP trailer embedding arrays
-                                           (float32, projected to match text embedding dim).
-                                           Rows without trailers should be all-zero.
+                                           Optional aligned CLIP trailer embedding arrays.
         repo_id:        Target HF dataset repo, e.g. ``"446f6e6e79/CinePal-embeddings"``.
         artifacts_dir:  Local directory to write the parquets to before upload.
-        timestamp:      Suffix appended to each filename. Defaults to today's UTC date
-                        (``YYYYMMDD``). Pass a custom value to override (e.g. for tests).
-        token:          HF token. Falls back to ``get_env().hf_token`` (sourced from ``HF_TOKEN``).
-        commit_message: Commit message for the HF upload. Defaults to a description
-                        that includes the timestamp.
+        timestamp:      Suffix appended to each filename. Defaults to today's UTC date.
+        token:          HF token. Falls back to ``get_env().hf_token``.
+        commit_message: Commit message applied to every upload.
 
     Returns:
-        Dict mapping split name → uploaded filename. Print this in the Colab
+        Dict mapping split name → ``path_in_repo``. Print this in the Colab
         notebook so the values can be pasted into ``configs/default.yaml``.
     """
-    artifacts_dir.mkdir(parents=True, exist_ok=True)
     stamp = timestamp or datetime.now(timezone.utc).strftime("%Y%m%d")
-    resolved_token = token or get_env().hf_token or None
-
-    # Local on-disk names stay flat (we write next to other artifacts);
-    # only the HF path-in-repo carries the embeddings/ prefix.
-    local_names: dict[str, str] = {
-        "main": f"main_{stamp}.parquet",
-        "mini": f"mini_{stamp}.parquet",
-        "eval_holdout": f"eval_holdout_{stamp}.parquet",
+    shared = dict(repo_id=repo_id, artifacts_dir=artifacts_dir,
+                  timestamp=stamp, token=token, commit_message=commit_message)
+    return {
+        "main": upload_split("main", main_df, main_emb,
+                             review_emb=main_review_emb, trailer_emb=main_trailer_emb, **shared),
+        "mini": upload_split("mini", mini_df, mini_emb,
+                             review_emb=mini_review_emb, trailer_emb=mini_trailer_emb, **shared),
+        "eval_holdout": upload_split("eval_holdout", eval_df, eval_emb,
+                                     review_emb=eval_review_emb, trailer_emb=eval_trailer_emb,
+                                     **shared),
     }
-    repo_paths: dict[str, str] = {
-        split: f"embeddings/{name}" for split, name in local_names.items()
-    }
-
-    _save_parquet(main_df, main_emb, artifacts_dir / local_names["main"],
-                  review_emb=main_review_emb, trailer_emb=main_trailer_emb)
-    _save_parquet(mini_df, mini_emb, artifacts_dir / local_names["mini"],
-                  review_emb=mini_review_emb, trailer_emb=mini_trailer_emb)
-    _save_parquet(eval_df, eval_emb, artifacts_dir / local_names["eval_holdout"],
-                  review_emb=eval_review_emb, trailer_emb=eval_trailer_emb)
-
-    api = HfApi()
-    api.create_repo(repo_id=repo_id, repo_type="dataset", exist_ok=True, token=resolved_token)
-    msg = commit_message or f"snapshot {stamp}"
-    for split, path_in_repo in repo_paths.items():
-        log.info(
-            "uploading artifact",
-            extra={"split": split, "path_in_repo": path_in_repo, "repo": repo_id},
-        )
-        api.upload_file(
-            path_or_fileobj=str(artifacts_dir / local_names[split]),
-            path_in_repo=path_in_repo,
-            repo_id=repo_id,
-            repo_type="dataset",
-            token=resolved_token,
-            commit_message=msg,
-        )
-
-    log.info("upload complete", extra={"repo": repo_id, "files": repo_paths})
-    return repo_paths
 
 
 def upload_snapshot(

@@ -6,7 +6,8 @@ from backend.agents.clustering.operations.merge import merge_clusters
 from backend.agents.clustering.operations.recut import recut
 from backend.agents.clustering.types import ClusterSnapshotDraft
 from backend.agents.concept.types import ConceptRep
-from backend.agents.labeling.agent import label_cluster
+from backend.agents.intent.types import Modality
+from backend.agents.labeling.agent import label_clusters
 from backend.data_access.cluster_snapshots.queries import (
     canonicalize_params,
     create_cluster,
@@ -27,6 +28,7 @@ async def apply_drill_down(
     conversation_id: uuid.UUID,
     concept: ConceptRep | None,
     accumulated_cost: float,
+    embedding_spaces: list[Modality] | None = None,
 ) -> uuid.UUID:
     """Drill down into one cluster and persist the resulting cluster snapshot.
 
@@ -36,11 +38,12 @@ async def apply_drill_down(
         conversation_id:             Conversation to update the current_cluster_snapshot_id pointer.
         concept:                     Optional concept to guide the split.
         accumulated_cost:            Running LLM cost this conversation.
+        embedding_spaces:            Embedding spaces to fuse. Defaults to ``[Modality.TEXT]``.
 
     Returns:
         UUID of the newly created cluster snapshot.
     """
-    draft = await drill_down(source_cluster_id, concept, parent_cluster_snapshot_id)
+    draft = await drill_down(source_cluster_id, concept, parent_cluster_snapshot_id, embedding_spaces)
     return await _persist_and_label(draft, conversation_id, parent_cluster_snapshot_id, accumulated_cost)
 
 
@@ -73,6 +76,7 @@ async def apply_recut(
     conversation_id: uuid.UUID,
     concept: ConceptRep | None,
     accumulated_cost: float,
+    embedding_spaces: list[Modality] | None = None,
 ) -> uuid.UUID:
     """Re-cluster a movie set and persist the result as a new cluster snapshot.
 
@@ -82,11 +86,12 @@ async def apply_recut(
         conversation_id:             Conversation to update.
         concept:                     Optional concept.
         accumulated_cost:            Running LLM cost this conversation.
+        embedding_spaces:            Embedding spaces to fuse. Defaults to ``[Modality.TEXT]``.
 
     Returns:
         UUID of the newly created cluster snapshot.
     """
-    draft = await recut(movie_ids, parent_cluster_snapshot_id, concept)
+    draft = await recut(movie_ids, parent_cluster_snapshot_id, concept, embedding_spaces)
     return await _persist_and_label(draft, conversation_id, parent_cluster_snapshot_id, accumulated_cost)
 
 
@@ -96,13 +101,14 @@ async def _persist_and_label(
     parent_cluster_snapshot_id: uuid.UUID,
     accumulated_cost: float,
 ) -> uuid.UUID:
-    """Persist a ClusterSnapshotDraft, generate LLM labels, and update the conversation pointer.
+    """Persist a ClusterSnapshotDraft, generate LLM labels in one batch call, and update
+    the conversation pointer.
 
     Looks up an existing snapshot with the same
     ``(parent, operation, canonical params, config_hash)`` first. On a hit,
     record the conversation reference and reuse the cached snapshot without
-    re-running the labeler. On a miss, build the snapshot, fire labels, and
-    record the reference.
+    re-running the labeler. On a miss, build the snapshot, fire labels in a
+    single batched LLM call, and record the reference.
 
     Args:
         draft:                       The cluster snapshot to persist.
@@ -137,20 +143,28 @@ async def _persist_and_label(
         parent_id=parent_cluster_snapshot_id,
     )
 
-    for cluster_draft in draft.clusters:
-        needs_label = (
-            cluster_draft.label is None
-            or cluster_draft.label.startswith("Cluster ")
+    unlabeled_indices = [
+        i for i, cd in enumerate(draft.clusters)
+        if cd.label is None or cd.label.startswith("Cluster ")
+    ]
+
+    batch_result = None
+    if unlabeled_indices:
+        exemplar_groups = [draft.clusters[i].exemplar_movie_ids for i in unlabeled_indices]
+        batch_result = await label_clusters(
+            exemplar_groups=exemplar_groups,
+            conversation_id=str(conversation_id),
+            accumulated_cost=accumulated_cost,
         )
-        if needs_label:
-            result = await label_cluster(
-                exemplar_movie_ids=cluster_draft.exemplar_movie_ids,
-                conversation_id=str(conversation_id),
-                accumulated_cost=accumulated_cost,
-            )
-            label, summary = result.label, result.summary
-        else:
-            label, summary = cluster_draft.label, cluster_draft.summary
+
+    label_map: dict[int, tuple[str, str | None]] = {}
+    if batch_result is not None:
+        for idx, i in enumerate(unlabeled_indices):
+            lr = batch_result.results[idx]
+            label_map[i] = (lr.label, lr.summary)
+
+    for i, cluster_draft in enumerate(draft.clusters):
+        label, summary = label_map.get(i, (cluster_draft.label, cluster_draft.summary))
 
         cluster_id = create_cluster(
             cluster_snapshot_id=cluster_snapshot_id,
