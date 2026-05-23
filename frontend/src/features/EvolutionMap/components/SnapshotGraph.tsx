@@ -1,10 +1,10 @@
-import { useState, useRef, useCallback, forwardRef, useImperativeHandle } from 'react'
+import { useState, useCallback, forwardRef, useImperativeHandle, useEffect, useMemo } from 'react'
 import type { LayoutNode } from '../layout/radialLayout'
 
 interface SnapshotGraphProps {
   layout: LayoutNode[]
   activeSnapshotId: string | null
-  childCounts: Map<string, number>
+  clusterCounts: Map<string, number>
   onNodeClick: (nodeId: string) => void
   width: number
   height: number
@@ -14,7 +14,7 @@ export interface SnapshotGraphHandle {
   reset: () => void
 }
 
-const NODE_R = 22
+const NODE_R = 32
 const LABEL_LINE_HEIGHT = 11
 
 function formatRelativeTime(iso: string): string {
@@ -28,14 +28,14 @@ function formatRelativeTime(iso: string): string {
 }
 
 /**
- * SVG-based radial graph of cluster snapshot history. Root sits at center,
- * descendants fan out in concentric rings. The active snapshot is filled with
- * --color-primary; others are outlined. Supports pan (drag) and zoom (wheel).
- * Expose a `reset()` imperative handle to recenter the view.
+ * SVG-based tree graph of cluster snapshot history. Root sits at the top,
+ * descendants flow downward in levels. The active snapshot is filled with
+ * --color-primary; others are outlined. Supports zoom (wheel) and exposes a
+ * `reset()` imperative handle that restores the fit-to-view framing.
  *
- * @param nodes            - Snapshot DAG nodes.
+ * @param layout           - Tree layout nodes.
  * @param activeSnapshotId - Currently active snapshot UUID.
- * @param childCounts      - Map from node ID to number of children.
+ * @param clusterCounts    - Map from node ID to number of clusters.
  * @param onNodeClick      - Called with node ID when clicked.
  * @param onDeleteRequest  - Called with LayoutNode when trash icon is clicked.
  * @param width            - Container width.
@@ -43,50 +43,54 @@ function formatRelativeTime(iso: string): string {
  */
 export const SnapshotGraph = forwardRef<SnapshotGraphHandle, SnapshotGraphProps>(
   function SnapshotGraph(
-    { layout, activeSnapshotId, childCounts, onNodeClick, width, height },
+    { layout, activeSnapshotId, clusterCounts, onNodeClick, width, height },
     ref,
   ) {
-    const [view, setView] = useState({ x: 0, y: 0, scale: 1 })
+    const [scale, setScale] = useState(1)
     const [hoveredId, setHoveredId] = useState<string | null>(null)
-    const dragging = useRef(false)
-    const dragStart = useRef({ mx: 0, my: 0, vx: 0, vy: 0 })
 
-    const centerX = width / 2
-    const centerY = height / 2
+    const bounds = useMemo(() => {
+      if (layout.length === 0) {
+        return { minX: 0, maxX: 1, minY: 0, maxY: 1 }
+      }
+
+      const labelPadding = NODE_R + 8
+      const xs = layout.map((node) => node.x)
+      const ys = layout.map((node) => node.y)
+
+      return {
+        minX: Math.min(...xs) - labelPadding,
+        maxX: Math.max(...xs) + labelPadding,
+        minY: Math.min(...ys) - NODE_R - 4,
+        maxY: Math.max(...ys) + NODE_R + LABEL_LINE_HEIGHT + 4,
+      }
+    }, [layout])
+
+    const graphWidth = Math.max(bounds.maxX - bounds.minX, 1)
+    const graphHeight = Math.max(bounds.maxY - bounds.minY, 1)
+    const fitScale = Math.min(width / graphWidth, height / graphHeight)
+
+    const transform = useMemo(() => {
+      const x = (width - graphWidth * scale) / 2 - bounds.minX * scale
+      const y = (height - graphHeight * scale) / 2 - bounds.minY * scale
+      return { x, y }
+    }, [bounds.minX, bounds.minY, graphHeight, graphWidth, height, scale, width])
+
+    useEffect(() => {
+      setScale(fitScale)
+    }, [fitScale])
 
     useImperativeHandle(ref, () => ({
-      reset: () => setView({ x: 0, y: 0, scale: 1 }),
+      reset: () => setScale(fitScale),
     }))
 
     const handleWheel = useCallback((e: React.WheelEvent) => {
       e.preventDefault()
-      setView((v) => ({
-        ...v,
-        scale: Math.max(0.25, Math.min(4, v.scale * (e.deltaY < 0 ? 1.1 : 0.9))),
-      }))
-    }, [])
-
-    const handleMouseDown = useCallback(
-      (e: React.MouseEvent) => {
-        if ((e.target as Element).closest('[data-node]')) return
-        dragging.current = true
-        dragStart.current = { mx: e.clientX, my: e.clientY, vx: view.x, vy: view.y }
-      },
-      [view.x, view.y],
-    )
-
-    const handleMouseMove = useCallback((e: React.MouseEvent) => {
-      if (!dragging.current) return
-      setView((v) => ({
-        ...v,
-        x: dragStart.current.vx + (e.clientX - dragStart.current.mx),
-        y: dragStart.current.vy + (e.clientY - dragStart.current.my),
-      }))
-    }, [])
-
-    const handleMouseUp = useCallback(() => {
-      dragging.current = false
-    }, [])
+      setScale((current) => {
+        const next = current * (e.deltaY < 0 ? 1.1 : 0.9)
+        return Math.max(0.05, Math.min(fitScale, next))
+      })
+    }, [fitScale])
 
     const hoveredNode = hoveredId ? layout.find((n) => n.id === hoveredId) : null
 
@@ -95,14 +99,10 @@ export const SnapshotGraph = forwardRef<SnapshotGraphHandle, SnapshotGraphProps>
         <svg
           width={width}
           height={height}
-          style={{ cursor: 'grab' }}
+          style={{ cursor: 'default' }}
           onWheel={handleWheel}
-          onMouseDown={handleMouseDown}
-          onMouseMove={handleMouseMove}
-          onMouseUp={handleMouseUp}
-          onMouseLeave={handleMouseUp}
         >
-          <g transform={`translate(${centerX + view.x}, ${centerY + view.y}) scale(${view.scale})`}>
+          <g transform={`translate(${transform.x}, ${transform.y}) scale(${scale})`}>
             {/* Edges */}
             {layout
               .filter((n) => n.parent_id !== null)
@@ -183,8 +183,8 @@ export const SnapshotGraph = forwardRef<SnapshotGraphHandle, SnapshotGraphProps>
 
         {/* Hover tooltip card — positioned in screen space */}
         {hoveredNode && (() => {
-          const svgX = (hoveredNode.x * view.scale) + centerX + view.x
-          const svgY = (hoveredNode.y * view.scale) + centerY + view.y
+          const svgX = (hoveredNode.x * scale) + transform.x
+          const svgY = (hoveredNode.y * scale) + transform.y
           return (
             <div
               className="absolute z-10 pointer-events-auto"
@@ -199,7 +199,7 @@ export const SnapshotGraph = forwardRef<SnapshotGraphHandle, SnapshotGraphProps>
                     : `${hoveredNode.operation.replace('_', ' ')} #${hoveredNode.sopIndex}`}
                 </p>
                 <p className="text-[var(--color-muted)] mt-0.5">{formatRelativeTime(hoveredNode.created_at)}</p>
-                <p className="text-[var(--color-muted)]">{childCounts.get(hoveredNode.id) ?? 0} children</p>
+                <p className="text-[var(--color-muted)]">{clusterCounts.get(hoveredNode.id) ?? 0} clusters</p>
               </div>
             </div>
           )

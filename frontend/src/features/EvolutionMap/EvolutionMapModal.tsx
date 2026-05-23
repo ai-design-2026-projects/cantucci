@@ -1,4 +1,5 @@
 import { useRef, useState, useMemo, useEffect } from 'react'
+import { useQueries } from '@tanstack/react-query'
 import { motion, AnimatePresence } from 'framer-motion'
 import { X, RotateCcw, Trash2 } from 'lucide-react'
 import { useSnapshotStore } from '@/store/useSnapshotStore'
@@ -8,6 +9,7 @@ import { useSetActiveSnapshot } from './hooks/useSetActiveSnapshot'
 import { SnapshotGraph } from './components/SnapshotGraph'
 import { DeleteSnapshotDialog } from './components/DeleteSnapshotDialog'
 import { radialLayout } from './layout/radialLayout'
+import { getSnapshotFetcher } from '@/api/services/snapshots'
 import { Button } from '@/components/button'
 import type { SnapshotGraphHandle } from './components/SnapshotGraph'
 import type { LayoutNode } from './layout/radialLayout'
@@ -43,6 +45,23 @@ export function EvolutionMapModal({ open, onClose, conversationId }: EvolutionMa
 
   const nodes = graph?.cluster_snapshots ?? []
   const layout = useMemo(() => radialLayout(nodes), [nodes])
+
+  const snapshotQueries = useQueries({
+    queries: nodes.map((node) => ({
+      queryKey: ['snapshot', node.id],
+      queryFn: () => getSnapshotFetcher(node.id),
+      enabled: open && nodes.length > 0,
+      staleTime: 60_000,
+    })),
+  })
+
+  const clusterCounts = useMemo(() => {
+    const counts = new Map<string, number>()
+    nodes.forEach((node, index) => {
+      counts.set(node.id, snapshotQueries[index]?.data?.clusters.length ?? 0)
+    })
+    return counts
+  }, [nodes, snapshotQueries])
 
   const childCounts = useMemo(() => {
     const counts = new Map<string, number>()
@@ -143,7 +162,7 @@ export function EvolutionMapModal({ open, onClose, conversationId }: EvolutionMa
                     ref={graphRef}
                     layout={layout}
                     activeSnapshotId={activeSnapshotId}
-                    childCounts={childCounts}
+                    clusterCounts={clusterCounts}
                     onNodeClick={handleNodeClick}
                     width={bodySize.w}
                     height={bodySize.h}
