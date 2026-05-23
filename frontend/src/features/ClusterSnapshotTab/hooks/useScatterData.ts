@@ -3,12 +3,12 @@ import type { ClusterSnapshotDto } from '@/api/dto/snapshots'
 import type { MovieDto } from '@/api/dto/movies'
 
 export interface ScatterPoint {
-  movieId: number
-  title: string
-  clusterId: string
-  clusterLabel: string | null
-  x: number
-  y: number
+	movieId: number
+	title: string
+	clusterId: string
+	clusterLabel: string | null
+	x: number
+	y: number
 }
 
 /**
@@ -21,26 +21,26 @@ export interface ScatterPoint {
  * @returns Array of ScatterPoint objects ready for Recharts rendering.
  */
 export function useScatterData(
-  snapshot: ClusterSnapshotDto | undefined,
-  movieMap: Map<number, MovieDto> | undefined,
+	snapshot: ClusterSnapshotDto | undefined,
+	movieMap: Map<number, MovieDto> | undefined,
 ): ScatterPoint[] {
-  return useMemo(() => {
-    if (!snapshot || !movieMap) return []
-    const points: ScatterPoint[] = []
-    for (const cluster of snapshot.clusters) {
-      for (const movieId of cluster.exemplar_movie_ids) {
-        const movie = movieMap.get(movieId)
-        if (!movie || movie.umap_x == null || movie.umap_y == null) continue
-        points.push({
-          movieId: movie.id,
-          title: movie.title,
-          clusterId: cluster.id,
-          clusterLabel: cluster.label,
-          x: movie.umap_x,
-          y: movie.umap_y,
-        })
-      }
-    }
-    return points
-  }, [snapshot, movieMap])
+	return useMemo(() => {
+		if (!snapshot || !movieMap) return []
+		const points: ScatterPoint[] = []
+		for (const cluster of snapshot.clusters) {
+			for (const movieId of cluster.exemplar_movie_ids) {
+				const movie = movieMap.get(movieId)
+				if (!movie || movie.umap_x == null || movie.umap_y == null) continue
+				points.push({
+					movieId: movie.id,
+					title: movie.title,
+					clusterId: cluster.id,
+					clusterLabel: cluster.label,
+					x: movie.umap_x,
+					y: movie.umap_y,
+				})
+			}
+		}
+		return points
+	}, [snapshot, movieMap])
 }

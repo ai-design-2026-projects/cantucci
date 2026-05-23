@@ -11,20 +11,20 @@ import type { MovieDto } from '@/api/dto/movies'
  * @returns TanStack Query result wrapping a Map from movie ID to MovieDto.
  */
 export function useExemplarMovies(snapshot: ClusterSnapshotDto | undefined) {
-  const allIds = snapshot
-    ? snapshot.clusters.flatMap((c) => c.exemplar_movie_ids)
-    : []
-  const uniqueIds = [...new Set(allIds)]
+	const allIds = snapshot
+		? snapshot.clusters.flatMap((c) => c.exemplar_movie_ids)
+		: []
+	const uniqueIds = [...new Set(allIds)]
 
-  return useQuery<Map<number, MovieDto>>({
-    queryKey: ['exemplar-movies', snapshot?.id, uniqueIds.join(',')],
-    queryFn: async () => {
-      const movies = await getMoviesBatchFetcher(uniqueIds)
-      const map = new Map<number, MovieDto>()
-      for (const m of movies) map.set(m.id, m)
-      return map
-    },
-    enabled: uniqueIds.length > 0,
-    staleTime: 5 * 60_000,
-  })
+	return useQuery<Map<number, MovieDto>>({
+		queryKey: ['exemplar-movies', snapshot?.id, uniqueIds.join(',')],
+		queryFn: async () => {
+			const movies = await getMoviesBatchFetcher(uniqueIds)
+			const map = new Map<number, MovieDto>()
+			for (const m of movies) map.set(m.id, m)
+			return map
+		},
+		enabled: uniqueIds.length > 0,
+		staleTime: 5 * 60_000,
+	})
 }

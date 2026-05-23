@@ -10,10 +10,10 @@ import type { MovieDto } from '@/api/dto/movies'
  * @returns TanStack Query result wrapping MovieDto.
  */
 export function useMovieDetails(movieId: number | null) {
-  return useQuery<MovieDto>({
-    queryKey: ['movie', movieId],
-    queryFn: () => getMovieFetcher(movieId!),
-    enabled: movieId !== null,
-    staleTime: Infinity,
-  })
+	return useQuery<MovieDto>({
+		queryKey: ['movie', movieId],
+		queryFn: () => getMovieFetcher(movieId!),
+		enabled: movieId !== null,
+		staleTime: Infinity,
+	})
 }

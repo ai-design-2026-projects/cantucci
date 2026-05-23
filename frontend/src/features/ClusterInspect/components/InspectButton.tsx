@@ -2,8 +2,8 @@ import { LayoutGrid } from 'lucide-react'
 import { Button } from '@/components/button'
 
 interface InspectButtonProps {
-  onClick: () => void
-  disabled?: boolean
+	onClick: () => void
+	disabled?: boolean
 }
 
 /**
@@ -14,16 +14,16 @@ interface InspectButtonProps {
  * @returns Ghost icon button with label.
  */
 export function InspectButton({ onClick, disabled }: InspectButtonProps) {
-  return (
-    <Button
-      variant="ghost"
-      size="sm"
-      onClick={onClick}
-      disabled={disabled}
-      className="gap-1.5"
-    >
-      <LayoutGrid className="h-4 w-4" />
-      <span className="hidden sm:inline text-xs">Inspect</span>
-    </Button>
-  )
+	return (
+		<Button
+			variant="ghost"
+			size="sm"
+			onClick={onClick}
+			disabled={disabled}
+			className="gap-1.5"
+		>
+			<LayoutGrid className="h-4 w-4" />
+			<span className="hidden sm:inline text-xs">Inspect</span>
+		</Button>
+	)
 }

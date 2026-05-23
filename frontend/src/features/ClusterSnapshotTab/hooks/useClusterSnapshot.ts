@@ -9,10 +9,10 @@ import type { ClusterSnapshotDto } from '@/api/dto/snapshots'
  * @returns TanStack Query result wrapping ClusterSnapshotDto.
  */
 export function useClusterSnapshot(snapshotId: string | null | undefined) {
-  return useQuery<ClusterSnapshotDto>({
-    queryKey: ['snapshot', snapshotId],
-    queryFn: () => getSnapshotFetcher(snapshotId!),
-    enabled: !!snapshotId,
-    staleTime: 60_000,
-  })
+	return useQuery<ClusterSnapshotDto>({
+		queryKey: ['snapshot', snapshotId],
+		queryFn: () => getSnapshotFetcher(snapshotId!),
+		enabled: !!snapshotId,
+		staleTime: 60_000,
+	})
 }
