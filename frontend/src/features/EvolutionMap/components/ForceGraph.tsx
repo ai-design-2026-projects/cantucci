@@ -3,7 +3,7 @@ import ForceGraph2D from 'react-force-graph-2d'
 import { clusterColorFromUuid } from '@/styles/theme'
 import { useThemeStore } from '@/store/useThemeStore'
 import { OPERATION_LABELS } from '@/lib/constants'
-import type { ClusterSnapshotGraphNode } from '@/api/snapshots'
+import type { ClusterSnapshotGraphNode } from '@/api/dto/snapshots'
 
 interface NodeObject {
   id: string

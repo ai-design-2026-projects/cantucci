@@ -1,7 +1,7 @@
 import { useMutation } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { createConversationFetcher } from '@/api/conversations'
+import { createConversationFetcher } from '@/api/services/conversations'
 import { useConversationStore } from '@/store/useConversationStore'
 import { useAuthStore } from '@/store/useAuthStore'
 import { Mascot } from '@/components/mascot'

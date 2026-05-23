@@ -1,23 +1,5 @@
-import { apiClient } from './client'
-
-export interface MessageDto {
-  id: string
-  role: 'user' | 'assistant'
-  content: string
-  created_at: string
-}
-
-export interface ConversationDto {
-  id: string
-  current_cluster_snapshot_id: string | null
-  messages: MessageDto[]
-  created_at: string
-}
-
-export interface SendMessageResponse {
-  message: MessageDto
-  cluster_snapshot_id: string
-}
+import { apiClient } from '../client'
+import type { ConversationDto, SendMessageResponse } from '../dto/conversations'
 
 /**
  * Create a new conversation (anonymous or authenticated).
@@ -25,7 +7,7 @@ export interface SendMessageResponse {
  * @returns Full ConversationDto with empty messages list.
  */
 export async function createConversationFetcher(): Promise<ConversationDto> {
-  return apiClient<ConversationDto>('/conversations', { method: 'POST' })
+    return apiClient<ConversationDto>('/conversations', { method: 'POST' })
 }
 
 /**
@@ -35,7 +17,7 @@ export async function createConversationFetcher(): Promise<ConversationDto> {
  * @returns ConversationDto.
  */
 export async function getConversationFetcher(conversationId: string): Promise<ConversationDto> {
-  return apiClient<ConversationDto>(`/conversations/${conversationId}`)
+    return apiClient<ConversationDto>(`/conversations/${conversationId}`)
 }
 
 /**
@@ -45,7 +27,7 @@ export async function getConversationFetcher(conversationId: string): Promise<Co
  * @returns Array of ConversationDto.
  */
 export async function listConversationsFetcher(): Promise<ConversationDto[]> {
-  return apiClient<ConversationDto[]>('/conversations')
+    return apiClient<ConversationDto[]>('/conversations')
 }
 
 /**
@@ -56,13 +38,13 @@ export async function listConversationsFetcher(): Promise<ConversationDto[]> {
  * @returns SendMessageResponse with the assistant message and cluster snapshot ID.
  */
 export async function sendMessageFetcher(
-  conversationId: string,
-  content: string,
+    conversationId: string,
+    content: string,
 ): Promise<SendMessageResponse> {
-  return apiClient<SendMessageResponse>(`/conversations/${conversationId}/messages`, {
-    method: 'POST',
-    body: JSON.stringify({ content }),
-  })
+    return apiClient<SendMessageResponse>(`/conversations/${conversationId}/messages`, {
+        method: 'POST',
+        body: JSON.stringify({ content }),
+    })
 }
 
 /**
@@ -72,5 +54,5 @@ export async function sendMessageFetcher(
  * @returns void
  */
 export async function deleteConversationFetcher(conversationId: string): Promise<void> {
-  return apiClient<void>(`/conversations/${conversationId}`, { method: 'DELETE' })
+    return apiClient<void>(`/conversations/${conversationId}`, { method: 'DELETE' })
 }

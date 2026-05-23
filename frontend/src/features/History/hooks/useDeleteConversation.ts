@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { deleteConversationFetcher } from '@/api/conversations'
+import { deleteConversationFetcher } from '@/api/services/conversations'
 
 /**
  * Mutation hook for deleting a conversation from the history list.

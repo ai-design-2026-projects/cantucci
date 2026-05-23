@@ -1,7 +1,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { LogOut } from 'lucide-react'
-import { logoutFetcher } from '@/api/auth'
+import { logoutFetcher } from '@/api/services/auth'
 import { useAuthStore } from '@/store/useAuthStore'
 import { Button } from '@/components/button'
 

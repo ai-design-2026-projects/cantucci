@@ -8,29 +8,29 @@
  * @throws {Error} On non-2xx responses, with `message` set to `detail` from the response body.
  */
 export async function apiClient<T>(
-  path: string,
-  options: RequestInit = {},
+    path: string,
+    options: RequestInit = {},
 ): Promise<T> {
-  const res = await fetch(path, {
-    ...options,
-    credentials: 'include',
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers,
-    },
-  })
+    const res = await fetch(path, {
+        ...options,
+        credentials: 'include',
+        headers: {
+            'Content-Type': 'application/json',
+            ...options.headers,
+        },
+    })
 
-  if (!res.ok) {
-    let message = `HTTP ${res.status}`
-    try {
-      const body = await res.json()
-      if (typeof body?.detail === 'string') message = body.detail
-    } catch {
-      // ignore parse errors on error responses
+    if (!res.ok) {
+        let message = `HTTP ${res.status}`
+        try {
+            const body = await res.json()
+            if (typeof body?.detail === 'string') message = body.detail
+        } catch {
+            // ignore parse errors on error responses
+        }
+        throw new Error(message)
     }
-    throw new Error(message)
-  }
 
-  if (res.status === 204) return undefined as T
-  return res.json() as Promise<T>
+    if (res.status === 204) return undefined as T
+    return res.json() as Promise<T>
 }

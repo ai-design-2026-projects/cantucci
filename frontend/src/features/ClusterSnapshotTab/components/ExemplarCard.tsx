@@ -1,4 +1,4 @@
-import type { MovieDto } from '@/api/movies'
+import type { MovieDto } from '@/api/dto/movies'
 
 interface ExemplarCardProps {
   movie: MovieDto

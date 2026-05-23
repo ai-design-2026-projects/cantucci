@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { User } from '@/api/auth'
+import type { User } from '@/api/dto/auth'
 
 type AuthStatus = 'idle' | 'loading' | 'authenticated' | 'unauthenticated'
 

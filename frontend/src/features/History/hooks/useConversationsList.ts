@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
-import { listConversationsFetcher } from '@/api/conversations'
-import type { ConversationDto } from '@/api/conversations'
+import { listConversationsFetcher } from '@/api/services/conversations'
+import type { ConversationDto } from '@/api/dto/conversations'
 
 /**
  * Fetch hook for loading the authenticated user's conversation list.

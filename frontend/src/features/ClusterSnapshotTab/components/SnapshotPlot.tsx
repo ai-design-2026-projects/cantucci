@@ -8,7 +8,7 @@ import {
 } from 'recharts'
 import { clusterColorFromUuid } from '@/styles/theme'
 import { useThemeStore } from '@/store/useThemeStore'
-import type { ClusterSnapshotDto } from '@/api/snapshots'
+import type { ClusterSnapshotDto } from '@/api/dto/snapshots'
 import type { ScatterPoint } from '../hooks/useScatterData'
 
 interface SnapshotPlotProps {

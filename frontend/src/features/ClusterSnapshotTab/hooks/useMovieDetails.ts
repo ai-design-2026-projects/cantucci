@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
-import { getMovieFetcher } from '@/api/movies'
-import type { MovieDto } from '@/api/movies'
+import { getMovieFetcher } from '@/api/services/movies'
+import type { MovieDto } from '@/api/dto/movies'
 
 /**
  * Fetch hook for loading full details of a single movie.

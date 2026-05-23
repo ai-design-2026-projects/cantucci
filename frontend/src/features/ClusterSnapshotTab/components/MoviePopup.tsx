@@ -1,7 +1,7 @@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/dialog'
 import { Badge } from '@/components/badge'
 import { useMovieDetails } from '../hooks/useMovieDetails'
-import type { ClusterSnapshotDto } from '@/api/snapshots'
+import type { ClusterSnapshotDto } from '@/api/dto/snapshots'
 
 interface MoviePopupProps {
   movieId: number | null

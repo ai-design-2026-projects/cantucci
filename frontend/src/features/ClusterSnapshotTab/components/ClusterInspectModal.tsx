@@ -2,8 +2,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/d
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '@/components/tooltip'
 import { clusterColorFromUuid } from '@/styles/theme'
 import { useThemeStore } from '@/store/useThemeStore'
-import type { ClusterDto, ClusterSnapshotDto } from '@/api/snapshots'
-import type { MovieDto } from '@/api/movies'
+import type { ClusterDto, ClusterSnapshotDto } from '@/api/dto/snapshots'
+import type { MovieDto } from '@/api/dto/movies'
 
 interface ClusterInspectModalProps {
   open: boolean

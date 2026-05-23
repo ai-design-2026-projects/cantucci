@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
-import { getMoviesBatchFetcher } from '@/api/movies'
-import type { ClusterSnapshotDto } from '@/api/snapshots'
-import type { MovieDto } from '@/api/movies'
+import { getMoviesBatchFetcher } from '@/api/services/movies'
+import type { ClusterSnapshotDto } from '@/api/dto/snapshots'
+import type { MovieDto } from '@/api/dto/movies'
 
 /**
  * Fetch hook that collects all exemplar_movie_ids from a snapshot's clusters

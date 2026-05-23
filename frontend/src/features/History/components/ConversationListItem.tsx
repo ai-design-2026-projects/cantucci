@@ -1,7 +1,7 @@
 import { Trash2 } from 'lucide-react'
 import { Button } from '@/components/button'
 import { relativeTime } from '@/lib/utils'
-import type { ConversationDto } from '@/api/conversations'
+import type { ConversationDto } from '@/api/dto/conversations'
 
 interface ConversationListItemProps {
   conversation: ConversationDto

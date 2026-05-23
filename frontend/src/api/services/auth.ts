@@ -1,15 +1,5 @@
-import { apiClient } from './client'
-
-export interface User {
-  id: string
-  email: string
-  role: string
-}
-
-export interface LoginResponse {
-  token: string
-  user: User
-}
+import type { LoginResponse, User } from '../dto/auth'
+import { apiClient } from '../client'
 
 /**
  * Authenticate an existing user and set the HttpOnly auth cookie.
@@ -19,10 +9,10 @@ export interface LoginResponse {
  * @returns LoginResponse with token and user object.
  */
 export async function loginFetcher(email: string, password: string): Promise<LoginResponse> {
-  return apiClient<LoginResponse>('/auth/login', {
-    method: 'POST',
-    body: JSON.stringify({ email, password }),
-  })
+    return apiClient<LoginResponse>('/auth/login', {
+        method: 'POST',
+        body: JSON.stringify({ email, password }),
+    })
 }
 
 /**
@@ -33,10 +23,10 @@ export async function loginFetcher(email: string, password: string): Promise<Log
  * @returns LoginResponse with token and user object.
  */
 export async function registerFetcher(email: string, password: string): Promise<LoginResponse> {
-  return apiClient<LoginResponse>('/auth/register', {
-    method: 'POST',
-    body: JSON.stringify({ email, password }),
-  })
+    return apiClient<LoginResponse>('/auth/register', {
+        method: 'POST',
+        body: JSON.stringify({ email, password }),
+    })
 }
 
 /**
@@ -45,7 +35,7 @@ export async function registerFetcher(email: string, password: string): Promise<
  * @returns void
  */
 export async function logoutFetcher(): Promise<void> {
-  return apiClient<void>('/auth/logout', { method: 'POST' })
+    return apiClient<void>('/auth/logout', { method: 'POST' })
 }
 
 /**
@@ -56,10 +46,10 @@ export async function logoutFetcher(): Promise<void> {
  * @returns User object or null when the request is anonymous / cookie expired.
  */
 export async function meFetcher(): Promise<User | null> {
-  const res = await fetch('/auth/me', { credentials: 'include' })
-  if (res.ok) return res.json() as Promise<User>
-  if (res.status === 401) {
-    await fetch('/auth/logout', { method: 'POST', credentials: 'include' }).catch(() => {})
-  }
-  return null
+    const res = await fetch('/auth/me', { credentials: 'include' })
+    if (res.ok) return res.json() as Promise<User>
+    if (res.status === 401) {
+        await fetch('/auth/logout', { method: 'POST', credentials: 'include' }).catch(() => { })
+    }
+    return null
 }

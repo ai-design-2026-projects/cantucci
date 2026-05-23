@@ -1,6 +1,6 @@
 import { useMutation } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
-import { loginFetcher } from '@/api/auth'
+import { loginFetcher } from '@/api/services/auth'
 import { useAuthStore } from '@/store/useAuthStore'
 
 /**

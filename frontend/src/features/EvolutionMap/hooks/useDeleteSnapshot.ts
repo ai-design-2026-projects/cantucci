@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { deleteSnapshotFetcher } from '@/api/snapshots'
+import { deleteSnapshotFetcher } from '@/api/services/snapshots'
 import { useSnapshotStore } from '@/store/useSnapshotStore'
 
 /**

@@ -1,9 +1,9 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { sendMessageFetcher } from '@/api/conversations'
+import { sendMessageFetcher } from '@/api/services/conversations'
 import { useSnapshotStore } from '@/store/useSnapshotStore'
 import { OPERATION_LABELS } from '@/lib/constants'
-import type { ConversationDto, MessageDto } from '@/api/conversations'
+import type { ConversationDto, MessageDto } from '@/api/dto/conversations'
 
 /**
  * Mutation hook for sending a user message and handling the response.

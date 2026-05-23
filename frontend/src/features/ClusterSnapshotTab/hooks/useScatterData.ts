@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
-import type { ClusterSnapshotDto } from '@/api/snapshots'
-import type { MovieDto } from '@/api/movies'
+import type { ClusterSnapshotDto } from '@/api/dto/snapshots'
+import type { MovieDto } from '@/api/dto/movies'
 
 export interface ScatterPoint {
   movieId: number
