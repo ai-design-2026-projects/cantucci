@@ -74,7 +74,7 @@ Agent-internal dataclasses that come from LLM output carry:
 ```python
 @dataclass(frozen=True, slots=True)
 class IntentResult:
-    mode: NavigationMode
+  navigationMode: NavigationMode
     ...
 
     @classmethod
@@ -82,7 +82,7 @@ class IntentResult:
         ...
 ```
 
-The agent calls `IntentResult.from_llm_response(parsed, raw_content=resp.content)`. All normalisation logic (enum coercion, UUID parsing, fallback values) lives on the dataclass, not scattered in agent code. For plain-text LLM responses (no structured JSON), the signature accepts the content string directly:
+The agent calls `IntentResult.from_llm_response(parsed, raw_content=resp.content)`. All normalisation logic (UUID parsing, fallback values) lives on the dataclass, not scattered in agent code. For plain-text LLM responses (no structured JSON), the signature accepts the content string directly:
 
 ```python
 @classmethod
