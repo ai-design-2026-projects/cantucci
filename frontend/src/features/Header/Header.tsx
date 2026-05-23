@@ -4,8 +4,6 @@ import { UserMenu } from './components/UserMenu'
 
 /**
  * Fixed top header. Contains the brand mark, theme toggle, and auth controls.
- * The Evolution Map button lives in the snapshot panel; History lives in the
- * left sidebar.
  *
  * @returns Fixed-position full-width header bar.
  */

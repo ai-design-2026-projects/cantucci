@@ -9,16 +9,16 @@ import { deleteConversationFetcher } from '@/api/services/conversations'
  * @returns Mutation object with mutate(conversationId), isPending.
  */
 export function useDeleteConversation() {
-  const queryClient = useQueryClient()
+	const queryClient = useQueryClient()
 
-  return useMutation({
-    mutationFn: (conversationId: string) => deleteConversationFetcher(conversationId),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['conversations-list'] })
-      toast.success('Conversation deleted')
-    },
-    onError: (err: Error) => {
-      toast.error(err.message || 'Could not delete conversation')
-    },
-  })
+	return useMutation({
+		mutationFn: (conversationId: string) => deleteConversationFetcher(conversationId),
+		onSuccess: () => {
+			queryClient.invalidateQueries({ queryKey: ['conversations-list'] })
+			toast.success('Conversation deleted')
+		},
+		onError: (err: Error) => {
+			toast.error(err.message || 'Could not delete conversation')
+		},
+	})
 }
