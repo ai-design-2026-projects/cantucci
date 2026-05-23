@@ -1,7 +1,6 @@
 import { apiClient } from './client'
 import type {
   ConversationDto,
-  ConversationSummaryDto,
   SendMessageResponse,
 } from '@/lib/types'
 
@@ -26,11 +25,12 @@ export async function getConversationFetcher(conversationId: string): Promise<Co
 
 /**
  * List all conversations owned by the authenticated user, newest first.
+ * Each entry includes the first user message for preview display.
  *
- * @returns Array of ConversationSummaryDto.
+ * @returns Array of ConversationDto.
  */
-export async function listConversationsFetcher(): Promise<ConversationSummaryDto[]> {
-  return apiClient<ConversationSummaryDto[]>('/conversations')
+export async function listConversationsFetcher(): Promise<ConversationDto[]> {
+  return apiClient<ConversationDto[]>('/conversations')
 }
 
 /**

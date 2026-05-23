@@ -3,7 +3,7 @@ import uuid
 from typing import Any
 
 from backend.data_access.connection import transaction
-from backend.data_access.conversations.types import ConversationRow, ConversationSummaryRow, MessageRow
+from backend.data_access.conversations.types import ConversationRow, MessageRow
 
 log = logging.getLogger(__name__)
 
@@ -115,42 +115,29 @@ def append_message(
     return row["id"]
 
 
-def list_conversations_for_user(user_id: uuid.UUID) -> list[ConversationSummaryRow]:
-    """Return all conversations owned by *user_id*, newest first, with a preview snippet.
-
-    The preview is the first user message truncated to 80 characters, or None
-    if the conversation has no messages yet.
+def list_conversations_for_user(user_id: uuid.UUID) -> list[ConversationRow]:
+    """Return all conversations owned by *user_id*, newest first.
 
     Args:
         user_id: Owner user UUID.
 
     Returns:
-        List of ``ConversationSummaryRow`` ordered by ``created_at`` descending.
+        List of ``ConversationRow`` ordered by ``created_at`` descending.
     """
     with transaction() as conn:
         rows = conn.execute(
             """
-            SELECT
-                c.id,
-                c.current_cluster_snapshot_id,
-                c.created_at,
-                LEFT(first_msg.content, 80) AS preview
-            FROM conversations c
-            LEFT JOIN LATERAL (
-                SELECT content
-                FROM messages
-                WHERE conversation_id = c.id AND role = 'user'
-                ORDER BY created_at ASC
-                LIMIT 1
-            ) AS first_msg ON true
-            WHERE c.user_id = %s
-            ORDER BY c.created_at DESC
+            SELECT id, user_id, current_cluster_snapshot_id, config_snapshot, created_at
+            FROM conversations
+            WHERE user_id = %s
+            ORDER BY created_at DESC
             """,
             (user_id,),
         ).fetchall()
-    result = [ConversationSummaryRow.from_row(r) for r in rows]
+    result = [ConversationRow.from_row(r) for r in rows]
     log.debug("list_conversations_for_user", extra={"user_id": str(user_id), "returned": len(result)})
     return result
+
 
 
 def delete_conversation(conversation_id: uuid.UUID) -> None:

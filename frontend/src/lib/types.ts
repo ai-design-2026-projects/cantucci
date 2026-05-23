@@ -27,12 +27,6 @@ export interface ConversationDto {
   created_at: string
 }
 
-export interface ConversationSummaryDto {
-  id: string
-  current_cluster_snapshot_id: string | null
-  created_at: string
-  preview: string | null
-}
 
 export interface SendMessageResponse {
   message: MessageDto

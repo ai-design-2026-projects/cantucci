@@ -4,21 +4,6 @@ from datetime import datetime
 from pydantic import BaseModel
 
 
-class ConversationSummaryDto(BaseModel):
-    """Lightweight conversation entry for history listings.
-
-    Attributes:
-        id:                          Conversation UUID.
-        current_cluster_snapshot_id: UUID of the currently active cluster snapshot, or None.
-        created_at:                  UTC creation timestamp.
-        preview:                     First user message truncated to 80 chars, or None.
-    """
-    id: uuid.UUID
-    current_cluster_snapshot_id: uuid.UUID | None
-    created_at: datetime
-    preview: str | None
-
-
 class CreateConversationRequest(BaseModel):
     """Body for ``POST /conversations``.
 

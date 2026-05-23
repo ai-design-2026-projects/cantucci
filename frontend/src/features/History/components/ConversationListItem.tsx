@@ -1,10 +1,10 @@
 import { Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { relativeTime } from '@/lib/utils'
-import type { ConversationSummaryDto } from '@/lib/types'
+import type { ConversationDto } from '@/lib/types'
 
 interface ConversationListItemProps {
-  conversation: ConversationSummaryDto
+  conversation: ConversationDto
   isActive: boolean
   onSelect: () => void
   onDelete: () => void
@@ -35,7 +35,7 @@ export function ConversationListItem({
     >
       <div className="flex-1 min-w-0">
         <p className="text-sm text-[var(--color-text)] truncate">
-          {conversation.preview ?? 'Empty conversation'}
+          {conversation.messages[0]?.content ?? 'Empty conversation'}
         </p>
         <p className="text-xs text-[var(--color-muted)] mt-0.5">
           {relativeTime(conversation.created_at)}
