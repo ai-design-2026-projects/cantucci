@@ -7,12 +7,12 @@
  * @returns HSL color string suitable for use in SVG, canvas, or CSS.
  */
 export function clusterColorFromUuid(uuid: string, isDark = false): string {
-  let hash = 0
-  for (let i = 0; i < uuid.length; i++) {
-    hash = (hash * 31 + uuid.charCodeAt(i)) >>> 0
-  }
-  const hue = hash % 360
-  const saturation = isDark ? 65 : 60
-  const lightness = isDark ? 62 : 52
-  return `hsl(${hue}, ${saturation}%, ${lightness}%)`
+	let hash = 0
+	for (let i = 0; i < uuid.length; i++) {
+		hash = (hash * 31 + uuid.charCodeAt(i)) >>> 0
+	}
+	const hue = hash % 360
+	const saturation = isDark ? 65 : 60
+	const lightness = isDark ? 62 : 52
+	return `hsl(${hue}, ${saturation}%, ${lightness}%)`
 }

@@ -8,20 +8,20 @@ import { RegisterPage } from './features/Auth/RegisterPage'
  * Auth pages are independent full-page routes.
  */
 export const router = createBrowserRouter([
-  {
-    path: '/login',
-    element: <LoginPage />,
-  },
-  {
-    path: '/register',
-    element: <RegisterPage />,
-  },
-  {
-    path: '/',
-    element: <App />,
-  },
-  {
-    path: '/c/:conversationId',
-    element: <App />,
-  },
+	{
+		path: '/login',
+		element: <LoginPage />,
+	},
+	{
+		path: '/register',
+		element: <RegisterPage />,
+	},
+	{
+		path: '/',
+		element: <App />,
+	},
+	{
+		path: '/conversation/:conversationId',
+		element: <App />,
+	},
 ])

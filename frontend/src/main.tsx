@@ -7,19 +7,19 @@ import { router } from './router'
 import './styles/globals.css'
 
 const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      staleTime: 30_000,
-      retry: 1,
-    },
-  },
+	defaultOptions: {
+		queries: {
+			staleTime: 30_000,
+			retry: 1,
+		},
+	},
 })
 
 createRoot(document.getElementById('root')!).render(
-  <StrictMode>
-    <QueryClientProvider client={queryClient}>
-      <RouterProvider router={router} />
-      <Toaster richColors position="bottom-right" />
-    </QueryClientProvider>
-  </StrictMode>,
+	<StrictMode>
+		<QueryClientProvider client={queryClient}>
+			<RouterProvider router={router} />
+			<Toaster richColors position="bottom-right" />
+		</QueryClientProvider>
+	</StrictMode>,
 )

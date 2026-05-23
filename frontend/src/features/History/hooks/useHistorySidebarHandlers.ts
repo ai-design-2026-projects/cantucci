@@ -26,7 +26,7 @@ export function useHistorySidebarHandlers({
 		mutationFn: createConversationFetcher,
 		onSuccess: (conversation) => {
 			setActiveConversationId(conversation.id)
-			navigate(`/c/${conversation.id}`)
+			navigate(`/conversation/${conversation.id}`)
 			queryClient.invalidateQueries({ queryKey: ['conversations-list'] })
 		},
 	})
@@ -39,7 +39,7 @@ export function useHistorySidebarHandlers({
 
 	function selectConversation(conversationId: string) {
 		setActiveConversationId(conversationId)
-		navigate(`/c/${conversationId}`)
+		navigate(`/conversation/${conversationId}`)
 	}
 
 	return {

@@ -29,7 +29,7 @@ export function useStartConversation({
 			} else {
 				saveAnonConversationId(conversation.id)
 			}
-			navigate(`/c/${conversation.id}`)
+			navigate(`/conversation/${conversation.id}`)
 		},
 	})
 
