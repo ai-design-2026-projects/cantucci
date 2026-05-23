@@ -37,7 +37,8 @@ class CoordinatorResult:
 
 
 class Coordinator:
-    """Orchestrates one user message through the agent pipeline.
+    """
+    Orchestrates one user message through the agent pipeline.
     Does not hold session state — all state is read from and written to the DB.
     Each call to handle_message is stateless and re-reads current conversation state.
     """
@@ -49,33 +50,34 @@ class Coordinator:
         conversation_row: ConversationRow,
     ) -> CoordinatorResult:
         """Process one user message and return the assistant reply with updated cluster snapshot.
-
         Pipeline:
           1. Load current cluster snapshot + recent messages.
           2. Classify intent (Intent agent).
           3. Branch on mode: concept → cluster op → persist, or explain, or direct reply.
           4. Generate a reply summarizing what changed.
-
         Args:
             conversation_id:   Conversation UUID.
             user_message:      Raw user message text.
             conversation_row:  Pre-loaded conversation row (avoids double DB hit).
-
         Returns:
             ``CoordinatorResult`` with reply text and active cluster snapshot ID.
         """
+        # Step 1: Load current state
         current_cluster_snapshot_id = conversation_row.current_cluster_snapshot_id
         accumulated_cost = 0.0
 
-        cswc = get_cluster_snapshot_with_clusters(current_cluster_snapshot_id) if current_cluster_snapshot_id else None
-        clusters = cswc.clusters if cswc else []
+        current_snapshot = get_cluster_snapshot_with_clusters(current_cluster_snapshot_id) if current_cluster_snapshot_id else None
+        current_clusters = current_snapshot.clusters if current_snapshot else []
         all_snapshots = get_conversation_cluster_snapshots(conversation_id)
 
         message_id = uuid.uuid4()
+        
+        # If any clusters are unlabeled, label them before intent classification to ensure the intent agent sees labels.
+        if any(cluster.label is None for cluster in current_clusters):
+            clusters = await _label_unlabeled_clusters(current_clusters, conversation_id, message_id, accumulated_cost)
+            accumulated_cost += sum(cluster.cost for cluster in clusters if cluster.cost)
 
-        if any(c.label is None for c in clusters):
-            clusters = await _label_unlabeled_clusters(clusters, conversation_id, message_id, accumulated_cost)
-
+        # Step 2: Classify intent and select mode
         intent = await classify_intent(
             user_message=user_message,
             clusters=clusters,
@@ -83,20 +85,20 @@ class Coordinator:
             message_id=message_id,
             accumulated_cost=accumulated_cost,
         )
-        accumulated_cost += 0.0
+        accumulated_cost += intent.cost
 
         mode = select_mode(len(all_snapshots), len(clusters))
         log.info(
             "coordinator_dispatch",
             extra={
                 "conversation_id": str(conversation_id),
-                "intent_mode": intent.mode.value,
+                "intent_mode": intent.navigationMode.value,
                 "strategy_mode": mode.value,
                 "n_clusters": len(clusters),
             },
         )
 
-        if intent.mode == NavigationMode.SMALL_TALK:
+        if intent.navigationMode == NavigationMode.SMALL_TALK:
             reply = (
                 "I'm here to help you explore the movie catalogue through clustering. "
                 "You can ask me to split a cluster, merge groups, or explain a placement."
@@ -104,15 +106,15 @@ class Coordinator:
             cluster_snapshot_id = current_cluster_snapshot_id or _sentinel_cluster_snapshot_id()
             return CoordinatorResult(reply_text=reply, cluster_snapshot_id=cluster_snapshot_id)
 
-        if intent.mode == NavigationMode.RESET or current_cluster_snapshot_id is None:
+        if intent.navigationMode == NavigationMode.RESET or current_cluster_snapshot_id is None:
             return await self._handle_reset(conversation_id, conversation_row)
 
-        if intent.mode == NavigationMode.EXPLAIN:
+        if intent.navigationMode == NavigationMode.EXPLAIN:
             return await self._handle_explain(
                 intent, clusters, current_cluster_snapshot_id, conversation_id, message_id, accumulated_cost
             )
 
-        if intent.mode == NavigationMode.DRILL_DOWN:
+        if intent.navigationMode == NavigationMode.DRILL_DOWN:
             target_id = intent.target_cluster_id or (clusters[0].id if clusters else None)
             if target_id is None:
                 return CoordinatorResult(
@@ -135,7 +137,7 @@ class Coordinator:
             reply = f"Split into {n_new} sub-clusters: {', '.join(labels[:5])}{'…' if n_new > 5 else ''}."
             return CoordinatorResult(reply_text=reply, cluster_snapshot_id=new_cluster_snapshot_id)
 
-        if intent.mode == NavigationMode.MERGE:
+        if intent.navigationMode == NavigationMode.MERGE:
             if len(clusters) < 2:
                 return CoordinatorResult(
                     reply_text="There are fewer than two clusters to merge.",
@@ -152,7 +154,7 @@ class Coordinator:
             reply = "Merged the selected clusters into one."
             return CoordinatorResult(reply_text=reply, cluster_snapshot_id=new_cluster_snapshot_id)
 
-        if intent.mode == NavigationMode.RECUT:
+        if intent.navigationMode == NavigationMode.RECUT:
             all_movie_ids = list({mid for c in clusters for m in [] for mid in []})
             if not all_movie_ids:
                 all_movie_ids = list_movie_ids()

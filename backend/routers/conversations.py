@@ -3,7 +3,7 @@ import uuid
 from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException
 
-from backend.agents.coordinator import Coordinator
+from backend.agents.coordinator.agent import Coordinator
 from backend.auth.types import User
 from backend.data_access.conversations.queries import (
     append_message,
