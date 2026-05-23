@@ -3,7 +3,7 @@ import uuid
 
 import numpy as np
 
-from backend.agents.clustering.operations._helpers import exemplars
+from backend.agents.clustering.operations._helpers import exemplars, reduce_for_clustering
 from backend.agents.clustering.types import ClusterDraft, ClusterSnapshotDraft
 from backend.agents.concept.scoring import score_movies
 from backend.agents.concept.types import ConceptRep
@@ -83,6 +83,7 @@ async def recut(
         )
     else:
         vecs = np.array([emb_map[mid] for mid in available_ids], dtype=np.float32)
+        vecs = reduce_for_clustering(vecs, cfg.umap, cfg.split.seed)
         result = subcluster(vecs, cfg.clustering.online.recut_min_cluster_size, cfg.clustering.base.min_samples)
 
     clusters: list[ClusterDraft] = []

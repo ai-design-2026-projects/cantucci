@@ -27,16 +27,20 @@ backend/
 │   └── users/           CRUD: users (joined with roles).
 ├── agents/              LLM-backed agents; each owns a prompts/ subdir of Jinja2 templates.
 │   ├── intent/          Classify user message → NavigationMode + target cluster.
+│   ├── coordinator/     Orchestrate per-turn agent pipeline.
 │   ├── clustering/      Drill-down / merge / recut operations → ClusterSnapshotDraft.
+│   ├── labeling/        Batch-label unlabeled clusters via LLM.
 │   ├── explanation/     Explain a movie's cluster placement → ExplanationResult.
-│   └── concept/         Derive a linear-axis or prototype concept from text.
+│   ├── concept/         Derive a linear-axis or prototype concept from text.
+│   ├── clarifier/       Generate clarifying questions when intent is ambiguous.
+│   └── suggester/       Suggest next exploration moves.
 ├── llm/                 LLM harness, structured response parsing, record/replay utilities.
 │   ├── llm_harness.py   Single call() entry point: cost guard, retries, dry_run.
 │   ├── types.py         LLMResponse dataclass.
 │   └── exceptions.py    CostLimitExceeded, LLMParseError, ReplayDriftError.
-├── cluster_engine/      Offline deterministic clustering pipeline (pre-builds root snapshot).
 ├── routers/             HTTP layer — the ONLY place that calls agents and data_access together.
 │   ├── auth.py          POST /auth/login, POST /auth/logout, GET /auth/me.
+│   ├── auth_deps.py     FastAPI dependency for JWT bearer token extraction.
 │   ├── conversations.py POST /conversations, POST /conversations/{id}/messages, GET /conversations/{id}.
 │   ├── cluster_snapshots.py GET /cluster-snapshots/{id}.
 │   ├── movies.py        GET /movies/{id}.
@@ -63,7 +67,7 @@ backend/
 ## Running locally
 
 ```bash
-pip install -r requirements.txt
+uv sync --extra test
 uvicorn backend.app:app --reload
 ```
 
@@ -108,13 +112,21 @@ Tests spin up a throwaway pgvector container automatically via `testcontainers` 
 
 ## Endpoints
 
-| Method | Path                            | Description                              |
-|--------|---------------------------------|------------------------------------------|
-| POST   | `/sessions`                     | Create a new session (returns 201).      |
-| POST   | `/sessions/{session_id}/turns`  | Submit a user message, get a response.   |
-| GET    | `/sessions/{session_id}`        | Retrieve full session state + turn list. |
+| Method | Path                                        | Description                                        |
+|--------|---------------------------------------------|----------------------------------------------------|
+| POST   | `/auth/login`                               | Obtain a JWT token.                                |
+| POST   | `/auth/logout`                              | Invalidate the current token.                      |
+| GET    | `/auth/me`                                  | Return the authenticated user.                     |
+| GET    | `/conversations`                            | List conversations for the authenticated user.     |
+| POST   | `/conversations`                            | Create a new conversation (returns 201).           |
+| GET    | `/conversations/{conversation_id}`          | Retrieve conversation state + message history.     |
+| PATCH  | `/conversations/{conversation_id}`          | Update conversation metadata.                      |
+| DELETE | `/conversations/{conversation_id}`          | Delete a conversation (returns 204).               |
+| POST   | `/conversations/{conversation_id}/messages` | Submit a user message, get a response.             |
+| GET    | `/cluster-snapshots/{snapshot_id}`          | Retrieve a cluster snapshot with its clusters.     |
+| GET    | `/movies/{movie_id}`                        | Retrieve movie details.                            |
 
-All responses are JSON. Unknown `session_id` → 404. Empty `user_message` → 422.
+All responses are JSON. Unknown resource → 404. Invalid request body → 422.
 
 ---
 

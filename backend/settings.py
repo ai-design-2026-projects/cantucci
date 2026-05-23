@@ -144,14 +144,30 @@ class FusionConfig(BaseModel):
 
 
 class UmapConfig(BaseModel):
-    """UMAP 2D projection parameters for offline visualization coordinates.
+    """UMAP parameters for visualization and pre-clustering dimensionality reduction.
+
+    Two independent UMAP passes are used:
+    - Visualization: 2D projection of the fused embedding space for the cluster map.
+    - Clustering: intermediate reduction to ``clustering_n_components`` dimensions
+      applied before HDBSCAN to reduce the curse of dimensionality.
 
     Attributes:
-        n_neighbors: UMAP neighbourhood size.
-        min_dist:    Minimum distance between points in the projected space.
+        n_neighbors:                UMAP neighbourhood size for the 2D visualization pass.
+        min_dist:                   Minimum distance between points in the 2D projection.
+        clustering_n_components:    Target dimensionality for the pre-HDBSCAN reduction.
+        clustering_n_neighbors:     UMAP neighbourhood size for the clustering pass.
+        clustering_min_dist:        min_dist for the clustering UMAP (0.0 keeps clusters
+                                    tighter and is the BERTopic-recommended value).
+        clustering_min_dataset_size: Minimum number of points required to apply the
+                                    pre-clustering UMAP. Smaller subsets skip the reduction
+                                    step and pass embeddings directly to HDBSCAN.
     """
     n_neighbors: int = 15
     min_dist: float = 0.1
+    clustering_n_components: int = 50
+    clustering_n_neighbors: int = 15
+    clustering_min_dist: float = 0.0
+    clustering_min_dataset_size: int = 150
 
 
 class LabelingConfig(BaseModel):
@@ -246,7 +262,7 @@ class Settings(BaseModel):
         representation: Embedding model configuration.
         clustering:     HDBSCAN base + online parameters.
         fusion:         Embedding fusion weights.
-        umap:           UMAP 2D projection parameters.
+        umap:           UMAP parameters for 2D visualization and pre-clustering reduction.
         labeling:       Labeling agent parameters.
         intent:         Intent agent parameters (confidence threshold).
         suggestions:    Post-turn suggestion parameters.

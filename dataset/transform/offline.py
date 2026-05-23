@@ -31,11 +31,18 @@ def compute_offline_columns(
     Compute UMAP 2D coordinates and HDBSCAN cluster assignments from BGE embeddings.
 
     Fuses text and review embeddings (both in BGE space) in memory, then runs
-    UMAP and HDBSCAN on the result. The fused vector is never stored in the DB —
-    only the UMAP coordinates and cluster assignments are persisted. For
-    multi-modal clustering that mixes incompatible embedding spaces (e.g. BGE
-    text + CLIP trailer), use ``core.fusion.combined_distance_matrix`` at
-    runtime instead.
+    two independent UMAP passes and HDBSCAN:
+
+    1. **Clustering UMAP** (``umap.clustering_n_components`` dimensions, default 50):
+       reduces the curse of dimensionality before HDBSCAN.
+    2. **HDBSCAN** on the reduced vectors.
+    3. **Visualization UMAP** (2D): projects the original fused vectors to (x, y)
+       for the cluster map; independent of the clustering pass.
+
+    The fused vector is never stored in the DB — only the UMAP 2D coordinates and
+    cluster assignments are persisted. For multi-modal clustering that mixes
+    incompatible embedding spaces (e.g. BGE text + CLIP trailer), use
+    ``core.fusion.combined_distance_matrix`` at runtime instead.
 
     Pure computation — no DB access, no LLM calls. All parameters come from the
     active YAML config. Called from ``db/ingest.py`` after catalogue rows are
@@ -69,24 +76,34 @@ def compute_offline_columns(
         fusion_cfg.review_weight,
     )
 
-    log.info("offline_umap")
-    reducer = UMAP(
+    log.info("offline_umap_clustering", extra={"n_components": umap_cfg.clustering_n_components})
+    reducer_clust = UMAP(
+        n_components=umap_cfg.clustering_n_components,
+        n_neighbors=umap_cfg.clustering_n_neighbors,
+        min_dist=umap_cfg.clustering_min_dist,
+        metric="cosine",
+        random_state=cfg.split.seed,
+    )
+    fused_reduced: np.ndarray = reducer_clust.fit_transform(fused).astype(np.float32)
+
+    log.info("offline_cluster")
+    result = hdbscan_soft(
+        fused_reduced,
+        min_cluster_size=base_cfg.min_cluster_size,
+        min_samples=base_cfg.min_samples,
+        cluster_selection_method=base_cfg.cluster_selection_method,
+        cluster_selection_epsilon=base_cfg.cluster_selection_epsilon,
+    )
+
+    log.info("offline_umap_visualization")
+    reducer_viz = UMAP(
         n_components=2,
         n_neighbors=umap_cfg.n_neighbors,
         min_dist=umap_cfg.min_dist,
         metric="cosine",
         random_state=cfg.split.seed,
     )
-    coords: np.ndarray = reducer.fit_transform(fused)
-
-    log.info("offline_cluster")
-    result = hdbscan_soft(
-        fused,
-        min_cluster_size=base_cfg.min_cluster_size,
-        min_samples=base_cfg.min_samples,
-        cluster_selection_method=base_cfg.cluster_selection_method,
-        cluster_selection_epsilon=base_cfg.cluster_selection_epsilon,
-    )
+    coords: np.ndarray = reducer_viz.fit_transform(fused)
 
     primary_idx = np.argmax(result.probabilities, axis=1)
     cluster_ids: list[int] = primary_idx.tolist()
