@@ -8,14 +8,14 @@ import { useSnapshotStore } from '@/store/useSnapshotStore'
  * @param currentClusterSnapshotId - The snapshot the conversation currently points to.
  */
 export function useSyncConversationSnapshot(
-  currentClusterSnapshotId: string | null | undefined,
+	currentClusterSnapshotId: string | null | undefined,
 ) {
-  const setActiveSnapshotId = useSnapshotStore((s) => s.setActiveSnapshotId)
-  const activeSnapshotId = useSnapshotStore((s) => s.activeSnapshotId)
+	const setActiveSnapshotId = useSnapshotStore((s) => s.setActiveSnapshotId)
+	const activeSnapshotId = useSnapshotStore((s) => s.activeSnapshotId)
 
-  useEffect(() => {
-    if (currentClusterSnapshotId && currentClusterSnapshotId !== activeSnapshotId) {
-      setActiveSnapshotId(currentClusterSnapshotId)
-    }
-  }, [currentClusterSnapshotId, activeSnapshotId, setActiveSnapshotId])
+	useEffect(() => {
+		if (currentClusterSnapshotId && currentClusterSnapshotId !== activeSnapshotId) {
+			setActiveSnapshotId(currentClusterSnapshotId)
+		}
+	}, [currentClusterSnapshotId, activeSnapshotId, setActiveSnapshotId])
 }

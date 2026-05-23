@@ -9,10 +9,10 @@ import type { ConversationDto } from '@/api/dto/conversations'
  * @returns TanStack Query result wrapping ConversationDto.
  */
 export function useConversation(conversationId: string | undefined) {
-  return useQuery<ConversationDto>({
-    queryKey: ['conversation', conversationId],
-    queryFn: () => getConversationFetcher(conversationId!),
-    enabled: !!conversationId,
-    staleTime: 0,
-  })
+	return useQuery<ConversationDto>({
+		queryKey: ['conversation', conversationId],
+		queryFn: () => getConversationFetcher(conversationId!),
+		enabled: !!conversationId,
+		staleTime: 0,
+	})
 }
