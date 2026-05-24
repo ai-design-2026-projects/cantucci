@@ -1,3 +1,48 @@
+[project]
+name = "CinePal"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "PyJWT>=2.9",
+    "bcrypt>=4.0",
+    "psycopg[binary,pool]>=3.2.0",
+    "pgvector>=0.3.6",
+    "pydantic[email]>=2.0",
+    "pydantic-settings>=2.0",
+    "pyyaml>=6.0",
+    "jinja2>=3.1",
+    "openai>=1.0",
+    "httpx>=0.28",
+    "numpy>=1.26",
+    "sentence-transformers>=2.7",
+    "hdbscan>=0.8.40",
+    "umap-learn>=0.5.6",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest>=9.0",
+    "pytest-asyncio>=1.0",
+    "testcontainers[postgres]>=4.0.0",
+]
+dataset = [
+    "huggingface_hub>=0.23,<0.27",
+    "pandas>=2.2",
+    "pyarrow>=16",
+    "sentence-transformers>=2.7",
+    "tqdm>=4",
+    "yt-dlp>=2024.10",
+    "open-clip-torch>=2.24",
+    "Pillow>=10",
+]
+
+[dependency-groups]
+dev = [
+    "ipykernel>=7",
+]
+
 [tool.pytest.ini_options]
 pythonpath = ["."]
 filterwarnings = ["error"]

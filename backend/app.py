@@ -1,28 +1,18 @@
-"""Cinepal — FastAPI application entry point.
-
-Start the server:
-    uvicorn backend.app:app --reload
-
-In production pass --host and --port; set HOST / PORT env vars to match so
-the startup log prints the correct docs URL.
-"""
-
 import logging
 import os
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
-
+from backend.exceptions import DomainError
 from backend.logging_setup import configure_logging
-from backend.orchestrator.orchestrator import Orchestrator
 from backend.routers.auth import router as auth_router
-from backend.routers.eval import router as eval_router
 from backend.routers.movies import router as movies_router
-from backend.routers.sessions import router as sessions_router
-from db.ingestion.embed import preload_model
+from backend.routers.conversations import router as conversations_router
+from backend.routers.cluster_snapshots import router as cluster_snapshots_router
 
 log = logging.getLogger(__name__)
 
@@ -31,41 +21,32 @@ DOCS_PATH = "/docs"
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
-    """Application lifespan: configure logging, wire dependencies, then serve.
-
-    Runs once at startup before the first request and once at shutdown after
-    the last. Any exception raised here aborts startup — fail loudly by design.
+    """Application lifespan: configure logging, then serve.
 
     Args:
-        app: The FastAPI application instance (provided by the framework).
+        app: The FastAPI application instance.
 
     Yields:
         Control to the request-handling phase.
     """
     configure_logging()
-    app.state.orchestrator = Orchestrator()
-    preload_model()
 
     host = os.environ.get("HOST", "127.0.0.1")
     port = os.environ.get("PORT", "8000")
-    log.info(
-        "CinePal backend started",
-    )
+    log.info("CinePal backend started")
     log.info(f"Docs available at http://{host}:{port}{DOCS_PATH}")
 
     yield
 
-    log.info("cinepal backend stopped")
+    log.info("CinePal backend stopped")
 
 
 app = FastAPI(
     title="CinePal",
-    description="Conversational movie recommender — session/turn API.",
+    description="Conversational multi-view clustering for movie exploration.",
     docs_url=DOCS_PATH,
     lifespan=lifespan,
 )
-
-
 
 app.add_middleware(
     CORSMiddleware,
@@ -75,7 +56,15 @@ app.add_middleware(
     allow_headers=["Authorization", "Content-Type"],
 )
 
+
+@app.exception_handler(DomainError)
+async def domain_error_handler(request: Request, exc: DomainError) -> JSONResponse:
+    """Translate any DomainError subclass to an HTTP response using its http_status."""
+    log.warning("domain_error", extra={"status": exc.http_status, "detail": str(exc), "path": request.url.path})
+    return JSONResponse(status_code=exc.http_status, content={"detail": str(exc)})
+
+
 app.include_router(auth_router)
-app.include_router(sessions_router)
 app.include_router(movies_router)
-app.include_router(eval_router)
+app.include_router(conversations_router)
+app.include_router(cluster_snapshots_router)

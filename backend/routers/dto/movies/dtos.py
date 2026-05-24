@@ -1,24 +1,27 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class MovieDto(BaseModel):
     """Full movie metadata as exposed to the frontend.
 
     Attributes:
-        id:                TMDB movie id.
-        title:             English release title.
-        release_year:      4-digit year, or None.
-        runtime:           Duration in minutes, or None.
-        vote_average:      TMDB mean rating 0–10.
-        vote_count:        Number of TMDB votes.
-        bayesian_rating:   Bayesian-smoothed rating (preferred ranking signal).
-        overview:          Plot synopsis.
-        poster_url:        Full TMDB poster URL (``https://image.tmdb.org/t/p/w500{path}``),
-                           or None when ``poster_path`` is absent.
-        genres:            List of genre names.
-        director:          Director name, or None.
-        top_cast:          Up to 3 top-billed cast names.
-        original_language: ISO 639-1 language code.
+        id:                  TMDB movie id.
+        title:               English release title.
+        release_year:        4-digit year, or None.
+        runtime:             Duration in minutes, or None.
+        vote_average:        TMDB mean rating 0–10.
+        vote_count:          Number of TMDB votes.
+        bayesian_rating:     Bayesian-smoothed rating (preferred ranking signal).
+        overview:            Plot synopsis.
+        poster_url:          Full TMDB poster URL (``https://image.tmdb.org/t/p/w500{path}``),
+                             or None when ``poster_path`` is absent.
+        genres:              List of genre names.
+        director:            Director name, or None.
+        top_cast:            Up to 3 top-billed cast names.
+        original_language:   ISO 639-1 language code.
+        trailer_youtube_key: YouTube video key for the official trailer, or None.
+        umap_x:              UMAP 2D projection x-coordinate for scatter visualization, or None.
+        umap_y:              UMAP 2D projection y-coordinate for scatter visualization, or None.
     """
 
     id: int
@@ -34,3 +37,15 @@ class MovieDto(BaseModel):
     director: str | None
     top_cast: list[str]
     original_language: str | None
+    trailer_youtube_key: str | None
+    umap_x: float | None
+    umap_y: float | None
+
+
+class MovieBatchRequest(BaseModel):
+    """Body for ``POST /movies/batch``.
+
+    Attributes:
+        ids: Up to 200 TMDB movie IDs to retrieve in one request.
+    """
+    ids: list[int] = Field(..., max_length=200)

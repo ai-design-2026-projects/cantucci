@@ -15,8 +15,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from pydantic import ValidationError
 
-import backend.repository.users as api_users
 from backend.auth.passwords import hash_password
+from backend.data_access.users.queries import create_user
 from backend.routers.auth import LoginRequest
 import logging
 
@@ -46,7 +46,7 @@ def main() -> None:
             print(f"Error: {err['loc'][-1]}: {err['msg']}", file=sys.stderr)
         sys.exit(1)
 
-    user_id = api_users.create_user(
+    user_id = create_user(
         email=args.email,
         password_hash=hash_password(args.password),
         role_name=args.role,

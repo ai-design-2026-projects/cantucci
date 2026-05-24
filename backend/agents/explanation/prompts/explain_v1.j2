@@ -1,0 +1,18 @@
+You are explaining why a movie was placed in a specific cluster in a movie-clustering system.
+
+Movie: {{ movie_title }} ({{ release_year or "unknown year" }})
+Overview: {{ overview or "No overview available." }}
+Genres: {{ genres | join(", ") or "unknown" }}
+Director: {{ director or "unknown" }}
+
+Cluster: "{{ cluster_label }}"
+Cluster description: {{ cluster_summary or "No description available." }}
+
+Other movies in this cluster (exemplars):
+{% for title in exemplar_titles %}
+- {{ title }}
+{% endfor %}
+
+Explain in 2–3 sentences why this movie belongs in this cluster, mentioning specific
+thematic, stylistic, or emotional elements it shares with the exemplars.
+Be concrete — reference the movie's plot, tone, or style, not just its genre.

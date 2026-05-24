@@ -1,138 +1,97 @@
-/* Light theme — default (dark class overrides to dark palette) */
-:root {
-  /* shadcn HSL tokens */
-  --background: 36 15% 97%;
-  --foreground: 240 5% 10%;
-  --card: 36 20% 93%;
-  --card-foreground: 240 5% 10%;
-  --popover: 0 0% 100%;
-  --popover-foreground: 240 5% 10%;
-  --primary: 36 52% 46%;
-  --primary-foreground: 36 15% 97%;
-  --secondary: 36 20% 88%;
-  --secondary-foreground: 240 5% 10%;
-  --muted: 240 5% 92%;
-  --muted-foreground: 240 5% 40%;
-  --accent: 36 52% 46%;
-  --accent-foreground: 36 15% 97%;
-  --destructive: 0 84% 55%;
-  --destructive-foreground: 0 0% 100%;
-  --border: 36 20% 84%;
-  --input: 36 20% 88%;
-  --ring: 36 52% 46%;
+@import "tailwindcss";
+@import "tw-animate-css";
 
-  /* Legacy hex tokens (used by CSS Modules during migration) */
-  --bg-base: #f8f7f4;
-  --bg-surface: #f0ece4;
-  --bg-elevated: #e8e2d8;
-  --bg-overlay: #dfd9ce;
-  --border-subtle: rgba(0, 0, 0, 0.06);
-  --border-default: rgba(0, 0, 0, 0.12);
-  --border-strong: rgba(0, 0, 0, 0.20);
-  --text-primary: #1a1a1c;
-  --text-secondary: #4a4a52;
-  --text-tertiary: #888895;
-  --accent-gold: #b58828;
-  --accent-gold-dim: #7a5a1a;
-  --accent-blue: #2562d4;
-  --accent-blue-dim: #1a3e8f;
+@layer base {
+    :root {
+        --bg: #f4efe8;
+        --surface: #fdfaf7;
+        --elevated: #e9ddd2;
+        --border: #d4c3b3;
+        --text: #2c241f;
+        --muted: #7b6d62;
+        --primary: #b86b52;
+        --accent: #d8a56d;
+        --node-glow: #de7f61;
+        --radius: 0.625rem;
+        --font-display: "Playfair Display", Georgia, serif;
+        --font-sans: "Inter", system-ui, sans-serif;
+    }
 
-  --radius-sm: 4px;
-  --radius-md: 8px;
-  --radius-lg: 14px;
-  --radius-xl: 20px;
-  --font-sans: "Inter", system-ui, -apple-system, sans-serif;
-  --font-display: "DM Serif Display", Georgia, serif;
+    [data-theme="dark"] {
+        --bg: #26211f;
+        --surface: #332b28;
+        --elevated: #443833;
+        --border: #5b4c46;
+        --text: #f4ede7;
+        --muted: #b4a59b;
+        --primary: #e28c6f;
+        --accent: #efbf84;
+        --node-glow: #ff9e7a;
+    }
+
+    *,
+    *::before,
+    *::after {
+        box-sizing: border-box;
+    }
+
+    html {
+        font-family: var(--font-sans);
+        color-scheme: light;
+    }
+
+    [data-theme="dark"] html {
+        color-scheme: dark;
+    }
+
+    body {
+        background-color: var(--bg);
+        color: var(--text);
+        margin: 0;
+        overflow: hidden;
+    }
+
+    h1,
+    h2,
+    h3 {
+        font-family: var(--font-display);
+    }
 }
 
-/* Dark theme */
-.dark {
-  --background: 240 5% 4%;
-  --foreground: 240 4% 95%;
-  --card: 240 5% 7%;
-  --card-foreground: 240 4% 95%;
-  --popover: 240 4% 11%;
-  --popover-foreground: 240 4% 95%;
-  --primary: 36 46% 61%;
-  --primary-foreground: 240 5% 4%;
-  --secondary: 240 4% 11%;
-  --secondary-foreground: 240 4% 95%;
-  --muted: 240 5% 13%;
-  --muted-foreground: 240 4% 65%;
-  --accent: 36 46% 61%;
-  --accent-foreground: 240 5% 4%;
-  --destructive: 0 84% 60%;
-  --destructive-foreground: 240 4% 95%;
-  --border: 240 4% 15%;
-  --input: 240 4% 11%;
-  --ring: 36 46% 61%;
-
-  --bg-base: #0a0a0b;
-  --bg-surface: #111113;
-  --bg-elevated: #18181b;
-  --bg-overlay: #1f1f23;
-  --border-subtle: rgba(255, 255, 255, 0.06);
-  --border-default: rgba(255, 255, 255, 0.1);
-  --border-strong: rgba(255, 255, 255, 0.18);
-  --text-primary: #f2f2f3;
-  --text-secondary: #a1a1aa;
-  --text-tertiary: #52525b;
-  --accent-gold: #c9a96e;
-  --accent-gold-dim: #8a6d42;
-  --accent-blue: #4f8ef7;
-  --accent-blue-dim: #2a4a8a;
+.scrollbar-styled {
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
 }
 
-html {
-  font-size: 16px;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+.scrollbar-styled::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
 }
 
-body {
-  background-color: var(--bg-base);
-  color: var(--text-primary);
-  font-family: var(--font-sans);
-  font-weight: 400;
-  line-height: 1.6;
-  min-height: 100dvh;
+.scrollbar-styled::-webkit-scrollbar-track {
+    background: transparent;
 }
 
-#root {
-  min-height: 100dvh;
-  display: flex;
-  flex-direction: column;
+.scrollbar-styled::-webkit-scrollbar-thumb {
+    background: var(--border);
+    border-radius: 3px;
 }
 
-a {
-  color: inherit;
-  text-decoration: none;
+.scrollbar-styled::-webkit-scrollbar-thumb:hover {
+    background: var(--muted);
 }
 
-button {
-  cursor: pointer;
-  font-family: inherit;
-}
-
-input,
-textarea {
-  font-family: inherit;
-}
-
-img {
-  display: block;
-  max-width: 100%;
-}
-
-:focus-visible {
-  outline: 2px solid var(--accent-gold);
-  outline-offset: 2px;
-}
-
-.cluster-film-scroll {
-  /* width:0 + min-width:100% breaks the max-content chain that the Radix
-     ScrollArea display:table wrapper propagates upward, preventing cards
-     from expanding to fit all film posters. */
-  width: 0;
-  min-width: 100%;
+@theme {
+    --color-bg: var(--bg);
+    --color-surface: var(--surface);
+    --color-elevated: var(--elevated);
+    --color-border: var(--border);
+    --color-text: var(--text);
+    --color-muted: var(--muted);
+    --color-primary: var(--primary);
+    --color-accent: var(--accent);
+    --color-node-glow: var(--node-glow);
+    --font-display: var(--font-display);
+    --font-sans: var(--font-sans);
+    --radius-ui: var(--radius);
 }

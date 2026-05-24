@@ -12,60 +12,62 @@ LLM-backed agents and the PostgreSQL-backed data-access layer.
 
 ```
 backend/
-├── app.py               FastAPI application, lifespan wiring, router mount.
+├── app.py               FastAPI application, lifespan wiring, DomainError handler, router mount.
 ├── settings.py          Typed config loader (Pydantic) + env-var helpers.
 ├── logging_setup.py     Logging setup: ANSI-coloured key=value lines + log_llm_call().
-├── exceptions.py        Domain exceptions raised by orchestration/API boundaries.
-├── api/                 Data-access layer — the ONLY place SQL is allowed.
-│   ├── db.py            Connection pool and transaction() context manager.
-│   ├── movies.py        Catalogue vector search, title resolution, metadata, embeddings.
-│   ├── sessions.py      CRUD: sessions, turns, clusters, oracle_feedback.
-│   ├── runs.py          CRUD: runs table, config hashing.
-│   ├── eval.py          Write: session_metrics, judge_scores.
-│   ├── retrieval.py     Read: get_run_results(), get_session_full().
-│   └── types.py         DB-facing dataclasses/enums shared across backend layers.
-├── llm/                 LLM harness, prompt loading, and LLM response types.
-├── state/               Hard-limit and LLM state gate agent.
-├── profile/             Preference-profile extraction agent and helpers.
-├── retrieval/           Query reformulation, vector-search, metadata tools.
-├── cluster/             Soft clustering, cluster description/refinement tools.
-├── decision/            Decision agent and entropy/relevance helpers.
-├── orchestrator/
-│   ├── orchestrator.py  Thin public surface: create_session, run_turn, get_session.
-│   ├── turn_runner.py   Per-turn state holder + branch dispatcher (one runner per turn).
-│   ├── speculative.py   SpeculativeBranch, spawn/resolve/cancel helpers for the task graph.
-│   ├── presentation.py  Render + RecommendationDto assembly + ClusterSnapshotEvent.
-│   ├── terminal_paths.py terminate / natural_end / drift / empty-clusters bypass turns.
-│   ├── history.py       Pure helpers reading prior turn history.
-│   └── progress.py      ProgressEvent / ClusterSnapshotEvent stream protocol.
-└── routers/
-    ├── dtos.py          Pydantic HTTP request/response models.
-    └── sessions.py      HTTP endpoints: POST /sessions, POST /sessions/{id}/turns,
-                         GET /sessions/{id}.
+├── exceptions.py        DomainError base + NotFoundError / ParseError / AuthError / OperationalError families.
+├── CLAUDE.md            Type-layering and exception conventions — read this before adding new types.
+├── auth/                JWT token encode/decode; password hashing.
+├── data_access/         Data-access layer — the ONLY place SQL is allowed.
+│   ├── connection.py    Connection pool, transaction() context manager, dict_row default.
+│   ├── movies/          vector_search, fetch_metadata, fetch_stubs, fetch_movie_details.
+│   ├── conversations/   CRUD: conversations, messages.
+│   ├── cluster_snapshots/ CRUD: cluster_snapshots, clusters, cluster_memberships.
+│   ├── concepts/        CRUD: concepts, concept_scores.
+│   └── users/           CRUD: users (joined with roles).
+├── agents/              LLM-backed agents; each owns a prompts/ subdir of Jinja2 templates.
+│   ├── intent/          Classify user message → NavigationMode + target cluster.
+│   ├── coordinator/     Orchestrate per-turn agent pipeline.
+│   ├── clustering/      Drill-down / merge / recut operations → ClusterSnapshotDraft.
+│   ├── labeling/        Batch-label unlabeled clusters via LLM.
+│   ├── explanation/     Explain a movie's cluster placement → ExplanationResult.
+│   ├── concept/         Derive a linear-axis or prototype concept from text.
+│   ├── clarifier/       Generate clarifying questions when intent is ambiguous.
+│   └── suggester/       Suggest next exploration moves.
+├── llm/                 LLM harness, structured response parsing, record/replay utilities.
+│   ├── llm_harness.py   Single call() entry point: cost guard, retries, dry_run.
+│   ├── types.py         LLMResponse dataclass.
+│   └── exceptions.py    CostLimitExceeded, LLMParseError, ReplayDriftError.
+├── routers/             HTTP layer — the ONLY place that calls agents and data_access together.
+│   ├── auth.py          POST /auth/login, POST /auth/logout, GET /auth/me.
+│   ├── auth_deps.py     FastAPI dependency for JWT bearer token extraction.
+│   ├── conversations.py POST /conversations, POST /conversations/{id}/messages, GET /conversations/{id}.
+│   ├── cluster_snapshots.py GET /cluster-snapshots/{id}.
+│   ├── movies.py        GET /movies/{id}.
+│   └── dto/             Pydantic request/response wire models.
 ```
 
 ---
 
 ## Architectural invariants
 
-- **`backend/api/` is the only place SQL runs.** Routers, the orchestrator,
-  agents, notebooks, and scripts all go through that layer.
+- **`backend/data_access/` is the only place SQL runs.** Routers, agents, notebooks,
+  and scripts all go through that layer. SQL outside `data_access/` is a bug.
 - **All LLM calls go through `backend/llm/llm_harness.py`.**
   Never import a model client directly elsewhere.
-- **No module-level state.** The orchestrator instance lives on `app.state`;
-  nothing at module scope accumulates cross-request data.
-- **UTC, ISO-8601, server-set timestamps.** The orchestrator stamps turns;
-  the HTTP layer never trusts client-sent times.
-- **Fail loudly.** No `except: pass`, no silent fallbacks. Unknown session →
-  `SessionNotFound` → HTTP 404. Bad input → pydantic 422. Startup failure →
+- **No module-level state.** Nothing at module scope accumulates cross-request data.
+- **UTC, ISO-8601, server-set timestamps.** The HTTP layer never trusts client-sent times.
+- **Fail loudly.** No `except: pass`, no silent fallbacks. Unknown resource →
+  domain `NotFoundError` subclass → global handler → HTTP 404. Startup failure →
   process exit.
+- **Type conventions.** Row types (`XRow`) live in `data_access/<domain>/types.py`; agent-internal types in `agents/<name>/types.py`; wire DTOs in `routers/dto/`. See `backend/CLAUDE.md` for the full layering and exception taxonomy.
 
 ---
 
 ## Running locally
 
 ```bash
-pip install -r requirements.txt
+uv sync --extra test
 uvicorn backend.app:app --reload
 ```
 
@@ -110,13 +112,21 @@ Tests spin up a throwaway pgvector container automatically via `testcontainers` 
 
 ## Endpoints
 
-| Method | Path                            | Description                              |
-|--------|---------------------------------|------------------------------------------|
-| POST   | `/sessions`                     | Create a new session (returns 201).      |
-| POST   | `/sessions/{session_id}/turns`  | Submit a user message, get a response.   |
-| GET    | `/sessions/{session_id}`        | Retrieve full session state + turn list. |
+| Method | Path                                        | Description                                        |
+|--------|---------------------------------------------|----------------------------------------------------|
+| POST   | `/auth/login`                               | Obtain a JWT token.                                |
+| POST   | `/auth/logout`                              | Invalidate the current token.                      |
+| GET    | `/auth/me`                                  | Return the authenticated user.                     |
+| GET    | `/conversations`                            | List conversations for the authenticated user.     |
+| POST   | `/conversations`                            | Create a new conversation (returns 201).           |
+| GET    | `/conversations/{conversation_id}`          | Retrieve conversation state + message history.     |
+| PATCH  | `/conversations/{conversation_id}`          | Update conversation metadata.                      |
+| DELETE | `/conversations/{conversation_id}`          | Delete a conversation (returns 204).               |
+| POST   | `/conversations/{conversation_id}/messages` | Submit a user message, get a response.             |
+| GET    | `/cluster-snapshots/{snapshot_id}`          | Retrieve a cluster snapshot with its clusters.     |
+| GET    | `/movies/{movie_id}`                        | Retrieve movie details.                            |
 
-All responses are JSON. Unknown `session_id` → 404. Empty `user_message` → 422.
+All responses are JSON. Unknown resource → 404. Invalid request body → 422.
 
 ---
 

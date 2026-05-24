@@ -1,79 +1,46 @@
-# Demo Recording
+# demo/ — record/replay demo scripts
 
-## Prerequisites
-
-All commands run from the repo root. Chrome must be running with remote debugging enabled before the Playwright spec:
-
-```bash
-pkill -f chrome; google-chrome --remote-debugging-port=9222 --user-data-dir=/tmp/chrome-debug --start-maximized "http://localhost:5173"
-```
+This directory contains scripts for recording a live CinePal session to a JSONL manifest and replaying it later with zero live LLM calls. Useful for demos, CI smoke tests, and deterministic regression checks.
 
 ---
 
-## Step 1 — Record (one-time, real LLM calls)
+## Scripts
 
-**Terminal 1** — backend in record mode:
-```bash
-bash scripts/demo_record.sh
-```
+| Script | Description |
+|---|---|
+| `demo_record.sh` | Launch the backend in record mode; all LLM responses are saved to a JSONL manifest. |
+| `demo_replay.sh` | Launch the backend in replay mode against the newest manifest; no live LLM calls are made. |
 
-**Terminal 2** — frontend:
-```bash
-cd frontend && npm run dev
-```
-
-**Terminal 3** — Playwright spec (drives the chat automatically):
-```bash
-cd frontend && npm run e2e:headed
-```
-
-The spec types these three messages:
-1. *"I've seen recently Interstellar, can you suggest something similar"*
-2. *"The sheer sense of cosmic awe"*
-3. *"A mix of both"*
-
-When the spec finishes, a manifest is saved to `demo/manifests/<session_id>.jsonl`. Commit it:
-
-```bash
-git add demo/manifests/<session_id>.jsonl
-git commit -m "Add demo manifest"
-```
+Manifests are written to and read from `demo/manifests/`.
 
 ---
 
-## Step 2 — Replay (every subsequent take, no API cost)
+## Usage
 
-**Terminal 1** — backend in replay mode (serves pre-recorded LLM responses):
+### Record a session
+
 ```bash
-bash scripts/demo_replay.sh
+bash demo/demo_record.sh
 ```
 
-**Terminal 2** — frontend:
+Starts the backend with `CINEPAL_LLM_MODE=record`. Interact with the UI normally. Every LLM response is appended to `demo/manifests/session_<timestamp>.jsonl`. Stop the server when done.
+
+### Replay a session
+
 ```bash
-cd frontend && npm run dev
+bash demo/demo_replay.sh
 ```
 
-Start your screen recorder (OBS, QuickTime, etc.), then:
-
-**Terminal 3**:
-```bash
-cd frontend && npm run e2e:headed
-```
-
-The spec replays the exact same conversation instantly. Stop the recorder when it ends.
+Starts the backend with `CINEPAL_LLM_MODE=replay` pointed at the newest `.jsonl` file in `demo/manifests/`. Replaying the same sequence of user messages produces bit-identical LLM responses from the manifest — no API key needed, no token spend.
 
 ---
 
-## Re-recording
+## `CINEPAL_LLM_MODE` env var
 
-If the backend call order changes (you will see `ReplayDriftError` in the logs), delete the old manifest and repeat Step 1:
+| Value | Behaviour |
+|---|---|
+| *(unset)* | Normal live mode — all LLM calls go to the configured provider. |
+| `record` | Live mode + append each LLM response to the active manifest file. |
+| `replay` | Serve LLM responses from the manifest; raise `ReplayDriftError` if the request sequence diverges. |
 
-```bash
-rm demo/manifests/*.jsonl
-```
-
-## Notes
-
-- `CINEPAL_LLM_REPLAY_REALTIME=0` in `scripts/demo_replay.sh` — responses are instant during replay. Set to `1` to re-introduce original latency.
-- The Playwright spec has a 1 s initial pause before any action starts.
-- The spec is in `frontend/e2e/demo.spec.ts`. Edit the messages there if you re-record a different conversation.
+The manifest path is controlled by `CINEPAL_LLM_MANIFEST` (defaults to the newest file in `demo/manifests/` when replaying, or a new timestamped file when recording).

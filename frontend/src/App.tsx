@@ -1,75 +1,42 @@
-import { useEffect } from "react";
-import { useNavigate } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
-import { SessionPage } from "@/features/session/SessionPage";
-import { EmptySessionsScreen } from "@/features/session/EmptySessionsScreen";
-import { useSessionHandler } from "@/features/session/hooks/useSessionHandler";
-import { listSessions } from "@/features/session/services/sessionService";
-import { useSessionStore } from "@/store/sessionStore";
-import { useAuthStore } from "@/store/authStore";
-import { Loader2 } from "lucide-react";
+import { Header } from './features/Header/Header'
+import { ChatPanel } from './features/Chat/ChatPanel'
+import { ClusterSnapshotTab } from './features/ClusterSnapshotTab/ClusterSnapshotTab'
+import { WelcomePage } from './features/Welcome/WelcomePage'
+import { HistorySidebar } from './features/History/HistorySidebar'
+import { useAppShell } from './hooks/useAppShell.ts'
 
 /**
- * Application root (index route at /).
+ * Root application layout. Handles auth hydration, theme init, and anonymous
+ * conversation restoration. Always renders the two-column layout — left panel
+ * shows the welcome screen or chat; right panel shows the scatter plot (grey
+ * silhouette when no conversation is active, colored clusters when one is).
  *
- * Three code paths:
- * - Anonymous: auto-creates a single ephemeral session and renders it inline.
- * - Authenticated, has sessions: navigates to the most recent session.
- * - Authenticated, no sessions: renders ``EmptySessionsScreen`` so the user
- *   consciously starts their first chat.
- *
- * @returns The bootstrapped session page, a redirect, the empty state, or a spinner.
+ * @returns Application shell.
  */
-export function App() {
-  const { sessionId } = useSessionStore();
-  const { status } = useAuthStore();
-  const { initSession, isCreating } = useSessionHandler();
-  const navigate = useNavigate();
+export default function App() {
+	const { conversationId } = useAppShell()
 
-  const bootstrapDone = status === "authenticated" || status === "anonymous";
+	return (
+		<div className="flex flex-col h-screen overflow-hidden bg-[var(--color-bg)]">
+			<Header />
 
-  const { data: sessions, isLoading: listLoading } = useQuery({
-    queryKey: ["sessions", "list"],
-    queryFn: listSessions,
-    enabled: status === "authenticated",
-  });
+			<div className="flex flex-1 min-h-0 pt-14">
+				<HistorySidebar />
 
-  useEffect(() => {
-    if (!bootstrapDone) return;
+				{/* Left: chat or welcome (40%) */}
+				<div className="flex flex-col basis-2/5 min-w-0 shrink-0 min-h-0 border-r border-[var(--color-border)] overflow-hidden">
+					{conversationId ? (
+						<ChatPanel conversationId={conversationId} />
+					) : (
+						<WelcomePage />
+					)}
+				</div>
 
-    if (status === "anonymous") {
-      if (!sessionId) initSession();
-      return;
-    }
-
-    if (listLoading) return;
-
-    if (sessions && sessions.length > 0) {
-      navigate(`/sessions/${sessions[0].session_id}`, { replace: true });
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [bootstrapDone, status, listLoading, sessions]);
-
-  const isWaiting =
-    !bootstrapDone ||
-    (status === "authenticated" && listLoading) ||
-    (status === "anonymous" && (isCreating || !sessionId));
-
-  if (isWaiting) {
-    return (
-      <div className="flex items-center justify-center h-dvh bg-background">
-        <Loader2 className="h-10 w-10 animate-spin text-muted-foreground" />
-      </div>
-    );
-  }
-
-  if (status === "authenticated" && sessions && sessions.length === 0) {
-    return <EmptySessionsScreen />;
-  }
-
-  if (status === "authenticated") {
-    return null;
-  }
-
-  return <SessionPage />;
+				{/* Right: snapshot scatter plot (60%) — always visible */}
+				<div className="basis-3/5 bg-[var(--color-surface)] overflow-hidden">
+					<ClusterSnapshotTab conversationId={conversationId} />
+				</div>
+			</div>
+		</div>
+	)
 }

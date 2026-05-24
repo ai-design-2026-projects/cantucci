@@ -1,8 +1,8 @@
 import logging
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 
-import backend.repository.users as api_users
-from backend.routers.dependencies import get_current_user
+from backend.data_access.users.queries import create_user, get_user_by_email
+from backend.routers.auth_deps import get_current_user
 from backend.auth.passwords import hash_password, verify_password
 from backend.auth.tokens import encode_token, set_auth_cookie
 from backend.auth.types import User
@@ -31,7 +31,7 @@ def login(body: LoginRequest, request: Request, response: Response) -> LoginResp
     """
     client_ip = request.client.host if request.client else ""
 
-    row = api_users.get_user_by_email(body.email)
+    row = get_user_by_email(body.email)
     if row is None or not verify_password(body.password, row.password_hash):
         _auth_log.info("login_failed", extra={"email": body.email, "client_ip": client_ip, "reason": "unknown_email_or_wrong_password"})
         raise HTTPException(status_code=401, detail="Invalid credentials.")
@@ -62,11 +62,11 @@ def register(body: LoginRequest, request: Request, response: Response) -> LoginR
     """
     client_ip = request.client.host if request.client else ""
 
-    if api_users.get_user_by_email(body.email) is not None:
+    if get_user_by_email(body.email) is not None:
         _auth_log.info("register_failed", extra={"email": body.email, "client_ip": client_ip, "reason": "email_taken"})
         raise HTTPException(status_code=409, detail="Email already registered.")
     password_hash = hash_password(body.password)
-    user_id = api_users.create_user(body.email, password_hash, "user")
+    user_id = create_user(body.email, password_hash, "user")
     token = encode_token(user_id)
     set_auth_cookie(response, token)
     _auth_log.info("register_success", extra={"user_id": str(user_id), "email": body.email, "client_ip": client_ip})

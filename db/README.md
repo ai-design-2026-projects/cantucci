@@ -39,10 +39,15 @@ Re-running `apply` is safe — files already recorded in `schema_migrations` are
 | File | Contents |
 |---|---|
 | `001_extensions.sql` | `pgvector`, `pgcrypto` |
-| `002_runs.sql` | `runs` — experimental run registry |
-| `003_catalogue.sql` | Catalogue tables: `movies`, `collections`, `genres`, `people`, `cast_members`, `crew_members`, `keywords`, `production_companies`, `languages`, `countries` + join tables |
-| `004_sessions.sql` | Session-runtime tables: `sessions`, `turns`, `clusters`, `cluster_assignments`, `oracle_feedback` |
-| `005_eval_results.sql` | Evaluation tables: `session_metrics`, `judge_scores` |
+| `002_users.sql` | `users`, `roles`, `user_roles` — user registry and role-based access |
+| `003_catalogue.sql` | Catalogue tables: `movies`, `genres`, `people`, `keywords`, `cast_members`, `crew_members`, `movie_genres`, `movie_keywords` + IVFFlat vector indexes |
+| `004_runs.sql` | `runs` — experimental run registry keyed on config hash |
+| `005_conversations.sql` | `conversations`, `messages` — per-user conversation history |
+| `006_cluster_snapshots.sql` | `cluster_snapshots`, `clusters`, `cluster_memberships` — snapshot tree |
+| `007_concepts.sql` | `concepts`, `concept_scores` — oracle-derived linear axes and prototype concepts |
+| `008_nullable_cluster_label.sql` | Allow `clusters.label` to be NULL (labels generated lazily) |
+| `009_snapshot_cache.sql` | `config_hash` column, `conversation_snapshot_refs` join table, cache-key unique index on `cluster_snapshots` |
+| `010_trailer_embedding_index.sql` | IVFFlat index on `movies.trailer_embedding` for fast cosine-similarity search |
 
 ---
 
@@ -68,9 +73,8 @@ python -m db.ingest --set all   # ingest main + mini
 
 **Prerequisites:**
 
-- `TMDB_API_KEY` in `.env` — only when producing a fresh snapshot (stage 1
-  below). Ingesting an existing HF snapshot does not need it.
-- `HF_TOKEN` in `.env` — only when the HF dataset repo is private.
+- `HF_TOKEN` in `.env` — only when the HF dataset repo is private. Not needed for public repos.
+- `TMDB_API_KEY` — only needed when producing a fresh snapshot via `dataset.scraper`. Ingesting a pre-built HF artifact does not require it.
 
 **For dev/CI use the default `mini` set.** Mini is a strict subset of main, so
 ingesting main later with `--set main` is safe (upsert) and won't duplicate
@@ -78,60 +82,15 @@ data.
 
 ### Producing a new snapshot
 
-Two stages, run on different machines because TMDB throttles per IP and Colab's
-shared egress makes sustained scraping unreliable:
-
-**Stage 1 — local scrape** (your machine, `TMDB_API_KEY` set in env):
-
-Pulls the TMDB daily id export
-(`http://files.tmdb.org/p/exports/movie_ids_*.json.gz`), drops adult titles
-and everything below `--min-popularity` (default `0.4`), then fetches
-`/movie/{id}?append_to_response=credits,keywords` for each surviving id.
-After cleaning, rows with `vote_count < --min-vote-count` (default `5`) are
-dropped before the parquet is written.
-
-```bash
-python -m db.scrape --limit 500 --concurrency 5    # smoke first
-python -m db.scrape --upload                       # full run + push to HF
-```
-
-Writes raw JSONL to `data/local_scrape/tmdb_raw.jsonl` (resumes on restart) and
-a cleaned `snapshot_YYYYMMDD.parquet` to the same directory. With `--upload` the
-parquet is pushed to the HF dataset repo under `snapshots/`. Paste the printed
-path into `configs/default.yaml` under `ingestion.artifacts.snapshot`.
-
-**Stage 2 — Colab embedding** (Runtime → T4 GPU):
-
-1. Open `notebooks/embed_in_colab.ipynb`.
-2. Add Colab secrets: `HF_TOKEN`, optional `GITHUB_TOKEN` for private repo clone.
-3. Run all cells. The notebook downloads the snapshot pinned above, splits,
-   embeds on GPU, and uploads three timestamped parquets via
-   `db/ingestion/upload.upload_artifacts` under `embeddings/`.
-4. Paste the three printed paths into `configs/default.yaml` under
-   `ingestion.artifacts.{main,mini,eval_holdout}`; the `snapshot` path was
-   already pinned in stage 1. The new dataset is now part of `config_hash`,
-   so existing sessions remain replayable against the snapshot they were
-   created on.
-
-### Artifact files
-
-The HF dataset repo is organised into two directories:
-
-| Path-in-repo | Description |
-|---|---|
-| `snapshots/snapshot_YYYYMMDD.parquet`         | Stage-1 cleaned catalogue (no embeddings) — pinned via `ingestion.artifacts.snapshot` |
-| `embeddings/main_YYYYMMDD.parquet`            | Stage-2 full set with embeddings — pinned via `ingestion.artifacts.main` |
-| `embeddings/mini_YYYYMMDD.parquet`            | Stage-2 strict subset of main; fast to load in dev/CI |
-| `embeddings/eval_holdout_YYYYMMDD.parquet`    | Stage-2 disjoint slice for system evaluation (never written to the DB) |
-
-Re-running ingestion is safe — all inserts are idempotent (upsert).
+The offline data pipeline (TMDB scrape → clean → Colab embed → HF upload) lives in
+`dataset/`. See [`dataset/README.md`](../dataset/README.md) for the full workflow.
 
 ---
 
 ## Creating users
 
 A small helper script provisions a user row in the database. Roles must
-already exist in the `roles` table (seeded by migration `006`).
+already exist in the `roles` table (seeded by migration `002_users.sql`).
 
 Usage example (creates an admin):
 

@@ -12,29 +12,39 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ```
 backend/
-  app.py               FastAPI entry (lifespan wires logging, orchestrator, embedder preload)
+  app.py               FastAPI entry (lifespan wires logging, embedder preload; DomainError handler)
   settings.py          Pydantic Settings + EnvSettings; YAML config loader + config hash
   logging_setup.py     configure_logging() + log_llm_call() helper
-  exceptions.py        SessionNotFound, SessionNotConverged, MovieNotFound
-  api/                 ONLY layer that runs SQL (db, sessions, runs, eval, retrieval, movies)
-  models/              Pydantic schemas + domain types (sessions, clusters, runs, eval, llm, …)
-  llm/llm_harness.py   Single gateway for all LLM calls; cost guard; retries; dry_run mode
-  orchestrator/        Orchestrator turn pipeline; tools/{feedback,policy,render,turns}
-  cluster/             Cluster agent; tools/{cluster_describer,soft_cluster_engine,…}
-  decision/            Decision agent; tools/{entropy_calculator,relevance_scorer}
-  ambiguity/           Ambiguity agent
-  retrieval/           Retrieval agent; tools/{vector_search,query_reformulator,…}
-  routers/sessions.py  HTTP endpoints: POST /sessions, POST /sessions/{id}/turns, GET /sessions/{id}
+  exceptions.py        DomainError base + NotFoundError / ParseError / AuthError / OperationalError
+  CLAUDE.md            Type-layering and exception conventions for backend contributors
+  auth/                JWT encode/decode; bcrypt password hashing
+  data_access/         ONLY layer that runs SQL — movies, conversations, cluster_snapshots, concepts, users
+  agents/              LLM-backed agents: intent, clustering, explanation, concept
+  llm/                 LLM harness + types + exceptions (CostLimitExceeded, LLMParseError, ReplayDriftError)
+  routers/             HTTP endpoints; dto/ holds Pydantic wire models
 configs/default.yaml   Active experimental condition (model, session, retrieval, clustering, …)
+core/                  Shared primitives imported by both backend/ and dataset/:
+                       text_encoder.py (sentence-transformers), image_encoder.py (open_clip),
+                       trailer_encoder.py (yt-dlp frames → CLIP → mean-pool; sharded Drive cache),
+                       fusion.py (fuse_batch), clustering.py (HDBSCAN soft-cluster)
+dataset/
+  scraper.py           Stage-1 CLI entry point: TMDB scrape → cleaned parquet → HF snapshots/
+  fetch/               External-source fetchers: tmdb.py (TMDB API), trailer.py (yt-dlp/YouTube)
+  transform/           DataFrame transformations: clean.py, split.py, offline.py
+                       (offline.py orchestrates UMAP on top of core.fusion + core.clustering)
+  hub/                 HF Hub I/O: fetch.py (download artifact), upload.py (push parquets)
 db/
   migrations/00X_*.sql Numbered SQL; apply.py runs them; never edit applied files
   apply.py             Migration runner (idempotent)
-  scrape.py            Stage-1 entry point (local): TMDB → cleaned parquet → HF snapshots/
-  ingest.py            Stage-3 entry point (local): HF embedded parquet → Postgres
-  ingestion/           tmdb_fetch + clean + split + embed + load + fetch/upload (HF)
+  ingest.py            Stage-3 entry point (local): HF embedded parquet → Postgres → dataset.transform.offline
+  utils/load.py        Low-level upsert helpers used by ingest.py
+demo/
+  demo_record.sh       Record a live session to a JSONL manifest
+  demo_replay.sh       Replay a recorded manifest with zero live LLM calls
+  manifests/           JSONL manifests produced by demo_record.sh
 frontend/              React + Vite + TypeScript; zustand + react-query; vitest
-tests/                 agents/, api/, cluster/, db/, retrieval/ — Postgres via testcontainers
-notebooks/embed_in_colab.ipynb  Stage-2 GPU embedding; reads snapshot from HF, uploads embeddings/ back
+tests/                 agents/, data_access/, postprocess/ — Postgres via testcontainers
+notebooks/embed_in_colab.ipynb  Stage-2 GPU embedding; reads HF snapshot, uploads embeddings/ back
 ```
 
 ---
@@ -44,20 +54,21 @@ notebooks/embed_in_colab.ipynb  Stage-2 GPU embedding; reads snapshot from HF, u
 ### Backend
 
 ```bash
-pip install -r requirements.txt
+uv sync --extra test            # core + test deps
+uv sync --extra dataset         # add dataset pipeline deps (sentence-transformers, pandas, …)
 
-python -m db.apply              # apply migrations (idempotent)
-python -m db.ingest             # fetch pre-built HF artifacts → ingest mini (dev default)
-python -m db.ingest --set main  # ingest full ~40k set
+uv run python -m db.apply              # apply migrations (idempotent)
+uv run python -m db.ingest             # fetch pre-built HF artifacts → ingest mini (dev default)
+uv run python -m db.ingest --set main  # ingest full ~40k set
 
-python -m db.scrape --limit 500 --concurrency 5  # stage-1 smoke (local TMDB scrape)
-python -m db.scrape --upload                     # stage-1 full run + push to HF snapshots/
+uv run python -m dataset.scraper --limit 500 --concurrency 5  # stage-1 smoke (local TMDB scrape)
+uv run python -m dataset.scraper --upload                     # stage-1 full run + push to HF snapshots/
 
-uvicorn backend.app:app --reload   # API server; Swagger at /docs
+uv run uvicorn backend.app:app --reload   # API server; Swagger at /docs
 
-pytest tests/                              # full suite
-pytest tests/api/test_sessions_api.py::test_name  # single test
-pytest -k "fragment"                       # filter by name
+uv run pytest tests/                              # full suite
+uv run pytest tests/api/test_sessions_api.py::test_name  # single test
+uv run pytest -k "fragment"                       # filter by name
 ```
 
 ### Frontend (run from `frontend/`)
@@ -98,7 +109,7 @@ Oracle → `routers/sessions.py` → `Orchestrator.run_turn` → Retrieval Agent
 
 **LLM harness** (`backend/llm/llm_harness.py`): `call()` is the only entry point. Enforces `cost_limit_usd` before each call (raises `CostLimitExceeded`), retries 3× on transient OpenAI errors with exponential backoff, supports `dry_run=True` for tests, emits one `log_llm_call(...)` record per attempt.
 
-**DB access boundary**: nothing outside `backend/api/` opens a cursor. `backend/api/db.py` exposes a connection pool + `transaction()` context manager; the other `api/*.py` files are typed CRUD helpers consumed by the orchestrator, routers, and tests.
+**DB access boundary**: nothing outside `backend/data_access/` opens a cursor. `backend/data_access/connection.py` exposes a connection pool + `transaction()` context manager; each `data_access/<domain>/queries.py` is a typed CRUD module consumed by routers and agents.
 
 **Tests boot real Postgres**: `tests/db/test_config.py` registers the `db_url` fixture via `testcontainers`. `pyproject.toml` injects it with `addopts = "-p tests.db.test_config"`. Each test gets a fresh schema. No SQLite fallback exists.
 
@@ -109,7 +120,7 @@ Oracle → `routers/sessions.py` → `Orchestrator.run_turn` → Retrieval Agent
 **These are absolute. If a proposed change would violate one, flag it rather than quietly going along.**
 
 ### Layer boundaries
-- **`backend/api/` is the ONLY layer that touches SQL.** SQL outside `backend/api/` is a bug — fix it, do not work around it. HTTP routes, agents, evaluation scripts, and notebooks all go through the API layer.
+- **`backend/data_access/` is the ONLY layer that touches SQL.** SQL outside `backend/data_access/` is a bug — fix it, do not work around it. HTTP routes, agents, evaluation scripts, and notebooks all go through the data-access layer.
 - **All LLM calls go through `backend/llm/llm_harness.py`.** Never instantiate a model client (OpenAI, Anthropic, etc.) directly in any other module.
 - **Auth/authorization lives on the HTTP layer.** The `api/` layer takes IDs and trusts them.
 
@@ -195,6 +206,9 @@ Stdlib `logging`, configured once in `backend/logging_setup.py`. One ANSI-colour
 ## See also
 
 - `README.md` — setup, Docker instructions, catalogue ingestion (HF vs Kaggle paths)
-- `backend/README.md` — endpoint table, env-var table, `log_llm_call()` usage
+- `backend/README.md` — endpoint table, env-var table, directory layout
+- `backend/CLAUDE.md` — type-layering, exception taxonomy, known gaps
 - `db/README.md` — migration conventions and file index
+- `dataset/README.md` — offline data pipeline (scrape → embed → upload)
+- `demo/README.md` — record/replay demo workflow
 - `.env.example` — full env-var list
