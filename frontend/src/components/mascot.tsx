@@ -1,19 +1,17 @@
 import { motion, AnimatePresence } from 'framer-motion'
 import { cn } from '@/lib/utils'
 
-export type MascotExpression = 'happy' | 'focused' | 'excited' | 'sleepy' | 'sad'
+export type MascotExpression = 'happy' | 'excited' | 'sleepy'
 export type MascotSize = 'sm' | 'md' | 'lg'
 
 const SIZES: Record<MascotSize, number> = { sm: 32, md: 56, lg: 120 }
 
-type Pose = 'idle' | 'bob' | 'celebrate' | 'slumped'
+type Pose = 'idle' | 'celebrate' | 'slumped'
 
 const EXPRESSION_TO_POSE: Record<MascotExpression, Pose> = {
     happy: 'idle',
-    focused: 'bob',
     excited: 'celebrate',
     sleepy: 'slumped',
-    sad: 'slumped',
 }
 
 // ─── SVG sub-components ───────────────────────────────────────────────────────
@@ -252,14 +250,13 @@ function SlumpedSvg() {
 }
 
 /**
- * Animated popcorn-bucket mascot with five emotional expressions.
+ * Animated popcorn-bucket mascot with three emotional expressions.
  *
  * Animations per pose
  * -------------------
- *  idle      — gentle float, periodic eye blink
- *  bob       — same as idle + continuous vertical bob on the wrapper
- *  celebrate — body jump, sparkle pulse, flying popcorn, eye grow
- *  slumped   — Zzz drift & fade, eyelid droop cycle, snore-mouth pulse
+ *  idle      — gentle float, periodic eye blink  (happy)
+ *  celebrate — body jump, sparkle pulse, flying popcorn, eye grow  (excited)
+ *  slumped   — Zzz drift & fade, eyelid droop cycle, snore-mouth pulse  (sleepy)
  *
  * @param expression - Emotional state (default: "happy").
  * @param size       - "sm" 32px | "md" 56px | "lg" 120px.
@@ -276,21 +273,20 @@ export function Mascot({
 }) {
     const pose = EXPRESSION_TO_POSE[expression]
     const px   = SIZES[size]
-    const isBob = pose === 'bob'
+    const isFloat     = pose === 'idle'
     const isCelebrate = pose === 'celebrate'
 
     return (
         <motion.div
             className={cn('shrink-0 select-none', className)}
             style={{ width: px, height: px }}
-            // bob: up-down float
             animate={
-                isBob       ? { y: [0, -6, 0] } :
+                isFloat     ? { y: [0, -6, 0] } :
                 isCelebrate ? { y: [0, -10, 0, -6, 0] } :
                 undefined
             }
             transition={
-                isBob       ? { duration: 1.4, repeat: Infinity, ease: 'easeInOut' } :
+                isFloat     ? { duration: 2.2, repeat: Infinity, ease: 'easeInOut' } :
                 isCelebrate ? { duration: 0.5, repeat: Infinity, ease: 'easeOut' } :
                 undefined
             }
@@ -304,7 +300,7 @@ export function Mascot({
                     transition={{ duration: 0.22 }}
                     style={{ width: px, height: px }}
                 >
-                    {(pose === 'idle' || pose === 'bob') && <IdleSvg />}
+                    {pose === 'idle'      && <IdleSvg />}
                     {pose === 'celebrate' && <CelebrateSvg />}
                     {pose === 'slumped'   && <SlumpedSvg />}
                 </motion.div>

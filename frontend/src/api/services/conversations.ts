@@ -48,6 +48,19 @@ export async function sendMessageFetcher(
 }
 
 /**
+ * Open a Server-Sent Events stream for real-time turn progress.
+ *
+ * Returns an EventSource connected to GET /conversations/{id}/events.
+ * The caller is responsible for closing it via `source.close()`.
+ *
+ * @param conversationId - Conversation UUID.
+ * @returns Native EventSource instance.
+ */
+export function openConversationEventStream(conversationId: string): EventSource {
+    return new EventSource(`/conversations/${conversationId}/events`)
+}
+
+/**
  * Delete a conversation owned by the authenticated user.
  *
  * @param conversationId - Conversation UUID to delete.

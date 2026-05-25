@@ -1,24 +1,33 @@
 import { AnimatePresence, motion } from 'framer-motion'
 import { Mascot } from '@/components/mascot'
 import { useLoadingStatusRotation } from '../hooks/useLoadingStatusRotation'
+import type { MascotExpression } from '@/components/mascot'
 
 /**
  * Fixed-size loading bubble shown while a turn is in flight.
  * Displays a rotating status message and animated Poppy mascot.
  * The bubble dimensions never change regardless of content.
  *
- * @param isLoading - Controls whether the bubble is visible.
- * @param isError   - When true, Poppy shows a sad expression.
+ * @param isLoading             - Controls whether the bubble is visible.
+ * @param isError               - When true, Poppy shows a sad expression.
+ * @param currentStepLabel      - When provided, overrides the rotating fallback message.
+ * @param currentStepExpression - When provided, overrides the rotating fallback expression.
  * @returns Animated loading bubble or null when not loading.
  */
 export function LoadingBubble({
 	isLoading,
 	isError,
+	currentStepLabel,
+	currentStepExpression,
 }: {
 	isLoading: boolean
 	isError: boolean
+	currentStepLabel?: string
+	currentStepExpression?: MascotExpression
 }) {
-	const { message, expression } = useLoadingStatusRotation(isLoading, isError)
+	const { message: fallbackMessage, expression: fallbackExpression } = useLoadingStatusRotation(isLoading, isError)
+	const message = currentStepLabel ?? fallbackMessage
+	const expression = currentStepExpression ?? fallbackExpression
 
 	return (
 		<AnimatePresence>
