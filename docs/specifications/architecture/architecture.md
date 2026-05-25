@@ -16,7 +16,7 @@ vector database.
 |---|---|---|
 | **User (Oracle)** | Oracle | The source of truth: a human participant or an MCP/LLM client. Sends free-form natural-language messages requesting clustering operations, explanations, or navigation. |
 | **Coordinator** | Orchestration & handoffs | The sole orchestrator and **only writer to the database**. Per message it loads current cluster state, labels any unlabeled clusters, classifies intent, applies a confidence gate, executes each requested action in order, and optionally asks the Responder for a suggestion. Holds no in-memory session state — every turn re-reads from the DB. |
-| **Intent Agent** | Intent classification | Parses the oracle's message into an ordered list of actions, each tagged with a `NavigationMode` or `DialogueMode`, a confidence score, and operation-specific parameters (concept, target cluster, merged label, metadata filter, embedding modalities). Uses the fast model. |
+| **Intent Agent** | Intent classification | Parses the oracle's message into an ordered list of actions, each tagged with a `NavigationMode` or `DialogueMode`, a confidence score, and operation-specific parameters (concept, target cluster, merged label, metadata filter, embedding modalities).|
 | **Clustering Agent** | Grouping & navigation | Four pure operations over movie embeddings — `drill_down`, `merge`, `focus`, `cross_filter` — each producing a draft snapshot of clusters with per-movie soft-membership probabilities. Runs no LLM call itself; concept scoring and HDBSCAN do the work. Never writes to the DB. |
 | **Concept Agent** | Semantic axis building | Turns a user concept string (e.g. "surrealism") into either a `linear_axis` (normalized difference of pole descriptions) or a `prototype` (centroid of exemplar movie embeddings). Used to guide drill-down and cross-filter splits. Uses the strong model. |
 | **Labeling Agent** | Naming | A single batched LLM call that names and summarises all unlabeled clusters at once (root clusters are ingested unlabeled and labelled lazily on first access). Uses the fast model. |
@@ -24,6 +24,35 @@ vector database.
 | **Explanation Agent** | Placement rationale | Generates a natural-language explanation for why a given movie sits in a given cluster, using the cluster label and exemplars. Read-only. Uses the strong model. |
 | **Responder Agent** | Proactive suggestions | After actions complete, computes deterministic signals (similar cluster pairs, a dominant cluster, high noise fraction) and only if a signal exceeds threshold calls the LLM to propose a next step. May decline. Uses the fast model. |
 | **Vector Database** | Persistent memory | Stores catalogue embeddings (three modalities), conversations and messages, the content-addressed cluster-snapshot tree, clusters, soft memberships, and concepts. |
+
+## Representation & clustering substrate
+
+The agents operate over pre-computed movie embeddings. The encoding and clustering primitives live
+in `core/` and are shared with the offline ingest pipeline (see `dataset/README.md` for the offline
+side); the online loop only reads the stored vectors and re-clusters subsets of them.
+
+Each movie carries up to three 1024-dimensional, L2-normalised embeddings, matching the `Modality`
+enum and the embedding columns in `data_schema.md`:
+
+| Modality | Model | Encodes | Column |
+|---|---|---|---|
+| `TEXT` | `BAAI/bge-large-en-v1.5` (sentence-transformers) | `composite_text` (title, overview, genres, cast, director, …) | `text_embedding` |
+| `REVIEW` | `BAAI/bge-large-en-v1.5` | `reviews_text` (concatenated reviews) | `review_embedding` |
+| `TRAILER` | open_clip `ViT-H/14` | 16 evenly-spaced trailer frames, CLIP-encoded then mean-pooled | `trailer_embedding` |
+
+**Fusion** (`core/fusion.py`) takes two paths because the spaces are not interchangeable. Text and
+reviews share the same BGE space, so they are combined by a **weighted vector average**
+(`fuse_batch`); rows without a review stay text-only. BGE text and CLIP trailer embeddings live in
+incompatible spaces, so they are combined at the **distance level** — a weight-summed cosine-distance
+matrix (`combined_distance_matrix`, weights from `fusion.runtime_weights`) rather than by averaging
+vectors. The intent agent picks which modalities to fuse per operation via `embedding_spaces`.
+
+**Clustering** (`core/clustering.py`, `backend/agents/clustering/operations/`) reduces the chosen
+embeddings with UMAP and runs **HDBSCAN soft clustering**, yielding per-movie soft-membership
+probabilities (noise points spread uniformly across clusters); cross-space operations feed the
+precomputed distance matrix to HDBSCAN instead. When a drill-down is **concept-guided**, the Concept
+agent's axis or prototype scores every movie, the set is split at the **median** score into high/low
+halves, and each half is clustered separately to produce more concept-coherent groups.
 
 ## Agent entry points & tools
 
