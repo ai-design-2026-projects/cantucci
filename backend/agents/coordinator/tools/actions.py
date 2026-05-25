@@ -16,7 +16,8 @@ from backend.agents.coordinator import replies
 from backend.agents.coordinator.tools.progress import ProgressReporter
 from backend.agents.coordinator.types import sentinel_cluster_snapshot_id
 from backend.agents.explanation.agent import explain_placement
-from backend.agents.intent.types import IntentAction, NavigationMode
+from backend.agents.clustering.types import NavigationMode
+from backend.agents.intent.types import IntentAction
 from backend.data_access.cluster_snapshots.queries import (
     get_cluster_snapshot_with_clusters,
     get_root_cluster_snapshot,

@@ -8,7 +8,8 @@ from backend.agents.coordinator.tools.progress import ProgressReporter
 from backend.agents.coordinator.tools.suggestions import maybe_suggest
 from backend.agents.coordinator.types import CoordinatorResult, sentinel_cluster_snapshot_id
 from backend.agents.intent.agent import classify as classify_intent
-from backend.agents.intent.types import IntentAction, IntentResult, NavigationMode
+from backend.agents.clustering.types import NavigationMode
+from backend.agents.intent.types import IntentAction, IntentResult
 from backend.data_access.cluster_snapshots.queries import get_cluster_snapshot_with_clusters
 from backend.data_access.cluster_snapshots.types import ClusterRow
 from backend.data_access.conversations.types import ConversationRow
