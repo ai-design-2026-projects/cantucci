@@ -1,0 +1,67 @@
+"""Static reply-text constants and dynamic reply format helpers for the Coordinator.
+
+Centralises all user-facing copy so it can be reviewed and updated independently
+of the pipeline logic.
+"""
+
+
+SMALL_TALK = (
+    "I'm here to help you explore the movie catalogue through clustering. "
+    "You can ask me to split a cluster, merge groups, or explain a placement."
+)
+
+NO_CLUSTER_TO_SPLIT = "Please specify which cluster to split."
+
+FEWER_THAN_TWO_TO_MERGE = "There are fewer than two clusters to merge."
+
+MERGE_REPLY = "Merged the selected clusters into one."
+
+UNSUPPORTED_OPERATION = (
+    "I understood your request but couldn't perform that operation on the current "
+    "cluster snapshot. Try asking to split, merge, or explain a cluster."
+)
+
+NO_BASE_SNAPSHOT = "No base cluster snapshot found yet. Ingest the catalogue first."
+
+EXPLAIN_TARGET_UNCLEAR = (
+    "I couldn't identify which movie or cluster to explain. Please be more specific."
+)
+
+
+def format_drill_down_reply(labels: list[str | None], n_new: int) -> str:
+    """Format the reply for a completed DRILL_DOWN operation.
+
+    Args:
+        labels: Label strings of the new sub-clusters (may contain None).
+        n_new:  Total number of new sub-clusters produced.
+
+    Returns:
+        A human-readable summary of the split result.
+    """
+    display = [lbl for lbl in labels[:5]]
+    ellipsis = "…" if n_new > 5 else ""
+    return f"Split into {n_new} sub-clusters: {', '.join(str(l) for l in display)}{ellipsis}."
+
+
+def format_recut_reply(n_new: int) -> str:
+    """Format the reply for a completed RECUT operation.
+
+    Args:
+        n_new: Total number of new clusters produced.
+
+    Returns:
+        A human-readable summary of the re-clustering result.
+    """
+    return f"Re-clustered the catalogue into {n_new} new clusters."
+
+
+def format_reset_reply(n: int) -> str:
+    """Format the reply for a completed RESET operation.
+
+    Args:
+        n: Number of clusters in the root snapshot.
+
+    Returns:
+        A human-readable summary of the reset result.
+    """
+    return f"Reset to the base clustering with {n} clusters."
