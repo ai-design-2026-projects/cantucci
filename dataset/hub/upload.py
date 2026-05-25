@@ -114,7 +114,7 @@ def upload_split(
     Returns:
         The ``path_in_repo`` of the uploaded file, e.g.
         ``"embeddings/mini_20260522.parquet"``. Paste this into
-        ``configs/default.yaml`` under ``ingestion.artifacts.<split_name>``.
+        ``configs/dev.yaml`` under ``ingestion.artifacts.<split_name>``.
     """
     artifacts_dir.mkdir(parents=True, exist_ok=True)
     stamp = timestamp or datetime.now(timezone.utc).strftime("%Y%m%d")
@@ -184,7 +184,7 @@ def upload_artifacts(
 
     Returns:
         Dict mapping split name → ``path_in_repo``. Print this in the Colab
-        notebook so the values can be pasted into ``configs/default.yaml``.
+        notebook so the values can be pasted into ``configs/dev.yaml``.
     """
     stamp = timestamp or datetime.now(timezone.utc).strftime("%Y%m%d")
     shared = dict(repo_id=repo_id, artifacts_dir=artifacts_dir,
@@ -220,7 +220,7 @@ def upload_snapshot(
     Returns:
         The ``path_in_repo`` of the uploaded file, e.g.
         ``"snapshots/snapshot_20260517.parquet"``. Print this so it can be pinned
-        in ``configs/default.yaml`` under ``ingestion.artifacts.snapshot``.
+        in ``configs/dev.yaml`` under ``ingestion.artifacts.snapshot``.
     """
     stamp = timestamp or datetime.now(timezone.utc).strftime("%Y%m%d")
     resolved_token = token or get_env().hf_token or None

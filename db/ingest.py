@@ -6,7 +6,7 @@ Usage:
     python -m db.ingest --set main     # ingest the full production set
     python -m db.ingest --set all      # ingest main + mini
 
-The repo and per-split filenames are pinned in ``configs/default.yaml`` under
+The repo and per-split filenames are pinned in ``configs/dev.yaml`` under
 the ``ingestion:`` block. Producing a new snapshot is a two-stage workflow:
 ``python -m dataset.scraper --upload`` (local TMDB scrape) followed by
 ``notebooks/embed_in_colab.ipynb`` (GPU embed + upload). The ``eval_holdout``

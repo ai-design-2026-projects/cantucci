@@ -1,0 +1,78 @@
+models:
+  strong:
+    name: "anthropic/claude-3.5-sonnet"
+    provider: openrouter
+    seed: 42
+    max_tokens: 1024
+  fast:
+    name: "anthropic/claude-3.5-haiku"
+    provider: openrouter
+    seed: 42
+    max_tokens: 512
+
+retrieval:
+  top_k: 50
+  ivfflat_probes: 10
+
+split:
+  mini_size: 500
+  eval_frac: 0.10
+  seed: 42
+
+representation:
+  model: BAAI/bge-large-en-v1.5
+  embedding_dim: 1024
+
+clustering:
+  base:
+    algorithm: hdbscan
+    min_cluster_size: 50
+    min_samples: 10
+    cluster_selection_method: eom
+    cluster_selection_epsilon: 0.0
+    prob_threshold: 0.01
+  online:
+    drilldown_min_cluster_size: 10
+    recut_min_cluster_size: 30
+
+fusion:
+  text_weight: 0.6
+  review_weight: 0.4
+  runtime_weights:
+    text: 0.6
+    trailer: 0.4
+
+umap:
+  # 2D visualization projection
+  n_neighbors: 15
+  min_dist: 0.1
+  # Pre-clustering dimensionality reduction (applied before HDBSCAN)
+  clustering_n_components: 50
+  clustering_n_neighbors: 15
+  clustering_min_dist: 0.0
+  clustering_min_dataset_size: 150
+
+labeling:
+  top_exemplars: 8
+
+intent:
+  confidence_threshold: 0.6
+
+suggestions:
+  enabled: true
+  similar_pair_distance_max: 0.25
+  dominance_fraction: 0.55
+  noise_fraction_floor: 0.20
+  top_n_signals: 2
+
+conversation:
+  cost_limit_usd: 5.0
+  max_messages: 100
+
+ingestion:
+  hf_repo: "446f6e6e79/CinePal-embeddings"
+  artifacts:
+    snapshot: snapshots/snapshot_20260522.parquet
+    main: embeddings/main_20260522.parquet
+    mini: embeddings/mini_20260522.parquet
+    eval_holdout: embeddings/eval_holdout_20260522.parquet

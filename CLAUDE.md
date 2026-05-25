@@ -22,7 +22,9 @@ backend/
   agents/              LLM-backed agents: intent, clustering, explanation, concept
   llm/                 LLM harness + types + exceptions (CostLimitExceeded, LLMParseError, ReplayDriftError)
   routers/             HTTP endpoints; dto/ holds Pydantic wire models
-configs/default.yaml   Active experimental condition (model, session, retrieval, clustering, …)
+configs/dev.yaml       Local/dev config (free OpenRouter models; no-CONFIG_PATH fallback)
+configs/prod.yaml      Production config (paid OpenRouter models — set CONFIG_PATH=configs/prod.yaml)
+configs/test.yaml      CI smoke-test config (free models; tiny cost_limit_usd)
 core/                  Shared primitives imported by both backend/ and dataset/:
                        text_encoder.py (sentence-transformers), image_encoder.py (open_clip),
                        trailer_encoder.py (yt-dlp frames → CLIP → mean-pool; sharded Drive cache),
@@ -88,7 +90,7 @@ npm run test:watch
 |---|---|---|
 | `DATABASE_URL` | yes | Postgres connection string |
 | `OPENAI_API_KEY` | yes (live) | LLM calls |
-| `CONFIG_PATH` | no | Override active YAML config (default `configs/default.yaml`) |
+| `CONFIG_PATH` | no | Active YAML config; defaults to `configs/dev.yaml`; set to `configs/prod.yaml` for production |
 | `LOG_LEVEL` | no | `DEBUG \| INFO \| WARNING \| ERROR \| CRITICAL` (default `INFO`) |
 | `CINEPAL_ARTIFACTS_REPO` | ingestion | HF dataset repo id |
 | `HF_TOKEN` | ingestion | Only for private HF repos |
@@ -180,6 +182,7 @@ Stdlib `logging`, configured once in `backend/logging_setup.py`. One ANSI-colour
 - Every component test uses a fresh, empty state — no shared state between tests.
 - **Component tests for each Agent** use the harness `dry_run` mode (no live LLM calls). They are re-run after any prompt file change.
 - **`db_url` fixture** (`tests/db/test_config.py`) boots a throwaway pgvector container via `testcontainers` and applies all migrations into an isolated schema. Each test gets a clean Postgres schema; no state is shared between tests. The production DB is Postgres — no SQLite fallback.
+- **Smoke suite is intentionally minimal.** `tests/db/` and `tests/backend/` are smoke-level only — they prove migrations apply and the app boots and serves against a real Postgres. Do **not** add a test per agent or per function. Keep new tests at the "does it boot / migrate / serve" level unless explicitly asked otherwise.
 
 ---
 
