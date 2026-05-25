@@ -1,7 +1,27 @@
 from dataclasses import dataclass
 from pydantic import BaseModel
 
+from backend.data_access.movies.types import ClusterProfileRow
 from backend.llm.exceptions import LLMParseError
+
+
+@dataclass(frozen=True, slots=True)
+class ClusterLabelContext:
+    """Per-cluster context supplied to the labelling agent for operation-produced clusters.
+
+    When clusters result from a concept-driven operation (e.g. a drill-down by
+    "film length"), this context lets the LLM name each cluster by how its
+    members sit on the split dimension rather than by generic thematic identity.
+
+    Attributes:
+        concept:      The dimension/concept the operation split on (e.g. "film length").
+        parent_label: Label of the cluster this one was split from — used as a
+                      breadcrumb so the child label can reference its parent context.
+        profile:      Aggregate metadata statistics for this cluster's full membership.
+    """
+    concept: str | None
+    parent_label: str | None
+    profile: ClusterProfileRow | None
 
 
 class ClusterLabelItem(BaseModel):

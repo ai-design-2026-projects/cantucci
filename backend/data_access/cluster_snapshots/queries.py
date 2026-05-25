@@ -283,6 +283,28 @@ def get_cluster_snapshot_with_clusters(cluster_snapshot_id: uuid.UUID) -> Cluste
     return ClusterSnapshotWithClusters(cluster_snapshot=snapshot, clusters=clusters)
 
 
+def get_cluster_labels(cluster_ids: list[uuid.UUID]) -> dict[uuid.UUID, str]:
+    """Return the label for each requested cluster ID, omitting unlabeled entries.
+
+    Args:
+        cluster_ids: UUIDs of clusters whose labels to look up.
+
+    Returns:
+        Mapping from cluster UUID to its label string. Clusters with a NULL label
+        are excluded from the result.
+    """
+    if not cluster_ids:
+        return {}
+
+    with transaction() as conn:
+        rows = conn.execute(
+            "SELECT id, label FROM clusters WHERE id = ANY(%s)",
+            (cluster_ids,),
+        ).fetchall()
+
+    return {r["id"]: r["label"] for r in rows if r["label"] is not None}
+
+
 def get_conversation_cluster_snapshots(conversation_id: uuid.UUID) -> list[ClusterSnapshotRow]:
     """Return all snapshots that *conversation_id* has touched, ordered by ref creation time.
 

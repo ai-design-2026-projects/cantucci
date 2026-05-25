@@ -4,7 +4,7 @@ from typing import Union
 import numpy as np
 
 from backend.data_access.connection import transaction
-from backend.data_access.movies.types import MovieDetailsRow, MovieRow, MovieSearchHitRow, MovieStubRow
+from backend.data_access.movies.types import ClusterProfileRow, MovieDetailsRow, MovieRow, MovieSearchHitRow, MovieStubRow
 from backend.settings import get_settings
 
 _MODALITY_COLUMN: dict[str, str] = {
@@ -296,6 +296,70 @@ def fetch_movie_details(movie_ids: list[int]) -> list[MovieDetailsRow]:
     by_id: dict[int, MovieDetailsRow] = {r["id"]: MovieDetailsRow.from_row(r) for r in rows}
     result = [by_id[mid] for mid in movie_ids if mid in by_id]
     log.debug("fetch_movie_details", extra={"requested": len(movie_ids), "returned": len(result)})
+    return result
+
+
+def fetch_cluster_profile(movie_ids: list[int]) -> ClusterProfileRow:
+    """Return aggregate metadata for a set of cluster-member movies.
+
+    Computes mean runtime, year range, mean vote average, and the top-5 genres
+    by frequency across all members in a single query. Used to supply the
+    labelling agent with discriminative statistics when naming operation-produced
+    clusters.
+
+    Args:
+        movie_ids: TMDB integer IDs of every member of the cluster.
+
+    Returns:
+        ``ClusterProfileRow`` with aggregated statistics. All numeric fields are
+        ``None`` when *movie_ids* is empty or no matching rows exist.
+    """
+    if not movie_ids:
+        return ClusterProfileRow(
+            mean_runtime=None,
+            min_year=None,
+            max_year=None,
+            mean_rating=None,
+            top_genres=[],
+        )
+
+    with transaction() as conn:
+        row = conn.execute(
+            """
+            SELECT
+                AVG(m.runtime)       AS mean_runtime,
+                MIN(m.release_year)  AS min_year,
+                MAX(m.release_year)  AS max_year,
+                AVG(m.vote_average)  AS mean_rating,
+                COALESCE(
+                    ARRAY(
+                        SELECT g.name
+                        FROM movie_genres mg
+                        JOIN genres g ON g.id = mg.genre_id
+                        WHERE mg.movie_id = ANY(%s)
+                        GROUP BY g.name
+                        ORDER BY COUNT(*) DESC
+                        LIMIT 5
+                    ),
+                    ARRAY[]::text[]
+                ) AS top_genres
+            FROM movies m
+            WHERE m.id = ANY(%s)
+            """,
+            (movie_ids, movie_ids),
+        ).fetchone()
+
+    if row is None:
+        return ClusterProfileRow(
+            mean_runtime=None,
+            min_year=None,
+            max_year=None,
+            mean_rating=None,
+            top_genres=[],
+        )
+
+    result = ClusterProfileRow.from_row(row)
+    log.debug("fetch_cluster_profile", extra={"n_movies": len(movie_ids)})
     return result
 
 

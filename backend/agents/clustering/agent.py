@@ -8,15 +8,18 @@ from backend.agents.clustering.types import ClusterSnapshotDraft
 from backend.agents.concept.types import ConceptRep
 from backend.agents.intent.types import Modality
 from backend.agents.labeling.agent import label_clusters
+from backend.agents.labeling.types import ClusterLabelContext
 from backend.data_access.cluster_snapshots.queries import (
     canonicalize_params,
     create_cluster,
     create_cluster_snapshot,
     create_memberships,
     find_cached_snapshot,
+    get_cluster_labels,
     record_conversation_snapshot_ref,
 )
 from backend.data_access.conversations.queries import set_current_cluster_snapshot
+from backend.data_access.movies.queries import fetch_cluster_profile
 from backend.settings import get_config_hash
 
 log = logging.getLogger(__name__)
@@ -95,6 +98,51 @@ async def apply_recut(
     return await _persist_and_label(draft, conversation_id, parent_cluster_snapshot_id, accumulated_cost)
 
 
+def _build_label_contexts(
+    draft: ClusterSnapshotDraft,
+    cluster_indices: list[int],
+) -> list[ClusterLabelContext] | None:
+    """Build per-cluster labelling context for operation-produced clusters.
+
+    When the draft carries a concept (e.g. ``drill_down`` by "film length"),
+    each context includes that concept, the parent cluster's label as a
+    breadcrumb, and aggregate metadata statistics over the cluster's full
+    membership so the LLM can name clusters by dimension rather than theme.
+
+    When no concept is present (e.g. a ``merge`` or ``recut`` without a concept),
+    returns ``None`` so the labeller falls back to title-only behaviour.
+
+    Args:
+        draft:           Snapshot draft produced by the most recent operation.
+        cluster_indices: Indices into ``draft.clusters`` of the unlabeled entries
+                         that need labels.
+
+    Returns:
+        List of ``ClusterLabelContext`` in the same order as *cluster_indices*,
+        or ``None`` if no concept is available.
+    """
+    concept: str | None = draft.params.get("concept")
+    if not concept:
+        return None
+
+    parent_ids = [
+        draft.clusters[i].parent_cluster_id
+        for i in cluster_indices
+        if draft.clusters[i].parent_cluster_id is not None
+    ]
+    parent_label_map = get_cluster_labels(parent_ids) if parent_ids else {}
+
+    contexts: list[ClusterLabelContext] = []
+    for i in cluster_indices:
+        cd = draft.clusters[i]
+        member_ids = [mid for mid, _ in cd.memberships]
+        profile = fetch_cluster_profile(member_ids)
+        parent_label = parent_label_map.get(cd.parent_cluster_id) if cd.parent_cluster_id else None
+        contexts.append(ClusterLabelContext(concept=concept, parent_label=parent_label, profile=profile))
+
+    return contexts
+
+
 async def _persist_and_label(
     draft: ClusterSnapshotDraft,
     conversation_id: uuid.UUID,
@@ -151,10 +199,12 @@ async def _persist_and_label(
     batch_result = None
     if unlabeled_indices:
         exemplar_groups = [draft.clusters[i].exemplar_movie_ids for i in unlabeled_indices]
+        contexts = _build_label_contexts(draft, unlabeled_indices)
         batch_result = await label_clusters(
             exemplar_groups=exemplar_groups,
             conversation_id=str(conversation_id),
             accumulated_cost=accumulated_cost,
+            contexts=contexts,
         )
 
     label_map: dict[int, tuple[str, str | None]] = {}

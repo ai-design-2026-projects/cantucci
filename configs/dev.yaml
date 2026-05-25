@@ -74,5 +74,5 @@ ingestion:
   artifacts:
     snapshot: snapshots/snapshot_20260522.parquet
     main: embeddings/main_20260522.parquet
-    mini: embeddings/mini_20260522.parquet
-    eval_holdout: embeddings/eval_holdout_20260522.parquet
+    mini: embeddings/mini_20260525.parquet
+    eval_holdout: embeddings/eval_holdout_20260525.parquet
