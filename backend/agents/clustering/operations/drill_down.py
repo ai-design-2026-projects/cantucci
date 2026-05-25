@@ -2,11 +2,10 @@ import logging
 import uuid
 import numpy as np
 
-from backend.agents.clustering.operations._helpers import exemplars, reduce_for_clustering
+from backend.agents.clustering.operations._helpers import exemplars, reduce_for_clustering, subcluster
 from backend.agents.clustering.types import ClusterDraft, ClusterSnapshotDraft
 from backend.agents.concept.scoring import score_movies
 from backend.agents.concept.types import ConceptRep
-from backend.agents.clustering.operations.subcluster import subcluster
 from backend.agents.clustering.types import Modality
 from backend.data_access.cluster_snapshots.queries import get_memberships
 from backend.data_access.movies.queries import fetch_text_embeddings, fetch_modality_embeddings
@@ -40,6 +39,7 @@ async def drill_down(
     Returns:
         ``ClusterSnapshotDraft`` ready to be persisted.
     """
+    # If no embedding spaces were specified, default to using the text embeddings
     if embedding_spaces is None:
         embedding_spaces = [Modality.TEXT]
 
@@ -51,19 +51,23 @@ async def drill_down(
 
     movie_ids = [m.movie_id for m in memberships]
 
+    # Determine the embedding map based on the specified embedding spaces
     if len(embedding_spaces) == 1 and embedding_spaces[0] == Modality.TEXT:
         emb_map = fetch_text_embeddings(movie_ids)
-        available_ids = [mid for mid in movie_ids if mid in emb_map]
+        available_ids = [movie_id for movie_id in movie_ids if movie_id in emb_map]
         multi_modal = False
     else:
         space_keys = [s.value for s in embedding_spaces]
+        # Fetch embeddings for all specified modalities in one go
         modal_data = fetch_modality_embeddings(movie_ids, space_keys)
+        
+        # Only keep movies that have embeddings in all the specified modalities
         available_ids = [
-            mid for mid in movie_ids
-            if all(mid in modal_data[m] for m in space_keys)
+            movie_id for movie_id in movie_ids
+            if all(movie_id in modal_data[m] for m in space_keys)
         ]
         multi_modal = True
-        emb_map = {mid: modal_data["text"][mid].tolist() for mid in available_ids if "text" in modal_data}
+        emb_map = {movie_id: modal_data["text"][movie_id].tolist() for movie_id in available_ids if "text" in modal_data}
 
     if not available_ids:
         raise ValueError(f"No embeddings found for cluster {source_cluster_id}")
@@ -77,24 +81,28 @@ async def drill_down(
     }
 
     def _cluster_group(group_ids: list[int]) -> "SoftClusterResult":  # type: ignore[name-defined]
+        """Cluster the given group of movie IDs, using either single-modality or multi-modal embeddings as appropriate."""
         if multi_modal:
+            # Map each modality to its embedding matrix for the movies in this group
             embs_by_modality = {
-                s.value: np.array([modal_data[s.value][mid] for mid in group_ids], dtype=np.float32)
-                for s in embedding_spaces
+                space.value: np.array([modal_data[space.value][movie_id] for movie_id in group_ids], dtype=np.float32)
+                for space in embedding_spaces
             }
+            # Compute a combined distance matrix across modalities and feed it to HDBSCAN for clustering
             runtime_weights = cfg.fusion.runtime_weights
             dist_mat = combined_distance_matrix(embs_by_modality, runtime_weights)
+            # Run HDBSCAN directly on the precomputed distance matrix, since we don't have a single embedding space to reduce to
             return subcluster(None, cfg.clustering.online.drilldown_min_cluster_size, 1, distance_matrix=dist_mat)
         else:
-            group_embs = np.array([emb_map[mid] for mid in group_ids], dtype=np.float32)
+            group_embs = np.array([emb_map[movie_id] for movie_id in group_ids], dtype=np.float32)
             group_embs = reduce_for_clustering(group_embs, cfg.umap, cfg.split.seed)
             return subcluster(group_embs, cfg.clustering.online.drilldown_min_cluster_size, 1)
 
     if concept is not None:
         concept_scores = score_movies(concept, available_ids, emb_map)
         median_score = float(np.median(list(concept_scores.values())))
-        high_ids = [mid for mid in available_ids if concept_scores.get(mid, 0) >= median_score]
-        low_ids = [mid for mid in available_ids if concept_scores.get(mid, 0) < median_score]
+        high_ids = [movie_id for movie_id in available_ids if concept_scores.get(movie_id, 0) >= median_score]
+        low_ids = [movie_id for movie_id in available_ids if concept_scores.get(movie_id, 0) < median_score]
 
         clusters: list[ClusterDraft] = []
         for group_ids, label_suffix in [(high_ids, f"High {concept.concept_name}"), (low_ids, f"Low {concept.concept_name}")]:

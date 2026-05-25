@@ -16,22 +16,19 @@ async def cross_filter(
     concept: ConceptRep | None = None,
     embedding_spaces: list[Modality] | None = None,
 ) -> ClusterSnapshotDraft:
-    """Filter the current snapshot's movies by metadata then re-cluster the survivors.
+    """
+    Filter the current snapshot's movies by metadata then re-cluster the survivors.
 
     Collects all movie IDs across every cluster in the parent snapshot, applies the
     metadata predicate via SQL (genres / year range / director), and re-clusters the
-    matching subset using HDBSCAN. The draft operation label is ``"cross_filter"``
-    so the content-addressed cache treats it as distinct from a plain ``recut``.
-
+    matching subset using HDBSCAN.
     Args:
         parent_cluster_snapshot_id: Snapshot whose member movies form the input universe.
         metadata_filter:            Predicate to apply (all non-null fields combined with AND).
         concept:                    Optional semantic concept to sort survivors before clustering.
         embedding_spaces:           Embedding modalities to fuse. Defaults to ``[Modality.TEXT]``.
-
     Returns:
         ``ClusterSnapshotDraft`` with operation ``"cross_filter"``.
-
     Raises:
         ValueError: If the parent snapshot is not found or no movies survive the filter.
     """
@@ -39,6 +36,7 @@ async def cross_filter(
     if cswc is None:
         raise ValueError(f"Cluster snapshot {parent_cluster_snapshot_id} not found")
 
+    # Aggregate all movie IDs across every cluster in the parent snapshot, deduplicating as we go
     seen: set[int] = set()
     all_movie_ids: list[int] = []
     for cluster in cswc.clusters:
@@ -47,6 +45,7 @@ async def cross_filter(
                 seen.add(m.movie_id)
                 all_movie_ids.append(m.movie_id)
 
+    # Apply the metadata filter via SQL to get the subset of movie IDs to re-cluster
     filtered_ids = filter_movie_ids_by_metadata(
         movie_ids=all_movie_ids,
         genres=metadata_filter.genres,
@@ -74,6 +73,7 @@ async def cross_filter(
         "director": metadata_filter.director,
     }
 
+    # Reuse the recut operation to perform the actual clustering on the filtered subset
     return await recut(
         movie_ids=filtered_ids,
         parent_cluster_snapshot_id=parent_cluster_snapshot_id,

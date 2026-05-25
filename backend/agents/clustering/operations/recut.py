@@ -3,11 +3,10 @@ import uuid
 
 import numpy as np
 
-from backend.agents.clustering.operations._helpers import exemplars, reduce_for_clustering
+from backend.agents.clustering.operations._helpers import exemplars, reduce_for_clustering, subcluster
 from backend.agents.clustering.types import ClusterDraft, ClusterSnapshotDraft
 from backend.agents.concept.scoring import score_movies
 from backend.agents.concept.types import ConceptRep
-from backend.agents.clustering.operations.subcluster import subcluster
 from backend.agents.clustering.types import Modality
 from backend.data_access.movies.queries import fetch_text_embeddings, fetch_modality_embeddings
 from backend.settings import get_settings
