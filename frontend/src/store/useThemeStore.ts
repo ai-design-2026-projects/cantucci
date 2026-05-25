@@ -29,8 +29,7 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
 
 	initTheme: () => {
 		const stored = localStorage.getItem(THEME_KEY) as Theme | null
-		const preferred = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
-		const theme = stored ?? preferred
+		const theme = stored ?? 'light'
 		applyTheme(theme)
 		set({ theme })
 	},
