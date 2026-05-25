@@ -6,7 +6,6 @@ import { clusterColorFromUuid } from '@/styles/theme'
 
 const PHASE_DURATION = 350
 const TOTAL_DURATION = PHASE_DURATION * 2
-const MAX_ROTATION = 4 * Math.PI
 const HIT_RADIUS = 14
 const CENTROID_HIT_RADIUS = 16
 const CENTROID_RING_R = 12
@@ -15,18 +14,6 @@ const CENTROID_ARM = 6
 function easeInQuad(t: number): number { return t * t }
 function easeOutQuad(t: number): number { return t * (2 - t) }
 
-function rotateAround(
-    px: number, py: number,
-    cx: number, cy: number,
-    angle: number,
-): { x: number; y: number } {
-    const cos = Math.cos(angle)
-    const sin = Math.sin(angle)
-    return {
-        x: cx + (px - cx) * cos - (py - cy) * sin,
-        y: cy + (px - cx) * sin + (py - cy) * cos,
-    }
-}
 
 interface CentroidData {
     clusterId: string
@@ -273,37 +260,35 @@ export function useCanvasScatterPlot({
 
             if (elapsed < PHASE_DURATION) {
                 const t = easeInQuad(elapsed / PHASE_DURATION)
-                const angle = -t * MAX_ROTATION
-                const transformed = anim.frozenPrev.map((p) => {
-                    const ix = p.x + (ccx - p.x) * t
-                    const iy = p.y + (ccy - p.y) * t
-                    const rot = rotateAround(ix, iy, ccx, ccy, angle)
-                    return { ...p, x: rot.x, y: rot.y, _animOpacity: 1 - t }
-                })
-                const transformedCentroids = anim.frozenPrevCentroids.map((c) => {
-                    const ix = c.x + (ccx - c.x) * t
-                    const iy = c.y + (ccy - c.y) * t
-                    const rot = rotateAround(ix, iy, ccx, ccy, angle)
-                    return { ...c, x: rot.x, y: rot.y, _animOpacity: 1 - t }
-                })
+                const transformed = anim.frozenPrev.map((p) => ({
+                    ...p,
+                    x: p.x + (ccx - p.x) * t,
+                    y: p.y + (ccy - p.y) * t,
+                    _animOpacity: 1 - t,
+                }))
+                const transformedCentroids = anim.frozenPrevCentroids.map((c) => ({
+                    ...c,
+                    x: c.x + (ccx - c.x) * t,
+                    y: c.y + (ccy - c.y) * t,
+                    _animOpacity: 1 - t,
+                }))
                 drawFrame(transformed, transformedCentroids)
                 anim.rafId = requestAnimationFrame(tick)
             } else if (elapsed < TOTAL_DURATION) {
                 anim.phase = 'out'
                 const t = easeOutQuad((elapsed - PHASE_DURATION) / PHASE_DURATION)
-                const angle = (1 - t) * MAX_ROTATION
-                const transformed = anim.frozenNext.map((p) => {
-                    const sx = ccx + (p.x - ccx) * t
-                    const sy = ccy + (p.y - ccy) * t
-                    const rot = rotateAround(sx, sy, ccx, ccy, angle)
-                    return { ...p, x: rot.x, y: rot.y, _animOpacity: t }
-                })
-                const transformedCentroids = anim.frozenNextCentroids.map((c) => {
-                    const sx = ccx + (c.x - ccx) * t
-                    const sy = ccy + (c.y - ccy) * t
-                    const rot = rotateAround(sx, sy, ccx, ccy, angle)
-                    return { ...c, x: rot.x, y: rot.y, _animOpacity: t }
-                })
+                const transformed = anim.frozenNext.map((p) => ({
+                    ...p,
+                    x: ccx + (p.x - ccx) * t,
+                    y: ccy + (p.y - ccy) * t,
+                    _animOpacity: t,
+                }))
+                const transformedCentroids = anim.frozenNextCentroids.map((c) => ({
+                    ...c,
+                    x: ccx + (c.x - ccx) * t,
+                    y: ccy + (c.y - ccy) * t,
+                    _animOpacity: t,
+                }))
                 drawFrame(transformed, transformedCentroids)
                 anim.rafId = requestAnimationFrame(tick)
             } else {
