@@ -1,37 +1,30 @@
-import { useRef, useState, useEffect, useMemo } from 'react'
-import { clusterColorFromUuid } from '@/styles/theme'
+import { useRef, useState, useEffect } from 'react'
 import { useThemeStore } from '@/store/useThemeStore'
 import type { ClusterSnapshotDto } from '@/api/dto/snapshots'
 import type { ScatterPoint } from '../hooks/useScatterData.ts'
 import { useSnapshotPlotData } from '../hooks/useSnapshotPlotData.ts'
 import { useCanvasScatterPlot } from '../hooks/useCanvasScatterPlot.ts'
-import { computeClusterCentroids } from '../lib/snapshotPlot.ts'
 
 const CHART_MARGIN = { top: 8, right: 8, bottom: 8, left: 8 }
 
 /**
  * 2D scatter plot of all movies across clusters rendered on a <canvas>.
  *
- * All dot drawing and the vortex animation run imperatively via
- * requestAnimationFrame — zero React re-renders per frame, so animation
- * is always fluid regardless of point count.
+ * All dot drawing, centroid ring drawing, and the vortex animation run
+ * imperatively via requestAnimationFrame — zero React re-renders per frame,
+ * so animation is always fluid regardless of point count.
  *
  * In colored (conversation) mode:
  * - Each dot's opacity reflects its argmax soft-membership probability.
  * - Exemplar dots are always drawn at a larger radius.
- * - A probability-weighted centroid cross (SVG overlay) is shown per cluster.
+ * - A probability-weighted centroid ring (circle + cross) is shown per
+ *   cluster; it animates with the vortex transition.
+ * - Hovering a centroid shows a cluster-label tooltip.
  * - Selecting a cluster dims other clusters; no other visual change.
  * - Clicking the chart background clears the selection.
  * - Snapshot transitions play a spiral-in / spiral-out vortex (~700 ms).
  *
  * In grey (dimmedAll) mode: uniform muted dots, no centroids, no animation.
- *
- * @param points            - Pre-computed scatter points with coords + metadata.
- * @param snapshot          - Active cluster snapshot.
- * @param selectedClusterId - Currently selected cluster UUID, or null.
- * @param onClusterClick    - Toggles or clears cluster selection.
- * @param dimmedAll         - When true, renders uniform grey dots.
- * @param baseDomain        - Fixed axis domain from the root snapshot.
  */
 export function SnapshotPlot({
     points,
@@ -51,7 +44,6 @@ export function SnapshotPlot({
     const isDark = useThemeStore((s) => s.theme === 'dark')
     const { xDomain, yDomain } = useSnapshotPlotData(points, snapshot, baseDomain)
 
-    // ── Container size (drives canvas dimensions + centroid pixel coords) ───
     const containerRef = useRef<HTMLDivElement>(null)
     const [containerSize, setContainerSize] = useState({ width: 0, height: 0 })
 
@@ -66,14 +58,13 @@ export function SnapshotPlot({
         return () => obs.disconnect()
     }, [])
 
-    // ── Canvas ref (handed to the imperative hook) ──────────────────────────
     const canvasRef = useRef<HTMLCanvasElement>(null)
 
-    const { onMouseMove, onMouseLeave, onCanvasClick, hoveredPoint } = useCanvasScatterPlot({
+    const { onMouseMove, onMouseLeave, onCanvasClick, hoveredItem } = useCanvasScatterPlot({
         canvasRef,
         containerSize,
         points,
-        snapshotId: snapshot.id,
+        snapshot,
         dimmedAll,
         selectedClusterId,
         isDark,
@@ -82,12 +73,6 @@ export function SnapshotPlot({
         margin: CHART_MARGIN,
         onClusterClick,
     })
-
-    // ── Centroid crosses (SVG overlay, hidden during animation) ─────────────
-    const centroids = useMemo(
-        () => (!dimmedAll ? computeClusterCentroids(snapshot) : []),
-        [snapshot, dimmedAll],
-    )
 
     const plotW = containerSize.width - CHART_MARGIN.left - CHART_MARGIN.right
     const plotH = containerSize.height - CHART_MARGIN.top - CHART_MARGIN.bottom
@@ -117,7 +102,7 @@ export function SnapshotPlot({
                 }}
             />
 
-            {/* Main canvas — all dots and animation */}
+            {/* Main canvas — all dots, centroid rings, and animation */}
             <canvas
                 ref={canvasRef}
                 style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }}
@@ -126,41 +111,28 @@ export function SnapshotPlot({
                 onClick={onCanvasClick}
             />
 
-            {/* Centroid crosses — SVG overlay aligned to plot area */}
-            {!dimmedAll && centroids.length > 0 && plotW > 0 && (
-                <svg
-                    className="absolute inset-0 pointer-events-none"
-                    width={containerSize.width}
-                    height={containerSize.height}
-                >
-                    {centroids.map(({ clusterId, x, y }) => {
-                        const { px, py } = toPixel(x, y)
-                        const color = clusterColorFromUuid(clusterId, isDark)
-                        const dimmed = selectedClusterId !== null && selectedClusterId !== clusterId
-                        const ARM = 10
-                        return (
-                            <g key={clusterId} opacity={dimmed ? 0.2 : 1}>
-                                <line x1={px - ARM} y1={py} x2={px + ARM} y2={py}
-                                    stroke={color} strokeWidth={2.5} strokeLinecap="round" />
-                                <line x1={px} y1={py - ARM} x2={px} y2={py + ARM}
-                                    stroke={color} strokeWidth={2.5} strokeLinecap="round" />
-                            </g>
-                        )
-                    })}
-                </svg>
-            )}
-
             {/* Hover tooltip */}
-            {hoveredPoint && (() => {
-                const { px, py } = toPixel(hoveredPoint.x, hoveredPoint.y)
+            {hoveredItem && (() => {
+                if (hoveredItem.kind === 'centroid') {
+                    const { px, py } = toPixel(hoveredItem.x, hoveredItem.y)
+                    return (
+                        <div
+                            className="absolute pointer-events-none z-10 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-lg px-3 py-1.5 text-xs text-[var(--color-text)] shadow-md"
+                            style={{ left: px + 16, top: py - 8, transform: 'translateY(-50%)' }}
+                        >
+                            <p className="font-medium">{hoveredItem.label ?? 'Unlabeled'}</p>
+                        </div>
+                    )
+                }
+                const { px, py } = toPixel(hoveredItem.point.x, hoveredItem.point.y)
                 return (
                     <div
                         className="absolute pointer-events-none z-10 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-lg px-3 py-1.5 text-xs text-[var(--color-text)] shadow-md"
                         style={{ left: px + 12, top: py - 8, transform: 'translateY(-50%)' }}
                     >
-                        <p className="font-medium">{hoveredPoint.title}</p>
-                        {!dimmedAll && hoveredPoint.clusterLabel && (
-                            <p className="text-[var(--color-muted)] mt-0.5">{hoveredPoint.clusterLabel}</p>
+                        <p className="font-medium">{hoveredItem.point.title}</p>
+                        {!dimmedAll && hoveredItem.point.clusterLabel && (
+                            <p className="text-[var(--color-muted)] mt-0.5">{hoveredItem.point.clusterLabel}</p>
                         )}
                     </div>
                 )
