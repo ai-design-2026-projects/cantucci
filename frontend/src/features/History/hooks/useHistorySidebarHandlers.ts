@@ -1,6 +1,8 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { createConversationFetcher } from '@/api/services/conversations'
+import { useAuthStore } from '@/store/useAuthStore'
+import { useConversationStore } from '@/store/useConversationStore'
 import { useDeleteConversation } from './useDeleteConversation'
 
 /**
@@ -20,14 +22,20 @@ export function useHistorySidebarHandlers({
 }) {
 	const navigate = useNavigate()
 	const queryClient = useQueryClient()
+	const user = useAuthStore((s) => s.user)
+	const saveAnonConversationId = useConversationStore((s) => s.saveAnonConversationId)
 	const { mutate: deleteConversation } = useDeleteConversation()
 
 	const { mutate: createConversation, isPending: creating } = useMutation({
 		mutationFn: createConversationFetcher,
 		onSuccess: (conversation) => {
-			setActiveConversationId(conversation.id)
 			navigate(`/conversation/${conversation.id}`)
-			queryClient.invalidateQueries({ queryKey: ['conversations-list'] })
+			if (user) {
+				setActiveConversationId(conversation.id)
+				queryClient.invalidateQueries({ queryKey: ['conversations-list'] })
+			} else {
+				saveAnonConversationId(conversation.id)
+			}
 		},
 	})
 

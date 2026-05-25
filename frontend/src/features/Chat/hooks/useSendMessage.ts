@@ -1,7 +1,6 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { sendMessageFetcher } from '@/api/services/conversations'
-import { useSnapshotStore } from '@/store/useSnapshotStore'
 import { OPERATION_LABELS } from '@/lib/constants'
 import type { ConversationDto, MessageDto } from '@/api/dto/conversations'
 
@@ -15,7 +14,6 @@ import type { ConversationDto, MessageDto } from '@/api/dto/conversations'
  */
 export function useSendMessage(conversationId: string) {
 	const queryClient = useQueryClient()
-	const { activeSnapshotId, setActiveSnapshotId } = useSnapshotStore()
 	const queryKey = ['conversation', conversationId]
 
 	return useMutation({
@@ -35,16 +33,16 @@ export function useSendMessage(conversationId: string) {
 			return { previous }
 		},
 		onSuccess: (data) => {
+			const oldSnapshotId = queryClient.getQueryData<ConversationDto>(queryKey)?.current_cluster_snapshot_id
 			queryClient.invalidateQueries({ queryKey })
 
 			const newSnapshotId = data.cluster_snapshot_id
 			const isNewSnapshot =
 				newSnapshotId &&
 				newSnapshotId !== '00000000-0000-0000-0000-000000000000' &&
-				newSnapshotId !== activeSnapshotId
+				newSnapshotId !== oldSnapshotId
 
 			if (isNewSnapshot) {
-				setActiveSnapshotId(newSnapshotId)
 				queryClient.invalidateQueries({ queryKey: ['snapshot', newSnapshotId] })
 				queryClient.invalidateQueries({ queryKey: ['snapshot-graph', conversationId] })
 				const snapshotData = queryClient.getQueryData<{ operation?: string }>(['snapshot', newSnapshotId])

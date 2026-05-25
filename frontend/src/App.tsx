@@ -26,7 +26,7 @@ export default function App() {
 				{/* Left: chat or welcome (40%) */}
 				<div className="flex flex-col basis-2/5 min-w-0 shrink-0 min-h-0 border-r border-[var(--color-border)] overflow-hidden">
 					{conversationId ? (
-						<ChatPanel conversationId={conversationId} />
+						<ChatPanel key={conversationId} conversationId={conversationId} />
 					) : (
 						<WelcomePage />
 					)}
