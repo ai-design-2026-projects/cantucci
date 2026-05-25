@@ -1,10 +1,3 @@
-"""Lazy cluster labeling for the Coordinator.
-
-Root clusters arrive from ingest without labels.  This module labels them on
-first conversation access using a single batched LLM call and persists the
-results to the database.
-"""
-
 import logging
 import uuid
 from dataclasses import replace

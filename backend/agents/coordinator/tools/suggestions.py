@@ -1,10 +1,3 @@
-"""Suggestion signal computation and suggester invocation for the Coordinator.
-
-Computes deterministic heuristic signals from a freshly created cluster snapshot
-and optionally calls the Suggester agent when one or more signals exceed their
-configured thresholds.
-"""
-
 import uuid
 
 from backend.agents.suggester.agent import suggest

@@ -1,10 +1,3 @@
-"""Static reply-text constants and dynamic reply format helpers for the Coordinator.
-
-Centralises all user-facing copy so it can be reviewed and updated independently
-of the pipeline logic.
-"""
-
-
 SMALL_TALK = (
     "I'm here to help you explore the movie catalogue through clustering. "
     "You can ask me to split a cluster, merge groups, or explain a placement."

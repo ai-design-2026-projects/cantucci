@@ -2,10 +2,10 @@ import logging
 import uuid
 
 from backend.agents.clarifier.agent import clarify
-from backend.agents.coordinator.actions import ActionContext, execute_action
-from backend.agents.coordinator.labeling import label_unlabeled_clusters
-from backend.agents.coordinator.progress import ProgressReporter
-from backend.agents.coordinator.suggestions import maybe_suggest
+from backend.agents.coordinator.tools.actions import ActionContext, execute_action
+from backend.agents.coordinator.tools.labeling import label_unlabeled_clusters
+from backend.agents.coordinator.tools.progress import ProgressReporter
+from backend.agents.coordinator.tools.suggestions import maybe_suggest
 from backend.agents.coordinator.types import CoordinatorResult, sentinel_cluster_snapshot_id
 from backend.agents.intent.agent import classify as classify_intent
 from backend.agents.intent.types import IntentAction, IntentResult, NavigationMode
@@ -37,8 +37,8 @@ class Coordinator:
         user_message: str,
         conversation_row: ConversationRow,
     ) -> CoordinatorResult:
-        """Process one user message and return the assistant reply with updated cluster snapshot.
-
+        """
+        Process one user message and return the assistant reply with updated cluster snapshot.
         Pipeline:
           1. Load current cluster snapshot + recent messages.
           2. Label any unlabeled clusters (single batched LLM call).
@@ -50,20 +50,21 @@ class Coordinator:
              operate on the actual post-operation state.
           6. After all actions, run the Suggester once on the final snapshot.
           7. Return aggregated reply, final snapshot id, and optional suggestion.
-
         Args:
             conversation_id:  Conversation UUID.
             user_message:     Raw user message text.
             conversation_row: Pre-loaded conversation row (avoids double DB hit).
-
         Returns:
             ``CoordinatorResult`` with reply text, active cluster snapshot ID, and
             optional follow-up suggestion.
         """
+        # Create a progress reporter to send step events to the SSE stream
         reporter = ProgressReporter(str(conversation_id))
         current_cluster_snapshot_id = conversation_row.current_cluster_snapshot_id
-        accumulated_cost = 0.0
+        accumulated_cost = conversation_row.accumulated_cost_usd
+        turn_start_cost = accumulated_cost
 
+        # Load current clusters from the DB
         current_snapshot = get_cluster_snapshot_with_clusters(current_cluster_snapshot_id) if current_cluster_snapshot_id else None
         current_clusters = current_snapshot.clusters if current_snapshot else []
 
@@ -99,7 +100,12 @@ class Coordinator:
         )
         if early_return is not None:
             reporter.done()
-            return early_return
+            return CoordinatorResult(
+                reply_text=early_return.reply_text,
+                cluster_snapshot_id=early_return.cluster_snapshot_id,
+                turn_cost_usd=accumulated_cost - turn_start_cost,
+                suggestion=early_return.suggestion,
+            )
 
         log.info(
             "coordinator_dispatch",
@@ -153,6 +159,7 @@ class Coordinator:
         return CoordinatorResult(
             reply_text=combined_reply,
             cluster_snapshot_id=final_snapshot_id,
+            turn_cost_usd=accumulated_cost - turn_start_cost,
             suggestion=suggestion.text if suggestion else None,
         )
 

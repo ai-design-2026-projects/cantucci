@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from backend.agents.clustering.agent import apply_drill_down, apply_merge, apply_recut
 from backend.agents.concept.agent import build_concept
 from backend.agents.coordinator import replies
-from backend.agents.coordinator.progress import ProgressReporter
+from backend.agents.coordinator.tools.progress import ProgressReporter
 from backend.agents.coordinator.types import sentinel_cluster_snapshot_id
 from backend.agents.explanation.agent import explain_placement
 from backend.agents.intent.types import IntentAction, NavigationMode

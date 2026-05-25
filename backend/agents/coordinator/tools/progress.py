@@ -44,7 +44,8 @@ def get_queue(conversation_id: str) -> asyncio.Queue | None:
 
 
 class ProgressReporter:
-    """Publish step events to the conversation's SSE queue.
+    """
+    Publish step events to the conversation's SSE queue.
 
     Resolves the queue internally on each call; silently does nothing when
     no SSE subscriber is registered for the conversation.
