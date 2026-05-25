@@ -155,7 +155,7 @@ async def handle_drill_down(ctx: ActionContext) -> tuple[str, uuid.UUID | None, 
         parent_cluster_snapshot_id=ctx.current_cluster_snapshot_id,
         embedding_spaces=ctx.action.embedding_spaces,
     )
-    n_movies = sum(len(c.memberships) for c in draft.clusters)
+    n_movies = len({mid for c in draft.clusters for mid, _ in c.memberships})
     new_cluster_snapshot_id = await persist_and_label(
         draft, ctx.conversation_id, ctx.current_cluster_snapshot_id, ctx.accumulated_cost + step_cost
     )
@@ -214,7 +214,7 @@ async def handle_focus(ctx: ActionContext) -> tuple[str, uuid.UUID | None, float
     new_cluster_snapshot_id = await persist_and_label(
         draft, ctx.conversation_id, ctx.current_cluster_snapshot_id, ctx.accumulated_cost
     )
-    n_members = len(draft.clusters[0].memberships) if draft.clusters else 0
+    n_members = len({mid for mid, _ in draft.clusters[0].memberships}) if draft.clusters else 0
     label = target_cluster.label if target_cluster else None
     return replies.format_focus_reply(label, n_members), new_cluster_snapshot_id, 0.0
 
@@ -248,7 +248,7 @@ async def handle_cross_filter(ctx: ActionContext) -> tuple[str, uuid.UUID | None
         concept=concept,
         embedding_spaces=ctx.action.embedding_spaces,
     )
-    n_movies = sum(len(c.memberships) for c in draft.clusters)
+    n_movies = len({mid for c in draft.clusters for mid, _ in c.memberships})
     new_cluster_snapshot_id = await persist_and_label(
         draft, ctx.conversation_id, ctx.current_cluster_snapshot_id, ctx.accumulated_cost + step_cost
     )

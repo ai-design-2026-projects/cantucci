@@ -20,16 +20,20 @@ async def classify(
     conversation_id: uuid.UUID,
     message_id: uuid.UUID,
     accumulated_cost: float,
+    clarification_question: str | None = None,
 ) -> IntentResult:
     """
     Classify the user's intent from their message and the current cluster state.
 
     Args:
-        user_message:    Raw user message text.
-        clusters:        Current cluster snapshot's cluster list (for context).
-        conversation_id: Parent conversation UUID for logging.
-        message_id:      Current message UUID for logging.
-        accumulated_cost: Running LLM cost this conversation.
+        user_message:           Raw user message text.
+        clusters:               Current cluster snapshot's cluster list (for context).
+        conversation_id:        Parent conversation UUID for logging.
+        message_id:             Current message UUID for logging.
+        accumulated_cost:       Running LLM cost this conversation.
+        clarification_question: If the previous assistant turn was a clarification question,
+                                pass it here so the prompt can resolve short/pronoun-heavy
+                                replies. ``None`` on normal turns (no extra tokens used).
 
     Returns:
         ``IntentResult`` with classified navigation mode, dimension, and target cluster.
@@ -38,13 +42,14 @@ async def classify(
 
     modes = [(m.value, m.description) for m in (*NavigationMode, *DialogueMode)]
 
-    template = _ENV.get_template("intent_v6.j2")
+    template = _ENV.get_template("intent_v7.j2")
     prompt = template.render(
         clusters=[{"id": str(c.id), "label": c.label} for c in clusters],
         user_message=user_message,
         modes=modes,
+        clarification_question=clarification_question,
     )
-    log.debug("llm_prompt", extra={"template": "intent_v6.j2", "prompt": prompt})
+    log.debug("llm_prompt", extra={"template": "intent_v7.j2", "prompt": prompt})
     messages = [{"role": "user", "content": prompt}]
 
     resp = await llm_harness.call(
