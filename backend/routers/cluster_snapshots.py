@@ -1,10 +1,9 @@
 import logging
 import uuid
-from typing import Annotated, Any
+from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, HTTPException
 
-from backend.auth.types import User
 from backend.data_access.cluster_snapshots.queries import (
     count_snapshot_children,
     delete_cluster_snapshot,
@@ -15,8 +14,7 @@ from backend.data_access.cluster_snapshots.queries import (
     get_snapshot_members,
 )
 from backend.exceptions import ClusterSnapshotNotFound, NotFoundError, SnapshotHasChildren
-from backend.routers.auth_deps import get_current_user
-from backend.routers.dto.cluster_snapshots.dtos import ClusterDto, ClusterMembershipDto, ClusterSnapshotDto, ClusterSnapshotGraphDto, SnapshotMemberDto
+from backend.routers.dto.cluster_snapshots.dtos import ClusterMembershipDto, ClusterSnapshotDto, ClusterSnapshotGraphDto, SnapshotMemberDto
 from backend.routers.dto.cluster_snapshots.build_snapshot import build_snapshot_dto
 
 log = logging.getLogger(__name__)
@@ -65,7 +63,6 @@ def get_cluster_snapshot_endpoint(cluster_snapshot_id: uuid.UUID) -> ClusterSnap
 @router.delete("/cluster-snapshots/{cluster_snapshot_id}", status_code=204)
 def delete_cluster_snapshot_endpoint(
     cluster_snapshot_id: uuid.UUID,
-    user: Annotated[User | None, Depends(get_current_user)],
 ) -> None:
     """Delete a leaf cluster snapshot.
 
@@ -75,15 +72,11 @@ def delete_cluster_snapshot_endpoint(
 
     Args:
         cluster_snapshot_id: Cluster snapshot UUID to delete.
-        user:                Authenticated user. Anonymous callers receive 401.
 
     Raises:
-        HTTPException(401):       If the request is anonymous.
         ClusterSnapshotNotFound:  If the snapshot does not exist.
         SnapshotHasChildren:      If the snapshot still has child snapshots.
     """
-    if user is None:
-        raise HTTPException(status_code=401, detail="Authentication required.")
     result = get_cluster_snapshot_with_clusters(cluster_snapshot_id)
     if result is None:
         raise ClusterSnapshotNotFound(cluster_snapshot_id)
@@ -91,7 +84,7 @@ def delete_cluster_snapshot_endpoint(
     if n_children > 0:
         raise SnapshotHasChildren(cluster_snapshot_id)
     delete_cluster_snapshot(cluster_snapshot_id)
-    log.info("cluster_snapshot_deleted", extra={"snapshot_id": str(cluster_snapshot_id), "user_id": str(user.id)})
+    log.info("cluster_snapshot_deleted", extra={"snapshot_id": str(cluster_snapshot_id)})
 
 
 @router.get(
