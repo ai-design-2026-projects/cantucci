@@ -73,6 +73,7 @@ async def clarify(
         accumulated_cost_usd=accumulated_cost,
         dry_run=cfg.models.fast.dry_run,
     )
+    log.debug("llm_response", extra={"step_type": "clarifier_agent", "content": resp.content})
 
     result = ClarifierResult.from_llm_response(resp.content, cost=resp.cost_usd)
     log.info(

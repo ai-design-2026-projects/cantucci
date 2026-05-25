@@ -69,6 +69,7 @@ async def suggest(
         dry_run=cfg.models.fast.dry_run,
         response_schema=ResponderLLMResponse,
     )
+    log.debug("llm_response", extra={"step_type": "responder_agent", "content": resp.content})
 
     parsed: ResponderLLMResponse = resp.parsed  # type: ignore[assignment]
     result = SuggestionResult.from_llm_response(parsed, cost=resp.cost_usd)

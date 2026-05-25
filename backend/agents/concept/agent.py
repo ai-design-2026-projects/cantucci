@@ -62,6 +62,7 @@ async def build_concept(
         dry_run=cfg.models.strong.dry_run,
         response_schema=ConceptLLMResponse,
     )
+    log.debug("llm_response", extra={"step_type": "concept_agent", "content": resp.content})
 
     parsed: ConceptLLMResponse = resp.parsed  # type: ignore[assignment]
     concept = parse_concept(parsed, concept_name, cost=resp.cost_usd)
