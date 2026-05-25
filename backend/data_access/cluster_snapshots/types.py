@@ -97,6 +97,38 @@ class ClusterMembershipRow:
 
 
 @dataclass(frozen=True, slots=True)
+class SnapshotMemberRow:
+    """Argmax cluster assignment for a movie within a snapshot.
+
+    Attributes:
+        movie_id:    TMDB integer ID.
+        title:       Movie title.
+        umap_x:      UMAP x-coordinate.
+        umap_y:      UMAP y-coordinate.
+        cluster_id:  UUID of the highest-probability cluster for this movie.
+        probability: The argmax membership probability.
+    """
+    movie_id: int
+    title: str
+    umap_x: float
+    umap_y: float
+    cluster_id: uuid.UUID
+    probability: float
+
+    @classmethod
+    def from_row(cls, r: dict) -> "SnapshotMemberRow":
+        """Construct from a psycopg dict_row result."""
+        return cls(
+            movie_id=r["movie_id"],
+            title=r["title"],
+            umap_x=r["umap_x"],
+            umap_y=r["umap_y"],
+            cluster_id=r["cluster_id"],
+            probability=r["probability"],
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class ClusterSnapshotWithClusters:
     """A cluster snapshot combined with its cluster list (no membership rows).
 

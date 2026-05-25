@@ -18,7 +18,7 @@ import { MoviePopup } from '@/features/ClustersInspect/components/MoviePopup'
  */
 
 export function ClusterSnapshotTab({ conversationId }: { conversationId: string | undefined }) {
-	const { selectedClusterId } = useSnapshotStore()
+	const { selectedClusterId, setSelectedClusterId } = useSnapshotStore()
 	const {
 		conversationSnapshot,
 		movieMap,
@@ -36,12 +36,16 @@ export function ClusterSnapshotTab({ conversationId }: { conversationId: string 
 		setInspectOpen,
 	} = useClusterSnapshotTabHandlers()
 
+	function handleClusterClick(clusterId: string | null) {
+		setSelectedClusterId(selectedClusterId === clusterId ? null : clusterId)
+	}
+
 	return (
 		<div className="flex flex-col h-full w-full">
 			<div className="flex items-center justify-between px-4 py-2.5 border-b border-[var(--color-border)] flex-shrink-0">
 				<span className="text-sm font-medium text-[var(--color-text)]">Cluster Snapshot</span>
 				<div className="flex items-center gap-1">
-					<InspectButton onClick={() => setInspectOpen(true)} disabled={!conversationSnapshot} />
+					<InspectButton onClick={() => setInspectOpen(true)} />
 					<EvolutionMapButton onClick={() => setEvolutionOpen(true)} disabled={!conversationId} />
 				</div>
 			</div>
@@ -52,7 +56,7 @@ export function ClusterSnapshotTab({ conversationId }: { conversationId: string 
 						points={scatterPoints}
 						snapshot={snapshot}
 						selectedClusterId={selectedClusterId}
-						onPointClick={setSelectedMovieId}
+						onClusterClick={handleClusterClick}
 						dimmedAll={dimmedAll}
 						baseDomain={baseDomain}
 					/>
@@ -75,17 +79,15 @@ export function ClusterSnapshotTab({ conversationId }: { conversationId: string 
 						onClose={() => setEvolutionOpen(false)}
 						conversationId={conversationId}
 					/>
-					{conversationSnapshot && (
-						<ClusterInspectModal
-							open={inspectOpen}
-							onClose={() => setInspectOpen(false)}
-							snapshot={conversationSnapshot}
-							movieMap={movieMap ?? new Map()}
-							onMovieClick={(id: number) => setSelectedMovieId(id)}
-						/>
-					)}
 				</>
 			)}
+			<ClusterInspectModal
+				open={inspectOpen}
+				onClose={() => setInspectOpen(false)}
+				snapshot={dimmedAll ? undefined : conversationSnapshot}
+				movieMap={movieMap ?? new Map()}
+				onMovieClick={(id: number) => setSelectedMovieId(id)}
+			/>
 		</div>
 	)
 }

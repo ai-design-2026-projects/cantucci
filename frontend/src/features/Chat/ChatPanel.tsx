@@ -1,6 +1,5 @@
 import { useConversation } from './hooks/useConversation'
 import { useSendMessage } from './hooks/useSendMessage'
-import { useSyncConversationSnapshot } from './hooks/useSyncConversationSnapshot'
 import { useConversationProgress } from './hooks/useConversationProgress'
 import { MessageList } from './components/MessageList'
 import { ChatInput } from './components/ChatInput'
@@ -17,8 +16,6 @@ export function ChatPanel({ conversationId }: { conversationId: string }) {
 	const { data: conversation, isLoading: convLoading } = useConversation(conversationId)
 	const { mutate: sendMessage, isPending, isError } = useSendMessage(conversationId)
 	const { currentStep } = useConversationProgress(conversationId)
-
-	useSyncConversationSnapshot(conversation?.current_cluster_snapshot_id)
 
 	const messages = conversation?.messages ?? []
 	const currentStepLabel = currentStep ? STEP_LABELS[currentStep] : undefined

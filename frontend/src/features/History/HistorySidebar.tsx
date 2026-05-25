@@ -35,7 +35,20 @@ export function HistorySidebar() {
 			{open ? (
 				<>
 					{!user ? (
-						<AuthGatePrompt />
+						<div className="flex flex-col flex-1">
+							<AuthGatePrompt />
+							<div className="p-3 border-t border-[var(--color-border)]">
+								<Button
+									variant="outline"
+									className="w-full gap-2 text-xs h-8"
+									onClick={createConversation}
+									disabled={creating}
+								>
+									<Plus className="h-3.5 w-3.5" />
+									New Conversation
+								</Button>
+							</div>
+						</div>
 					) : (
 						<>
 							<div className="flex-1 overflow-y-auto">
@@ -76,7 +89,7 @@ export function HistorySidebar() {
 						size="icon"
 						className="h-8 w-8"
 						onClick={createConversation}
-						disabled={creating || !user}
+						disabled={creating}
 						title="New conversation"
 					>
 						<Plus className="h-4 w-4" />

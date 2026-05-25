@@ -5,6 +5,25 @@ from typing import Any
 from pydantic import BaseModel
 
 
+class SnapshotMemberDto(BaseModel):
+    """Argmax cluster assignment for a single movie within a snapshot.
+
+    Attributes:
+        movie_id:    TMDB integer movie ID.
+        title:       Movie title.
+        umap_x:      UMAP x-coordinate.
+        umap_y:      UMAP y-coordinate.
+        cluster_id:  UUID of the highest-probability cluster for this movie.
+        probability: The argmax membership probability.
+    """
+    movie_id: int
+    title: str
+    umap_x: float
+    umap_y: float
+    cluster_id: uuid.UUID
+    probability: float
+
+
 class ClusterDto(BaseModel):
     """A single cluster within a cluster snapshot.
 
@@ -42,6 +61,7 @@ class ClusterSnapshotDto(BaseModel):
     params: dict[str, Any]
     config_hash: str
     clusters: list[ClusterDto]
+    members: list[SnapshotMemberDto]
     created_at: datetime
 
 

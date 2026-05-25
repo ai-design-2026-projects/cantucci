@@ -7,6 +7,15 @@ export interface ClusterDto {
     size: number
 }
 
+export interface SnapshotMemberDto {
+    movie_id: number
+    title: string
+    umap_x: number
+    umap_y: number
+    cluster_id: string
+    probability: number
+}
+
 export interface ClusterSnapshotDto {
     id: string
     parent_id: string | null
@@ -14,6 +23,7 @@ export interface ClusterSnapshotDto {
     params: Record<string, unknown>
     config_hash: string
     clusters: ClusterDto[]
+    members: SnapshotMemberDto[]
     created_at: string
 }
 

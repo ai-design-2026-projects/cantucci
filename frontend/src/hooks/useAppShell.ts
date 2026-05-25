@@ -15,7 +15,7 @@ export function useAppShell() {
 	const { conversationId } = useParams<{ conversationId: string }>()
 	const navigate = useNavigate()
 
-	const { setUser, setStatus } = useAuthStore()
+	const { setUser, setStatus, status } = useAuthStore()
 	const { initTheme } = useThemeStore()
 	const {
 		setActiveConversationId,
@@ -39,6 +39,8 @@ export function useAppShell() {
 			return
 		}
 
+		if (status !== 'unauthenticated') return
+
 		const storedId = loadAnonConversationId()
 
 		if (storedId) {
@@ -53,6 +55,7 @@ export function useAppShell() {
 		}
 	}, [
 		conversationId,
+		status,
 		setActiveConversationId,
 		loadAnonConversationId,
 		saveAnonConversationId,
