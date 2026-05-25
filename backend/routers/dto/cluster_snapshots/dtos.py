@@ -52,3 +52,14 @@ class ClusterSnapshotGraphDto(BaseModel):
         cluster_snapshots: All cluster snapshot rows for the conversation (no cluster detail).
     """
     cluster_snapshots: list[dict[str, Any]]
+
+
+class ClusterMembershipDto(BaseModel):
+    """A single movie's membership in a cluster.
+
+    Attributes:
+        movie_id:    TMDB integer movie ID.
+        probability: Soft membership probability in (0, 1].
+    """
+    movie_id: int
+    probability: float
