@@ -39,14 +39,13 @@ _COMPONENTS: tuple[tuple[str, str], ...] = (
     ("app", "backend.app"),
     ("routers", "backend.routers"),
     ("data_access", "backend.data_access"),
-    ("agents", "backend.agents"),
     ("llm", "backend.llm.llm_harness"),
     ("auth", "auth"),
 )
 
 # Agent packages that each get their own file under the run dir's ``agents/``
-# subdir, on top of the aggregate ``agents.log``. The rendered prompt passed to
-# the LLM is logged (at DEBUG) by each agent's module logger, landing here.
+# subdir. The rendered prompt and the raw LLM response are logged (at DEBUG) by
+# each agent's module logger, landing here. Records still propagate to root all.log.
 _AGENTS: tuple[str, ...] = (
     "intent",
     "clarifier",
@@ -211,8 +210,8 @@ def configure_logging() -> None:
         pkg_log.propagate = True
 
     # One dedicated file per agent so each agent's records (including the
-    # rendered LLM prompt) land in their own file. Records still propagate up to
-    # the aggregate agents.log and root all.log.
+    # rendered LLM prompt and raw response) land in their own file. Records still
+    # propagate up to root all.log.
     agents_dir = run_dir / "agents"
     agents_dir.mkdir(parents=True, exist_ok=True)
     for agent in _AGENTS:

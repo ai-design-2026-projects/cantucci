@@ -63,6 +63,7 @@ async def classify(
         dry_run=cfg.models.fast.dry_run,
         response_schema=IntentLLMResponse,
     )
+    log.debug("llm_response", extra={"step_type": "intent_agent", "content": resp.content})
 
     parsed: IntentLLMResponse = resp.parsed  # type: ignore[assignment]
     result = IntentResult.from_llm_response(parsed, raw_content=resp.content, cost=resp.cost_usd)

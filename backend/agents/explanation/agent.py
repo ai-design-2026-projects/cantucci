@@ -84,6 +84,7 @@ async def explain_placement(
         accumulated_cost_usd=accumulated_cost,
         dry_run=cfg.models.strong.dry_run,
     )
+    log.debug("llm_response", extra={"step_type": "explanation_agent", "content": resp.content})
 
     log.info("explanation_generated", extra={"movie_id": movie_id, "cluster_id": str(cluster_id)})
     return ExplanationResult.from_llm_response(
