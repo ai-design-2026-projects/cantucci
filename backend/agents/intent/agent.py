@@ -44,6 +44,7 @@ async def classify(
         user_message=user_message,
         modes=modes,
     )
+    log.debug("llm_prompt", extra={"template": "intent_v6.j2", "prompt": prompt})
     messages = [{"role": "user", "content": prompt}]
 
     resp = await llm_harness.call(

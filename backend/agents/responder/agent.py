@@ -50,6 +50,7 @@ async def suggest(
         ],
         signals=signals,
     )
+    log.debug("llm_prompt", extra={"template": "suggest_v1.j2", "prompt": prompt})
     messages = [{"role": "user", "content": prompt}]
 
     resp = await llm_harness.call(

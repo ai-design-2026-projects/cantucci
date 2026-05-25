@@ -43,6 +43,7 @@ async def build_concept(
 
     template = _ENV.get_template("parse_v3.j2")
     prompt = template.render(concept=concept_name)
+    log.debug("llm_prompt", extra={"template": "parse_v3.j2", "prompt": prompt})
     messages = [{"role": "user", "content": prompt}]
 
     resp = await llm_harness.call(

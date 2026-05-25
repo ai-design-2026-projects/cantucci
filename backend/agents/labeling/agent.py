@@ -77,6 +77,7 @@ async def label_clusters(
 
     template = _ENV.get_template("label_v4.j2")
     prompt = template.render(clusters=clusters_for_prompt, concept=concept)
+    log.debug("llm_prompt", extra={"template": "label_v4.j2", "prompt": prompt})
     messages = [{"role": "user", "content": prompt}]
 
     resp = await llm_harness.call(

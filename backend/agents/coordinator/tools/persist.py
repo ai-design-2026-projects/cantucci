@@ -116,7 +116,7 @@ async def persist_and_label(
 
     unlabeled_indices = [
         i for i, cd in enumerate(draft.clusters)
-        if cd.label is None or cd.label.startswith("Cluster ")
+        if cd.summary is None
     ]
 
     batch_result = None
