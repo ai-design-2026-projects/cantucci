@@ -14,7 +14,7 @@ BACKEND_DIR: Path = PROJECT_ROOT / "backend"
 DATA_DIR: Path = PROJECT_ROOT / "data"
 ARTIFACTS_DIR: Path = DATA_DIR / "artifacts"
 CONFIGS_DIR: Path = PROJECT_ROOT / "configs"
-DEFAULT_CONFIG_PATH: Path = CONFIGS_DIR / "default.yaml"
+DEFAULT_CONFIG_PATH: Path = CONFIGS_DIR / "dev.yaml"
 MIGRATIONS_DIR: Path = PROJECT_ROOT / "db" / "migrations"
 LOGS_DIR: Path = PROJECT_ROOT / "logs"
 

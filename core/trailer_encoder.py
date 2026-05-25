@@ -134,7 +134,7 @@ def encode_trailers(
                 raise RuntimeError(
                     f"CLIP output dim {vec.shape[0]} does not match configured "
                     f"embedding_dim {dim}. Pick a CLIP backbone whose native output "
-                    f"matches configs/default.yaml:representation.embedding_dim."
+                    f"matches configs/dev.yaml:representation.embedding_dim."
                 )
             out[i] = vec
             n_done += 1

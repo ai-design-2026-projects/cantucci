@@ -84,7 +84,7 @@ docker run -d \
 # 4. Apply migrations
 python -m db.apply
 
-# 5. Ingest catalogue (mini set — fast, ingestion artifact pinned in configs/default.yaml)
+# 5. Ingest catalogue (mini set — fast, ingestion artifact pinned in configs/dev.yaml)
 python -m db.ingest
 # Producing a fresh snapshot is two stages — scrape locally, embed in Colab:
 #   python -m dataset.scraper --upload    # stage 1: TMDB → HF (snapshots/)

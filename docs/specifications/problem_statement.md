@@ -26,7 +26,7 @@ The catalogue is built directly from **The Movie Database (TMDB)** — no third-
 - **Daily id export** — `http://files.tmdb.org/p/exports/movie_ids_MM_DD_YYYY.json.gz`. One gzipped JSON-Lines file per day, listing every public movie id along with `original_title`, `popularity`, `adult`, and `video`. We use it as the authoritative list of candidate ids.
 - **TMDB v3 REST API** — `https://api.themoviedb.org/3/movie/{id}?append_to_response=credits,keywords`. One request per surviving id, returning the full movie record with credits and keywords appended in the same response.
 
-There is no fixed coverage and no temporal cutoff: the catalogue is whatever survives the filters on the day the snapshot is produced. The snapshot timestamp pinned in `configs/default.yaml` under `ingestion.artifacts.*` is what ties an experimental run to a specific catalogue state, and that pin is folded into `config_hash` so existing sessions remain replayable against the snapshot they were created on.
+There is no fixed coverage and no temporal cutoff: the catalogue is whatever survives the filters on the day the snapshot is produced. The snapshot timestamp pinned in `configs/dev.yaml` under `ingestion.artifacts.*` is what ties an experimental run to a specific catalogue state, and that pin is folded into `config_hash` so existing sessions remain replayable against the snapshot they were created on.
 
 Producing a snapshot requires `TMDB_API_KEY` (v3, free tier). Once snapshot + embedding parquets are on HuggingFace, downstream ingestion needs only `HF_TOKEN`, and only for private repos.
 

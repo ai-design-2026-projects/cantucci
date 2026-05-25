@@ -54,7 +54,7 @@ Re-running `apply` is safe — files already recorded in `schema_migrations` are
 ## Catalogue ingestion
 
 `python -m db.ingest` is the single entry point. It downloads the parquet files
-pinned in `configs/default.yaml` (`ingestion.hf_repo` + `ingestion.artifacts.*`)
+pinned in `configs/dev.yaml` (`ingestion.hf_repo` + `ingestion.artifacts.*`)
 from Hugging Face and upserts them into Postgres.
 
 **Docker Compose install** — run ingestion once after the stack is up:

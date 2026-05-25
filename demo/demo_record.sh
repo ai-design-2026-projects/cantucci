@@ -24,5 +24,5 @@ echo ""
 
 CINEPAL_LLM_MODE=record \
 CINEPAL_LLM_MANIFEST="$MANIFEST_DIR" \
-CONFIG_PATH="$REPO_ROOT/configs/default.yaml" \
+CONFIG_PATH="$REPO_ROOT/configs/dev.yaml" \
   uvicorn backend.app:app --reload --host 127.0.0.1 --port 8000

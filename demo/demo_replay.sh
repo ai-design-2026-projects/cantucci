@@ -32,5 +32,5 @@ echo ""
 CINEPAL_LLM_MODE=replay \
 CINEPAL_LLM_MANIFEST="$MANIFEST_DIR" \
 CINEPAL_LLM_REPLAY_REALTIME=0 \
-CONFIG_PATH="$REPO_ROOT/configs/default.yaml" \
+CONFIG_PATH="$REPO_ROOT/configs/dev.yaml" \
   uvicorn backend.app:app --reload --host 127.0.0.1 --port 8000

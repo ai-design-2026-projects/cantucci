@@ -129,7 +129,7 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--upload", action="store_true",
                    help="Upload the final parquet to the HF dataset repo under snapshots/.")
     p.add_argument("--repo-id", default=None,
-                   help="HF repo id for --upload. Defaults to ingestion.hf_repo from configs/default.yaml.")
+                   help="HF repo id for --upload. Defaults to ingestion.hf_repo from configs/dev.yaml.")
     p.add_argument("--skip-reviews", action="store_true",
                    help="Skip TMDB review fetching (faster; produces NULL reviews_text).")
     return p.parse_args()
@@ -208,7 +208,7 @@ def main() -> None:
     if args.upload:
         repo_id = args.repo_id or get_settings().ingestion.hf_repo
         path_in_repo = upload.upload_snapshot(parquet_path, repo_id=repo_id, timestamp=stamp)
-        print(f"\nUploaded. Paste this into configs/default.yaml under ingestion.artifacts.snapshot:\n")
+        print(f"\nUploaded. Paste this into configs/dev.yaml under ingestion.artifacts.snapshot:\n")
         print(f"  snapshot: {path_in_repo}")
 
 
