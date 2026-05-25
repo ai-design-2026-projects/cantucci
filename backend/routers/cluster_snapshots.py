@@ -17,10 +17,14 @@ from backend.data_access.cluster_snapshots.queries import (
 from backend.exceptions import ClusterSnapshotNotFound, NotFoundError, SnapshotHasChildren
 from backend.routers.auth_deps import get_current_user
 from backend.routers.dto.cluster_snapshots.dtos import ClusterDto, ClusterMembershipDto, ClusterSnapshotDto, ClusterSnapshotGraphDto, SnapshotMemberDto
+from backend.routers.dto.cluster_snapshots.build_snapshot import build_snapshot_dto
 
 log = logging.getLogger(__name__)
 
 router = APIRouter(tags=["cluster-snapshots"])
+
+
+
 
 
 @router.get("/cluster-snapshots/root", response_model=ClusterSnapshotDto)
@@ -39,99 +43,23 @@ def get_root_cluster_snapshot_endpoint() -> ClusterSnapshotDto:
     root = get_root_cluster_snapshot()
     if root is None:
         raise NotFoundError("No root cluster snapshot has been ingested yet")
-    result = get_cluster_snapshot_with_clusters(root.id)
-    if result is None:
-        raise ClusterSnapshotNotFound(root.id)
-    snapshot_members = get_snapshot_members(root.id)
-    cluster_dtos = []
-    for c in result.clusters:
-        memberships = get_memberships(c.id)
-        cluster_dtos.append(ClusterDto(
-            id=c.id,
-            label=c.label,
-            summary=c.summary,
-            exemplar_movie_ids=c.exemplar_movie_ids,
-            parent_cluster_id=c.parent_cluster_id,
-            size=len(memberships),
-        ))
-    member_dtos = [
-        SnapshotMemberDto(
-            movie_id=m.movie_id,
-            title=m.title,
-            umap_x=m.umap_x,
-            umap_y=m.umap_y,
-            cluster_id=m.cluster_id,
-            probability=m.probability,
-        )
-        for m in snapshot_members
-    ]
-    s = result.cluster_snapshot
-    return ClusterSnapshotDto(
-        id=s.id,
-        parent_id=s.parent_id,
-        operation=s.operation,
-        params=s.params,
-        config_hash=s.config_hash,
-        clusters=cluster_dtos,
-        members=member_dtos,
-        created_at=s.created_at,
-    )
+    return build_snapshot_dto(root.id)
 
 
 @router.get("/cluster-snapshots/{cluster_snapshot_id}", response_model=ClusterSnapshotDto)
 def get_cluster_snapshot_endpoint(cluster_snapshot_id: uuid.UUID) -> ClusterSnapshotDto:
     """Return a cluster snapshot with its full cluster list.
 
-    Cluster ``size`` is computed as the count of membership rows for each cluster.
-
     Args:
         cluster_snapshot_id: Cluster snapshot UUID.
 
     Returns:
-        ``ClusterSnapshotDto`` with clusters.
+        ``ClusterSnapshotDto`` with clusters and argmax member list.
 
     Raises:
-        HTTPException(404): If the cluster snapshot does not exist.
+        ClusterSnapshotNotFound: If the cluster snapshot does not exist.
     """
-    result = get_cluster_snapshot_with_clusters(cluster_snapshot_id)
-    if result is None:
-        raise ClusterSnapshotNotFound(cluster_snapshot_id)
-
-    snapshot_members = get_snapshot_members(cluster_snapshot_id)
-    cluster_dtos = []
-    for c in result.clusters:
-        memberships = get_memberships(c.id)
-        cluster_dtos.append(ClusterDto(
-            id=c.id,
-            label=c.label,
-            summary=c.summary,
-            exemplar_movie_ids=c.exemplar_movie_ids,
-            parent_cluster_id=c.parent_cluster_id,
-            size=len(memberships),
-        ))
-    member_dtos = [
-        SnapshotMemberDto(
-            movie_id=m.movie_id,
-            title=m.title,
-            umap_x=m.umap_x,
-            umap_y=m.umap_y,
-            cluster_id=m.cluster_id,
-            probability=m.probability,
-        )
-        for m in snapshot_members
-    ]
-
-    s = result.cluster_snapshot
-    return ClusterSnapshotDto(
-        id=s.id,
-        parent_id=s.parent_id,
-        operation=s.operation,
-        params=s.params,
-        config_hash=s.config_hash,
-        clusters=cluster_dtos,
-        members=member_dtos,
-        created_at=s.created_at,
-    )
+    return build_snapshot_dto(cluster_snapshot_id)
 
 
 @router.delete("/cluster-snapshots/{cluster_snapshot_id}", status_code=204)

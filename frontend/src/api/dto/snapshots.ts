@@ -4,7 +4,11 @@ export interface ClusterDto {
     summary: string | null
     exemplar_movie_ids: number[]
     parent_cluster_id: string | null
-    size: number
+}
+
+export interface ClusterMembershipDto {
+    movie_id: number
+    probability: number
 }
 
 export interface SnapshotMemberDto {

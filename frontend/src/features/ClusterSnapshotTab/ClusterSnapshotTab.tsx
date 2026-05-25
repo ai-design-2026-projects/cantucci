@@ -16,78 +16,77 @@ import { MoviePopup } from '@/features/ClustersInspect/components/MoviePopup'
  * @param conversationId - Active conversation UUID, or undefined when on the welcome screen.
  * @returns Right-panel content with header, scatter plot, and movie popup.
  */
-
 export function ClusterSnapshotTab({ conversationId }: { conversationId: string | undefined }) {
-	const { selectedClusterId, setSelectedClusterId } = useSnapshotStore()
-	const {
-		conversationSnapshot,
-		movieMap,
-		snapshot,
-		dimmedAll,
-		scatterPoints,
-		baseDomain,
-	} = useClusterSnapshotTabData(conversationId)
-	const {
-		selectedMovieId,
-		setSelectedMovieId,
-		evolutionOpen,
-		setEvolutionOpen,
-		inspectOpen,
-		setInspectOpen,
-	} = useClusterSnapshotTabHandlers()
+    const { selectedClusterId, setSelectedClusterId } = useSnapshotStore()
+    const {
+        conversationSnapshot,
+        movieMap,
+        snapshot,
+        dimmedAll,
+        scatterPoints,
+        baseDomain,
+    } = useClusterSnapshotTabData(conversationId)
+    const {
+        selectedMovieId,
+        setSelectedMovieId,
+        evolutionOpen,
+        setEvolutionOpen,
+        inspectOpen,
+        setInspectOpen,
+    } = useClusterSnapshotTabHandlers()
 
-	function handleClusterClick(clusterId: string | null) {
-		setSelectedClusterId(selectedClusterId === clusterId ? null : clusterId)
-	}
+    function handleClusterClick(clusterId: string | null) {
+        setSelectedClusterId(selectedClusterId === clusterId ? null : clusterId)
+    }
 
-	return (
-		<div className="flex flex-col h-full w-full">
-			<div className="flex items-center justify-between px-4 py-2.5 border-b border-[var(--color-border)] flex-shrink-0">
-				<span className="text-sm font-medium text-[var(--color-text)]">Cluster Snapshot</span>
-				<div className="flex items-center gap-1">
-					<InspectButton onClick={() => setInspectOpen(true)} />
-					<EvolutionMapButton onClick={() => setEvolutionOpen(true)} disabled={!conversationId} />
-				</div>
-			</div>
+    return (
+        <div className="flex flex-col h-full w-full">
+            <div className="flex items-center justify-between px-4 py-2.5 border-b border-[var(--color-border)] flex-shrink-0">
+                <span className="text-sm font-medium text-[var(--color-text)]">Cluster Snapshot</span>
+                <div className="flex items-center gap-1">
+                    <InspectButton onClick={() => setInspectOpen(true)} />
+                    <EvolutionMapButton onClick={() => setEvolutionOpen(true)} disabled={!conversationId} />
+                </div>
+            </div>
 
-			<div className="flex-1 min-h-0 relative">
-				{snapshot ? (
-					<SnapshotPlot
-						points={scatterPoints}
-						snapshot={snapshot}
-						selectedClusterId={selectedClusterId}
-						onClusterClick={handleClusterClick}
-						dimmedAll={dimmedAll}
-						baseDomain={baseDomain}
-					/>
-				) : (
-					<div className="h-full flex items-center justify-center text-sm text-[var(--color-muted)]">
-						No snapshot data yet
-					</div>
-				)}
-			</div>
+            <div className="flex-1 min-h-0 relative">
+                {snapshot ? (
+                    <SnapshotPlot
+                        points={scatterPoints}
+                        snapshot={snapshot}
+                        selectedClusterId={selectedClusterId}
+                        onClusterClick={handleClusterClick}
+                        dimmedAll={dimmedAll}
+                        baseDomain={baseDomain}
+                    />
+                ) : (
+                    <div className="h-full flex items-center justify-center text-sm text-[var(--color-muted)]">
+                        No snapshot data yet
+                    </div>
+                )}
+            </div>
 
-			{conversationId && (
-				<>
-					<MoviePopup
-						movieId={selectedMovieId}
-						snapshot={conversationSnapshot}
-						onClose={() => setSelectedMovieId(null)}
-					/>
-					<EvolutionMapModal
-						open={evolutionOpen}
-						onClose={() => setEvolutionOpen(false)}
-						conversationId={conversationId}
-					/>
-				</>
-			)}
-			<ClusterInspectModal
-				open={inspectOpen}
-				onClose={() => setInspectOpen(false)}
-				snapshot={dimmedAll ? undefined : conversationSnapshot}
-				movieMap={movieMap ?? new Map()}
-				onMovieClick={(id: number) => setSelectedMovieId(id)}
-			/>
-		</div>
-	)
+            {conversationId && (
+                <>
+                    <MoviePopup
+                        movieId={selectedMovieId}
+                        snapshot={conversationSnapshot}
+                        onClose={() => setSelectedMovieId(null)}
+                    />
+                    <EvolutionMapModal
+                        open={evolutionOpen}
+                        onClose={() => setEvolutionOpen(false)}
+                        conversationId={conversationId}
+                    />
+                </>
+            )}
+            <ClusterInspectModal
+                open={inspectOpen}
+                onClose={() => setInspectOpen(false)}
+                snapshot={dimmedAll ? undefined : conversationSnapshot}
+                movieMap={movieMap ?? new Map()}
+                onMovieClick={(id: number) => setSelectedMovieId(id)}
+            />
+        </div>
+    )
 }

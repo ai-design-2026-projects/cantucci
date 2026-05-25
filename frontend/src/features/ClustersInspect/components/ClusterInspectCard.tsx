@@ -37,7 +37,6 @@ export function ClusterInspectCard({
 					<h4 className="text-base text-[var(--color-text)] tracking-tight leading-tight font-medium">
 						{cluster.label ?? 'Unlabeled'}
 					</h4>
-					<span className="text-xs text-[var(--color-muted)] flex-shrink-0">{cluster.size} films</span>
 				</div>
 				{cluster.summary && (
 					<p className="mt-1 text-xs text-[var(--color-muted)] leading-relaxed">{cluster.summary}</p>
