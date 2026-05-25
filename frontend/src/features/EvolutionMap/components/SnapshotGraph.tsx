@@ -1,7 +1,7 @@
 import { forwardRef, useImperativeHandle } from 'react'
 import type { LayoutNode } from '../lib/radialLayout'
 import { relativeTime } from '@/lib/utils'
-import { LABEL_LINE_HEIGHT, NODE_R, formatSnapshotIndexLabel, formatSnapshotOperationLabel, formatSnapshotTooltipTitle } from '../lib/snapshotGraph.ts'
+import { LABEL_LINE_HEIGHT, NODE_R, formatSnapshotIndexLabel, formatSnapshotOperationLines, formatSnapshotTooltipTitle } from '../lib/snapshotGraph.ts'
 import { useSnapshotGraphData } from '../hooks/useSnapshotGraphData.ts'
 import { useSnapshotGraphHandlers } from '../hooks/useSnapshotGraphHandlers.ts'
 
@@ -74,10 +74,17 @@ export const SnapshotGraph = forwardRef<SnapshotGraphHandle, SnapshotGraphProps>
 
             {/* Nodes */}
             {layout.map((n) => {
+              const isUnclustered = n.operation === 'unclustered'
               const isActive = n.id === activeSnapshotId
               const isHovered = n.id === hoveredId
-              const opLabel = formatSnapshotOperationLabel(n.operation)
+              const opLines = formatSnapshotOperationLines(n.operation)
               const indexLabel = formatSnapshotIndexLabel(n.operation, n.sopIndex)
+              const blockCenterY = n.y - (indexLabel ? LABEL_LINE_HEIGHT / 2 : 0)
+              const firstLineY = blockCenterY - ((opLines.length - 1) * LABEL_LINE_HEIGHT) / 2
+
+              const circleFill = isActive ? 'var(--color-primary)' : 'var(--color-surface)'
+              const circleStroke = isActive ? 'var(--color-primary)' : 'var(--color-border)'
+              const textFill = isActive ? 'var(--color-surface)' : (isUnclustered ? 'var(--color-muted)' : 'var(--color-text)')
 
               return (
                 <g
@@ -95,26 +102,28 @@ export const SnapshotGraph = forwardRef<SnapshotGraphHandle, SnapshotGraphProps>
                     cx={n.x}
                     cy={n.y}
                     r={NODE_R}
-                    fill={isActive ? 'var(--color-primary)' : 'var(--color-surface)'}
-                    stroke={isActive ? 'var(--color-primary)' : 'var(--color-border)'}
+                    fill={circleFill}
+                    stroke={circleStroke}
                     strokeWidth={isActive ? 2 : 1.5}
+                    strokeDasharray={isUnclustered && !isActive ? '4 3' : undefined}
                   />
                   <text
-                    x={n.x}
-                    y={n.y - (indexLabel ? LABEL_LINE_HEIGHT / 2 : 0)}
                     textAnchor="middle"
-                    dominantBaseline="middle"
                     fontSize={9}
                     fontFamily="Inter, system-ui, sans-serif"
-                    fill={isActive ? 'var(--color-surface)' : 'var(--color-text)'}
+                    fill={textFill}
                     style={{ pointerEvents: 'none', userSelect: 'none' }}
                   >
-                    {opLabel}
+                    {opLines.map((line, i) => (
+                      <tspan key={i} x={n.x} y={firstLineY + i * LABEL_LINE_HEIGHT} dominantBaseline="middle">
+                        {line}
+                      </tspan>
+                    ))}
                   </text>
                   {indexLabel && (
                     <text
                       x={n.x}
-                      y={n.y + LABEL_LINE_HEIGHT / 2 + 2}
+                      y={blockCenterY + (opLines.length * LABEL_LINE_HEIGHT) / 2 + 2}
                       textAnchor="middle"
                       dominantBaseline="middle"
                       fontSize={9}

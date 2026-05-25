@@ -22,11 +22,12 @@ export function useClusterSnapshotTabData(conversationId: string | undefined) {
     const hasConversation = !!conversationId
     const conversationSnapshotPending = hasConversation && (!!snapshotId ? snapshotLoading : !conversation)
     const isOnRootSnapshot = !!snapshotId && snapshotId === rootSnapshot?.id
+    const isUnclustered = hasConversation && !snapshotId && !!conversation
 
     const snapshot = hasConversation
-        ? conversationSnapshot ?? (conversationSnapshotPending ? rootSnapshot : undefined)
+        ? conversationSnapshot ?? (conversationSnapshotPending || isUnclustered ? rootSnapshot : undefined)
         : rootSnapshot
-    const dimmedAll = !hasConversation || conversationSnapshotPending || isOnRootSnapshot
+    const dimmedAll = !hasConversation || conversationSnapshotPending || isUnclustered
 
     const { data: movieMap } = useExemplarMovies(snapshot)
     const scatterPoints = useScatterData(snapshot)

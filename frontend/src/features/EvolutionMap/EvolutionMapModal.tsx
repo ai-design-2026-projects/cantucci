@@ -10,7 +10,7 @@ import { useSetActiveSnapshot } from './hooks/useSetActiveSnapshot'
 import { SnapshotGraph } from './components/SnapshotGraph'
 import { DeleteSnapshotDialog } from './components/DeleteSnapshotDialog'
 import { ResetHistoryDialog } from './components/ResetHistoryDialog'
-import { radialLayout } from './lib/radialLayout'
+import { radialLayout, UNCLUSTERED_NODE_ID } from './lib/radialLayout'
 import { resetHistory } from './lib/resetHistory'
 import { getSnapshotFetcher } from '@/api/services/snapshots'
 import { Button } from '@/components/button'
@@ -79,7 +79,8 @@ export function EvolutionMapModal({ open, onClose, conversationId }: EvolutionMa
 		return counts
 	}, [nodes])
 
-	const activeLayoutNode: LayoutNode | null = layout.find((n) => n.id === activeSnapshotId) ?? null
+	const effectiveActiveId = activeSnapshotId ?? UNCLUSTERED_NODE_ID
+	const activeLayoutNode: LayoutNode | null = layout.find((n) => n.id === effectiveActiveId) ?? null
 
 	useEffect(() => {
 		if (!bodyRef.current) return
@@ -93,16 +94,17 @@ export function EvolutionMapModal({ open, onClose, conversationId }: EvolutionMa
 
 	function handleNodeClick(nodeId: string) {
 		if (nodeId === activeSnapshotId || isSettingActive) return
-		setActiveSnapshot(nodeId)
+		setActiveSnapshot(nodeId === UNCLUSTERED_NODE_ID ? null : nodeId)
 	}
 
 	function handleDeleteConfirm() {
 		if (!deleteTarget) return
-		const parentId = deleteTarget.parent_id
+		const rawParentId = deleteTarget.parent_id
+		const parentId = rawParentId === UNCLUSTERED_NODE_ID ? null : rawParentId
 		deleteSnapshot(deleteTarget.id, {
 			onSuccess: () => {
 				setDeleteTarget(null)
-				if (parentId) setActiveSnapshot(parentId)
+				setActiveSnapshot(parentId)
 			},
 		})
 	}
@@ -111,8 +113,7 @@ export function EvolutionMapModal({ open, onClose, conversationId }: EvolutionMa
 		setIsResetting(true)
 		try {
 			await resetHistory(layout)
-			const baseNode = layout.find((n) => n.operation === 'base')
-			if (baseNode) setActiveSnapshot(baseNode.id)
+			setActiveSnapshot(null)
 			queryClient.invalidateQueries({ queryKey: ['snapshot-graph', conversationId] })
 			toast.success('Snapshot history reset')
 		} catch (err) {
@@ -123,7 +124,8 @@ export function EvolutionMapModal({ open, onClose, conversationId }: EvolutionMa
 		}
 	}
 
-	const nonBaseCount = layout.filter((n) => n.operation !== 'base').length
+	const nonBaseCount = layout.filter((n) => n.operation !== 'base' && n.id !== UNCLUSTERED_NODE_ID).length
+	const hasAnySnapshot = nodes.length > 0
 
 	return (
 		<>
@@ -148,7 +150,7 @@ export function EvolutionMapModal({ open, onClose, conversationId }: EvolutionMa
 							<div className="flex items-center justify-between px-6 py-3 border-b border-[var(--color-border)] flex-shrink-0">
 								<h2 className="text-lg font-display text-[var(--color-text)]">Snapshot Evolution</h2>
 								<div className="flex items-center gap-1">
-									{activeLayoutNode && activeLayoutNode.operation !== 'base' && (
+									{activeLayoutNode && activeLayoutNode.operation !== 'base' && activeLayoutNode.operation !== 'unclustered' && (
 										<Button
 											variant="ghost"
 											size="sm"
@@ -160,7 +162,7 @@ export function EvolutionMapModal({ open, onClose, conversationId }: EvolutionMa
 											<span className="text-xs hidden sm:inline">Remove</span>
 										</Button>
 									)}
-									{nonBaseCount > 0 && (
+									{hasAnySnapshot && (
 										<Button
 											variant="ghost"
 											size="sm"
@@ -189,15 +191,11 @@ export function EvolutionMapModal({ open, onClose, conversationId }: EvolutionMa
 
 							{/* Graph body */}
 							<div ref={bodyRef} className="flex-1 min-h-0">
-								{nodes.length === 0 ? (
-									<div className="flex items-center justify-center h-full text-sm text-[var(--color-muted)]">
-										No snapshots yet
-									</div>
-								) : bodySize.w > 0 && bodySize.h > 0 ? (
+								{bodySize.w > 0 && bodySize.h > 0 ? (
 									<SnapshotGraph
 										ref={graphRef}
 										layout={layout}
-										activeSnapshotId={activeSnapshotId}
+										activeSnapshotId={effectiveActiveId}
 										clusterCounts={clusterCounts}
 										onNodeClick={handleNodeClick}
 										width={bodySize.w}

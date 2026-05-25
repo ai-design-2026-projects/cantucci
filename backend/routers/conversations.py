@@ -19,6 +19,7 @@ from backend.data_access.conversations.queries import (
     set_current_cluster_snapshot,
 )
 from backend.data_access.cluster_snapshots.queries import (
+    clear_conversation_snapshot_refs,
     get_cluster_snapshot,
     record_conversation_snapshot_ref,
 )
@@ -189,16 +190,19 @@ def update_conversation_endpoint(
     row = get_conversation(conversation_id)
     if row is None:
         raise ConversationNotFound(conversation_id)
-    snapshot = get_cluster_snapshot(body.current_cluster_snapshot_id)
-    if snapshot is None:
-        raise ClusterSnapshotNotFound(body.current_cluster_snapshot_id)
+    if body.current_cluster_snapshot_id is not None:
+        snapshot = get_cluster_snapshot(body.current_cluster_snapshot_id)
+        if snapshot is None:
+            raise ClusterSnapshotNotFound(body.current_cluster_snapshot_id)
+        record_conversation_snapshot_ref(conversation_id, body.current_cluster_snapshot_id)
+    else:
+        clear_conversation_snapshot_refs(conversation_id)
     set_current_cluster_snapshot(conversation_id, body.current_cluster_snapshot_id)
-    record_conversation_snapshot_ref(conversation_id, body.current_cluster_snapshot_id)
     log.info(
         "active_snapshot_set",
         extra={
             "conversation_id": str(conversation_id),
-            "snapshot_id": str(body.current_cluster_snapshot_id),
+            "snapshot_id": str(body.current_cluster_snapshot_id) if body.current_cluster_snapshot_id else "null",
             "user_id": str(user.id),
         },
     )

@@ -11,34 +11,47 @@ export interface LayoutNode {
 	parent_id: string | null
 }
 
+export const UNCLUSTERED_NODE_ID = '__unclustered__'
+
 const LEVEL_GAP = 120
 const SIBLING_GAP = 140
 
+const SYNTHETIC_UNCLUSTERED: ClusterSnapshotGraphNode = {
+	id: UNCLUSTERED_NODE_ID,
+	parent_id: null,
+	operation: 'unclustered',
+	created_at: '',
+}
+
 /**
  * Compute a deterministic tree layout for a snapshot DAG.
+ *
+ * Always injects a synthetic "unclustered" node as the visual root. Real root
+ * snapshots (parent_id === null, operation === 'base') are re-parented to it
+ * for layout purposes only — the original DTOs are not mutated.
  *
  * Root sits at (0, 0). Each level is placed on a lower row, and siblings are
  * spaced horizontally according to a stable leaf-order traversal. sopIndex is
  * a 1-based counter among siblings sharing the same operation under the same
  * parent, used for node labels.
  *
- * @param nodes - Snapshot DAG nodes.
+ * @param nodes - Snapshot DAG nodes from the backend.
  * @returns Array of LayoutNode with computed x, y, level, and sopIndex.
  */
 export function radialLayout(nodes: ClusterSnapshotGraphNode[]): LayoutNode[] {
-	if (nodes.length === 0) return []
+	// Re-parent real root nodes to the synthetic unclustered node (layout only)
+	const rewired = nodes.map((n) =>
+		n.parent_id === null ? { ...n, parent_id: UNCLUSTERED_NODE_ID } : n
+	)
+	const allNodes = [SYNTHETIC_UNCLUSTERED, ...rewired]
 
 	const childrenOf = new Map<string | null, ClusterSnapshotGraphNode[]>()
-	for (const n of nodes) {
+	for (const n of allNodes) {
 		const key = n.parent_id ?? null
 		const list = childrenOf.get(key) ?? []
 		list.push(n)
 		childrenOf.set(key, list)
 	}
-
-	const rootCandidates = childrenOf.get(null) ?? []
-	if (rootCandidates.length === 0) return []
-	const root = rootCandidates[0]
 
 	const visited = new Set<string>()
 	const placements = new Map<string, { x: number; y: number; level: number; sopIndex: number }>()
@@ -90,34 +103,40 @@ export function radialLayout(nodes: ClusterSnapshotGraphNode[]): LayoutNode[] {
 		return placement
 	}
 
-	const rootPlacement = place(root, 0)
+	const rootPlacement = place(SYNTHETIC_UNCLUSTERED, 0)
 	const rootShift = rootPlacement.x
 
-	return nodes
-		.map((node) => {
-			const placement = placements.get(node.id)
-			if (!placement) {
-				return {
-					id: node.id,
-					x: 0,
-					y: 0,
-					level: 0,
-					operation: node.operation,
-					sopIndex: 1,
-					created_at: node.created_at,
-					parent_id: node.parent_id,
-				}
-			}
+	return allNodes.map((node) => {
+		const placement = placements.get(node.id)
+		// The synthetic unclustered node has no parent.
+		// Real root nodes (originally parent_id === null) are linked to it as their layout parent
+		// so the SVG edge renderer draws the unclustered → base connection.
+		const layoutParentId = node.id === UNCLUSTERED_NODE_ID
+			? null
+			: node.parent_id  // already rewired to UNCLUSTERED_NODE_ID for real roots
 
+		if (!placement) {
 			return {
 				id: node.id,
-				x: placement.x - rootShift,
-				y: placement.y,
-				level: placement.level,
+				x: 0,
+				y: 0,
+				level: 0,
 				operation: node.operation,
-				sopIndex: placement.sopIndex,
+				sopIndex: 1,
 				created_at: node.created_at,
-				parent_id: node.parent_id,
+				parent_id: layoutParentId,
 			}
-		})
+		}
+
+		return {
+			id: node.id,
+			x: placement.x - rootShift,
+			y: placement.y,
+			level: placement.level,
+			operation: node.operation,
+			sopIndex: placement.sopIndex,
+			created_at: node.created_at,
+			parent_id: layoutParentId,
+		}
+	})
 }

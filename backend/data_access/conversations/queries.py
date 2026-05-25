@@ -14,9 +14,9 @@ def create_conversation(
 ) -> uuid.UUID:
     """Insert a new conversation row and return its UUID.
 
-    If a global root cluster snapshot exists, the new conversation's
-    ``current_cluster_snapshot_id`` is pre-seeded to point at it and a
-    reference is recorded in ``conversation_snapshot_refs``.
+    New conversations start in the unclustered state (``current_cluster_snapshot_id``
+    is NULL). The first ``go_to_base`` action by the user activates the pre-computed
+    root snapshot and records the snapshot ref.
 
     Args:
         user_id:         Owner user UUID, or None for anonymous.
@@ -26,11 +26,6 @@ def create_conversation(
         UUID of the newly created conversation.
     """
     import json
-
-    from backend.data_access.cluster_snapshots.queries import (
-        get_root_cluster_snapshot,
-        record_conversation_snapshot_ref,
-    )
 
     with transaction() as conn:
         row = conn.execute(
@@ -43,17 +38,9 @@ def create_conversation(
         ).fetchone()
     conversation_id: uuid.UUID = row["id"]
 
-    root = get_root_cluster_snapshot()
-    if root is not None:
-        set_current_cluster_snapshot(conversation_id, root.id)
-        record_conversation_snapshot_ref(conversation_id, root.id)
-
     log.info(
         "conversation_created",
-        extra={
-            "conversation_id": str(conversation_id),
-            "seeded_root_snapshot_id": str(root.id) if root else None,
-        },
+        extra={"conversation_id": str(conversation_id)},
     )
     return conversation_id
 

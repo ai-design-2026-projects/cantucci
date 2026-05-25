@@ -246,6 +246,7 @@ export function useCanvasScatterPlot({
     })
 
     const prevSnapshotIdRef = useRef<string | undefined>(undefined)
+    const prevDimmedAllRef = useRef(dimmedAll)
     const isFirstMountRef = useRef(true)
     const prevPointsRef = useRef<ScatterPoint[]>([])
     const prevCentroidsRef = useRef<CentroidData[]>([])
@@ -321,7 +322,10 @@ export function useCanvasScatterPlot({
         const isFirst = isFirstMountRef.current
         isFirstMountRef.current = false
 
-        if (snapshot.id === prevSnapshotIdRef.current) return
+        const dimmedChanged = dimmedAll !== prevDimmedAllRef.current
+        prevDimmedAllRef.current = dimmedAll
+
+        if (snapshot.id === prevSnapshotIdRef.current && !dimmedChanged) return
 
         const prev = prevPointsRef.current
         const prevCentroids = prevCentroidsRef.current
@@ -329,6 +333,8 @@ export function useCanvasScatterPlot({
         prevPointsRef.current = points
         prevCentroidsRef.current = vRef.current.centroids
 
+        // Animate when entering colored mode (unclustered → base) or switching between snapshots.
+        // Skip when entering dimmed mode (base → unclustered) so grey renders immediately.
         const shouldAnimate = !isFirst && !dimmedAll && prev.length > 0 && points.length > 0
         if (shouldAnimate) {
             const cx = (xDomain[0] + xDomain[1]) / 2
