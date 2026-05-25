@@ -11,7 +11,7 @@ import { Button } from '@/components/button'
 export function AuthGatePrompt() {
   return (
     <div className="flex flex-col items-center justify-center flex-1 gap-4 px-6 text-center">
-      <Mascot expression="sad" size="md" />
+      <Mascot expression="sleepy" size="md" />
       <p className="text-sm font-medium text-[var(--color-text)]">
         Sign in to keep your conversations
       </p>

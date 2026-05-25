@@ -29,6 +29,7 @@ from backend.data_access.cluster_snapshots.types import ClusterRow
 from backend.data_access.conversations.queries import set_current_cluster_snapshot
 from backend.data_access.conversations.types import ConversationRow
 from backend.data_access.movies.queries import fetch_text_embeddings, list_movie_ids
+from backend.agents.coordinator.progress import ProgressReporter
 from backend.settings import get_settings
 
 log = logging.getLogger(__name__)
@@ -69,14 +70,15 @@ class Coordinator:
           7. Return aggregated reply, final snapshot id, and optional suggestion.
 
         Args:
-            conversation_id:   Conversation UUID.
-            user_message:      Raw user message text.
-            conversation_row:  Pre-loaded conversation row (avoids double DB hit).
+            conversation_id:  Conversation UUID.
+            user_message:     Raw user message text.
+            conversation_row: Pre-loaded conversation row (avoids double DB hit).
 
         Returns:
             ``CoordinatorResult`` with reply text, active cluster snapshot ID, and
             optional follow-up suggestion.
         """
+        self._reporter = ProgressReporter(str(conversation_id))
         current_cluster_snapshot_id = conversation_row.current_cluster_snapshot_id
         accumulated_cost = 0.0
 
@@ -87,11 +89,13 @@ class Coordinator:
 
         clusters = current_clusters
         if any(cluster.label is None for cluster in current_clusters):
+            self._reporter.step("labeling")
             clusters, label_cost = await _label_unlabeled_clusters(
                 current_clusters, conversation_id, message_id, accumulated_cost
             )
             accumulated_cost += label_cost
 
+        self._reporter.step("intent")
         intent = await classify_intent(
             user_message=user_message,
             clusters=clusters,
@@ -121,6 +125,7 @@ class Coordinator:
                     "concept": low_confidence_action.concept,
                 },
             )
+            self._reporter.step("clarifier")
             clarification = await clarify(
                 user_message=user_message,
                 clusters=clusters,
@@ -130,6 +135,7 @@ class Coordinator:
                 accumulated_cost=accumulated_cost,
             )
             accumulated_cost += clarification.cost
+            self._reporter.done()
             return CoordinatorResult(
                 reply_text=clarification.text,
                 cluster_snapshot_id=current_cluster_snapshot_id or _sentinel_cluster_snapshot_id(),
@@ -171,6 +177,7 @@ class Coordinator:
             f"{i + 1}) {frag}" for i, frag in enumerate(reply_fragments)
         ) if len(reply_fragments) > 1 else (reply_fragments[0] if reply_fragments else "")
 
+        self._reporter.step("suggester")
         suggestion = await _maybe_suggest(
             new_cluster_snapshot_id=final_snapshot_id,
             new_clusters=final_clusters,
@@ -180,6 +187,7 @@ class Coordinator:
             accumulated_cost=accumulated_cost,
         )
 
+        self._reporter.done()
         return CoordinatorResult(
             reply_text=combined_reply,
             cluster_snapshot_id=final_snapshot_id,
@@ -224,6 +232,7 @@ class Coordinator:
             return result.reply_text, result.cluster_snapshot_id, step_cost
 
         if action.navigationMode == NavigationMode.EXPLAIN:
+            self._reporter.step("explain")
             result = await self._handle_explain(
                 action, clusters, current_cluster_snapshot_id, conversation_id, message_id, accumulated_cost
             )
@@ -235,8 +244,10 @@ class Coordinator:
                 return "Please specify which cluster to split.", current_cluster_snapshot_id, step_cost
             concept = None
             if action.concept:
+                self._reporter.step("concept")
                 concept = await build_concept(action.concept, conversation_id, message_id, accumulated_cost + step_cost)
                 step_cost += concept.cost
+            self._reporter.step("clustering")
             new_cluster_snapshot_id = await apply_drill_down(
                 source_cluster_id=target_id,
                 parent_cluster_snapshot_id=current_cluster_snapshot_id,
@@ -255,6 +266,7 @@ class Coordinator:
             if len(clusters) < 2:
                 return "There are fewer than two clusters to merge.", current_cluster_snapshot_id, step_cost
             ids_to_merge = [c.id for c in clusters[:2]]
+            self._reporter.step("clustering")
             new_cluster_snapshot_id = await apply_merge(
                 cluster_ids=ids_to_merge,
                 parent_cluster_snapshot_id=current_cluster_snapshot_id,
@@ -269,8 +281,10 @@ class Coordinator:
             all_movie_ids = list_movie_ids()
             concept = None
             if action.concept:
+                self._reporter.step("concept")
                 concept = await build_concept(action.concept, conversation_id, message_id, accumulated_cost + step_cost)
                 step_cost += concept.cost
+            self._reporter.step("clustering")
             new_cluster_snapshot_id = await apply_recut(
                 movie_ids=all_movie_ids,
                 parent_cluster_snapshot_id=current_cluster_snapshot_id,

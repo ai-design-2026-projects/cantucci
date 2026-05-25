@@ -1,8 +1,10 @@
 import { useConversation } from './hooks/useConversation'
 import { useSendMessage } from './hooks/useSendMessage'
 import { useSyncConversationSnapshot } from './hooks/useSyncConversationSnapshot'
+import { useConversationProgress } from './hooks/useConversationProgress'
 import { MessageList } from './components/MessageList'
 import { ChatInput } from './components/ChatInput'
+import { STEP_LABELS, STEP_EXPRESSIONS } from '@/lib/constants'
 
 /**
  * Left-panel chat interface. Loads the conversation, renders the message list,
@@ -14,10 +16,13 @@ import { ChatInput } from './components/ChatInput'
 export function ChatPanel({ conversationId }: { conversationId: string }) {
 	const { data: conversation, isLoading: convLoading } = useConversation(conversationId)
 	const { mutate: sendMessage, isPending, isError } = useSendMessage(conversationId)
+	const { currentStep } = useConversationProgress(conversationId)
 
 	useSyncConversationSnapshot(conversation?.current_cluster_snapshot_id)
 
 	const messages = conversation?.messages ?? []
+	const currentStepLabel = currentStep ? STEP_LABELS[currentStep] : undefined
+	const currentStepExpression = currentStep ? STEP_EXPRESSIONS[currentStep] : undefined
 
 	return (
 		<div className="flex flex-col h-full min-h-0">
@@ -25,6 +30,8 @@ export function ChatPanel({ conversationId }: { conversationId: string }) {
 				messages={messages}
 				isLoading={isPending || convLoading}
 				isError={isError}
+				currentStepLabel={currentStepLabel}
+				currentStepExpression={currentStepExpression}
 			/>
 			<ChatInput
 				onSend={(content) => sendMessage(content)}

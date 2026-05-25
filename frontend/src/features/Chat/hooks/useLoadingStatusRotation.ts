@@ -35,7 +35,7 @@ export function useLoadingStatusRotation(isLoading: boolean, isError: boolean): 
 	}, [isLoading])
 
 	if (isError) {
-		return { message: 'Poppy ran into a problem…', expression: 'sad' }
+		return { message: 'Poppy ran into a problem…', expression: 'sleepy' }
 	}
 
 	return {

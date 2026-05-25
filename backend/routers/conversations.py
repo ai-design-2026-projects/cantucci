@@ -1,7 +1,10 @@
+import asyncio
+import json
 import logging
 import uuid
 from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
 
 from backend.agents.coordinator.agent import Coordinator
 from backend.auth.types import User
@@ -19,6 +22,7 @@ from backend.data_access.cluster_snapshots.queries import (
     record_conversation_snapshot_ref,
 )
 from backend.exceptions import ClusterSnapshotNotFound, ConversationNotFound, NotConversationOwner
+from backend.agents.coordinator.progress import register_queue, unregister_queue
 from backend.routers.auth_deps import get_current_user
 from backend.routers.dto.conversations.dtos import (
     ConversationDto,
@@ -256,3 +260,37 @@ async def send_message(
         ),
         cluster_snapshot_id=result.cluster_snapshot_id,
     )
+
+
+@router.get("/{conversation_id}/events")
+async def conversation_events(conversation_id: uuid.UUID) -> StreamingResponse:
+    """Open a Server-Sent Events stream for real-time turn progress.
+
+    One stream per conversation. The client opens this once on conversation
+    load and receives step events for every subsequent turn.
+
+    Args:
+        conversation_id: Conversation UUID.
+
+    Returns:
+        StreamingResponse of text/event-stream.
+    """
+    conv_id = str(conversation_id)
+    queue = register_queue(conv_id)
+
+    async def _stream():
+        try:
+            while True:
+                try:
+                    event = await asyncio.wait_for(queue.get(), timeout=15.0)
+                except asyncio.TimeoutError:
+                    yield ": heartbeat\n\n"
+                    continue
+
+                event_type = event.get("type", "step")
+                data = json.dumps({k: v for k, v in event.items() if k != "type"})
+                yield f"event: {event_type}\ndata: {data}\n\n"
+        finally:
+            unregister_queue(conv_id)
+
+    return StreamingResponse(_stream(), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})

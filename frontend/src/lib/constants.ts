@@ -19,14 +19,36 @@ export const LOADING_MESSAGES: string[] = [
 /** Mascot expression cycle matching LOADING_MESSAGES rotation. */
 export const LOADING_EXPRESSIONS = [
 	'sleepy',
-	'focused',
-	'focused',
+	'happy',
+	'happy',
 	'excited',
 	'excited',
 ] as const
 
 /** Interval between loading message rotations in ms. */
 export const LOADING_ROTATE_MS = 2200
+
+/** Maps backend step keys to human-readable loading messages. */
+export const STEP_LABELS: Record<string, string> = {
+    labeling: 'Naming the clusters…',
+    intent: 'Understanding your request…',
+    clarifier: 'Asking for clarification…',
+    concept: 'Building the concept…',
+    clustering: 'Re-clustering…',
+    explain: 'Explaining the placement…',
+    suggester: 'Looking for follow-ups…',
+}
+
+/** Maps backend step keys to mascot expressions. */
+export const STEP_EXPRESSIONS: Record<string, 'happy' | 'excited' | 'sleepy'> = {
+    labeling: 'happy',
+    intent: 'happy',
+    clarifier: 'sleepy',
+    concept: 'happy',
+    clustering: 'excited',
+    explain: 'happy',
+    suggester: 'happy',
+}
 
 /** Maximum number of exemplar IDs to display per cluster in the scatter plot. */
 export const MAX_EXEMPLARS_DISPLAYED = 15
