@@ -35,7 +35,7 @@ async def classify(
     """
     cfg = get_settings()
 
-    template = _ENV.get_template("intent_v4.j2")
+    template = _ENV.get_template("intent_v5.j2")
     prompt = template.render(
         clusters=[{"id": str(c.id), "label": c.label} for c in clusters],
         user_message=user_message,
@@ -61,14 +61,13 @@ async def classify(
 
     parsed: IntentLLMResponse = resp.parsed  # type: ignore[assignment]
     result = IntentResult.from_llm_response(parsed, raw_content=resp.content, cost=resp.cost_usd)
-    
+
     log.info(
         "intent_classified",
         extra={
             "conversation_id": str(conversation_id),
-            "navigation_mode": result.navigationMode.value,
-            "concept": result.concept,
-            "confidence": result.confidence,
+            "n_actions": len(result.actions),
+            "navigation_modes": [a.navigationMode.value for a in result.actions],
         },
     )
     return result

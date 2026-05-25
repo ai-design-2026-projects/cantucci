@@ -3,7 +3,7 @@ import uuid
 from jinja2 import Environment, FileSystemLoader
 
 from backend.agents.clarifier.types import ClarifierResult
-from backend.agents.intent.types import IntentResult
+from backend.agents.intent.types import IntentAction
 from backend.data_access.cluster_snapshots.types import ClusterRow
 from backend.llm import llm_harness
 from backend.settings import get_config_hash, get_settings, prompts_dir
@@ -17,7 +17,7 @@ _ENV = Environment(loader=FileSystemLoader(str(_PROMPTS_DIR)), autoescape=False)
 async def clarify(
     user_message: str,
     clusters: list[ClusterRow],
-    intent: IntentResult,
+    action: IntentAction,
     conversation_id: uuid.UUID,
     message_id: uuid.UUID,
     accumulated_cost: float,
@@ -30,7 +30,7 @@ async def clarify(
     Args:
         user_message:     Original user message that produced the low-confidence intent.
         clusters:         Current cluster list (labels used for context in the prompt).
-        intent:           Low-confidence intent result — guessed mode, concept, target.
+        action:           The specific low-confidence action — guessed mode, concept, target.
         conversation_id:  Conversation UUID for logging.
         message_id:       Current message UUID for logging.
         accumulated_cost: Running LLM cost this conversation.
@@ -41,8 +41,8 @@ async def clarify(
     cfg = get_settings()
 
     guessed_target_label: str | None = None
-    if intent.target_cluster_id is not None:
-        match = next((c for c in clusters if c.id == intent.target_cluster_id), None)
+    if action.target_cluster_id is not None:
+        match = next((c for c in clusters if c.id == action.target_cluster_id), None)
         if match:
             guessed_target_label = match.label
 
@@ -50,10 +50,10 @@ async def clarify(
     prompt = template.render(
         clusters=[{"label": c.label or "Unlabeled"} for c in clusters],
         user_message=user_message,
-        guessed_mode=intent.navigationMode.value,
-        guessed_concept=intent.concept,
+        guessed_mode=action.navigationMode.value,
+        guessed_concept=action.concept,
         guessed_target_label=guessed_target_label,
-        confidence=intent.confidence,
+        confidence=action.confidence,
     )
     messages = [{"role": "user", "content": prompt}]
 
@@ -78,8 +78,8 @@ async def clarify(
         "clarifier_generated",
         extra={
             "conversation_id": str(conversation_id),
-            "low_confidence_mode": intent.navigationMode.value,
-            "confidence": intent.confidence,
+            "low_confidence_mode": action.navigationMode.value,
+            "confidence": action.confidence,
         },
     )
     return result

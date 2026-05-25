@@ -8,7 +8,7 @@ from backend.agents.concept.agent import build_concept
 from backend.agents.coordinator.types import CoordinatorResult
 from backend.agents.explanation.agent import explain_placement
 from backend.agents.intent.agent import classify as classify_intent
-from backend.agents.intent.types import Modality, NavigationMode
+from backend.agents.intent.types import IntentAction, Modality, NavigationMode
 from backend.agents.labeling.agent import label_clusters
 from backend.agents.suggester.agent import suggest
 from backend.agents.suggester.signals import (
@@ -59,12 +59,14 @@ class Coordinator:
         Pipeline:
           1. Load current cluster snapshot + recent messages.
           2. Label any unlabeled clusters (single batched LLM call).
-          3. Classify intent (Intent agent).
-          4. If confidence is below threshold for a state-changing mode, call the
-             Clarifier agent and return a disambiguation question without modifying state.
-          5. Branch on mode: concept → cluster op → persist, or explain, or direct reply.
-          6. After state-changing ops, run the Suggester agent on the resulting snapshot.
-          7. Return reply, updated snapshot id, and optional suggestion.
+          3. Classify intent (Intent agent) — may return multiple sequential actions.
+          4. Up-front confidence gate: if any state-changing action is below threshold,
+             call the Clarifier and return a disambiguation question without modifying state.
+          5. Execute actions in order, threading each resulting snapshot into the next.
+             Clusters are re-read from the DB at the start of each action so later steps
+             operate on the actual post-operation state.
+          6. After all actions, run the Suggester once on the final snapshot.
+          7. Return aggregated reply, final snapshot id, and optional suggestion.
 
         Args:
             conversation_id:   Conversation UUID.
@@ -100,24 +102,29 @@ class Coordinator:
         accumulated_cost += intent.cost
 
         cfg = get_settings()
-        if (
-            intent.confidence < cfg.intent.confidence_threshold
-            and intent.navigationMode in _STATE_CHANGING
-        ):
+        low_confidence_action = next(
+            (
+                a for a in intent.actions
+                if a.navigationMode in _STATE_CHANGING
+                and a.confidence < cfg.intent.confidence_threshold
+            ),
+            None,
+        )
+        if low_confidence_action is not None:
             log.info(
                 "coordinator_low_confidence_gate",
                 extra={
                     "conversation_id": str(conversation_id),
-                    "navigation_mode": intent.navigationMode.value,
-                    "confidence": intent.confidence,
+                    "navigation_mode": low_confidence_action.navigationMode.value,
+                    "confidence": low_confidence_action.confidence,
                     "threshold": cfg.intent.confidence_threshold,
-                    "concept": intent.concept,
+                    "concept": low_confidence_action.concept,
                 },
             )
             clarification = await clarify(
                 user_message=user_message,
                 clusters=clusters,
-                intent=intent,
+                action=low_confidence_action,
                 conversation_id=conversation_id,
                 message_id=message_id,
                 accumulated_cost=accumulated_cost,
@@ -132,133 +139,156 @@ class Coordinator:
             "coordinator_dispatch",
             extra={
                 "conversation_id": str(conversation_id),
-                "intent_mode": intent.navigationMode.value,
+                "n_actions": len(intent.actions),
+                "intent_modes": [a.navigationMode.value for a in intent.actions],
                 "n_clusters": len(clusters),
             },
         )
 
-        if intent.navigationMode == NavigationMode.SMALL_TALK:
+        reply_fragments: list[str] = []
+
+        for action in intent.actions:
+            step_snapshot = get_cluster_snapshot_with_clusters(current_cluster_snapshot_id) if current_cluster_snapshot_id else None
+            step_clusters = step_snapshot.clusters if step_snapshot else []
+
+            fragment, current_cluster_snapshot_id, step_cost = await self._execute_action(
+                action=action,
+                current_cluster_snapshot_id=current_cluster_snapshot_id,
+                clusters=step_clusters,
+                conversation_id=conversation_id,
+                conversation_row=conversation_row,
+                message_id=message_id,
+                accumulated_cost=accumulated_cost,
+            )
+            accumulated_cost += step_cost
+            reply_fragments.append(fragment)
+
+        final_snapshot_id = current_cluster_snapshot_id or _sentinel_cluster_snapshot_id()
+        final_cswc = get_cluster_snapshot_with_clusters(final_snapshot_id)
+        final_clusters = final_cswc.clusters if final_cswc else []
+
+        combined_reply = "\n".join(
+            f"{i + 1}) {frag}" for i, frag in enumerate(reply_fragments)
+        ) if len(reply_fragments) > 1 else (reply_fragments[0] if reply_fragments else "")
+
+        suggestion = await _maybe_suggest(
+            new_cluster_snapshot_id=final_snapshot_id,
+            new_clusters=final_clusters,
+            last_operation=combined_reply,
+            conversation_id=conversation_id,
+            message_id=message_id,
+            accumulated_cost=accumulated_cost,
+        )
+
+        return CoordinatorResult(
+            reply_text=combined_reply,
+            cluster_snapshot_id=final_snapshot_id,
+            suggestion=suggestion.text if suggestion else None,
+        )
+
+    async def _execute_action(
+        self,
+        action: IntentAction,
+        current_cluster_snapshot_id: uuid.UUID | None,
+        clusters: list,
+        conversation_id: uuid.UUID,
+        conversation_row: ConversationRow,
+        message_id: uuid.UUID,
+        accumulated_cost: float,
+    ) -> tuple[str, uuid.UUID | None, float]:
+        """Execute a single classified action and return its reply fragment, new snapshot id, and cost.
+
+        Args:
+            action:                      The action to execute.
+            current_cluster_snapshot_id: Active cluster snapshot before this action.
+            clusters:                    Cluster list for the current snapshot.
+            conversation_id:             Conversation UUID.
+            conversation_row:            Current conversation state (used by reset).
+            message_id:                  Current message UUID for logging.
+            accumulated_cost:            Running LLM cost before this action.
+
+        Returns:
+            Tuple of (reply_fragment, new_cluster_snapshot_id, step_cost).
+        """
+        step_cost = 0.0
+
+        if action.navigationMode == NavigationMode.SMALL_TALK:
             reply = (
                 "I'm here to help you explore the movie catalogue through clustering. "
                 "You can ask me to split a cluster, merge groups, or explain a placement."
             )
-            cluster_snapshot_id = current_cluster_snapshot_id or _sentinel_cluster_snapshot_id()
-            return CoordinatorResult(reply_text=reply, cluster_snapshot_id=cluster_snapshot_id)
+            return reply, current_cluster_snapshot_id, step_cost
 
-        if intent.navigationMode == NavigationMode.RESET or current_cluster_snapshot_id is None:
-            return await self._handle_reset(conversation_id, conversation_row)
+        if action.navigationMode == NavigationMode.RESET or current_cluster_snapshot_id is None:
+            result = await self._handle_reset(conversation_id, conversation_row)
+            return result.reply_text, result.cluster_snapshot_id, step_cost
 
-        if intent.navigationMode == NavigationMode.EXPLAIN:
-            return await self._handle_explain(
-                intent, clusters, current_cluster_snapshot_id, conversation_id, message_id, accumulated_cost
+        if action.navigationMode == NavigationMode.EXPLAIN:
+            result = await self._handle_explain(
+                action, clusters, current_cluster_snapshot_id, conversation_id, message_id, accumulated_cost
             )
+            return result.reply_text, result.cluster_snapshot_id, step_cost
 
-        if intent.navigationMode == NavigationMode.DRILL_DOWN:
-            target_id = intent.target_cluster_id or (clusters[0].id if clusters else None)
+        if action.navigationMode == NavigationMode.DRILL_DOWN:
+            target_id = action.target_cluster_id or (clusters[0].id if clusters else None)
             if target_id is None:
-                return CoordinatorResult(
-                    reply_text="Please specify which cluster to split.",
-                    cluster_snapshot_id=current_cluster_snapshot_id,
-                )
+                return "Please specify which cluster to split.", current_cluster_snapshot_id, step_cost
             concept = None
-            if intent.concept:
-                concept = await build_concept(intent.concept, conversation_id, message_id, accumulated_cost)
-                accumulated_cost += concept.cost
+            if action.concept:
+                concept = await build_concept(action.concept, conversation_id, message_id, accumulated_cost + step_cost)
+                step_cost += concept.cost
             new_cluster_snapshot_id = await apply_drill_down(
                 source_cluster_id=target_id,
                 parent_cluster_snapshot_id=current_cluster_snapshot_id,
                 conversation_id=conversation_id,
                 concept=concept,
-                accumulated_cost=accumulated_cost,
-                embedding_spaces=intent.embedding_spaces,
+                accumulated_cost=accumulated_cost + step_cost,
+                embedding_spaces=action.embedding_spaces,
             )
             new_cswc = get_cluster_snapshot_with_clusters(new_cluster_snapshot_id)
             n_new = len(new_cswc.clusters) if new_cswc else 0
             labels = [c.label for c in (new_cswc.clusters if new_cswc else [])]
             reply = f"Split into {n_new} sub-clusters: {', '.join(labels[:5])}{'…' if n_new > 5 else ''}."
-            suggestion = await _maybe_suggest(
-                new_cluster_snapshot_id=new_cluster_snapshot_id,
-                new_clusters=new_cswc.clusters if new_cswc else [],
-                last_operation=reply,
-                conversation_id=conversation_id,
-                message_id=message_id,
-                accumulated_cost=accumulated_cost,
-            )
-            accumulated_cost += suggestion.cost if suggestion else 0.0
-            return CoordinatorResult(
-                reply_text=reply,
-                cluster_snapshot_id=new_cluster_snapshot_id,
-                suggestion=suggestion.text if suggestion else None,
-            )
+            return reply, new_cluster_snapshot_id, step_cost
 
-        if intent.navigationMode == NavigationMode.MERGE:
+        if action.navigationMode == NavigationMode.MERGE:
             if len(clusters) < 2:
-                return CoordinatorResult(
-                    reply_text="There are fewer than two clusters to merge.",
-                    cluster_snapshot_id=current_cluster_snapshot_id,
-                )
+                return "There are fewer than two clusters to merge.", current_cluster_snapshot_id, step_cost
             ids_to_merge = [c.id for c in clusters[:2]]
             new_cluster_snapshot_id = await apply_merge(
                 cluster_ids=ids_to_merge,
                 parent_cluster_snapshot_id=current_cluster_snapshot_id,
                 conversation_id=conversation_id,
-                merged_label=intent.merged_label or "Merged",
-                accumulated_cost=accumulated_cost,
+                merged_label=action.merged_label or "Merged",
+                accumulated_cost=accumulated_cost + step_cost,
             )
             reply = "Merged the selected clusters into one."
-            new_cswc = get_cluster_snapshot_with_clusters(new_cluster_snapshot_id)
-            suggestion = await _maybe_suggest(
-                new_cluster_snapshot_id=new_cluster_snapshot_id,
-                new_clusters=new_cswc.clusters if new_cswc else [],
-                last_operation=reply,
-                conversation_id=conversation_id,
-                message_id=message_id,
-                accumulated_cost=accumulated_cost,
-            )
-            accumulated_cost += suggestion.cost if suggestion else 0.0
-            return CoordinatorResult(
-                reply_text=reply,
-                cluster_snapshot_id=new_cluster_snapshot_id,
-                suggestion=suggestion.text if suggestion else None,
-            )
+            return reply, new_cluster_snapshot_id, step_cost
 
-        if intent.navigationMode == NavigationMode.RECUT:
+        if action.navigationMode == NavigationMode.RECUT:
             all_movie_ids = list_movie_ids()
             concept = None
-            if intent.concept:
-                concept = await build_concept(intent.concept, conversation_id, message_id, accumulated_cost)
-                accumulated_cost += concept.cost
+            if action.concept:
+                concept = await build_concept(action.concept, conversation_id, message_id, accumulated_cost + step_cost)
+                step_cost += concept.cost
             new_cluster_snapshot_id = await apply_recut(
                 movie_ids=all_movie_ids,
                 parent_cluster_snapshot_id=current_cluster_snapshot_id,
                 conversation_id=conversation_id,
                 concept=concept,
-                accumulated_cost=accumulated_cost,
-                embedding_spaces=intent.embedding_spaces,
+                accumulated_cost=accumulated_cost + step_cost,
+                embedding_spaces=action.embedding_spaces,
             )
             new_cswc = get_cluster_snapshot_with_clusters(new_cluster_snapshot_id)
             n_new = len(new_cswc.clusters) if new_cswc else 0
             reply = f"Re-clustered the catalogue into {n_new} new clusters."
-            suggestion = await _maybe_suggest(
-                new_cluster_snapshot_id=new_cluster_snapshot_id,
-                new_clusters=new_cswc.clusters if new_cswc else [],
-                last_operation=reply,
-                conversation_id=conversation_id,
-                message_id=message_id,
-                accumulated_cost=accumulated_cost,
-            )
-            accumulated_cost += suggestion.cost if suggestion else 0.0
-            return CoordinatorResult(
-                reply_text=reply,
-                cluster_snapshot_id=new_cluster_snapshot_id,
-                suggestion=suggestion.text if suggestion else None,
-            )
+            return reply, new_cluster_snapshot_id, step_cost
 
         reply = (
             "I understood your request but couldn't perform that operation on the current cluster snapshot. "
             "Try asking to split, merge, or explain a cluster."
         )
-        return CoordinatorResult(reply_text=reply, cluster_snapshot_id=current_cluster_snapshot_id or _sentinel_cluster_snapshot_id())
+        return reply, current_cluster_snapshot_id, step_cost
 
     async def _handle_reset(
         self,
@@ -291,17 +321,17 @@ class Coordinator:
 
     async def _handle_explain(
         self,
-        intent,
+        action: IntentAction,
         clusters,
         current_cluster_snapshot_id: uuid.UUID,
         conversation_id: uuid.UUID,
         message_id: uuid.UUID,
         accumulated_cost: float,
     ) -> CoordinatorResult:
-        """Handle an EXPLAIN intent by finding the movie and calling the explanation agent.
+        """Handle an EXPLAIN action by finding the movie and calling the explanation agent.
 
         Args:
-            intent:                      Classified intent.
+            action:                      Classified EXPLAIN action.
             clusters:                    Current cluster list.
             current_cluster_snapshot_id: Active cluster snapshot UUID.
             conversation_id:             Conversation UUID.
@@ -312,8 +342,8 @@ class Coordinator:
             ``CoordinatorResult`` with the explanation text.
         """
         target_cluster = (
-            next((c for c in clusters if c.id == intent.target_cluster_id), None)
-            if intent.target_cluster_id else (clusters[0] if clusters else None)
+            next((c for c in clusters if c.id == action.target_cluster_id), None)
+            if action.target_cluster_id else (clusters[0] if clusters else None)
         )
         if target_cluster is None or not target_cluster.exemplar_movie_ids:
             return CoordinatorResult(
