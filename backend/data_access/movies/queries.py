@@ -211,6 +211,72 @@ def fetch_metadata(movie_ids: list[int]) -> list[MovieRow]:
     return result
 
 
+def filter_movie_ids_by_metadata(
+    movie_ids: list[int],
+    genres: list[str] | None = None,
+    release_year_min: int | None = None,
+    release_year_max: int | None = None,
+    director: str | None = None,
+) -> list[int]:
+    """Return the subset of *movie_ids* that satisfy all non-null metadata predicates.
+
+    Predicates are combined with AND; multiple genres are combined with OR.  All
+    filtering happens in SQL — never in application memory.
+
+    Args:
+        movie_ids:         Input ID universe to filter.
+        genres:            Keep movies that belong to at least one of these genres.
+        release_year_min:  Keep movies released in this year or later (inclusive).
+        release_year_max:  Keep movies released in this year or earlier (inclusive).
+        director:          Keep movies directed by someone whose name contains this
+                           string (case-insensitive substring match).
+
+    Returns:
+        Filtered list of TMDB IDs preserving the input ordering.
+    """
+    if not movie_ids:
+        return []
+
+    conditions: list[str] = ["m.id = ANY(%s)"]
+    params: list = [movie_ids]
+
+    if genres:
+        conditions.append(
+            "EXISTS ("
+            "SELECT 1 FROM movie_genres mg JOIN genres g ON g.id = mg.genre_id "
+            "WHERE mg.movie_id = m.id AND g.name = ANY(%s)"
+            ")"
+        )
+        params.append(genres)
+    if release_year_min is not None:
+        conditions.append("m.release_year >= %s")
+        params.append(release_year_min)
+    if release_year_max is not None:
+        conditions.append("m.release_year <= %s")
+        params.append(release_year_max)
+    if director is not None:
+        conditions.append(
+            "EXISTS ("
+            "SELECT 1 FROM crew_members cm JOIN people p ON p.id = cm.person_id "
+            "WHERE cm.movie_id = m.id AND cm.job = 'Director' AND p.name ILIKE %s"
+            ")"
+        )
+        params.append(f"%{director}%")
+
+    sql = "SELECT m.id FROM movies m WHERE " + " AND ".join(conditions)
+
+    with transaction() as conn:
+        rows = conn.execute(sql, params).fetchall()
+
+    result_set = {r["id"] for r in rows}
+    result = [mid for mid in movie_ids if mid in result_set]
+    log.debug(
+        "filter_movie_ids_by_metadata",
+        extra={"requested": len(movie_ids), "returned": len(result)},
+    )
+    return result
+
+
 def fetch_stubs(movie_ids: list[int]) -> list[MovieStubRow]:
     """Return lightweight movie stubs (id, title, poster_url, release_year, vote_average).
 

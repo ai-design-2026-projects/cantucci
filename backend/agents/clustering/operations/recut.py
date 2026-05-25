@@ -8,7 +8,7 @@ from backend.agents.clustering.types import ClusterDraft, ClusterSnapshotDraft
 from backend.agents.concept.scoring import score_movies
 from backend.agents.concept.types import ConceptRep
 from backend.agents.clustering.operations.subcluster import subcluster
-from backend.agents.intent.types import Modality
+from backend.agents.clustering.types import Modality
 from backend.data_access.movies.queries import fetch_text_embeddings, fetch_modality_embeddings
 from backend.settings import get_settings
 from core.fusion import combined_distance_matrix
@@ -23,6 +23,8 @@ async def recut(
     parent_cluster_snapshot_id: uuid.UUID,
     concept: ConceptRep | None = None,
     embedding_spaces: list[Modality] | None = None,
+    operation: str = "recut",
+    extra_params: dict | None = None,
 ) -> ClusterSnapshotDraft:
     """Re-cluster a set of movies from scratch using HDBSCAN.
 
@@ -36,6 +38,10 @@ async def recut(
         parent_cluster_snapshot_id: Cluster snapshot being replaced.
         concept:                    Optional concept to sort movies before clustering.
         embedding_spaces:           Embedding spaces to fuse. Defaults to ``[Modality.TEXT]``.
+        operation:                  Operation label stored in the draft (allows callers such as
+                                    ``cross_filter`` to reuse this logic under a different name).
+        extra_params:               Additional key/value pairs merged into the draft params dict
+                                    for cache-key and replayability purposes.
 
     Returns:
         ``ClusterSnapshotDraft`` with freshly computed clusters.
@@ -101,12 +107,14 @@ async def recut(
         ))
 
     params: dict = {
-        "operation": "recut",
+        "operation": operation,
         "parent_cluster_snapshot_id": str(parent_cluster_snapshot_id),
         "n_movies": len(available_ids),
         "n_clusters": len(clusters),
         "concept": concept.concept_name if concept else None,
         "embedding_spaces": space_keys,
     }
-    log.info("recut_complete", extra={"n_movies": len(available_ids), "n_clusters": len(clusters)})
-    return ClusterSnapshotDraft(operation="recut", params=params, clusters=clusters)
+    if extra_params:
+        params.update(extra_params)
+    log.info("recut_complete", extra={"operation": operation, "n_movies": len(available_ids), "n_clusters": len(clusters)})
+    return ClusterSnapshotDraft(operation=operation, params=params, clusters=clusters)

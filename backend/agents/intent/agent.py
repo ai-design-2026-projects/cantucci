@@ -2,7 +2,8 @@ import logging
 import uuid
 from jinja2 import Environment, FileSystemLoader
 
-from backend.agents.intent.types import IntentResult, IntentLLMResponse
+from backend.agents.clustering.types import NavigationMode
+from backend.agents.intent.types import DialogueMode, IntentResult, IntentLLMResponse
 from backend.data_access.cluster_snapshots.types import ClusterRow
 from backend.llm import llm_harness
 from backend.settings import get_config_hash, get_settings, prompts_dir
@@ -35,10 +36,13 @@ async def classify(
     """
     cfg = get_settings()
 
-    template = _ENV.get_template("intent_v5.j2")
+    modes = [(m.value, m.description) for m in (*NavigationMode, *DialogueMode)]
+
+    template = _ENV.get_template("intent_v6.j2")
     prompt = template.render(
         clusters=[{"id": str(c.id), "label": c.label} for c in clusters],
         user_message=user_message,
+        modes=modes,
     )
     messages = [{"role": "user", "content": prompt}]
 
@@ -67,7 +71,7 @@ async def classify(
         extra={
             "conversation_id": str(conversation_id),
             "n_actions": len(result.actions),
-            "navigation_modes": [a.navigationMode.value for a in result.actions],
+            "navigation_modes": [a.mode.value for a in result.actions],
         },
     )
     return result

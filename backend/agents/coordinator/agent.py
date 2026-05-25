@@ -9,7 +9,7 @@ from backend.agents.coordinator.tools.suggestions import maybe_suggest
 from backend.agents.coordinator.types import CoordinatorResult, sentinel_cluster_snapshot_id
 from backend.agents.intent.agent import classify as classify_intent
 from backend.agents.clustering.types import NavigationMode
-from backend.agents.intent.types import IntentAction, IntentResult
+from backend.agents.intent.types import DialogueMode, IntentAction, IntentResult
 from backend.data_access.cluster_snapshots.queries import get_cluster_snapshot_with_clusters
 from backend.data_access.cluster_snapshots.types import ClusterRow
 from backend.data_access.conversations.types import ConversationRow
@@ -21,7 +21,9 @@ _STATE_CHANGING = {
     NavigationMode.DRILL_DOWN,
     NavigationMode.MERGE,
     NavigationMode.RECUT,
-    NavigationMode.RESET,
+    NavigationMode.FOCUS,
+    NavigationMode.CROSS_FILTER,
+    DialogueMode.RESET,
 }
 
 
@@ -113,7 +115,7 @@ class Coordinator:
             extra={
                 "conversation_id": str(conversation_id),
                 "n_actions": len(intent.actions),
-                "intent_modes": [a.navigationMode.value for a in intent.actions],
+                "intent_modes": [a.mode.value for a in intent.actions],
                 "n_clusters": len(clusters),
             },
         )
@@ -198,7 +200,7 @@ class Coordinator:
         low_confidence_action: IntentAction | None = next(
             (
                 a for a in intent.actions
-                if a.navigationMode in _STATE_CHANGING
+                if a.mode in _STATE_CHANGING
                 and a.confidence < cfg.intent.confidence_threshold
             ),
             None,
@@ -210,7 +212,7 @@ class Coordinator:
             "coordinator_low_confidence_gate",
             extra={
                 "conversation_id": str(conversation_id),
-                "navigation_mode": low_confidence_action.navigationMode.value,
+                "navigation_mode": low_confidence_action.mode.value,
                 "confidence": low_confidence_action.confidence,
                 "threshold": cfg.intent.confidence_threshold,
                 "concept": low_confidence_action.concept,

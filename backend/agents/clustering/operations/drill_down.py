@@ -7,7 +7,7 @@ from backend.agents.clustering.types import ClusterDraft, ClusterSnapshotDraft
 from backend.agents.concept.scoring import score_movies
 from backend.agents.concept.types import ConceptRep
 from backend.agents.clustering.operations.subcluster import subcluster
-from backend.agents.intent.types import Modality
+from backend.agents.clustering.types import Modality
 from backend.data_access.cluster_snapshots.queries import get_memberships
 from backend.data_access.movies.queries import fetch_text_embeddings, fetch_modality_embeddings
 from backend.settings import get_settings

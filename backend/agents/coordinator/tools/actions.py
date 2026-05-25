@@ -2,22 +2,23 @@
 
 Each handler takes an ``ActionContext`` and returns a ``(reply_fragment,
 new_cluster_snapshot_id, step_cost)`` tuple.  ``execute_action`` dispatches
-to the correct handler based on ``NavigationMode``, preserving the original
-semantics including the RESET-on-None-snapshot fallback.
+to the correct handler based on the action's mode (``NavigationMode`` or
+``DialogueMode``), preserving the original semantics including the
+RESET-on-None-snapshot fallback.
 """
 
 import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 
-from backend.agents.clustering.agent import apply_drill_down, apply_merge, apply_recut
+from backend.agents.clustering.agent import apply_navigation
+from backend.agents.clustering.types import NavigationMode, NavigationRequest
 from backend.agents.concept.agent import build_concept
-from backend.agents.coordinator import replies
+from backend.agents.coordinator.tools import replies
 from backend.agents.coordinator.tools.progress import ProgressReporter
 from backend.agents.coordinator.types import sentinel_cluster_snapshot_id
 from backend.agents.explanation.agent import explain_placement
-from backend.agents.clustering.types import NavigationMode
-from backend.agents.intent.types import IntentAction
+from backend.agents.intent.types import DialogueMode, IntentAction
 from backend.data_access.cluster_snapshots.queries import (
     get_cluster_snapshot_with_clusters,
     get_root_cluster_snapshot,
@@ -143,14 +144,15 @@ async def handle_drill_down(ctx: ActionContext) -> tuple[str, uuid.UUID | None, 
         step_cost += concept.cost
 
     ctx.reporter.step("clustering")
-    new_cluster_snapshot_id = await apply_drill_down(
-        source_cluster_id=target_id,
+    new_cluster_snapshot_id = await apply_navigation(NavigationRequest(
+        mode=NavigationMode.DRILL_DOWN,
         parent_cluster_snapshot_id=ctx.current_cluster_snapshot_id,
         conversation_id=ctx.conversation_id,
-        concept=concept,
         accumulated_cost=ctx.accumulated_cost + step_cost,
+        concept=concept,
+        source_cluster_id=target_id,
         embedding_spaces=ctx.action.embedding_spaces,
-    )
+    ))
     new_cswc = get_cluster_snapshot_with_clusters(new_cluster_snapshot_id)
     n_new = len(new_cswc.clusters) if new_cswc else 0
     labels = [c.label for c in (new_cswc.clusters if new_cswc else [])]
@@ -171,13 +173,14 @@ async def handle_merge(ctx: ActionContext) -> tuple[str, uuid.UUID | None, float
 
     ids_to_merge = [c.id for c in ctx.clusters[:2]]
     ctx.reporter.step("clustering")
-    new_cluster_snapshot_id = await apply_merge(
-        cluster_ids=ids_to_merge,
+    new_cluster_snapshot_id = await apply_navigation(NavigationRequest(
+        mode=NavigationMode.MERGE,
         parent_cluster_snapshot_id=ctx.current_cluster_snapshot_id,
         conversation_id=ctx.conversation_id,
-        merged_label=ctx.action.merged_label or "Merged",
         accumulated_cost=ctx.accumulated_cost,
-    )
+        cluster_ids=ids_to_merge,
+        merged_label=ctx.action.merged_label or "Merged",
+    ))
     return replies.MERGE_REPLY, new_cluster_snapshot_id, 0.0
 
 
@@ -201,25 +204,95 @@ async def handle_recut(ctx: ActionContext) -> tuple[str, uuid.UUID | None, float
         step_cost += concept.cost
 
     ctx.reporter.step("clustering")
-    new_cluster_snapshot_id = await apply_recut(
-        movie_ids=all_movie_ids,
+    new_cluster_snapshot_id = await apply_navigation(NavigationRequest(
+        mode=NavigationMode.RECUT,
         parent_cluster_snapshot_id=ctx.current_cluster_snapshot_id,
         conversation_id=ctx.conversation_id,
-        concept=concept,
         accumulated_cost=ctx.accumulated_cost + step_cost,
+        concept=concept,
+        movie_ids=all_movie_ids,
         embedding_spaces=ctx.action.embedding_spaces,
-    )
+    ))
     new_cswc = get_cluster_snapshot_with_clusters(new_cluster_snapshot_id)
     n_new = len(new_cswc.clusters) if new_cswc else 0
     return replies.format_recut_reply(n_new), new_cluster_snapshot_id, step_cost
 
 
-_DISPATCH: dict[NavigationMode, _Handler] = {
-    NavigationMode.SMALL_TALK: handle_small_talk,
-    NavigationMode.EXPLAIN: handle_explain,
+async def handle_focus(ctx: ActionContext) -> tuple[str, uuid.UUID | None, float]:
+    """Handle a FOCUS action by narrowing the snapshot to a single cluster's members.
+
+    Args:
+        ctx: Action context.  ``ctx.action.target_cluster_id`` selects the cluster to focus on;
+             falls back to the first cluster when None.
+
+    Returns:
+        Tuple of (reply text, new snapshot id, 0.0 cost).
+    """
+    target_id = ctx.action.target_cluster_id or (ctx.clusters[0].id if ctx.clusters else None)
+    if target_id is None:
+        return replies.NO_CLUSTER_TO_SPLIT, ctx.current_cluster_snapshot_id, 0.0
+
+    target_cluster = next((c for c in ctx.clusters if c.id == target_id), None)
+
+    ctx.reporter.step("clustering")
+    new_cluster_snapshot_id = await apply_navigation(NavigationRequest(
+        mode=NavigationMode.FOCUS,
+        parent_cluster_snapshot_id=ctx.current_cluster_snapshot_id,
+        conversation_id=ctx.conversation_id,
+        accumulated_cost=ctx.accumulated_cost,
+        source_cluster_id=target_id,
+    ))
+    new_cswc = get_cluster_snapshot_with_clusters(new_cluster_snapshot_id)
+    n_members = sum(len(c.exemplar_movie_ids) for c in (new_cswc.clusters if new_cswc else []))
+    label = target_cluster.label if target_cluster else None
+    return replies.format_focus_reply(label, n_members), new_cluster_snapshot_id, 0.0
+
+
+async def handle_cross_filter(ctx: ActionContext) -> tuple[str, uuid.UUID | None, float]:
+    """Handle a CROSS_FILTER action by filtering by metadata then re-clustering survivors.
+
+    Args:
+        ctx: Action context.  ``ctx.action.metadata_filter`` carries the predicate.
+             ``ctx.action.concept`` optionally guides clustering of the filtered set.
+
+    Returns:
+        Tuple of (reply text, new snapshot id, cumulative step cost).
+    """
+    if ctx.action.metadata_filter is None:
+        return replies.UNSUPPORTED_OPERATION, ctx.current_cluster_snapshot_id, 0.0
+
+    step_cost = 0.0
+    concept = None
+    if ctx.action.concept:
+        ctx.reporter.step("concept")
+        concept = await build_concept(
+            ctx.action.concept, ctx.conversation_id, ctx.message_id, ctx.accumulated_cost + step_cost
+        )
+        step_cost += concept.cost
+
+    ctx.reporter.step("clustering")
+    new_cluster_snapshot_id = await apply_navigation(NavigationRequest(
+        mode=NavigationMode.CROSS_FILTER,
+        parent_cluster_snapshot_id=ctx.current_cluster_snapshot_id,
+        conversation_id=ctx.conversation_id,
+        accumulated_cost=ctx.accumulated_cost + step_cost,
+        concept=concept,
+        metadata_filter=ctx.action.metadata_filter,
+        embedding_spaces=ctx.action.embedding_spaces,
+    ))
+    new_cswc = get_cluster_snapshot_with_clusters(new_cluster_snapshot_id)
+    n_new = len(new_cswc.clusters) if new_cswc else 0
+    return replies.format_cross_filter_reply(n_new), new_cluster_snapshot_id, step_cost
+
+
+_DISPATCH: dict[NavigationMode | DialogueMode, _Handler] = {
+    DialogueMode.SMALL_TALK: handle_small_talk,
+    DialogueMode.EXPLAIN: handle_explain,
     NavigationMode.DRILL_DOWN: handle_drill_down,
     NavigationMode.MERGE: handle_merge,
     NavigationMode.RECUT: handle_recut,
+    NavigationMode.FOCUS: handle_focus,
+    NavigationMode.CROSS_FILTER: handle_cross_filter,
 }
 
 
@@ -236,10 +309,10 @@ async def execute_action(ctx: ActionContext) -> tuple[str, uuid.UUID | None, flo
     Returns:
         Tuple of (reply_fragment, new_cluster_snapshot_id, step_cost).
     """
-    if ctx.action.navigationMode == NavigationMode.RESET or ctx.current_cluster_snapshot_id is None:
+    if ctx.action.mode == DialogueMode.RESET or ctx.current_cluster_snapshot_id is None:
         return await handle_reset(ctx)
 
-    handler = _DISPATCH.get(ctx.action.navigationMode)
+    handler = _DISPATCH.get(ctx.action.mode)
     if handler is None:
         return replies.UNSUPPORTED_OPERATION, ctx.current_cluster_snapshot_id, 0.0
     return await handler(ctx)

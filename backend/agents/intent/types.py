@@ -5,35 +5,55 @@ from enum import Enum
 
 from pydantic import BaseModel
 
-from backend.agents.clustering.types import NavigationMode
+from backend.agents.clustering.types import MetadataFilter, Modality, NavigationMode
 
 log = logging.getLogger(__name__)
 
 
-class Modality(str, Enum):
-    """Embedding spaces available for runtime distance computation.
+_DIALOGUE_DESCRIPTIONS: dict[str, str] = {
+    "reset": "return to the initial root clustering",
+    "explain": "explain why a specific movie is in a particular cluster",
+    "small_talk": "casual message with no clustering operation needed",
+}
 
-    Values correspond to keys in ``fusion.runtime_weights`` config and to the
-    embedding columns stored for each movie.
+
+class DialogueMode(str, Enum):
+    """Non-clustering intent modes handled directly by the coordinator.
+
+    These do not produce a new cluster snapshot via the clustering agent.
 
     Attributes:
-        TEXT:    Fused text + review BGE embedding (always available).
-        TRAILER: Trailer frame CLIP embedding (available when trailers were fetched).
-        REVIEW:  Review-only BGE embedding.
+        RESET:      Return to the root base cluster snapshot.
+        EXPLAIN:    Explain why a movie belongs in a cluster.
+        SMALL_TALK: Casual, non-operational message.
     """
-    TEXT = "text"
-    TRAILER = "trailer"
-    REVIEW = "review"
+    RESET = "reset"
+    EXPLAIN = "explain"
+    SMALL_TALK = "small_talk"
+
+    @property
+    def description(self) -> str:
+        """Return a one-line description of this mode for use in the intent prompt."""
+        return _DIALOGUE_DESCRIPTIONS[self.value]
+
+
+class MetadataFilterLLM(BaseModel):
+    """Wire schema for the metadata predicate the LLM emits for CROSS_FILTER actions."""
+    genres: list[str] | None = None
+    release_year_min: int | None = None
+    release_year_max: int | None = None
+    director: str | None = None
 
 
 class IntentActionLLM(BaseModel):
     """Structured output for a single action within the intent classification LLM call."""
-    navigationMode: NavigationMode
+    mode: NavigationMode | DialogueMode
     concept: str | None = None
     merged_label: str | None = None
     target_cluster_id: str | None = None
     confidence: float = 1.0
     embedding_spaces: list[Modality] = [Modality.TEXT]
+    metadata_filter: MetadataFilterLLM | None = None
 
 
 class IntentLLMResponse(BaseModel):
@@ -51,50 +71,64 @@ class IntentAction:
     """A single classified action within a user turn.
 
     Attributes:
-        navigationMode:    Classified navigation mode.
+        mode:              Classified intent mode (NavigationMode or DialogueMode).
         concept:           Semantic concept to apply (e.g. ``"surrealism"``).
                            Populated for drill_down and recut; ``None`` otherwise.
         merged_label:      Label to give the resulting merged cluster.
-                           Populated only for ``navigationMode == merge``; ``None`` otherwise.
-        target_cluster_id: UUID of the cluster to operate on for drill_down / merge / explain.
-                           None when operating on the full cluster snapshot.
+                           Populated only for ``mode == merge``; ``None`` otherwise.
+        target_cluster_id: UUID of the cluster to operate on for drill_down / merge /
+                           explain / focus. None when operating on the full snapshot.
         confidence:        Model confidence in [0, 1].
         embedding_spaces:  Embedding spaces to fuse for this operation. Defaults to
                            ``[Modality.TEXT]``; includes ``Modality.TRAILER`` when the
                            user references visual style or tone.
+        metadata_filter:   Metadata predicate for cross_filter; ``None`` otherwise.
     """
-    navigationMode: NavigationMode
+    mode: NavigationMode | DialogueMode
     concept: str | None
     merged_label: str | None
     target_cluster_id: uuid.UUID | None
     confidence: float
     embedding_spaces: list[Modality]
+    metadata_filter: MetadataFilter | None
 
     @classmethod
     def from_llm_action(cls, parsed: IntentActionLLM) -> "IntentAction":
         """Construct from a single Pydantic-validated LLM action object.
 
         Parses ``target_cluster_id`` to a ``uuid.UUID`` (discards malformed
-        values with a warning).
+        values with a warning). Converts ``MetadataFilterLLM`` to the internal
+        ``MetadataFilter`` dataclass.
 
         Args:
             parsed: Pydantic-validated single action from the LLM payload.
         """
         target_id: uuid.UUID | None = None
-        raw_target = parsed.target_cluster_id  # type: ignore[attr-defined]
+        raw_target = parsed.target_cluster_id
         if raw_target:
             try:
                 target_id = uuid.UUID(raw_target)
             except ValueError:
                 log.warning("intent_invalid_cluster_id", extra={"raw": raw_target})
 
+        metadata_filter: MetadataFilter | None = None
+        if parsed.metadata_filter is not None:
+            mf = parsed.metadata_filter
+            metadata_filter = MetadataFilter(
+                genres=mf.genres,
+                release_year_min=mf.release_year_min,
+                release_year_max=mf.release_year_max,
+                director=mf.director,
+            )
+
         return cls(
-            navigationMode=parsed.navigationMode,  # type: ignore[attr-defined]
-            concept=parsed.concept,  # type: ignore[attr-defined]
-            merged_label=parsed.merged_label,  # type: ignore[attr-defined]
+            mode=parsed.mode,
+            concept=parsed.concept,
+            merged_label=parsed.merged_label,
             target_cluster_id=target_id,
-            confidence=parsed.confidence,  # type: ignore[attr-defined]
-            embedding_spaces=parsed.embedding_spaces,  # type: ignore[attr-defined]
+            confidence=parsed.confidence,
+            embedding_spaces=parsed.embedding_spaces,
+            metadata_filter=metadata_filter,
         )
 
 
@@ -129,7 +163,7 @@ class IntentResult:
             cost:        LLM call cost in USD.
         """
         return cls(
-            actions=[IntentAction.from_llm_action(a) for a in parsed.actions],  # type: ignore[attr-defined]
+            actions=[IntentAction.from_llm_action(a) for a in parsed.actions],
             cost=cost,
             raw_intent=raw_content,
         )

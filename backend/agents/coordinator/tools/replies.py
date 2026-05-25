@@ -58,3 +58,29 @@ def format_reset_reply(n: int) -> str:
         A human-readable summary of the reset result.
     """
     return f"Reset to the base clustering with {n} clusters."
+
+
+def format_focus_reply(label: str | None, n_members: int) -> str:
+    """Format the reply for a completed FOCUS operation.
+
+    Args:
+        label:     Label of the focused cluster.
+        n_members: Number of movies retained.
+
+    Returns:
+        A human-readable summary of the focus result.
+    """
+    name = label or "the selected cluster"
+    return f"Focused on '{name}' — {n_members} movies retained, all others discarded."
+
+
+def format_cross_filter_reply(n_new: int) -> str:
+    """Format the reply for a completed CROSS_FILTER operation.
+
+    Args:
+        n_new: Total number of new clusters produced after filtering and re-clustering.
+
+    Returns:
+        A human-readable summary of the cross-filter result.
+    """
+    return f"Applied metadata filter and re-clustered the survivors into {n_new} clusters."

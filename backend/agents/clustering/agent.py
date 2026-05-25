@@ -1,12 +1,12 @@
 import logging
 import uuid
 
+from backend.agents.clustering.operations.cross_filter import cross_filter
 from backend.agents.clustering.operations.drill_down import drill_down
+from backend.agents.clustering.operations.focus import focus
 from backend.agents.clustering.operations.merge import merge_clusters
 from backend.agents.clustering.operations.recut import recut
-from backend.agents.clustering.types import ClusterSnapshotDraft
-from backend.agents.concept.types import ConceptRep
-from backend.agents.intent.types import Modality
+from backend.agents.clustering.types import ClusterSnapshotDraft, NavigationMode, NavigationRequest
 from backend.agents.labeling.agent import label_clusters
 from backend.agents.labeling.types import ClusterLabelContext
 from backend.data_access.cluster_snapshots.queries import (
@@ -25,77 +25,75 @@ from backend.settings import get_config_hash
 log = logging.getLogger(__name__)
 
 
-async def apply_drill_down(
-    source_cluster_id: uuid.UUID,
-    parent_cluster_snapshot_id: uuid.UUID,
-    conversation_id: uuid.UUID,
-    concept: ConceptRep | None,
-    accumulated_cost: float,
-    embedding_spaces: list[Modality] | None = None,
-) -> uuid.UUID:
-    """Drill down into one cluster and persist the resulting cluster snapshot.
+async def apply_navigation(request: NavigationRequest) -> uuid.UUID:
+    """Dispatch a clustering operation and persist the resulting snapshot.
+
+    Selects the correct operation based on ``request.mode``, executes it, then
+    persists (or retrieves from the content-addressed cache) the resulting
+    ``ClusterSnapshotDraft`` via ``_persist_and_label``.
 
     Args:
-        source_cluster_id:           Cluster to split.
-        parent_cluster_snapshot_id:  Cluster snapshot the cluster belongs to.
-        conversation_id:             Conversation to update the current_cluster_snapshot_id pointer.
-        concept:                     Optional concept to guide the split.
-        accumulated_cost:            Running LLM cost this conversation.
-        embedding_spaces:            Embedding spaces to fuse. Defaults to ``[Modality.TEXT]``.
+        request: All inputs required for the operation. Unused fields for the
+                 selected mode are ignored.
 
     Returns:
-        UUID of the newly created cluster snapshot.
+        UUID of the cached-or-newly-created cluster snapshot.
+
+    Raises:
+        ValueError: If ``request.mode`` is not a known ``NavigationMode``.
     """
-    draft = await drill_down(source_cluster_id, concept, parent_cluster_snapshot_id, embedding_spaces)
-    return await _persist_and_label(draft, conversation_id, parent_cluster_snapshot_id, accumulated_cost)
+    match request.mode:
+        case NavigationMode.DRILL_DOWN:
+            if request.source_cluster_id is None:
+                raise ValueError("source_cluster_id is required for DRILL_DOWN")
+            draft = await drill_down(
+                source_cluster_id=request.source_cluster_id,
+                concept=request.concept,
+                parent_cluster_snapshot_id=request.parent_cluster_snapshot_id,
+                embedding_spaces=request.embedding_spaces,
+            )
+        case NavigationMode.MERGE:
+            if not request.cluster_ids:
+                raise ValueError("cluster_ids is required for MERGE")
+            draft = await merge_clusters(
+                cluster_ids=request.cluster_ids,
+                parent_cluster_snapshot_id=request.parent_cluster_snapshot_id,
+                merged_label=request.merged_label or "Merged",
+            )
+        case NavigationMode.RECUT:
+            if not request.movie_ids:
+                raise ValueError("movie_ids is required for RECUT")
+            draft = await recut(
+                movie_ids=request.movie_ids,
+                parent_cluster_snapshot_id=request.parent_cluster_snapshot_id,
+                concept=request.concept,
+                embedding_spaces=request.embedding_spaces,
+            )
+        case NavigationMode.FOCUS:
+            if request.source_cluster_id is None:
+                raise ValueError("source_cluster_id is required for FOCUS")
+            draft = await focus(
+                source_cluster_id=request.source_cluster_id,
+                parent_cluster_snapshot_id=request.parent_cluster_snapshot_id,
+            )
+        case NavigationMode.CROSS_FILTER:
+            if request.metadata_filter is None:
+                raise ValueError("metadata_filter is required for CROSS_FILTER")
+            draft = await cross_filter(
+                parent_cluster_snapshot_id=request.parent_cluster_snapshot_id,
+                metadata_filter=request.metadata_filter,
+                concept=request.concept,
+                embedding_spaces=request.embedding_spaces,
+            )
+        case _:
+            raise ValueError(f"Unknown NavigationMode: {request.mode!r}")
 
-
-async def apply_merge(
-    cluster_ids: list[uuid.UUID],
-    parent_cluster_snapshot_id: uuid.UUID,
-    conversation_id: uuid.UUID,
-    merged_label: str,
-    accumulated_cost: float,
-) -> uuid.UUID:
-    """Merge clusters and persist the resulting cluster snapshot.
-
-    Args:
-        cluster_ids:                 Clusters to merge.
-        parent_cluster_snapshot_id:  Their parent cluster snapshot.
-        conversation_id:             Conversation to update.
-        merged_label:                Label for the merged cluster.
-        accumulated_cost:            Running LLM cost this conversation.
-
-    Returns:
-        UUID of the newly created cluster snapshot.
-    """
-    draft = await merge_clusters(cluster_ids, parent_cluster_snapshot_id, merged_label)
-    return await _persist_and_label(draft, conversation_id, parent_cluster_snapshot_id, accumulated_cost)
-
-
-async def apply_recut(
-    movie_ids: list[int],
-    parent_cluster_snapshot_id: uuid.UUID,
-    conversation_id: uuid.UUID,
-    concept: ConceptRep | None,
-    accumulated_cost: float,
-    embedding_spaces: list[Modality] | None = None,
-) -> uuid.UUID:
-    """Re-cluster a movie set and persist the result as a new cluster snapshot.
-
-    Args:
-        movie_ids:                   Movies to recluster.
-        parent_cluster_snapshot_id:  Cluster snapshot being replaced.
-        conversation_id:             Conversation to update.
-        concept:                     Optional concept.
-        accumulated_cost:            Running LLM cost this conversation.
-        embedding_spaces:            Embedding spaces to fuse. Defaults to ``[Modality.TEXT]``.
-
-    Returns:
-        UUID of the newly created cluster snapshot.
-    """
-    draft = await recut(movie_ids, parent_cluster_snapshot_id, concept, embedding_spaces)
-    return await _persist_and_label(draft, conversation_id, parent_cluster_snapshot_id, accumulated_cost)
+    return await _persist_and_label(
+        draft=draft,
+        conversation_id=request.conversation_id,
+        parent_cluster_snapshot_id=request.parent_cluster_snapshot_id,
+        accumulated_cost=request.accumulated_cost,
+    )
 
 
 def _build_label_contexts(
