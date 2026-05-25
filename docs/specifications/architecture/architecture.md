@@ -54,6 +54,46 @@ precomputed distance matrix to HDBSCAN instead. When a drill-down is **concept-g
 agent's axis or prototype scores every movie, the set is split at the **median** score into high/low
 halves, and each half is clustered separately to produce more concept-coherent groups.
 
+## Operations & natural-language control
+
+The oracle never picks an operation from a menu — they type free-form text, and the **Intent agent**
+maps it onto a fixed, closed set of operations. Each operation is an enum member with a one-line
+`description` that is injected into the intent prompt, so the catalogue of allowed actions and the
+classifier's vocabulary are defined in one place (`backend/agents/intent/types.py`,
+`backend/agents/clustering/types.py`).
+
+There are two families. **Navigation operations** (`NavigationMode`) re-cluster the data and produce
+a new snapshot; **dialogue operations** (`DialogueMode`) navigate, explain, or chat without producing
+new clusters.
+
+| Operation | Family | Definition | Illustrative phrasing |
+|---|---|---|---|
+| `drill_down` | navigation | Split one cluster further along a semantic concept, or re-cluster the full catalogue when no target is given. | "break the noir group down by how violent they are", "cluster these further" |
+| `merge` | navigation | Combine two or more clusters into one under a chosen label. | "these two are basically the same, combine them" |
+| `focus` | navigation | Discard every cluster except the selected one, narrowing the working set to its members. | "just keep the sci-fi cluster" |
+| `cross_filter` | navigation | Keep only movies matching a metadata predicate (genres, year range, director), then re-cluster the survivors. | "only 90s movies directed by Spielberg, then regroup" |
+| `reset` | dialogue | Return to the unclustered state (no active snapshot). | "start over" |
+| `go_to_base` | dialogue | Jump back to the pre-computed ingest-time base clustering. | "go back to the original groups" |
+| `explain` | dialogue | Explain why a given movie sits in a given cluster. | "why is Blade Runner in this group?" |
+| `small_talk` | dialogue | Casual, non-operational message; answered with a static help reply. | "what can you do?" |
+
+The Intent agent emits an **ordered list of actions**, so a single message can request a compound
+sequence (e.g. *"reset, then split everything by mood"* → `reset` then `drill_down`); the Coordinator
+executes them in order, threading each resulting snapshot into the next. Beyond the operation itself,
+each action carries the parameters the operation needs, all inferred from the same message:
+
+- `target_cluster_id` — which cluster to act on (drill-down / merge / focus / explain); absent means "operate on the whole snapshot".
+- `concept` — a free-text semantic dimension (e.g. "surrealism") that, when present, routes through the Concept agent to guide a drill-down or cross-filter split.
+- `metadata_filter` — a structured predicate (`genres`, `release_year_min/max`, `director`) for cross-filter.
+- `merged_label` — the name for a merged cluster.
+- `embedding_spaces` — which modalities to fuse for this operation (defaults to `TEXT`; adds `TRAILER` when the user references visual style or tone).
+- `confidence` — the model's certainty in the classification.
+
+Because the action set is closed and each action is fully parameterised from natural language, the
+oracle controls a precise clustering operation without learning any command syntax. When a
+state-changing action's `confidence` falls below the configured threshold, the **Clarifier** asks a
+disambiguating question instead of guessing (see Turn Handling, Phase 3).
+
 ## Agent entry points & tools
 
 Each agent exposes a thin async entry point (see `backend/CLAUDE.md` for the canonical agent shape).
@@ -131,3 +171,34 @@ the assistant message and adds the turn cost to the conversation.
 
 **SSE progress steps**, in emission order: `labeling`, `intent`, `clarifier`, `concept`,
 `clustering`, `explain`, `suggester`, then the terminal `turn_done`.
+
+## Navigating the execution graph
+
+Every navigation operation is recorded as a node in a persistent graph rather than mutating state in
+place, which is what lets the oracle move backward and sideways through the exploration — not just
+forward. Two structures (defined in `data_schema.md`) make this work:
+
+- **The snapshot lineage.** Each `cluster_snapshots` row stores the `parent_id` of the snapshot it
+  was derived from, plus the `operation` and the canonical `params` that produced it. Following
+  `parent_id` upward gives the exact chain of operations that built any state, back to the ingest-time
+  root (`operation = 'base'`, `parent_id = NULL`). A single conversation's snapshots therefore form a
+  tree: a linear path while the oracle keeps refining, branching whenever they back up and try a
+  different operation from an earlier point.
+- **Per-conversation membership.** `conversation_snapshot_refs` records every snapshot a conversation
+  has touched, decoupled from lineage, so a conversation "owns" its visited states even though the
+  snapshots themselves are shared.
+
+**Going back** is just re-pointing `conversations.current_cluster_snapshot_id` at an earlier node — no
+recomputation. `PATCH /conversations/{id}` (and the MCP `navigate_to_snapshot` tool) sets the active
+snapshot to any prior snapshot id; the `go_to_base` operation is the special case of jumping to the
+root, and `reset` clears the pointer to the unclustered state. `GET /conversations/{id}/cluster-snapshots`
+returns the whole node set (id, parent_id, operation, created_at) so a client can render the tree and
+let the oracle click a past state to return to it.
+
+**Branching and reuse** fall out of the same design. Issuing a new operation from a state the oracle
+has rewound to simply creates a new child of that node — the prior branch is untouched and still
+reachable. And because snapshots are **content-addressed** by `(parent_id, operation, params,
+config_hash)`, re-deriving a state that already exists (in this or another conversation) reuses the
+cached node instead of re-clustering, so revisiting and replaying paths is cheap. Deleting a snapshot
+is restricted to leaves (`409` otherwise) and reparents any conversation pointing at it to the
+snapshot's parent, so the graph never loses a state that is still on someone's path.
