@@ -44,6 +44,20 @@ _COMPONENTS: tuple[tuple[str, str], ...] = (
     ("auth", "auth"),
 )
 
+# Agent packages that each get their own file under the run dir's ``agents/``
+# subdir, on top of the aggregate ``agents.log``. The rendered prompt passed to
+# the LLM is logged (at DEBUG) by each agent's module logger, landing here.
+_AGENTS: tuple[str, ...] = (
+    "intent",
+    "clarifier",
+    "labeling",
+    "concept",
+    "responder",
+    "explanation",
+    "coordinator",
+    "clustering",
+)
+
 _FILE_MAX_BYTES = 10 * 1024 * 1024  # 10 MB per file before rotation
 _FILE_BACKUP_COUNT = 5              # keep 5 rotated copies
 
@@ -195,6 +209,21 @@ def configure_logging() -> None:
         pkg_log.addHandler(_make_file_handler(run_dir / f"{component}.log"))
         pkg_log.setLevel(logging.DEBUG)
         pkg_log.propagate = True
+
+    # One dedicated file per agent so each agent's records (including the
+    # rendered LLM prompt) land in their own file. Records still propagate up to
+    # the aggregate agents.log and root all.log.
+    agents_dir = run_dir / "agents"
+    agents_dir.mkdir(parents=True, exist_ok=True)
+    for agent in _AGENTS:
+        agent_log = logging.getLogger(f"backend.agents.{agent}")
+        for existing in list(agent_log.handlers):
+            if isinstance(existing, RotatingFileHandler):
+                agent_log.removeHandler(existing)
+                existing.close()
+        agent_log.addHandler(_make_file_handler(agents_dir / f"{agent}.log"))
+        agent_log.setLevel(logging.DEBUG)
+        agent_log.propagate = True
 
     # Route uvicorn's loggers through our stream formatter so request/error logs match.
     for name in ("uvicorn", "uvicorn.error", "uvicorn.access"):

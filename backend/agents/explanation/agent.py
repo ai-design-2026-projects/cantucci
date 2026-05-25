@@ -66,6 +66,7 @@ async def explain_placement(
         cluster_summary=cluster_summary,
         exemplar_titles=exemplar_titles,
     )
+    log.debug("llm_prompt", extra={"template": "explain_v2.j2", "prompt": prompt})
     messages = [{"role": "user", "content": prompt}]
 
     resp = await llm_harness.call(

@@ -19,7 +19,6 @@ from backend.data_access.conversations.queries import (
     set_current_cluster_snapshot,
 )
 from backend.data_access.cluster_snapshots.queries import (
-    clear_conversation_snapshot_refs,
     get_cluster_snapshot,
     record_conversation_snapshot_ref,
 )

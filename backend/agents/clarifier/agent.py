@@ -55,6 +55,7 @@ async def clarify(
         guessed_target_label=guessed_target_label,
         confidence=action.confidence,
     )
+    log.debug("llm_prompt", extra={"template": "clarify_v1.j2", "prompt": prompt})
     messages = [{"role": "user", "content": prompt}]
 
     resp = await llm_harness.call(
