@@ -12,10 +12,11 @@ from backend.data_access.cluster_snapshots.queries import (
     get_conversation_cluster_snapshots,
     get_memberships,
     get_root_cluster_snapshot,
+    get_snapshot_members,
 )
 from backend.exceptions import ClusterSnapshotNotFound, NotFoundError, SnapshotHasChildren
 from backend.routers.auth_deps import get_current_user
-from backend.routers.dto.cluster_snapshots.dtos import ClusterDto, ClusterMembershipDto, ClusterSnapshotDto, ClusterSnapshotGraphDto
+from backend.routers.dto.cluster_snapshots.dtos import ClusterDto, ClusterMembershipDto, ClusterSnapshotDto, ClusterSnapshotGraphDto, SnapshotMemberDto
 
 log = logging.getLogger(__name__)
 
@@ -41,6 +42,7 @@ def get_root_cluster_snapshot_endpoint() -> ClusterSnapshotDto:
     result = get_cluster_snapshot_with_clusters(root.id)
     if result is None:
         raise ClusterSnapshotNotFound(root.id)
+    snapshot_members = get_snapshot_members(root.id)
     cluster_dtos = []
     for c in result.clusters:
         memberships = get_memberships(c.id)
@@ -52,6 +54,17 @@ def get_root_cluster_snapshot_endpoint() -> ClusterSnapshotDto:
             parent_cluster_id=c.parent_cluster_id,
             size=len(memberships),
         ))
+    member_dtos = [
+        SnapshotMemberDto(
+            movie_id=m.movie_id,
+            title=m.title,
+            umap_x=m.umap_x,
+            umap_y=m.umap_y,
+            cluster_id=m.cluster_id,
+            probability=m.probability,
+        )
+        for m in snapshot_members
+    ]
     s = result.cluster_snapshot
     return ClusterSnapshotDto(
         id=s.id,
@@ -60,6 +73,7 @@ def get_root_cluster_snapshot_endpoint() -> ClusterSnapshotDto:
         params=s.params,
         config_hash=s.config_hash,
         clusters=cluster_dtos,
+        members=member_dtos,
         created_at=s.created_at,
     )
 
@@ -83,6 +97,7 @@ def get_cluster_snapshot_endpoint(cluster_snapshot_id: uuid.UUID) -> ClusterSnap
     if result is None:
         raise ClusterSnapshotNotFound(cluster_snapshot_id)
 
+    snapshot_members = get_snapshot_members(cluster_snapshot_id)
     cluster_dtos = []
     for c in result.clusters:
         memberships = get_memberships(c.id)
@@ -94,6 +109,17 @@ def get_cluster_snapshot_endpoint(cluster_snapshot_id: uuid.UUID) -> ClusterSnap
             parent_cluster_id=c.parent_cluster_id,
             size=len(memberships),
         ))
+    member_dtos = [
+        SnapshotMemberDto(
+            movie_id=m.movie_id,
+            title=m.title,
+            umap_x=m.umap_x,
+            umap_y=m.umap_y,
+            cluster_id=m.cluster_id,
+            probability=m.probability,
+        )
+        for m in snapshot_members
+    ]
 
     s = result.cluster_snapshot
     return ClusterSnapshotDto(
@@ -103,6 +129,7 @@ def get_cluster_snapshot_endpoint(cluster_snapshot_id: uuid.UUID) -> ClusterSnap
         params=s.params,
         config_hash=s.config_hash,
         clusters=cluster_dtos,
+        members=member_dtos,
         created_at=s.created_at,
     )
 

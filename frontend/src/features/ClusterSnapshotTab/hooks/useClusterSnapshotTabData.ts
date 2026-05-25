@@ -27,33 +27,26 @@ export function useClusterSnapshotTabData(conversationId: string | undefined) {
 		? conversationSnapshot ?? (conversationSnapshotPending ? rootSnapshot : undefined)
 		: rootSnapshot
 	const dimmedAll = !hasConversation || conversationSnapshotPending || isOnRootSnapshot
+
 	const { data: movieMap } = useExemplarMovies(snapshot)
-	const scatterPoints = useScatterData(snapshot, movieMap)
+	const scatterPoints = useScatterData(snapshot)
 
 	const baseDomain = useMemo(() => {
-		if (!rootSnapshot) return undefined
-		const exemplarIds = rootSnapshot.clusters.flatMap((cluster) => cluster.exemplar_movie_ids)
-		const xs: number[] = []
-		const ys: number[] = []
-		for (const id of exemplarIds) {
-			const movie = movieMap?.get(id)
-			if (movie?.umap_x != null && movie?.umap_y != null) {
-				xs.push(movie.umap_x)
-				ys.push(movie.umap_y)
-			}
+		if (!rootSnapshot || rootSnapshot.members.length === 0) return undefined
+		let xMin = Infinity, xMax = -Infinity, yMin = Infinity, yMax = -Infinity
+		for (const m of rootSnapshot.members) {
+			if (m.umap_x < xMin) xMin = m.umap_x
+			if (m.umap_x > xMax) xMax = m.umap_x
+			if (m.umap_y < yMin) yMin = m.umap_y
+			if (m.umap_y > yMax) yMax = m.umap_y
 		}
-		if (xs.length === 0) return undefined
-		const xMin = Math.min(...xs)
-		const xMax = Math.max(...xs)
-		const yMin = Math.min(...ys)
-		const yMax = Math.max(...ys)
 		const xPad = (xMax - xMin) * 0.05 || 1
 		const yPad = (yMax - yMin) * 0.05 || 1
 		return {
 			x: [xMin - xPad, xMax + xPad] as [number, number],
 			y: [yMin - yPad, yMax + yPad] as [number, number],
 		}
-	}, [movieMap, rootSnapshot])
+	}, [rootSnapshot])
 
 	return {
 		conversation,

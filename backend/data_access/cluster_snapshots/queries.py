@@ -10,6 +10,7 @@ from backend.data_access.cluster_snapshots.types import (
     ClusterRow,
     ClusterSnapshotRow,
     ClusterSnapshotWithClusters,
+    SnapshotMemberRow,
 )
 from backend.settings import get_config_hash
 
@@ -450,6 +451,42 @@ def delete_cluster_snapshot(snapshot_id: uuid.UUID) -> None:
             (snapshot_id,),
         )
     log.info("cluster_snapshot_deleted", extra={"snapshot_id": str(snapshot_id)})
+
+
+def get_snapshot_members(cluster_snapshot_id: uuid.UUID) -> list[SnapshotMemberRow]:
+    """Return the argmax cluster assignment for every movie in a snapshot.
+
+    Uses ``DISTINCT ON`` to pick the highest-probability cluster per movie across
+    all clusters belonging to *cluster_snapshot_id*. Movies without UMAP coordinates
+    are excluded.
+
+    Args:
+        cluster_snapshot_id: UUID of the cluster snapshot.
+
+    Returns:
+        List of ``SnapshotMemberRow``, one per movie that has coordinates.
+    """
+    with transaction() as conn:
+        rows = conn.execute(
+            """
+            SELECT DISTINCT ON (cm.movie_id)
+                cm.movie_id,
+                m.title,
+                m.umap_x,
+                m.umap_y,
+                c.id AS cluster_id,
+                cm.probability
+            FROM cluster_memberships cm
+            JOIN clusters c ON c.id = cm.cluster_id
+            JOIN movies m ON m.id = cm.movie_id
+            WHERE c.cluster_snapshot_id = %s
+              AND m.umap_x IS NOT NULL
+              AND m.umap_y IS NOT NULL
+            ORDER BY cm.movie_id, cm.probability DESC
+            """,
+            (cluster_snapshot_id,),
+        ).fetchall()
+    return [SnapshotMemberRow.from_row(r) for r in rows]
 
 
 def get_memberships(cluster_id: uuid.UUID) -> list[ClusterMembershipRow]:

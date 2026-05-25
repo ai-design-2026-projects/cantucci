@@ -7,7 +7,7 @@ import type { ScatterPoint } from '../hooks/useScatterData.ts'
  * @param cy - SVG y coordinate.
  * @param fill - Dot fill color.
  * @param payload - Scatter point payload.
- * @param onPointClick - Called when the dot is clicked.
+ * @param onClusterClick - Called with the cluster ID when the dot is clicked.
  * @param dimmed - Whether the dot should be muted.
  * @returns Clickable SVG circle.
  */
@@ -16,14 +16,14 @@ export function CustomDot({
 	cy = 0,
 	fill = '#ccc',
 	payload,
-	onPointClick,
+	onClusterClick,
 	dimmed,
 }: {
 	cx?: number
 	cy?: number
 	fill?: string
 	payload?: ScatterPoint
-	onPointClick: (movieId: number) => void
+	onClusterClick: (clusterId: string | null) => void
 	dimmed: boolean
 }) {
 	return (
@@ -36,7 +36,7 @@ export function CustomDot({
 			stroke={fill}
 			strokeWidth={1}
 			style={{ cursor: 'pointer', transition: 'opacity 0.2s' }}
-			onClick={() => payload && onPointClick(payload.movieId)}
+			onClick={() => payload && onClusterClick(payload.clusterId)}
 		/>
 	)
 }

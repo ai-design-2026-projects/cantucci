@@ -12,12 +12,13 @@ export function computeScatterDomains(points: ScatterPoint[]) {
 		return { xDomain: [0, 1] as [number, number], yDomain: [0, 1] as [number, number] }
 	}
 
-	const xs = points.map((point) => point.x)
-	const ys = points.map((point) => point.y)
-	const xMin = Math.min(...xs)
-	const xMax = Math.max(...xs)
-	const yMin = Math.min(...ys)
-	const yMax = Math.max(...ys)
+	let xMin = Infinity, xMax = -Infinity, yMin = Infinity, yMax = -Infinity
+	for (const point of points) {
+		if (point.x < xMin) xMin = point.x
+		if (point.x > xMax) xMax = point.x
+		if (point.y < yMin) yMin = point.y
+		if (point.y > yMax) yMax = point.y
+	}
 	const xPad = (xMax - xMin) * 0.05 || 1
 	const yPad = (yMax - yMin) * 0.05 || 1
 

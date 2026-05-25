@@ -14,34 +14,38 @@ import { CustomDot } from './CustomDot.tsx'
 import { useSnapshotPlotData } from '../hooks/useSnapshotPlotData.ts'
 
 /**
- * 2D scatter plot of all exemplar movies across clusters, color-coded by cluster.
- * When dimmedAll is true (no active conversation), all dots are rendered grey as a
- * silhouette of the corpus. Clicking a point opens the movie detail popup.
+ * 2D scatter plot of all movies across clusters, color-coded by argmax cluster.
+ * When dimmedAll is true (no active conversation), all dots are rendered grey and
+ * the tooltip shows only the movie title. Clicking a dot in clustered mode sets
+ * selectedClusterId (dims all other clusters); clicking again clears the selection.
  *
  * @param points            - ScatterPoint array with x/y UMAP coords and cluster info.
  * @param snapshot          - Active snapshot (used to look up cluster objects).
  * @param selectedClusterId - When set, dims all clusters except this one.
- * @param onPointClick      - Called with the TMDB movie ID when a point is clicked.
- * @param dimmedAll         - When true, renders all points in muted grey (welcome screen).
+ * @param onClusterClick    - Called with a cluster ID to toggle cluster selection.
+ * @param dimmedAll         - When true, renders all points in muted grey.
+ * @param baseDomain        - Optional fixed axis domain from the root snapshot.
  * @returns Responsive scatter chart with dot-grid background.
  */
 export function SnapshotPlot({
 	points,
 	snapshot,
 	selectedClusterId,
-	onPointClick,
+	onClusterClick,
 	dimmedAll = false,
 	baseDomain,
 }: {
 	points: ScatterPoint[]
 	snapshot: ClusterSnapshotDto
 	selectedClusterId: string | null
-	onPointClick: (movieId: number) => void
+	onClusterClick: (clusterId: string | null) => void
 	dimmedAll?: boolean
 	baseDomain?: { x: [number, number]; y: [number, number] }
 }) {
 	const isDark = useThemeStore((s) => s.theme === 'dark')
 	const { xDomain, yDomain, byCluster } = useSnapshotPlotData(points, snapshot, baseDomain)
+
+	const noisePoints = points.filter((p) => p.clusterId === null)
 
 	return (
 		<div className="relative w-full h-full">
@@ -65,7 +69,7 @@ export function SnapshotPlot({
 							return (
 								<div className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded-lg px-3 py-1.5 text-xs text-[var(--color-text)] shadow-md">
 									<p className="font-medium">{p.title}</p>
-									{p.clusterLabel && (
+									{!dimmedAll && p.clusterLabel && (
 										<p className="text-[var(--color-muted)] mt-0.5">{p.clusterLabel}</p>
 									)}
 								</div>
@@ -89,28 +93,43 @@ export function SnapshotPlot({
 							isAnimationActive={false}
 						/>
 					) : (
-						snapshot.clusters.map((cluster) => {
-							const color = clusterColorFromUuid(cluster.id, isDark)
-							const dimmed = selectedClusterId !== null && selectedClusterId !== cluster.id
-							return (
+						[
+							...snapshot.clusters.map((cluster) => {
+								const color = clusterColorFromUuid(cluster.id, isDark)
+								const dimmed = selectedClusterId !== null && selectedClusterId !== cluster.id
+								return (
+									<Scatter
+										key={cluster.id}
+										name={cluster.label ?? cluster.id}
+										data={byCluster[cluster.id] ?? []}
+										fill={color}
+										animationDuration={400}
+										shape={({ cx, cy, fill }: { cx?: number; cy?: number; fill?: string }) => (
+											<CustomDot
+												cx={cx}
+												cy={cy}
+												fill={fill ?? color}
+												onClusterClick={onClusterClick}
+												dimmed={dimmed}
+											/>
+										)}
+									/>
+								)
+							}),
+							...(noisePoints.length > 0 ? [
 								<Scatter
-									key={cluster.id}
-									name={cluster.label ?? cluster.id}
-									data={byCluster[cluster.id] ?? []}
-									fill={color}
-									animationDuration={400}
-									shape={({ cx, cy, fill }: { cx?: number; cy?: number; fill?: string }) => (
-										<CustomDot
-											cx={cx}
-											cy={cy}
-											fill={fill ?? color}
-											onPointClick={onPointClick}
-											dimmed={dimmed}
-										/>
+									key="__noise__"
+									name="Noise"
+									data={noisePoints}
+									fill="var(--color-muted)"
+									opacity={0.3}
+									shape={({ cx = 0, cy = 0 }: { cx?: number; cy?: number }) => (
+										<circle cx={cx} cy={cy} r={3} fill="var(--color-muted)" opacity={0.3} />
 									)}
-								/>
-							)
-						})
+									isAnimationActive={false}
+								/>,
+							] : []),
+						]
 					)}
 				</ScatterChart>
 			</ResponsiveContainer>
