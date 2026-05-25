@@ -38,7 +38,7 @@ async def classify(
 
     modes = [(m.value, m.description) for m in (*NavigationMode, *DialogueMode)]
 
-    template = _ENV.get_template("intent_v7.j2")
+    template = _ENV.get_template("intent_v6.j2")
     prompt = template.render(
         clusters=[{"id": str(c.id), "label": c.label} for c in clusters],
         user_message=user_message,

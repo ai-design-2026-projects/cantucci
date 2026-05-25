@@ -2,8 +2,9 @@ import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 
-from backend.agents.clustering.agent import apply_navigation
-from backend.agents.clustering.types import NavigationMode, NavigationRequest
+from backend.agents.clustering.agent import cross_filter, drill_down, focus, merge_clusters
+from backend.agents.clustering.types import NavigationMode
+from backend.agents.coordinator.tools.persist import persist_and_label
 from backend.agents.concept.agent import build_concept
 from backend.agents.responder import replies
 from backend.agents.coordinator.tools.progress import ProgressReporter
@@ -148,15 +149,15 @@ async def handle_drill_down(ctx: ActionContext) -> tuple[str, uuid.UUID | None, 
         step_cost += concept.cost
 
     ctx.reporter.step("clustering")
-    new_cluster_snapshot_id = await apply_navigation(NavigationRequest(
-        mode=NavigationMode.DRILL_DOWN,
-        parent_cluster_snapshot_id=ctx.current_cluster_snapshot_id,
-        conversation_id=ctx.conversation_id,
-        accumulated_cost=ctx.accumulated_cost + step_cost,
-        concept=concept,
+    draft = await drill_down(
         source_cluster_id=target_id,
+        concept=concept,
+        parent_cluster_snapshot_id=ctx.current_cluster_snapshot_id,
         embedding_spaces=ctx.action.embedding_spaces,
-    ))
+    )
+    new_cluster_snapshot_id = await persist_and_label(
+        draft, ctx.conversation_id, ctx.current_cluster_snapshot_id, ctx.accumulated_cost + step_cost
+    )
     new_cswc = get_cluster_snapshot_with_clusters(new_cluster_snapshot_id)
     n_new = len(new_cswc.clusters) if new_cswc else 0
     labels = [c.label for c in (new_cswc.clusters if new_cswc else [])]
@@ -177,14 +178,14 @@ async def handle_merge(ctx: ActionContext) -> tuple[str, uuid.UUID | None, float
 
     ids_to_merge = [c.id for c in ctx.clusters[:2]]
     ctx.reporter.step("clustering")
-    new_cluster_snapshot_id = await apply_navigation(NavigationRequest(
-        mode=NavigationMode.MERGE,
-        parent_cluster_snapshot_id=ctx.current_cluster_snapshot_id,
-        conversation_id=ctx.conversation_id,
-        accumulated_cost=ctx.accumulated_cost,
+    draft = await merge_clusters(
         cluster_ids=ids_to_merge,
+        parent_cluster_snapshot_id=ctx.current_cluster_snapshot_id,
         merged_label=ctx.action.merged_label or "Merged",
-    ))
+    )
+    new_cluster_snapshot_id = await persist_and_label(
+        draft, ctx.conversation_id, ctx.current_cluster_snapshot_id, ctx.accumulated_cost
+    )
     return replies.MERGE_REPLY, new_cluster_snapshot_id, 0.0
 
 
@@ -205,13 +206,13 @@ async def handle_focus(ctx: ActionContext) -> tuple[str, uuid.UUID | None, float
     target_cluster = next((c for c in ctx.clusters if c.id == target_id), None)
 
     ctx.reporter.step("clustering")
-    new_cluster_snapshot_id = await apply_navigation(NavigationRequest(
-        mode=NavigationMode.FOCUS,
-        parent_cluster_snapshot_id=ctx.current_cluster_snapshot_id,
-        conversation_id=ctx.conversation_id,
-        accumulated_cost=ctx.accumulated_cost,
+    draft = await focus(
         source_cluster_id=target_id,
-    ))
+        parent_cluster_snapshot_id=ctx.current_cluster_snapshot_id,
+    )
+    new_cluster_snapshot_id = await persist_and_label(
+        draft, ctx.conversation_id, ctx.current_cluster_snapshot_id, ctx.accumulated_cost
+    )
     new_cswc = get_cluster_snapshot_with_clusters(new_cluster_snapshot_id)
     n_members = sum(len(c.exemplar_movie_ids) for c in (new_cswc.clusters if new_cswc else []))
     label = target_cluster.label if target_cluster else None
@@ -241,15 +242,15 @@ async def handle_cross_filter(ctx: ActionContext) -> tuple[str, uuid.UUID | None
         step_cost += concept.cost
 
     ctx.reporter.step("clustering")
-    new_cluster_snapshot_id = await apply_navigation(NavigationRequest(
-        mode=NavigationMode.CROSS_FILTER,
+    draft = await cross_filter(
         parent_cluster_snapshot_id=ctx.current_cluster_snapshot_id,
-        conversation_id=ctx.conversation_id,
-        accumulated_cost=ctx.accumulated_cost + step_cost,
-        concept=concept,
         metadata_filter=ctx.action.metadata_filter,
+        concept=concept,
         embedding_spaces=ctx.action.embedding_spaces,
-    ))
+    )
+    new_cluster_snapshot_id = await persist_and_label(
+        draft, ctx.conversation_id, ctx.current_cluster_snapshot_id, ctx.accumulated_cost + step_cost
+    )
     new_cswc = get_cluster_snapshot_with_clusters(new_cluster_snapshot_id)
     n_new = len(new_cswc.clusters) if new_cswc else 0
     return replies.format_cross_filter_reply(n_new), new_cluster_snapshot_id, step_cost
