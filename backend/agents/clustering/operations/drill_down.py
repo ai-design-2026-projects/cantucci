@@ -8,7 +8,7 @@ from backend.agents.concept.scoring import score_movies
 from backend.agents.concept.types import ConceptRep
 from backend.agents.clustering.types import Modality
 from backend.data_access.cluster_snapshots.queries import get_memberships
-from backend.data_access.movies.queries import fetch_text_embeddings, fetch_modality_embeddings
+from backend.data_access.movies.queries import fetch_text_embeddings, fetch_modality_embeddings, list_movie_ids
 from backend.settings import get_settings
 from core.fusion import combined_distance_matrix
 
@@ -18,23 +18,31 @@ _LABEL_PLACEHOLDER = "Cluster"
 
 
 async def drill_down(
-    source_cluster_id: uuid.UUID,
+    source_cluster_id: uuid.UUID | None,
     concept: ConceptRep | None,
-    parent_cluster_snapshot_id: uuid.UUID,
+    parent_cluster_snapshot_id: uuid.UUID | None,
     embedding_spaces: list[Modality] | None = None,
+    movie_ids: list[int] | None = None,
 ) -> ClusterSnapshotDraft:
     """
-    Sub-cluster the movies in one cluster, optionally concept-sorted.
+    Cluster a set of movies, optionally concept-sorted.
 
-    If a concept is supplied, movies are first sorted by concept score
-    and split at the median before re-clustering each half.
-    Otherwise, HDBSCAN is run directly on the cluster's movies.
+    The input movie set is resolved in this order:
+    1. If ``source_cluster_id`` is set: the cluster's existing members (drill-down into one cluster).
+    2. If ``movie_ids`` is set: that explicit list (used by cross_filter for pre-filtered sets).
+    3. Otherwise: the full catalogue (re-cluster from scratch).
+
+    If a concept is supplied, movies are scored and split at the median before clustering
+    each half separately. Otherwise HDBSCAN runs on the full input set.
 
     Args:
-        source_cluster_id:          Cluster to split.
+        source_cluster_id:          Cluster to split; ``None`` to operate on a broader set.
         concept:                    Optional concept to guide the split.
-        parent_cluster_snapshot_id: Cluster snapshot the source cluster belongs to.
+        parent_cluster_snapshot_id: Snapshot the source cluster belongs to (may be ``None``
+                                    when clustering from the unclustered state).
         embedding_spaces:           Embedding spaces to fuse. Defaults to ``[Modality.TEXT]``.
+        movie_ids:                  Explicit movie ID list; only used when
+                                    ``source_cluster_id`` is ``None``.
 
     Returns:
         ``ClusterSnapshotDraft`` ready to be persisted.
@@ -45,37 +53,45 @@ async def drill_down(
 
     cfg = get_settings()
     top_n = cfg.labeling.top_exemplars
-    memberships = get_memberships(source_cluster_id)
-    if not memberships:
-        raise ValueError(f"Cluster {source_cluster_id} has no members")
 
-    movie_ids = [m.movie_id for m in memberships]
+    if source_cluster_id is not None:
+        memberships = get_memberships(source_cluster_id)
+        if not memberships:
+            raise ValueError(f"Cluster {source_cluster_id} has no members")
+        resolved_movie_ids = [m.movie_id for m in memberships]
+        parent_cluster_ref: uuid.UUID | None = source_cluster_id
+    else:
+        resolved_movie_ids = movie_ids if movie_ids is not None else list_movie_ids()
+        if not resolved_movie_ids:
+            raise ValueError("No movies found for clustering")
+        parent_cluster_ref = None
 
     # Determine the embedding map based on the specified embedding spaces
     if len(embedding_spaces) == 1 and embedding_spaces[0] == Modality.TEXT:
-        emb_map = fetch_text_embeddings(movie_ids)
-        available_ids = [movie_id for movie_id in movie_ids if movie_id in emb_map]
+        emb_map = fetch_text_embeddings(resolved_movie_ids)
+        available_ids = [movie_id for movie_id in resolved_movie_ids if movie_id in emb_map]
         multi_modal = False
     else:
         space_keys = [s.value for s in embedding_spaces]
         # Fetch embeddings for all specified modalities in one go
-        modal_data = fetch_modality_embeddings(movie_ids, space_keys)
-        
+        modal_data = fetch_modality_embeddings(resolved_movie_ids, space_keys)
+
         # Only keep movies that have embeddings in all the specified modalities
         available_ids = [
-            movie_id for movie_id in movie_ids
+            movie_id for movie_id in resolved_movie_ids
             if all(movie_id in modal_data[m] for m in space_keys)
         ]
         multi_modal = True
         emb_map = {movie_id: modal_data["text"][movie_id].tolist() for movie_id in available_ids if "text" in modal_data}
 
     if not available_ids:
-        raise ValueError(f"No embeddings found for cluster {source_cluster_id}")
+        src = str(source_cluster_id) if source_cluster_id else "full catalogue"
+        raise ValueError(f"No embeddings found for {src}")
 
     params: dict = {
         "operation": "drill_down",
-        "source_cluster_id": str(source_cluster_id),
-        "parent_cluster_snapshot_id": str(parent_cluster_snapshot_id),
+        "source_cluster_id": str(source_cluster_id) if source_cluster_id else None,
+        "parent_cluster_snapshot_id": str(parent_cluster_snapshot_id) if parent_cluster_snapshot_id else None,
         "concept": concept.concept_name if concept else None,
         "embedding_spaces": [s.value for s in embedding_spaces],
     }
@@ -98,6 +114,7 @@ async def drill_down(
             group_embs = reduce_for_clustering(group_embs, cfg.umap, cfg.split.seed)
             return subcluster(group_embs, cfg.clustering.online.drilldown_min_cluster_size, 1)
 
+    # If a concept is provided, score the movies and split into high/low groups before clustering each separately to create more concept-coherent clusters
     if concept is not None:
         concept_scores = score_movies(concept, available_ids, emb_map)
         median_score = float(np.median(list(concept_scores.values())))
@@ -118,10 +135,11 @@ async def drill_down(
                     label=f"{label_suffix} {ci + 1}",
                     summary=None,
                     exemplar_movie_ids=exemplars(mids, prbs, top_n),
-                    parent_cluster_id=source_cluster_id,
+                    parent_cluster_id=parent_cluster_ref,
                     memberships=members,
                 ))
     else:
+        # No concept provided, just cluster the whole set of available movies in one go
         result = _cluster_group(available_ids)
         clusters = []
         for ci in range(result.n_clusters):
@@ -133,10 +151,16 @@ async def drill_down(
                 label=f"{_LABEL_PLACEHOLDER} {ci + 1}",
                 summary=None,
                 exemplar_movie_ids=exemplars(mids, prbs, top_n),
-                parent_cluster_id=source_cluster_id,
+                parent_cluster_id=parent_cluster_ref,
                 memberships=members,
             ))
 
     params["n_clusters"] = len(clusters)
-    log.info("drill_down_complete", extra={"source_cluster_id": str(source_cluster_id), "n_clusters": len(clusters)})
+    log.info(
+        "drill_down_complete",
+        extra={
+            "source_cluster_id": str(source_cluster_id) if source_cluster_id else None,
+            "n_clusters": len(clusters),
+        },
+    )
     return ClusterSnapshotDraft(operation="drill_down", params=params, clusters=clusters)

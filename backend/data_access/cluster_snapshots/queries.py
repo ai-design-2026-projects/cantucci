@@ -489,3 +489,35 @@ def get_memberships(cluster_id: uuid.UUID) -> list[ClusterMembershipRow]:
             (cluster_id,),
         ).fetchall()
     return [ClusterMembershipRow.from_row(r) for r in rows]
+
+
+def get_primary_members(cluster_id: uuid.UUID) -> list[ClusterMembershipRow]:
+    """Return membership rows where the given cluster is the top assignment for each movie.
+
+    A movie qualifies only when no other cluster has a strictly higher probability
+    than this cluster's probability for that movie (i.e. this cluster is the argmax).
+
+    Args:
+        cluster_id: Cluster UUID.
+
+    Returns:
+        List of ``ClusterMembershipRow`` ordered by descending probability.
+    """
+    with transaction() as conn:
+        rows = conn.execute(
+            """
+            SELECT movie_id, probability, %s::uuid AS cluster_id
+            FROM (
+                SELECT movie_id, probability, cluster_id,
+                       ROW_NUMBER() OVER (PARTITION BY movie_id ORDER BY probability DESC) AS rn
+                FROM cluster_memberships
+                WHERE movie_id IN (
+                    SELECT movie_id FROM cluster_memberships WHERE cluster_id = %s
+                )
+            ) ranked
+            WHERE rn = 1 AND cluster_id = %s
+            ORDER BY probability DESC
+            """,
+            (cluster_id, cluster_id, cluster_id),
+        ).fetchall()
+    return [ClusterMembershipRow.from_row(r) for r in rows]

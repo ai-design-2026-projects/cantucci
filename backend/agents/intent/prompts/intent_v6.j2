@@ -21,12 +21,14 @@ Navigation modes:
 {% endfor %}
 
 Decision hints:
-- Choose drill_down when the user wants to subdivide one cluster, not change all of them.
-- Choose recut when the user wants a fundamentally different clustering of everything.
+- Choose drill_down with a target cluster when the user wants to subdivide one cluster.
+- Choose drill_down without a target cluster when the user wants to re-cluster the entire catalogue with a new approach.
 - Choose merge when the user mentions combining, joining, or grouping clusters together.
 - Choose focus when the user wants to zoom into or work only with one specific cluster.
 - Choose cross_filter when the user wants to narrow by a metadata attribute such as genre, release year, or director.
 - Choose explain when the user asks "why is X in Y" or asks about a movie's placement.
+- Choose reset when the user wants to wipe all clustering and start completely fresh with no clusters.
+- Choose go_to_base when the user wants to return to the original default clustering (the one computed at ingest time).
 - Choose small_talk for greetings, thanks, or anything with no clustering intent.
 
 Embedding spaces (embedding_spaces field):
@@ -54,8 +56,8 @@ of the first). Do NOT split a single operation into multiple actions.
 Examples of multi-action requests:
 - "Drill into the Action cluster and then divide the result by tone" → two drill_down actions
 - "Merge Drama and Romance, then split the merged cluster by era" → merge then drill_down
-- "Reset and re-cluster by visual style" → reset then recut
-- "Focus on the Sci-Fi cluster and re-cluster it by era" → focus then recut
+- "Start fresh and re-cluster by visual style" → reset then drill_down (no target, concept = visual style)
+- "Focus on the Sci-Fi cluster and re-cluster it by era" → focus then drill_down (no target, concept = era)
 
 For simple requests, emit exactly one action.
 
@@ -108,7 +110,7 @@ User: "Why is Blade Runner in the Sci-Fi cluster and not the Noir one?"
 
 User: "Redo all the clusters focusing on visual style and cinematography"
 → {"actions": [
-    {"mode": "recut", "concept": "visual style and cinematography",
+    {"mode": "drill_down", "concept": "visual style and cinematography",
      "merged_label": null, "target_cluster_id": null,
      "confidence": 0.85, "embedding_spaces": ["text", "trailer"], "metadata_filter": null}
   ]}
@@ -160,6 +162,30 @@ User: "Drill into the Action cluster and then divide the result by gritty realis
      "confidence": 0.80, "embedding_spaces": ["text"], "metadata_filter": null}
   ]}
 
+User: "Start over from scratch"
+→ {"actions": [
+    {"mode": "reset", "concept": null,
+     "merged_label": null, "target_cluster_id": null,
+     "confidence": 0.90, "embedding_spaces": ["text"], "metadata_filter": null}
+  ]}
+
+User: "Go back to the original clustering"
+→ {"actions": [
+    {"mode": "go_to_base", "concept": null,
+     "merged_label": null, "target_cluster_id": null,
+     "confidence": 0.90, "embedding_spaces": ["text"], "metadata_filter": null}
+  ]}
+
+User: "Reset and then cluster everything by emotional tone"
+→ {"actions": [
+    {"mode": "reset", "concept": null,
+     "merged_label": null, "target_cluster_id": null,
+     "confidence": 0.90, "embedding_spaces": ["text"], "metadata_filter": null},
+    {"mode": "drill_down", "concept": "emotional tone",
+     "merged_label": null, "target_cluster_id": null,
+     "confidence": 0.85, "embedding_spaces": ["text", "review"], "metadata_filter": null}
+  ]}
+
 ---
 
 Respond with exactly this JSON object and nothing else:
@@ -167,7 +193,7 @@ Respond with exactly this JSON object and nothing else:
   "actions": [
     {
       "mode": "<one of the modes above>",
-      "concept": "<semantic concept for drill_down or recut, or null>",
+      "concept": "<semantic concept for drill_down, or null>",
       "merged_label": "<short label for the merged cluster, or null>",
       "target_cluster_id": "<cluster id string or null>",
       "confidence": <0.0–1.0>,

@@ -5,7 +5,6 @@ from backend.agents.clustering.operations.cross_filter import cross_filter
 from backend.agents.clustering.operations.drill_down import drill_down
 from backend.agents.clustering.operations.focus import focus
 from backend.agents.clustering.operations.merge import merge_clusters
-from backend.agents.clustering.operations.recut import recut
 from backend.agents.clustering.types import ClusterSnapshotDraft, NavigationMode, NavigationRequest
 from backend.agents.labeling.agent import label_clusters
 from backend.agents.labeling.types import ClusterLabelContext
@@ -44,8 +43,6 @@ async def apply_navigation(request: NavigationRequest) -> uuid.UUID:
     match request.mode:
 
         case NavigationMode.DRILL_DOWN:
-            if request.source_cluster_id is None:
-                raise ValueError("source_cluster_id is required for DRILL_DOWN")
             draft = await drill_down(
                 source_cluster_id=request.source_cluster_id,
                 concept=request.concept,
@@ -61,17 +58,7 @@ async def apply_navigation(request: NavigationRequest) -> uuid.UUID:
                 parent_cluster_snapshot_id=request.parent_cluster_snapshot_id,
                 merged_label=request.merged_label or "Merged",
             )
-        
-        case NavigationMode.RECUT:
-            if not request.movie_ids:
-                raise ValueError("movie_ids is required for RECUT")
-            draft = await recut(
-                movie_ids=request.movie_ids,
-                parent_cluster_snapshot_id=request.parent_cluster_snapshot_id,
-                concept=request.concept,
-                embedding_spaces=request.embedding_spaces,
-            )
-        
+
         case NavigationMode.FOCUS:
             if request.source_cluster_id is None:
                 raise ValueError("source_cluster_id is required for FOCUS")
@@ -79,7 +66,7 @@ async def apply_navigation(request: NavigationRequest) -> uuid.UUID:
                 source_cluster_id=request.source_cluster_id,
                 parent_cluster_snapshot_id=request.parent_cluster_snapshot_id,
             )
-        
+
         case NavigationMode.CROSS_FILTER:
             if request.metadata_filter is None:
                 raise ValueError("metadata_filter is required for CROSS_FILTER")
@@ -89,7 +76,7 @@ async def apply_navigation(request: NavigationRequest) -> uuid.UUID:
                 concept=request.concept,
                 embedding_spaces=request.embedding_spaces,
             )
-        
+
         case _:
             raise ValueError(f"Unknown NavigationMode: {request.mode!r}")
 
@@ -112,8 +99,8 @@ def _build_label_contexts(
     breadcrumb, and aggregate metadata statistics over the cluster's full
     membership so the LLM can name clusters by dimension rather than theme.
 
-    When no concept is present (e.g. a ``merge`` or ``recut`` without a concept),
-    returns ``None`` so the labeller falls back to title-only behaviour.
+    When no concept is present (e.g. a ``merge`` or full-catalogue ``drill_down`` without
+    a concept), returns ``None`` so the labeller falls back to title-only behaviour.
 
     Args:
         draft:           Snapshot draft produced by the most recent operation.
@@ -149,7 +136,7 @@ def _build_label_contexts(
 async def _persist_and_label(
     draft: ClusterSnapshotDraft,
     conversation_id: uuid.UUID,
-    parent_cluster_snapshot_id: uuid.UUID,
+    parent_cluster_snapshot_id: uuid.UUID | None,
     accumulated_cost: float,
 ) -> uuid.UUID:
     """Persist a ClusterSnapshotDraft, generate LLM labels in one batch call, and update
@@ -164,7 +151,8 @@ async def _persist_and_label(
     Args:
         draft:                       The cluster snapshot to persist.
         conversation_id:             Conversation to update.
-        parent_cluster_snapshot_id:  Parent cluster snapshot UUID.
+        parent_cluster_snapshot_id:  Parent cluster snapshot UUID, or ``None`` when
+                                     operating from the unclustered state.
         accumulated_cost:            Running LLM cost this conversation.
 
     Returns:

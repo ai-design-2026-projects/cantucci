@@ -20,10 +20,10 @@ log = logging.getLogger(__name__)
 _STATE_CHANGING = {
     NavigationMode.DRILL_DOWN,
     NavigationMode.MERGE,
-    NavigationMode.RECUT,
     NavigationMode.FOCUS,
     NavigationMode.CROSS_FILTER,
     DialogueMode.RESET,
+    DialogueMode.GO_TO_BASE,
 }
 
 

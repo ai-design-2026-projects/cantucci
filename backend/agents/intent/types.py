@@ -10,31 +10,45 @@ from backend.agents.clustering.types import MetadataFilter, Modality, Navigation
 log = logging.getLogger(__name__)
 
 
-_DIALOGUE_DESCRIPTIONS: dict[str, str] = {
-    "reset": "return to the initial root clustering",
-    "explain": "explain why a specific movie is in a particular cluster",
-    "small_talk": "casual message with no clustering operation needed",
-}
-
-
 class DialogueMode(str, Enum):
     """Non-clustering intent modes handled directly by the coordinator.
 
     These do not produce a new cluster snapshot via the clustering agent.
 
     Attributes:
-        RESET:      Return to the root base cluster snapshot.
-        EXPLAIN:    Explain why a movie belongs in a cluster.
-        SMALL_TALK: Casual, non-operational message.
+        RESET:       Clear all clustering — return to the unclustered state.
+        GO_TO_BASE:  Navigate to the pre-computed ingest-time base clustering.
+        EXPLAIN:     Explain why a movie belongs in a cluster.
+        SMALL_TALK:  Casual, non-operational message.
     """
-    RESET = "reset"
-    EXPLAIN = "explain"
-    SMALL_TALK = "small_talk"
+
+    def __new__(cls, value: str, description: str = "") -> "DialogueMode":
+        obj = str.__new__(cls, value)
+        obj._value_ = value
+        obj._description = description
+        return obj
+
+    RESET = (
+        "reset",
+        "return to unclustered state (before any clustering)",
+    )
+    GO_TO_BASE = (
+        "go_to_base",
+        "return to the pre-computed ingest-time clustering",
+    )
+    EXPLAIN = (
+        "explain",
+        "explain why a specific movie is in a particular cluster",
+    )
+    SMALL_TALK = (
+        "small_talk",
+        "casual message with no clustering operation needed",
+    )
 
     @property
     def description(self) -> str:
-        """Return a one-line description of this mode for use in the intent prompt."""
-        return _DIALOGUE_DESCRIPTIONS[self.value]
+        """One-line description of this mode for use in the intent prompt."""
+        return self._description  # type: ignore[attr-defined]
 
 
 class MetadataFilterLLM(BaseModel):
@@ -60,7 +74,7 @@ class IntentLLMResponse(BaseModel):
     """Structured output expected from the intent classification LLM call.
 
     Wraps an ordered list of actions so the model can express compound requests
-    (e.g. drill-down then recut) as a single turn.  Single-action requests are
+    (e.g. reset then drill-down) as a single turn.  Single-action requests are
     represented as a one-element list, preserving backward-compatible behaviour.
     """
     actions: list[IntentActionLLM]
@@ -73,7 +87,7 @@ class IntentAction:
     Attributes:
         mode:              Classified intent mode (NavigationMode or DialogueMode).
         concept:           Semantic concept to apply (e.g. ``"surrealism"``).
-                           Populated for drill_down and recut; ``None`` otherwise.
+                           Populated for drill_down; ``None`` otherwise.
         merged_label:      Label to give the resulting merged cluster.
                            Populated only for ``mode == merge``; ``None`` otherwise.
         target_cluster_id: UUID of the cluster to operate on for drill_down / merge /

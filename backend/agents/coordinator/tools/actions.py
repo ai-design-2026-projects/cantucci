@@ -1,12 +1,3 @@
-"""Per-action handlers and dispatch logic for the Coordinator.
-
-Each handler takes an ``ActionContext`` and returns a ``(reply_fragment,
-new_cluster_snapshot_id, step_cost)`` tuple.  ``execute_action`` dispatches
-to the correct handler based on the action's mode (``NavigationMode`` or
-``DialogueMode``), preserving the original semantics including the
-RESET-on-None-snapshot fallback.
-"""
-
 import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
@@ -27,7 +18,6 @@ from backend.data_access.cluster_snapshots.queries import (
 from backend.data_access.cluster_snapshots.types import ClusterRow
 from backend.data_access.conversations.queries import set_current_cluster_snapshot
 from backend.data_access.conversations.types import ConversationRow
-from backend.data_access.movies.queries import list_movie_ids
 
 
 @dataclass(frozen=True, slots=True)
@@ -71,7 +61,20 @@ async def handle_small_talk(ctx: ActionContext) -> tuple[str, uuid.UUID | None, 
 
 
 async def handle_reset(ctx: ActionContext) -> tuple[str, uuid.UUID | None, float]:
-    """Return to the root (base) cluster snapshot for this conversation.
+    """Move the conversation to the unclustered state (no active snapshot).
+
+    Args:
+        ctx: Action context.
+
+    Returns:
+        Tuple of (reply text, None, 0.0 cost).
+    """
+    set_current_cluster_snapshot(ctx.conversation_id, None)
+    return replies.RESET_REPLY, None, 0.0
+
+
+async def handle_go_to_base(ctx: ActionContext) -> tuple[str, uuid.UUID | None, float]:
+    """Navigate to the pre-computed ingest-time base cluster snapshot.
 
     Args:
         ctx: Action context.
@@ -122,17 +125,18 @@ async def handle_explain(ctx: ActionContext) -> tuple[str, uuid.UUID | None, flo
 async def handle_drill_down(ctx: ActionContext) -> tuple[str, uuid.UUID | None, float]:
     """Handle a DRILL_DOWN action by splitting the target cluster into sub-clusters.
 
+    When no target cluster is specified (including from the unclustered state), drills
+    down on the full catalogue.
+
     Args:
         ctx: Action context.  ``ctx.action.target_cluster_id`` selects the cluster to split;
-             falls back to the first cluster when None.  ``ctx.action.concept`` optionally
+             ``None`` means operate on the full catalogue.  ``ctx.action.concept`` optionally
              guides the split with a semantic concept.
 
     Returns:
         Tuple of (reply text, new snapshot id, cumulative step cost).
     """
     target_id = ctx.action.target_cluster_id or (ctx.clusters[0].id if ctx.clusters else None)
-    if target_id is None:
-        return replies.NO_CLUSTER_TO_SPLIT, ctx.current_cluster_snapshot_id, 0.0
 
     step_cost = 0.0
     concept = None
@@ -182,40 +186,6 @@ async def handle_merge(ctx: ActionContext) -> tuple[str, uuid.UUID | None, float
         merged_label=ctx.action.merged_label or "Merged",
     ))
     return replies.MERGE_REPLY, new_cluster_snapshot_id, 0.0
-
-
-async def handle_recut(ctx: ActionContext) -> tuple[str, uuid.UUID | None, float]:
-    """Handle a RECUT action by re-clustering the full movie catalogue.
-
-    Args:
-        ctx: Action context.  ``ctx.action.concept`` optionally guides the re-clustering.
-
-    Returns:
-        Tuple of (reply text, new snapshot id, cumulative step cost).
-    """
-    all_movie_ids = list_movie_ids()
-    step_cost = 0.0
-    concept = None
-    if ctx.action.concept:
-        ctx.reporter.step("concept")
-        concept = await build_concept(
-            ctx.action.concept, ctx.conversation_id, ctx.message_id, ctx.accumulated_cost + step_cost
-        )
-        step_cost += concept.cost
-
-    ctx.reporter.step("clustering")
-    new_cluster_snapshot_id = await apply_navigation(NavigationRequest(
-        mode=NavigationMode.RECUT,
-        parent_cluster_snapshot_id=ctx.current_cluster_snapshot_id,
-        conversation_id=ctx.conversation_id,
-        accumulated_cost=ctx.accumulated_cost + step_cost,
-        concept=concept,
-        movie_ids=all_movie_ids,
-        embedding_spaces=ctx.action.embedding_spaces,
-    ))
-    new_cswc = get_cluster_snapshot_with_clusters(new_cluster_snapshot_id)
-    n_new = len(new_cswc.clusters) if new_cswc else 0
-    return replies.format_recut_reply(n_new), new_cluster_snapshot_id, step_cost
 
 
 async def handle_focus(ctx: ActionContext) -> tuple[str, uuid.UUID | None, float]:
@@ -287,10 +257,10 @@ async def handle_cross_filter(ctx: ActionContext) -> tuple[str, uuid.UUID | None
 
 _DISPATCH: dict[NavigationMode | DialogueMode, _Handler] = {
     DialogueMode.SMALL_TALK: handle_small_talk,
+    DialogueMode.GO_TO_BASE: handle_go_to_base,
     DialogueMode.EXPLAIN: handle_explain,
     NavigationMode.DRILL_DOWN: handle_drill_down,
     NavigationMode.MERGE: handle_merge,
-    NavigationMode.RECUT: handle_recut,
     NavigationMode.FOCUS: handle_focus,
     NavigationMode.CROSS_FILTER: handle_cross_filter,
 }
@@ -299,17 +269,13 @@ _DISPATCH: dict[NavigationMode | DialogueMode, _Handler] = {
 async def execute_action(ctx: ActionContext) -> tuple[str, uuid.UUID | None, float]:
     """Dispatch a single classified action to its handler and return the result.
 
-    RESET (and any action when no snapshot exists) is handled before the dispatch
-    table to preserve the original fallback semantics: if the conversation has no
-    active snapshot, state-changing operations implicitly reset to root.
-
     Args:
         ctx: Immutable bundle of action inputs.
 
     Returns:
         Tuple of (reply_fragment, new_cluster_snapshot_id, step_cost).
     """
-    if ctx.action.mode == DialogueMode.RESET or ctx.current_cluster_snapshot_id is None:
+    if ctx.action.mode == DialogueMode.RESET:
         return await handle_reset(ctx)
 
     handler = _DISPATCH.get(ctx.action.mode)

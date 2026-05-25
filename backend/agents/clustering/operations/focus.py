@@ -3,7 +3,7 @@ import uuid
 
 from backend.agents.clustering.operations._helpers import exemplars
 from backend.agents.clustering.types import ClusterDraft, ClusterSnapshotDraft
-from backend.data_access.cluster_snapshots.queries import get_cluster_snapshot_with_clusters, get_memberships
+from backend.data_access.cluster_snapshots.queries import get_cluster_snapshot_with_clusters, get_primary_members
 from backend.settings import get_settings
 
 log = logging.getLogger(__name__)
@@ -35,19 +35,22 @@ async def focus(
     cswc = get_cluster_snapshot_with_clusters(parent_cluster_snapshot_id)
     if cswc is None:
         raise ValueError(f"Cluster snapshot {parent_cluster_snapshot_id} not found")
-
-    source = next((c for c in cswc.clusters if c.id == source_cluster_id), None)
+    
+    # Find the source cluster in the snapshot
+    source = next((cluster for cluster in cswc.clusters if cluster.id == source_cluster_id), None)
     if source is None:
         raise ValueError(f"Cluster {source_cluster_id} not found in snapshot {parent_cluster_snapshot_id}")
 
-    memberships_rows = get_memberships(source_cluster_id)
+    # Get the members of the source cluster. They are defined as the datapoints 
+    # in the parent snapshot whose primary membership is the source cluster
+    memberships_rows = get_primary_members(source_cluster_id)
     if not memberships_rows:
         raise ValueError(f"Cluster {source_cluster_id} has no members")
 
     cfg = get_settings()
-    members = [(m.movie_id, m.probability) for m in memberships_rows]
-    mids = [m[0] for m in members]
-    prbs = [m[1] for m in members]
+    members = [(movie.movie_id, movie.probability) for movie in memberships_rows]
+    mids = [movie[0] for movie in members]
+    prbs = [movie[1] for movie in members]
 
     cluster = ClusterDraft(
         label=source.label or "Focused",

@@ -77,19 +77,27 @@ def get_conversation(conversation_id: uuid.UUID) -> ConversationRow | None:
     return ConversationRow.from_row(row)
 
 
-def set_current_cluster_snapshot(conversation_id: uuid.UUID, cluster_snapshot_id: uuid.UUID) -> None:
+def set_current_cluster_snapshot(conversation_id: uuid.UUID, cluster_snapshot_id: uuid.UUID | None) -> None:
     """Update the current_cluster_snapshot_id pointer for a conversation.
+
+    Pass ``None`` to move the conversation into the unclustered state (RESET).
 
     Args:
         conversation_id:     Conversation to update.
-        cluster_snapshot_id: New current cluster snapshot UUID.
+        cluster_snapshot_id: New current cluster snapshot UUID, or ``None`` to unset.
     """
     with transaction() as conn:
         conn.execute(
             "UPDATE conversations SET current_cluster_snapshot_id = %s WHERE id = %s",
             (cluster_snapshot_id, conversation_id),
         )
-    log.debug("current_cluster_snapshot_set", extra={"conversation_id": str(conversation_id), "cluster_snapshot_id": str(cluster_snapshot_id)})
+    log.debug(
+        "current_cluster_snapshot_set",
+        extra={
+            "conversation_id": str(conversation_id),
+            "cluster_snapshot_id": str(cluster_snapshot_id) if cluster_snapshot_id else "null",
+        },
+    )
 
 
 def append_message(

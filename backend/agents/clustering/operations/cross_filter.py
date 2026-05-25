@@ -1,7 +1,7 @@
 import logging
 import uuid
 
-from backend.agents.clustering.operations.recut import recut
+from backend.agents.clustering.operations.drill_down import drill_down
 from backend.agents.clustering.types import ClusterSnapshotDraft, MetadataFilter, Modality
 from backend.agents.concept.types import ConceptRep
 from backend.data_access.cluster_snapshots.queries import get_cluster_snapshot_with_clusters, get_memberships
@@ -73,12 +73,11 @@ async def cross_filter(
         "director": metadata_filter.director,
     }
 
-    # Reuse the recut operation to perform the actual clustering on the filtered subset
-    return await recut(
+    base_draft = await drill_down(
+        source_cluster_id=None,
         movie_ids=filtered_ids,
-        parent_cluster_snapshot_id=parent_cluster_snapshot_id,
         concept=concept,
+        parent_cluster_snapshot_id=parent_cluster_snapshot_id,
         embedding_spaces=embedding_spaces,
-        operation="cross_filter",
-        extra_params=extra_params,
     )
+    return base_draft.with_operation("cross_filter", extra_params)

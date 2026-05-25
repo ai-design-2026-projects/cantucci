@@ -3,6 +3,11 @@ SMALL_TALK = (
     "You can ask me to split a cluster, merge groups, or explain a placement."
 )
 
+RESET_REPLY = (
+    "Session reset — you're back to an unclustered state. "
+    "Tell me how you'd like to start, or ask me to go back to the default clustering."
+)
+
 NO_CLUSTER_TO_SPLIT = "Please specify which cluster to split."
 
 FEWER_THAN_TWO_TO_MERGE = "There are fewer than two clusters to merge."
