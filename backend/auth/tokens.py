@@ -25,19 +25,23 @@ def encode_token(user_id: uuid.UUID) -> str:
     return jwt.encode({"sub": str(user_id), "exp": exp}, secret, algorithm="HS256")
 
 
-def set_auth_cookie(response: Response, token: str) -> None:
+def set_auth_cookie(response: Response, token: str, request: Request) -> None:
     """
     Attach the JWT as an HttpOnly cookie to ``response``.
+    The ``Secure`` flag is set only when the request arrived over HTTPS so that
+    Safari (which enforces the spec strictly) accepts the cookie on plain HTTP
+    in local development.
     Args:
         response: FastAPI response object to attach the cookie to.
         token:    Signed JWT string (from ``encode_token``).
+        request:  Incoming request used to detect the transport scheme.
     """
     env = get_env()
     response.set_cookie(
         key="auth_token",
         value=token,
         httponly=True,
-        secure=True,
+        secure=request.url.scheme == "https",
         samesite="lax",
         max_age=env.jwt_ttl_seconds,
         path="/",

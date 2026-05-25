@@ -38,7 +38,7 @@ def login(body: LoginRequest, request: Request, response: Response) -> LoginResp
 
     token = encode_token(row.id)
     user = User(id=row.id, email=row.email, role=row.role)
-    set_auth_cookie(response, token)
+    set_auth_cookie(response, token, request)
     _auth_log.info("login_success", extra={"user_id": str(row.id), "email": row.email, "client_ip": client_ip})
     return LoginResponse(token=token, user=user)
 
@@ -68,7 +68,7 @@ def register(body: LoginRequest, request: Request, response: Response) -> LoginR
     password_hash = hash_password(body.password)
     user_id = create_user(body.email, password_hash, "user")
     token = encode_token(user_id)
-    set_auth_cookie(response, token)
+    set_auth_cookie(response, token, request)
     _auth_log.info("register_success", extra={"user_id": str(user_id), "email": body.email, "client_ip": client_ip})
     return LoginResponse(token=token, user=User(id=user_id, email=body.email, role="user"))
 
