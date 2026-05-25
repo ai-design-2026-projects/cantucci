@@ -236,7 +236,9 @@ def encode_trailers_sharded(
                     f"restart embedding from scratch."
                 )
             vectors = data["vectors"].copy()
-            zero_indices = np.where(np.abs(vectors).sum(axis=1) == 0)[0]
+            zero_indices = np.where(
+                (np.abs(vectors).sum(axis=1) == 0) | np.isnan(vectors).any(axis=1)
+            )[0]
             if zero_indices.size == 0:
                 out[start:end] = vectors
                 log.info(

@@ -15,11 +15,15 @@ dependencies = [
     "jinja2>=3.1",
     "openai>=1.0",
     "httpx>=0.28",
+    "mcp>=1.0",
     "numpy>=1.26",
     "sentence-transformers>=2.7",
     "hdbscan>=0.8.40",
     "umap-learn>=0.5.6",
 ]
+
+[project.scripts]
+cinepal-mcp = "mcp_server.server:main"
 
 [project.optional-dependencies]
 test = [

@@ -15,7 +15,7 @@ from backend.data_access.cluster_snapshots.queries import (
 )
 from backend.exceptions import ClusterSnapshotNotFound, NotFoundError, SnapshotHasChildren
 from backend.routers.auth_deps import get_current_user
-from backend.routers.dto.cluster_snapshots.dtos import ClusterDto, ClusterSnapshotDto, ClusterSnapshotGraphDto
+from backend.routers.dto.cluster_snapshots.dtos import ClusterDto, ClusterMembershipDto, ClusterSnapshotDto, ClusterSnapshotGraphDto
 
 log = logging.getLogger(__name__)
 
@@ -137,6 +137,44 @@ def delete_cluster_snapshot_endpoint(
         raise SnapshotHasChildren(cluster_snapshot_id)
     delete_cluster_snapshot(cluster_snapshot_id)
     log.info("cluster_snapshot_deleted", extra={"snapshot_id": str(cluster_snapshot_id), "user_id": str(user.id)})
+
+
+@router.get(
+    "/cluster-snapshots/{cluster_snapshot_id}/clusters/{cluster_id}/members",
+    response_model=list[ClusterMembershipDto],
+)
+def get_cluster_members_endpoint(
+    cluster_snapshot_id: uuid.UUID,
+    cluster_id: uuid.UUID,
+) -> list[ClusterMembershipDto]:
+    """Return all movie memberships for a cluster, ordered by descending probability.
+
+    Validates that ``cluster_id`` belongs to ``cluster_snapshot_id`` before
+    fetching memberships so callers cannot enumerate members of arbitrary clusters.
+
+    Args:
+        cluster_snapshot_id: Cluster snapshot UUID.
+        cluster_id:          Cluster UUID within that snapshot.
+
+    Returns:
+        List of ``ClusterMembershipDto`` ordered by probability descending.
+
+    Raises:
+        ClusterSnapshotNotFound: If the snapshot does not exist.
+        HTTPException(404):      If the cluster does not belong to the snapshot.
+    """
+    result = get_cluster_snapshot_with_clusters(cluster_snapshot_id)
+    if result is None:
+        raise ClusterSnapshotNotFound(cluster_snapshot_id)
+    cluster_ids = {c.id for c in result.clusters}
+    if cluster_id not in cluster_ids:
+        raise HTTPException(status_code=404, detail=f"Cluster {cluster_id} not found in snapshot {cluster_snapshot_id}.")
+    memberships = get_memberships(cluster_id)
+    log.debug(
+        "cluster_members_fetched",
+        extra={"cluster_id": str(cluster_id), "snapshot_id": str(cluster_snapshot_id), "count": len(memberships)},
+    )
+    return [ClusterMembershipDto(movie_id=m.movie_id, probability=m.probability) for m in memberships]
 
 
 @router.get("/conversations/{conversation_id}/cluster-snapshots", response_model=ClusterSnapshotGraphDto)
