@@ -1,7 +1,7 @@
 import logging
 from jinja2 import Environment, FileSystemLoader
 
-from backend.agents.labeling.types import BatchLabelLLMResponse, BatchLabelResult
+from backend.agents.labeling.types import BatchLabelLLMResponse, BatchLabelResult, ClusterLabelContext
 from backend.data_access.movies.queries import fetch_stubs
 from backend.llm import llm_harness
 from backend.settings import get_config_hash, get_settings, prompts_dir
@@ -19,6 +19,7 @@ async def label_clusters(
     conversation_id: str,
     accumulated_cost: float,
     message_id: str | None = None,
+    contexts: list[ClusterLabelContext] | None = None,
 ) -> BatchLabelResult:
     """Generate labels and summaries for multiple clusters in a single LLM call.
 
@@ -27,12 +28,20 @@ async def label_clusters(
     clusters together and the LLM returns one label+summary per cluster, reducing
     round-trips compared to calling the model once per cluster.
 
+    When ``contexts`` is provided (one entry per cluster), the prompt is enriched
+    with the split concept, parent-cluster breadcrumb, and per-cluster aggregate
+    statistics so the LLM can name clusters by their position on the split
+    dimension rather than by generic thematic identity.
+
     Args:
         exemplar_groups: List of exemplar-movie-ID lists, one per cluster to label.
                          IDs are truncated to ``cfg.labeling.top_exemplars`` per group.
         conversation_id: UUID string of the parent conversation (or ``"offline"``).
         accumulated_cost: Running LLM cost to check against limit.
         message_id:      Message UUID string for logging; a sentinel is used if omitted.
+        contexts:        Optional per-cluster context (concept, parent label, stats).
+                         When ``None`` the agent falls back to title-only labelling,
+                         which is correct for root clusters.
 
     Returns:
         ``BatchLabelResult`` with one ``LabelResult`` per input cluster group and
@@ -47,13 +56,27 @@ async def label_clusters(
     top_n = cfg.labeling.top_exemplars
 
     clusters_for_prompt = []
-    for group in exemplar_groups:
+    for i, group in enumerate(exemplar_groups):
         stubs = fetch_stubs(group[:top_n])
         titles = [f"{s.title} ({s.release_year or '?'})" for s in stubs]
-        clusters_for_prompt.append({"exemplar_titles": titles})
+        ctx = contexts[i] if contexts is not None else None
+        entry: dict = {"exemplar_titles": titles, "parent_label": None, "profile": None}
+        if ctx is not None:
+            entry["parent_label"] = ctx.parent_label
+            if ctx.profile is not None:
+                p = ctx.profile
+                entry["profile"] = {
+                    "mean_runtime": round(p.mean_runtime) if p.mean_runtime is not None else None,
+                    "year_range": f"{p.min_year}–{p.max_year}" if p.min_year is not None else None,
+                    "mean_rating": round(p.mean_rating, 1) if p.mean_rating is not None else None,
+                    "top_genres": p.top_genres,
+                }
+        clusters_for_prompt.append(entry)
 
-    template = _ENV.get_template("label_v3.j2")
-    prompt = template.render(clusters=clusters_for_prompt)
+    concept = contexts[0].concept if contexts else None
+
+    template = _ENV.get_template("label_v4.j2")
+    prompt = template.render(clusters=clusters_for_prompt, concept=concept)
     messages = [{"role": "user", "content": prompt}]
 
     resp = await llm_harness.call(

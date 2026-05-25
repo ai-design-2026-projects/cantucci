@@ -196,7 +196,7 @@ class SuggestionsConfig(BaseModel):
     """Post-turn suggestion parameters.
 
     Attributes:
-        enabled:                  When False, the suggester is skipped entirely
+        enabled:                  When False, the responder is skipped entirely
                                   (no LLM call, no suggestion field on the response).
         similar_pair_distance_max: Cosine-distance threshold (range [0, 2]) below which
                                    two cluster centroids are considered similar enough
@@ -206,7 +206,7 @@ class SuggestionsConfig(BaseModel):
         noise_fraction_floor:      Fraction of low-probability memberships above which a
                                    recut suggestion is emitted (noise proxy).
         top_n_signals:             Maximum number of deterministic signals forwarded to
-                                   the suggester LLM.
+                                   the responder LLM.
     """
     enabled: bool = True
     similar_pair_distance_max: float = 0.25

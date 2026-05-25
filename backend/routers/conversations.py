@@ -9,6 +9,7 @@ from fastapi.responses import StreamingResponse
 from backend.agents.coordinator.agent import Coordinator
 from backend.auth.types import User
 from backend.data_access.conversations.queries import (
+    add_conversation_cost,
     append_message,
     create_conversation,
     delete_conversation,
@@ -22,7 +23,7 @@ from backend.data_access.cluster_snapshots.queries import (
     record_conversation_snapshot_ref,
 )
 from backend.exceptions import ClusterSnapshotNotFound, ConversationNotFound, NotConversationOwner
-from backend.agents.coordinator.progress import register_queue, unregister_queue
+from backend.agents.coordinator.tools.progress import register_queue, unregister_queue
 from backend.routers.auth_deps import get_current_user
 from backend.routers.dto.conversations.dtos import (
     ConversationDto,
@@ -247,8 +248,9 @@ async def send_message(
         conversation_row=row,
     )
 
-    msg_id = append_message(conversation_id, "assistant", result.reply_text)
-    log.info("assistant_reply", extra={"conversation_id": str(conversation_id), "cluster_snapshot_id": str(result.cluster_snapshot_id)})
+    msg_id = append_message(conversation_id, "assistant", result.reply_text, cost_usd=result.turn_cost_usd)
+    add_conversation_cost(conversation_id, result.turn_cost_usd)
+    log.info("assistant_reply", extra={"conversation_id": str(conversation_id), "cluster_snapshot_id": str(result.cluster_snapshot_id), "turn_cost_usd": result.turn_cost_usd})
 
     return SendMessageResponse(
         message=MessageDto(

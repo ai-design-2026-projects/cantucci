@@ -211,9 +211,9 @@ The root cluster snapshot is built at ingest time (via `db/ingest.py` calling
 `data_access.cluster_snapshots.queries.create_root_snapshot_from_assignments`)
 from the offline pipeline columns in the parquet artifact. Clusters are created
 without labels (`label=NULL`). The labeling agent fires lazily the first time a
-cluster is surfaced in a conversation — `agents/coordinator.py:_label_unlabeled_clusters`
-calls `agents/labeling/agent.py:label_cluster` for each unlabeled cluster and
-persists the result via `update_cluster_label`.
+cluster is surfaced in a conversation — `agents/coordinator/labeling.py:label_unlabeled_clusters`
+calls `agents/labeling/agent.py:label_clusters` (single batched call) and
+persists each result via `update_cluster_label`.
 
 ### Content-addressed snapshot cache (wired)
 

@@ -4,6 +4,35 @@ TMDB_POSTER_BASE_URL = "https://image.tmdb.org/t/p/w500"
 
 
 @dataclass(frozen=True, slots=True)
+class ClusterProfileRow:
+    """Aggregate metadata profile for a set of movies (one cluster's members).
+
+    Attributes:
+        mean_runtime:  Mean runtime in minutes across the cluster, or None if unknown.
+        min_year:      Earliest release year in the cluster, or None if unknown.
+        max_year:      Latest release year in the cluster, or None if unknown.
+        mean_rating:   Mean TMDB vote average across the cluster, or None if unknown.
+        top_genres:    Up to 5 genre names ordered by frequency among cluster members.
+    """
+    mean_runtime: float | None
+    min_year: int | None
+    max_year: int | None
+    mean_rating: float | None
+    top_genres: list[str]
+
+    @classmethod
+    def from_row(cls, r: dict) -> "ClusterProfileRow":
+        """Construct from a psycopg dict_row result of the fetch_cluster_profile aggregate query."""
+        return cls(
+            mean_runtime=float(r["mean_runtime"]) if r["mean_runtime"] is not None else None,
+            min_year=int(r["min_year"]) if r["min_year"] is not None else None,
+            max_year=int(r["max_year"]) if r["max_year"] is not None else None,
+            mean_rating=float(r["mean_rating"]) if r["mean_rating"] is not None else None,
+            top_genres=list(r["top_genres"]) if r["top_genres"] else [],
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class MovieSearchHitRow:
     """A single result from a k-NN vector search.
 

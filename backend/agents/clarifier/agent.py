@@ -50,7 +50,7 @@ async def clarify(
     prompt = template.render(
         clusters=[{"label": c.label or "Unlabeled"} for c in clusters],
         user_message=user_message,
-        guessed_mode=action.navigationMode.value,
+        guessed_mode=action.mode.value,
         guessed_concept=action.concept,
         guessed_target_label=guessed_target_label,
         confidence=action.confidence,
@@ -78,7 +78,7 @@ async def clarify(
         "clarifier_generated",
         extra={
             "conversation_id": str(conversation_id),
-            "low_confidence_mode": action.navigationMode.value,
+            "low_confidence_mode": action.mode.value,
             "confidence": action.confidence,
         },
     )
