@@ -5,7 +5,7 @@ from backend.agents.clarifier.agent import clarify
 from backend.agents.coordinator.tools.actions import ActionContext, execute_action
 from backend.agents.coordinator.tools.labeling import label_unlabeled_clusters
 from backend.agents.coordinator.tools.progress import ProgressReporter
-from backend.agents.coordinator.tools.suggestions import maybe_suggest
+from backend.agents.responder.suggestions import maybe_suggest
 from backend.agents.coordinator.types import CoordinatorResult, sentinel_cluster_snapshot_id
 from backend.agents.intent.agent import classify as classify_intent
 from backend.agents.clustering.types import NavigationMode

@@ -1,13 +1,13 @@
 import uuid
 
-from backend.agents.suggester.agent import suggest
-from backend.agents.suggester.signals import (
+from backend.agents.responder.agent import suggest
+from backend.agents.responder.signals import (
     compute_cluster_centroids,
     find_dominant_cluster,
     find_noise_fraction,
     find_similar_pairs,
 )
-from backend.agents.suggester.types import SuggestionResult
+from backend.agents.responder.types import SuggestionResult
 from backend.data_access.cluster_snapshots.queries import get_memberships
 from backend.data_access.cluster_snapshots.types import ClusterRow
 from backend.data_access.movies.queries import fetch_text_embeddings
@@ -22,7 +22,7 @@ async def maybe_suggest(
     message_id: uuid.UUID,
     accumulated_cost: float,
 ) -> SuggestionResult | None:
-    """Compute deterministic signals from the new snapshot and optionally call the suggester.
+    """Compute deterministic signals from the new snapshot and optionally call the responder.
 
     Returns None immediately when suggestions are disabled or no signal exceeds its
     threshold, avoiding any LLM call in those cases.

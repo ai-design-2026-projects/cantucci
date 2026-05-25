@@ -26,7 +26,8 @@ log = logging.getLogger(__name__)
 
 
 async def apply_navigation(request: NavigationRequest) -> uuid.UUID:
-    """Dispatch a clustering operation and persist the resulting snapshot.
+    """
+    Dispatch a clustering operation and persist the resulting snapshot.
 
     Selects the correct operation based on ``request.mode``, executes it, then
     persists (or retrieves from the content-addressed cache) the resulting
@@ -35,14 +36,13 @@ async def apply_navigation(request: NavigationRequest) -> uuid.UUID:
     Args:
         request: All inputs required for the operation. Unused fields for the
                  selected mode are ignored.
-
     Returns:
         UUID of the cached-or-newly-created cluster snapshot.
-
     Raises:
         ValueError: If ``request.mode`` is not a known ``NavigationMode``.
     """
     match request.mode:
+
         case NavigationMode.DRILL_DOWN:
             if request.source_cluster_id is None:
                 raise ValueError("source_cluster_id is required for DRILL_DOWN")
@@ -52,6 +52,7 @@ async def apply_navigation(request: NavigationRequest) -> uuid.UUID:
                 parent_cluster_snapshot_id=request.parent_cluster_snapshot_id,
                 embedding_spaces=request.embedding_spaces,
             )
+
         case NavigationMode.MERGE:
             if not request.cluster_ids:
                 raise ValueError("cluster_ids is required for MERGE")
@@ -60,6 +61,7 @@ async def apply_navigation(request: NavigationRequest) -> uuid.UUID:
                 parent_cluster_snapshot_id=request.parent_cluster_snapshot_id,
                 merged_label=request.merged_label or "Merged",
             )
+        
         case NavigationMode.RECUT:
             if not request.movie_ids:
                 raise ValueError("movie_ids is required for RECUT")
@@ -69,6 +71,7 @@ async def apply_navigation(request: NavigationRequest) -> uuid.UUID:
                 concept=request.concept,
                 embedding_spaces=request.embedding_spaces,
             )
+        
         case NavigationMode.FOCUS:
             if request.source_cluster_id is None:
                 raise ValueError("source_cluster_id is required for FOCUS")
@@ -76,6 +79,7 @@ async def apply_navigation(request: NavigationRequest) -> uuid.UUID:
                 source_cluster_id=request.source_cluster_id,
                 parent_cluster_snapshot_id=request.parent_cluster_snapshot_id,
             )
+        
         case NavigationMode.CROSS_FILTER:
             if request.metadata_filter is None:
                 raise ValueError("metadata_filter is required for CROSS_FILTER")
@@ -85,6 +89,7 @@ async def apply_navigation(request: NavigationRequest) -> uuid.UUID:
                 concept=request.concept,
                 embedding_spaces=request.embedding_spaces,
             )
+        
         case _:
             raise ValueError(f"Unknown NavigationMode: {request.mode!r}")
 

@@ -3,8 +3,8 @@ from dataclasses import dataclass
 from pydantic import BaseModel
 
 
-class SuggesterLLMResponse(BaseModel):
-    """Structured output expected from the suggester LLM call.
+class ResponderLLMResponse(BaseModel):
+    """Structured output expected from the responder LLM call.
 
     Attributes:
         text: A 1–2 sentence suggestion for the user's next move, or null if
@@ -15,7 +15,7 @@ class SuggesterLLMResponse(BaseModel):
 
 @dataclass(frozen=True, slots=True)
 class SuggestionResult:
-    """Output of the Suggester agent.
+    """Output of the Responder agent.
 
     Attributes:
         text: Suggestion text to surface to the user, or None if signals did not
@@ -26,7 +26,7 @@ class SuggestionResult:
     cost: float
 
     @classmethod
-    def from_llm_response(cls, parsed: SuggesterLLMResponse, cost: float) -> "SuggestionResult":
+    def from_llm_response(cls, parsed: ResponderLLMResponse, cost: float) -> "SuggestionResult":
         """Construct from a structured LLM response.
 
         Args:

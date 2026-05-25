@@ -2,14 +2,14 @@ import logging
 import uuid
 from jinja2 import Environment, FileSystemLoader
 
-from backend.agents.suggester.types import SuggesterLLMResponse, SuggestionResult
+from backend.agents.responder.types import ResponderLLMResponse, SuggestionResult
 from backend.data_access.cluster_snapshots.types import ClusterRow
 from backend.llm import llm_harness
 from backend.settings import get_config_hash, get_settings, prompts_dir
 
 log = logging.getLogger(__name__)
 
-_PROMPTS_DIR = prompts_dir("suggester")
+_PROMPTS_DIR = prompts_dir("responder")
 _ENV = Environment(loader=FileSystemLoader(str(_PROMPTS_DIR)), autoescape=False)
 
 
@@ -61,15 +61,15 @@ async def suggest(
         provider=cfg.models.fast.provider,
         seed=cfg.models.fast.seed,
         max_tokens=cfg.models.fast.max_tokens,
-        step_type="suggester_agent",
+        step_type="responder_agent",
         messages=messages,
         cost_limit_usd=cfg.conversation.cost_limit_usd,
         accumulated_cost_usd=accumulated_cost,
         dry_run=cfg.models.fast.dry_run,
-        response_schema=SuggesterLLMResponse,
+        response_schema=ResponderLLMResponse,
     )
 
-    parsed: SuggesterLLMResponse = resp.parsed  # type: ignore[assignment]
+    parsed: ResponderLLMResponse = resp.parsed  # type: ignore[assignment]
     result = SuggestionResult.from_llm_response(parsed, cost=resp.cost_usd)
     log.info(
         "suggestion_generated",

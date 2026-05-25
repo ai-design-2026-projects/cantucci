@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from backend.agents.clustering.agent import apply_navigation
 from backend.agents.clustering.types import NavigationMode, NavigationRequest
 from backend.agents.concept.agent import build_concept
-from backend.agents.coordinator.tools import replies
+from backend.agents.responder import replies
 from backend.agents.coordinator.tools.progress import ProgressReporter
 from backend.agents.coordinator.types import sentinel_cluster_snapshot_id
 from backend.agents.explanation.agent import explain_placement
