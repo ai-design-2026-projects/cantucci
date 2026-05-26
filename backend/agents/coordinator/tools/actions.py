@@ -2,7 +2,7 @@ import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 
-from backend.agents.clustering.agent import cross_filter, drill_down, focus, merge_clusters
+from backend.agents.clustering.agent import cross_filter, drill_down, focus, merge_clusters, partition_by
 from backend.agents.clustering.types import NavigationMode
 from backend.agents.coordinator.tools.persist import persist_and_label
 from backend.agents.concept.agent import build_concept
@@ -219,6 +219,36 @@ async def handle_focus(ctx: ActionContext) -> tuple[str, uuid.UUID | None, float
     return replies.format_focus_reply(label, n_members), new_cluster_snapshot_id, 0.0
 
 
+async def handle_partition_by(ctx: ActionContext) -> tuple[str, uuid.UUID | None, float]:
+    """Handle a PARTITION_BY action by grouping movies into deterministic attribute buckets.
+
+    Args:
+        ctx: Action context.  ``ctx.action.partition_spec`` carries the attribute and bins.
+
+    Returns:
+        Tuple of (reply text, new snapshot id, 0.0 cost).
+    """
+    if ctx.action.partition_spec is None:
+        return replies.UNSUPPORTED_OPERATION, ctx.current_cluster_snapshot_id, 0.0
+
+    ctx.reporter.step("clustering")
+    draft = await partition_by(
+        spec=ctx.action.partition_spec,
+        parent_cluster_snapshot_id=ctx.current_cluster_snapshot_id,
+        source_cluster_id=ctx.action.target_cluster_id,
+    )
+    n_movies = len({mid for c in draft.clusters for mid, _ in c.memberships})
+    new_cluster_snapshot_id = await persist_and_label(
+        draft, ctx.conversation_id, ctx.current_cluster_snapshot_id, ctx.accumulated_cost
+    )
+    n_new = len(draft.clusters)
+    return (
+        replies.format_partition_reply(ctx.action.partition_spec.attribute.value, n_new, n_movies),
+        new_cluster_snapshot_id,
+        0.0,
+    )
+
+
 async def handle_cross_filter(ctx: ActionContext) -> tuple[str, uuid.UUID | None, float]:
     """Handle a CROSS_FILTER action by filtering by metadata then re-clustering survivors.
 
@@ -265,6 +295,7 @@ _DISPATCH: dict[NavigationMode | DialogueMode, _Handler] = {
     NavigationMode.MERGE: handle_merge,
     NavigationMode.FOCUS: handle_focus,
     NavigationMode.CROSS_FILTER: handle_cross_filter,
+    NavigationMode.PARTITION_BY: handle_partition_by,
 }
 
 

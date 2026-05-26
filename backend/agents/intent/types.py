@@ -5,7 +5,7 @@ from enum import Enum
 
 from pydantic import BaseModel
 
-from backend.agents.clustering.types import MetadataFilter, Modality, NavigationMode
+from backend.agents.clustering.types import MetadataFilter, Modality, NavigationMode, PartitionAttribute, PartitionBin, PartitionSpec
 
 log = logging.getLogger(__name__)
 
@@ -59,6 +59,19 @@ class MetadataFilterLLM(BaseModel):
     director: str | None = None
 
 
+class PartitionBinLLM(BaseModel):
+    """A single labelled bucket emitted by the LLM for numeric PARTITION_BY actions."""
+    label: str
+    min: float | None = None
+    max: float | None = None
+
+
+class PartitionSpecLLM(BaseModel):
+    """Wire schema for the partition specification the LLM emits for PARTITION_BY actions."""
+    attribute: str
+    bins: list[PartitionBinLLM] | None = None
+
+
 class IntentActionLLM(BaseModel):
     """Structured output for a single action within the intent classification LLM call."""
     mode: NavigationMode | DialogueMode
@@ -68,6 +81,7 @@ class IntentActionLLM(BaseModel):
     confidence: float = 1.0
     embedding_spaces: list[Modality] = [Modality.TEXT]
     metadata_filter: MetadataFilterLLM | None = None
+    partition_spec: PartitionSpecLLM | None = None
 
 
 class IntentLLMResponse(BaseModel):
@@ -97,6 +111,7 @@ class IntentAction:
                            ``[Modality.TEXT]``; includes ``Modality.TRAILER`` when the
                            user references visual style or tone.
         metadata_filter:   Metadata predicate for cross_filter; ``None`` otherwise.
+        partition_spec:    Attribute and bins for partition_by; ``None`` otherwise.
     """
     mode: NavigationMode | DialogueMode
     concept: str | None
@@ -105,6 +120,7 @@ class IntentAction:
     confidence: float
     embedding_spaces: list[Modality]
     metadata_filter: MetadataFilter | None
+    partition_spec: PartitionSpec | None
 
     @classmethod
     def from_llm_action(cls, parsed: IntentActionLLM) -> "IntentAction":
@@ -135,6 +151,18 @@ class IntentAction:
                 director=mf.director,
             )
 
+        partition_spec: PartitionSpec | None = None
+        if parsed.partition_spec is not None:
+            ps = parsed.partition_spec
+            try:
+                attr = PartitionAttribute(ps.attribute)
+            except ValueError:
+                log.warning("intent_invalid_partition_attribute", extra={"raw": ps.attribute})
+                attr = None  # type: ignore[assignment]
+            if attr is not None:
+                bins = [PartitionBin(label=b.label, min=b.min, max=b.max) for b in (ps.bins or [])]
+                partition_spec = PartitionSpec(attribute=attr, bins=bins or None)
+
         return cls(
             mode=parsed.mode,
             concept=parsed.concept,
@@ -143,6 +171,7 @@ class IntentAction:
             confidence=parsed.confidence,
             embedding_spaces=parsed.embedding_spaces,
             metadata_filter=metadata_filter,
+            partition_spec=partition_spec,
         )
 
 

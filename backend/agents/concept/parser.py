@@ -30,8 +30,8 @@ def build_linear_axis(parsed: ConceptLLMResponse, concept_name: str, cost: float
     if not parsed.positive_description or not parsed.negative_description:
         raise ConceptParseError(concept_name)
 
-    pos_emb = embed_texts([parsed.positive_description])[0]
-    neg_emb = embed_texts([parsed.negative_description])[0]
+    embs = embed_texts([parsed.positive_description, parsed.negative_description])
+    pos_emb, neg_emb = embs[0], embs[1]
     axis = pos_emb - neg_emb
     norm = np.linalg.norm(axis)
     if norm == 0:
@@ -60,9 +60,10 @@ def build_prototype(parsed: ConceptLLMResponse, concept_name: str, cost: float) 
     if not parsed.exemplar_titles:
         raise ConceptParseError(concept_name)
 
+    title_embs = embed_texts(parsed.exemplar_titles)
     exemplar_ids: list[int] = []
-    for title in parsed.exemplar_titles:
-        hits = vector_search(embed_texts([title])[0], k=1)
+    for emb in title_embs:
+        hits = vector_search(emb, k=1)
         if hits:
             exemplar_ids.append(hits[0].movie_id)
 

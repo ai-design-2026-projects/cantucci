@@ -91,3 +91,17 @@ def format_cross_filter_reply(n_new: int, n_movies: int) -> str:
         A human-readable summary of the cross-filter result.
     """
     return f"Applied metadata filter and re-clustered {n_movies} survivors into {n_new} clusters."
+
+
+def format_partition_reply(attribute: str, n_new: int, n_movies: int) -> str:
+    """Format the reply for a completed PARTITION_BY operation.
+
+    Args:
+        attribute: The metadata attribute used to partition (e.g. ``"genre"``).
+        n_new:     Total number of clusters produced.
+        n_movies:  Total number of movies across all clusters.
+
+    Returns:
+        A human-readable summary of the partition result.
+    """
+    return f"Partitioned {n_movies} movies by {attribute} into {n_new} groups."

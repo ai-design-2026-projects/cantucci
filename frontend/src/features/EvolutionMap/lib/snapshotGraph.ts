@@ -4,12 +4,13 @@ export const NODE_R = 32
 export const LABEL_LINE_HEIGHT = 11
 
 const OPERATION_LABELS: Record<string, string[]> = {
-	unclustered:  ['unclustered'],
-	base:         ['base'],
-	drill_down:   ['drill down'],
-	merge:        ['merge'],
-	focus:        ['focus'],
-	cross_filter: ['cross', 'filter'],
+	unclustered:   ['unclustered'],
+	base:          ['base'],
+	drill_down:    ['drill down'],
+	merge:         ['merge'],
+	focus:         ['focus'],
+	cross_filter:  ['cross', 'filter'],
+	partition_by:  ['partition'],
 }
 
 /**
