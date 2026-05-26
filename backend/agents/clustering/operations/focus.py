@@ -3,7 +3,7 @@ import uuid
 
 from backend.agents.clustering.operations._helpers import exemplars
 from backend.agents.clustering.types import ClusterDraft, ClusterSnapshotDraft
-from backend.data_access.cluster_snapshots.queries import get_cluster_snapshot_with_clusters, get_primary_members
+from backend.data_access.cluster_snapshots.queries import get_cluster_snapshot_with_clusters, get_snapshot_members
 from backend.settings import get_settings
 
 log = logging.getLogger(__name__)
@@ -41,9 +41,11 @@ async def focus(
     if source is None:
         raise ValueError(f"Cluster {source_cluster_id} not found in snapshot {parent_cluster_snapshot_id}")
 
-    # Get the members of the source cluster. They are defined as the datapoints 
-    # in the parent snapshot whose primary membership is the source cluster
-    memberships_rows = get_primary_members(source_cluster_id)
+    # Get the members of the source cluster. They are defined as the datapoints
+    # in the parent snapshot whose argmax cluster is the source cluster, scoped
+    # to that snapshot to avoid cross-snapshot probability contamination.
+    all_members = get_snapshot_members(parent_cluster_snapshot_id)
+    memberships_rows = [m for m in all_members if m.cluster_id == source_cluster_id]
     if not memberships_rows:
         raise ValueError(f"Cluster {source_cluster_id} has no members")
 
