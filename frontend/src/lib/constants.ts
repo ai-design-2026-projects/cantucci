@@ -5,6 +5,7 @@ export const OPERATION_LABELS: Record<string, string> = {
 	merge: 'Merge',
 	recut: 'Recut',
 	subcluster: 'Subcluster',
+	partition_by: 'Partition',
 }
 
 /** Rotating status messages shown in the loading bubble during a turn. */

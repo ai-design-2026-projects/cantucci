@@ -444,3 +444,125 @@ def get_movies_by_ids(ids: list[int]) -> list[MovieDetailsRow]:
     if not ids:
         return []
     return fetch_movie_details(ids)
+
+
+def fetch_partition_values(
+    movie_ids: list[int],
+    attribute: str,
+) -> dict[int, list[str]] | dict[int, float | None]:
+    """Return the raw metadata values for *attribute* keyed by movie ID.
+
+    Used by the ``partition_by`` clustering operation to bucket movies by an
+    exact metadata field without loading full movie rows.
+
+    For categorical attributes (``"genre"``, ``"director"``) the value is a
+    list of strings — possibly empty when the movie has no value for that
+    attribute.  For numeric attributes (``"runtime"``, ``"release_year"``) the
+    value is a single float or ``None`` when the column is NULL.
+
+    Args:
+        movie_ids: TMDB integer IDs to look up.
+        attribute: One of ``"genre"``, ``"director"``, ``"runtime"``,
+                   ``"release_year"``.
+
+    Returns:
+        Dict mapping each ID in *movie_ids* to its attribute value(s).
+        Every ID in *movie_ids* is present as a key; missing DB rows produce
+        an empty list (categorical) or ``None`` (numeric).
+
+    Raises:
+        ValueError: If *attribute* is not one of the four supported values.
+    """
+    if not movie_ids:
+        return {}
+
+    if attribute == "genre":
+        with transaction() as conn:
+            rows = conn.execute(
+                """
+                SELECT mg.movie_id,
+                       ARRAY_AGG(g.name ORDER BY g.name) AS values
+                FROM movie_genres mg
+                JOIN genres g ON g.id = mg.genre_id
+                WHERE mg.movie_id = ANY(%s)
+                GROUP BY mg.movie_id
+                """,
+                (movie_ids,),
+            ).fetchall()
+        result_cat: dict[int, list[str]] = {r["movie_id"]: list(r["values"]) for r in rows}
+        for mid in movie_ids:
+            result_cat.setdefault(mid, [])
+        log.debug("fetch_partition_values", extra={"attribute": attribute, "n_movies": len(movie_ids)})
+        return result_cat
+
+    if attribute == "director":
+        with transaction() as conn:
+            rows = conn.execute(
+                """
+                SELECT cm.movie_id,
+                       ARRAY_AGG(DISTINCT p.name ORDER BY p.name) AS values
+                FROM crew_members cm
+                JOIN people p ON p.id = cm.person_id
+                WHERE cm.movie_id = ANY(%s) AND cm.job = 'Director'
+                GROUP BY cm.movie_id
+                """,
+                (movie_ids,),
+            ).fetchall()
+        result_dir: dict[int, list[str]] = {r["movie_id"]: list(r["values"]) for r in rows}
+        for mid in movie_ids:
+            result_dir.setdefault(mid, [])
+        log.debug("fetch_partition_values", extra={"attribute": attribute, "n_movies": len(movie_ids)})
+        return result_dir
+
+    if attribute == "runtime":
+        with transaction() as conn:
+            rows = conn.execute(
+                "SELECT id, runtime FROM movies WHERE id = ANY(%s)",
+                (movie_ids,),
+            ).fetchall()
+        result_num: dict[int, float | None] = {r["id"]: r["runtime"] for r in rows}
+        for mid in movie_ids:
+            result_num.setdefault(mid, None)
+        log.debug("fetch_partition_values", extra={"attribute": attribute, "n_movies": len(movie_ids)})
+        return result_num
+
+    if attribute == "release_year":
+        with transaction() as conn:
+            rows = conn.execute(
+                "SELECT id, release_year FROM movies WHERE id = ANY(%s)",
+                (movie_ids,),
+            ).fetchall()
+        result_year: dict[int, float | None] = {r["id"]: r["release_year"] for r in rows}
+        for mid in movie_ids:
+            result_year.setdefault(mid, None)
+        log.debug("fetch_partition_values", extra={"attribute": attribute, "n_movies": len(movie_ids)})
+        return result_year
+
+    if attribute == "vote_average":
+        with transaction() as conn:
+            rows = conn.execute(
+                "SELECT id, vote_average FROM movies WHERE id = ANY(%s)",
+                (movie_ids,),
+            ).fetchall()
+        result_rating: dict[int, float | None] = {r["id"]: r["vote_average"] for r in rows}
+        for mid in movie_ids:
+            result_rating.setdefault(mid, None)
+        log.debug("fetch_partition_values", extra={"attribute": attribute, "n_movies": len(movie_ids)})
+        return result_rating
+
+    if attribute == "original_language":
+        with transaction() as conn:
+            rows = conn.execute(
+                "SELECT id, original_language FROM movies WHERE id = ANY(%s)",
+                (movie_ids,),
+            ).fetchall()
+        result_lang: dict[int, list[str]] = {
+            r["id"]: ([r["original_language"]] if r["original_language"] else [])
+            for r in rows
+        }
+        for mid in movie_ids:
+            result_lang.setdefault(mid, [])
+        log.debug("fetch_partition_values", extra={"attribute": attribute, "n_movies": len(movie_ids)})
+        return result_lang
+
+    raise ValueError(f"Unsupported partition attribute: {attribute!r}")
