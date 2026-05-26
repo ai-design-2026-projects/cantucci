@@ -4,6 +4,7 @@ from dataclasses import dataclass
 
 from backend.agents.clustering.agent import cross_filter, drill_down, focus, merge_clusters, partition_by
 from backend.agents.clustering.types import NavigationMode
+from backend.agents.coordinator.tools.labeling import label_unlabeled_clusters
 from backend.agents.coordinator.tools.persist import persist_and_label
 from backend.agents.concept.agent import build_concept
 from backend.agents.responder import replies
@@ -77,11 +78,13 @@ async def handle_reset(ctx: ActionContext) -> tuple[str, uuid.UUID | None, float
 async def handle_go_to_base(ctx: ActionContext) -> tuple[str, uuid.UUID | None, float]:
     """Navigate to the pre-computed ingest-time base cluster snapshot.
 
+    Labels any unlabeled base clusters so they are immediately visible to the user.
+
     Args:
         ctx: Action context.
 
     Returns:
-        Tuple of (reply text, root snapshot id, 0.0 cost).
+        Tuple of (reply text, root snapshot id, labeling cost).
     """
     root = get_root_cluster_snapshot()
     if root is None:
@@ -89,8 +92,14 @@ async def handle_go_to_base(ctx: ActionContext) -> tuple[str, uuid.UUID | None, 
     set_current_cluster_snapshot(ctx.conversation_id, root.id)
     record_conversation_snapshot_ref(ctx.conversation_id, root.id)
     cswc = get_cluster_snapshot_with_clusters(root.id)
-    n = len(cswc.clusters) if cswc else 0
-    return replies.format_reset_reply(n), root.id, 0.0
+    clusters = cswc.clusters if cswc else []
+    label_cost = 0.0
+    if any(c.label is None for c in clusters):
+        ctx.reporter.step("labeling")
+        clusters, label_cost = await label_unlabeled_clusters(
+            clusters, ctx.conversation_id, ctx.message_id, ctx.accumulated_cost
+        )
+    return replies.format_reset_reply(len(clusters)), root.id, label_cost
 
 
 async def handle_explain(ctx: ActionContext) -> tuple[str, uuid.UUID | None, float]:
@@ -156,9 +165,10 @@ async def handle_drill_down(ctx: ActionContext) -> tuple[str, uuid.UUID | None, 
         embedding_spaces=ctx.action.embedding_spaces,
     )
     n_movies = len({mid for c in draft.clusters for mid, _ in c.memberships})
-    new_cluster_snapshot_id = await persist_and_label(
+    new_cluster_snapshot_id, label_cost = await persist_and_label(
         draft, ctx.conversation_id, ctx.current_cluster_snapshot_id, ctx.accumulated_cost + step_cost
     )
+    step_cost += label_cost
     new_cswc = get_cluster_snapshot_with_clusters(new_cluster_snapshot_id)
     n_new = len(new_cswc.clusters) if new_cswc else 0
     labels = [c.label for c in (new_cswc.clusters if new_cswc else [])]
@@ -184,10 +194,10 @@ async def handle_merge(ctx: ActionContext) -> tuple[str, uuid.UUID | None, float
         parent_cluster_snapshot_id=ctx.current_cluster_snapshot_id,
         merged_label=ctx.action.merged_label or "Merged",
     )
-    new_cluster_snapshot_id = await persist_and_label(
+    new_cluster_snapshot_id, label_cost = await persist_and_label(
         draft, ctx.conversation_id, ctx.current_cluster_snapshot_id, ctx.accumulated_cost
     )
-    return replies.MERGE_REPLY, new_cluster_snapshot_id, 0.0
+    return replies.MERGE_REPLY, new_cluster_snapshot_id, label_cost
 
 
 async def handle_focus(ctx: ActionContext) -> tuple[str, uuid.UUID | None, float]:
@@ -211,12 +221,12 @@ async def handle_focus(ctx: ActionContext) -> tuple[str, uuid.UUID | None, float
         source_cluster_id=target_id,
         parent_cluster_snapshot_id=ctx.current_cluster_snapshot_id,
     )
-    new_cluster_snapshot_id = await persist_and_label(
+    new_cluster_snapshot_id, label_cost = await persist_and_label(
         draft, ctx.conversation_id, ctx.current_cluster_snapshot_id, ctx.accumulated_cost
     )
     n_members = len({mid for mid, _ in draft.clusters[0].memberships}) if draft.clusters else 0
     label = target_cluster.label if target_cluster else None
-    return replies.format_focus_reply(label, n_members), new_cluster_snapshot_id, 0.0
+    return replies.format_focus_reply(label, n_members), new_cluster_snapshot_id, label_cost
 
 
 async def handle_partition_by(ctx: ActionContext) -> tuple[str, uuid.UUID | None, float]:
@@ -238,14 +248,14 @@ async def handle_partition_by(ctx: ActionContext) -> tuple[str, uuid.UUID | None
         source_cluster_id=ctx.action.target_cluster_id,
     )
     n_movies = len({mid for c in draft.clusters for mid, _ in c.memberships})
-    new_cluster_snapshot_id = await persist_and_label(
+    new_cluster_snapshot_id, label_cost = await persist_and_label(
         draft, ctx.conversation_id, ctx.current_cluster_snapshot_id, ctx.accumulated_cost
     )
     n_new = len(draft.clusters)
     return (
         replies.format_partition_reply(ctx.action.partition_spec.attribute.value, n_new, n_movies),
         new_cluster_snapshot_id,
-        0.0,
+        label_cost,
     )
 
 
@@ -279,9 +289,10 @@ async def handle_cross_filter(ctx: ActionContext) -> tuple[str, uuid.UUID | None
         embedding_spaces=ctx.action.embedding_spaces,
     )
     n_movies = len({mid for c in draft.clusters for mid, _ in c.memberships})
-    new_cluster_snapshot_id = await persist_and_label(
+    new_cluster_snapshot_id, label_cost = await persist_and_label(
         draft, ctx.conversation_id, ctx.current_cluster_snapshot_id, ctx.accumulated_cost + step_cost
     )
+    step_cost += label_cost
     new_cswc = get_cluster_snapshot_with_clusters(new_cluster_snapshot_id)
     n_new = len(new_cswc.clusters) if new_cswc else 0
     return replies.format_cross_filter_reply(n_new, n_movies), new_cluster_snapshot_id, step_cost

@@ -178,13 +178,13 @@ class ClusterDraft:
     """A cluster to be written to the DB as part of a new cluster snapshot.
 
     Attributes:
-        label:              Human-readable label.
-        summary:            One-sentence description.
+        label:              Human-readable label, or None when the LLM labeler will generate it.
+        summary:            One-sentence description, or None to trigger LLM labeling.
         exemplar_movie_ids: Top movie IDs by probability.
         parent_cluster_id:  Source cluster UUID for drill-down operations.
         memberships:        List of (movie_id, probability) pairs.
     """
-    label: str
+    label: str | None
     summary: str | None
     exemplar_movie_ids: list[int]
     parent_cluster_id: uuid.UUID | None
