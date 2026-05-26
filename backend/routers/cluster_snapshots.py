@@ -1,6 +1,5 @@
 import logging
 import uuid
-from typing import Any
 
 from fastapi import APIRouter, HTTPException
 
@@ -11,18 +10,15 @@ from backend.data_access.cluster_snapshots.queries import (
     get_conversation_cluster_snapshots,
     get_memberships,
     get_root_cluster_snapshot,
-    get_snapshot_members,
 )
 from backend.exceptions import ClusterSnapshotNotFound, NotFoundError, SnapshotHasChildren
 from backend.routers.dto.cluster_snapshots.dtos import ClusterMembershipDto, ClusterSnapshotDto, ClusterSnapshotGraphDto, SnapshotMemberDto
-from backend.routers.dto.cluster_snapshots.build_snapshot import build_snapshot_dto
+from backend.routers.dto.cluster_snapshots.build_snapshot import build_snapshot_dto, build_snapshot_graph_dto
+import demo.utils.replay as _demo
 
 log = logging.getLogger(__name__)
 
 router = APIRouter(tags=["cluster-snapshots"])
-
-
-
 
 
 @router.get("/cluster-snapshots/root", response_model=ClusterSnapshotDto)
@@ -57,6 +53,10 @@ def get_cluster_snapshot_endpoint(cluster_snapshot_id: uuid.UUID) -> ClusterSnap
     Raises:
         ClusterSnapshotNotFound: If the cluster snapshot does not exist.
     """
+    if _demo.is_replay_mode():
+        recorded = _demo.get_recorded_snapshot(str(cluster_snapshot_id))
+        if recorded is not None:
+            return recorded
     return build_snapshot_dto(cluster_snapshot_id)
 
 
@@ -138,15 +138,12 @@ def get_cluster_snapshot_graph(conversation_id: uuid.UUID) -> ClusterSnapshotGra
     Returns:
         ``ClusterSnapshotGraphDto`` with all cluster snapshot nodes.
     """
+    if _demo.is_replay_mode():
+        recorded = _demo.get_recorded_snapshot_graph(str(conversation_id))
+        if recorded is not None:
+            return recorded
+
     snapshots = get_conversation_cluster_snapshots(conversation_id)
-    nodes: list[dict[str, Any]] = [
-        {
-            "id": str(s.id),
-            "parent_id": str(s.parent_id) if s.parent_id else None,
-            "operation": s.operation,
-            "created_at": s.created_at.isoformat(),
-        }
-        for s in snapshots
-    ]
-    log.debug("cluster_snapshot_graph", extra={"conversation_id": str(conversation_id), "n_nodes": len(nodes)})
-    return ClusterSnapshotGraphDto(cluster_snapshots=nodes)
+    dto = build_snapshot_graph_dto(snapshots)
+    log.debug("cluster_snapshot_graph", extra={"conversation_id": str(conversation_id), "n_nodes": len(dto.cluster_snapshots)})
+    return dto

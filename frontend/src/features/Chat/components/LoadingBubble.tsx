@@ -33,6 +33,7 @@ export function LoadingBubble({
 		<AnimatePresence>
 			{isLoading && (
 				<motion.div
+					data-testid="loading-bubble"
 					className="flex flex-row gap-2"
 					initial={{ opacity: 0, y: 8 }}
 					animate={{ opacity: 1, y: 0 }}

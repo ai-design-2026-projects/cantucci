@@ -1,46 +1,101 @@
 # demo/ — record/replay demo scripts
 
-This directory contains scripts for recording a live CinePal session to a JSONL manifest and replaying it later with zero live LLM calls. Useful for demos, CI smoke tests, and deterministic regression checks.
+This directory contains scripts and a Playwright-driven demo replay for recording a live CinePal chat session and replaying it later with zero LLM calls. Useful for screen-recording demos and deterministic re-takes.
 
 ---
 
-## Scripts
+## How it works
 
-| Script | Description |
-|---|---|
-| `demo_record.sh` | Launch the backend in record mode; all LLM responses are saved to a JSONL manifest. |
-| `demo_replay.sh` | Launch the backend in replay mode against the newest manifest; no live LLM calls are made. |
+Recording operates at the **chat level**: each completed user→assistant turn is saved together with the full cluster snapshot it produced. On replay the backend short-circuits every `POST /conversations/{id}/messages` call and returns the recorded reply and snapshot instantly — no agents, no API spend.
 
-Manifests are written to and read from `demo/manifests/`.
+The Playwright script paces itself via **DOM signals** rather than arbitrary sleeps. It waits for the `[data-testid="loading-bubble"]` element to appear and then disappear before proceeding to the next action. This means retiming the backend's synthetic delays (in `demo/utils/state.py`) requires no changes to the Playwright script.
+
+Recordings are self-contained JSON files. You can take them to a fresh machine (or a wiped database) and replay them by running the provided Playwright script.
 
 ---
 
-## Usage
+## Quick start
 
-### Record a session
+### 1. Record a session
 
 ```bash
-bash demo/demo_record.sh
+# Terminal 1 — start the backend in record mode
+bash demo/demo_record.sh --name my-demo
+
+# Terminal 2 — start the frontend
+cd frontend && npm run dev
 ```
 
-Starts the backend with `CINEPAL_LLM_MODE=record`. Interact with the UI normally. Every LLM response is appended to `demo/manifests/session_<timestamp>.jsonl`. Stop the server when done.
+Chat with the application normally. Every turn you complete is appended to `demo/recordings/my-demo.json`. Stop the backend with Ctrl-C when finished.
 
-### Replay a session
+### 2. Replay the recording
 
 ```bash
-bash demo/demo_replay.sh
+# Terminal 1 — start the backend in replay mode
+bash demo/demo_replay.sh demo/recordings/my-demo.json
+
+# Terminal 2 — start the frontend
+cd frontend && npm run dev
+
+# Terminal 3 — start Chrome with remote debugging enabled
+google-chrome \
+  --remote-debugging-port=9222 \
+  --user-data-dir=/tmp/cinepal-demo-chrome \
+  --new-window http://127.0.0.1:5173
+
+# Terminal 4 — run the Playwright demo script
+cd demo/playwright
+npm install          # first time only
+DEMO_RECORDING=../recordings/my-demo.json npm run demo:headed
 ```
 
-Starts the backend with `CINEPAL_LLM_MODE=replay` pointed at the newest `.jsonl` file in `demo/manifests/`. Replaying the same sequence of user messages produces bit-identical LLM responses from the manifest — no API key needed, no token spend.
+The Playwright script navigates to the app, creates a new conversation, and replays the recorded flow with slower human-like typing, linear pointer movement, visible cluster selection, and real scrolling/clicking for the inspect and evolution-map interactions. The backend serves the recorded assistant replies and cluster snapshots with synthetic processing delays so the step indicator animates naturally.
 
 ---
 
-## `CINEPAL_LLM_MODE` env var
+## File layout
 
-| Value | Behaviour |
-|---|---|
-| *(unset)* | Normal live mode — all LLM calls go to the configured provider. |
-| `record` | Live mode + append each LLM response to the active manifest file. |
-| `replay` | Serve LLM responses from the manifest; raise `ReplayDriftError` if the request sequence diverges. |
+```
+demo/
+  demo_record.sh           Start backend in record mode
+  demo_replay.sh           Start backend in replay mode
+  recordings/              Recorded sessions (JSON)
+  utils/
+    state.py               Shared module-level state + mode flags + replay timing constants
+    record.py              record_turn() — appends turns to the in-memory recording and flushes to disk
+    replay.py              replay_turn(), load_recording(), snapshot getters
+  playwright/
+    package.json
+    playwright.config.ts
+    demo-scripted.spec.ts  Main Playwright script that drives the demo
+    lib/
+      cursor.ts            Cursor class (single position source of truth) + injectMacCursor overlay
+      humanize.ts          humanType, smoothScroll, submitMessageLikeHuman, easing helpers
+      sync.ts              waitForTurnComplete (DOM-signal wait), fetchSnapshot
+      recording.ts         loadRecording + Turn/Recording types
+```
 
-The manifest path is controlled by `CINEPAL_LLM_MANIFEST` (defaults to the newest file in `demo/manifests/` when replaying, or a new timestamped file when recording).
+---
+
+## Environment variables
+
+| Variable | Where used | Description |
+|---|---|---|
+| `CINEPAL_DEMO_MODE` | backend | `record` or `replay`; unset for live mode |
+| `CINEPAL_DEMO_RECORDING` | backend | Path to the recording JSON file |
+| `DEMO_RECORDING` | Playwright | Path to the recording JSON file (relative to `demo/playwright/` or absolute) |
+| `APP_URL` | Playwright | Frontend URL (default `http://127.0.0.1:5173`) |
+| `CDP_ENDPOINT` | Playwright | Chrome DevTools endpoint for the browser used in the screen recording (default `http://localhost:9222`) |
+
+---
+
+## Tuning replay speed
+
+Open `demo/utils/state.py` and adjust the two constants at the top:
+
+```python
+_REPLAY_STEP_INTENT_DELAY: float = 1.2      # seconds before clustering step fires
+_REPLAY_STEP_CLUSTERING_DELAY: float = 2.2  # seconds before turn_done fires
+```
+
+The Playwright script will automatically adapt — no other changes needed.

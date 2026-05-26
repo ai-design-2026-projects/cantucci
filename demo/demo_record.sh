@@ -1,28 +1,39 @@
 #!/usr/bin/env bash
-# Starts uvicorn in record mode so every LLM call is captured to
-# demo/manifests/<session_id>.jsonl.
+# Launch the backend in record mode.
+#
+# Every assistant reply and its cluster snapshot are saved to a JSON file
+# under demo/recordings/. Stop the server (Ctrl-C) after you finish chatting.
 #
 # Usage:
-#   bash demo/demo_record.sh
+#   bash demo/demo_record.sh [--name <recording-name>]
 #
-# While uvicorn is running, open a second terminal and run:
-#   cd frontend && npm run e2e:headed
+# Examples:
+#   bash demo/demo_record.sh                        # saves demo/recordings/<timestamp>.json
+#   bash demo/demo_record.sh --name sci-fi-session  # saves demo/recordings/sci-fi-session.json
 #
-# The manifest file will appear in demo/manifests/ once the spec completes.
-# Commit it so replay runs are reproducible.
+# Then start the frontend: cd frontend && npm run dev
+# Chat normally in the browser. Each turn is appended to the recording file.
 
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-MANIFEST_DIR="$REPO_ROOT/demo/manifests"
+RECORDINGS_DIR="$REPO_ROOT/demo/recordings"
+mkdir -p "$RECORDINGS_DIR"
 
-mkdir -p "$MANIFEST_DIR"
+NAME="$(date +%Y%m%d_%H%M%S)"
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --name) NAME="$2"; shift 2 ;;
+        *) echo "Unknown option: $1"; exit 1 ;;
+    esac
+done
 
-echo "==> Recording mode: LLM calls will be saved to $MANIFEST_DIR"
-echo "==> Run the Playwright spec in another terminal: cd frontend && npm run e2e:headed"
+RECORDING_FILE="$RECORDINGS_DIR/${NAME}.json"
+echo "==> Recording mode: turns will be saved to $RECORDING_FILE"
+echo "==> Start the frontend: cd frontend && npm run dev"
 echo ""
 
-CINEPAL_LLM_MODE=record \
-CINEPAL_LLM_MANIFEST="$MANIFEST_DIR" \
-CONFIG_PATH="$REPO_ROOT/configs/dev.yaml" \
-  uvicorn backend.app:app --reload --host 127.0.0.1 --port 8000
+CINEPAL_DEMO_MODE=record \
+CINEPAL_DEMO_RECORDING="$RECORDING_FILE" \
+CONFIG_PATH="$REPO_ROOT/configs/prod.yaml" \
+  python -m uvicorn backend.app:app --reload --host 127.0.0.1 --port 8000

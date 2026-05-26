@@ -33,6 +33,8 @@ from backend.routers.dto.conversations.dtos import (
     UpdateConversationRequest,
 )
 from backend.settings import get_config_snapshot
+import demo.utils.replay as _demo
+import demo.utils.record as _demo_record
 
 log = logging.getLogger(__name__)
 
@@ -236,6 +238,9 @@ async def send_message(
     append_message(conversation_id, "user", body.content)
     log.info("user_message", extra={"conversation_id": str(conversation_id)})
 
+    if _demo.is_replay_mode():
+        return await _demo.replay_turn(conversation_id, body.content)
+
     coordinator = Coordinator()
     result = await coordinator.handle_message(
         conversation_id=conversation_id,
@@ -247,7 +252,7 @@ async def send_message(
     add_conversation_cost(conversation_id, result.turn_cost_usd)
     log.info("assistant_reply", extra={"conversation_id": str(conversation_id), "cluster_snapshot_id": str(result.cluster_snapshot_id), "turn_cost_usd": result.turn_cost_usd})
 
-    return SendMessageResponse(
+    response = SendMessageResponse(
         message=MessageDto(
             id=msg_id,
             role="assistant",
@@ -257,6 +262,13 @@ async def send_message(
         ),
         cluster_snapshot_id=result.cluster_snapshot_id,
     )
+
+    if _demo_record.is_record_mode():
+        from backend.routers.dto.cluster_snapshots.build_snapshot import build_snapshot_dto
+        snapshot_dto = build_snapshot_dto(result.cluster_snapshot_id)
+        _demo_record.record_turn(str(conversation_id), body.content, response, snapshot_dto)
+
+    return response
 
 
 @router.get("/{conversation_id}/events")

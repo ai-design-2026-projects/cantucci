@@ -9,6 +9,7 @@ from fastapi.responses import JSONResponse
 
 from backend.exceptions import DomainError
 from backend.logging_setup import configure_logging
+import demo.utils.replay as _demo
 from backend.routers.auth import router as auth_router
 from backend.routers.movies import router as movies_router
 from backend.routers.conversations import router as conversations_router
@@ -30,6 +31,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         Control to the request-handling phase.
     """
     configure_logging()
+
+    if _demo.is_replay_mode():
+        _demo.load_recording()
+        log.info("demo_replay_mode_active")
 
     host = os.environ.get("HOST", "127.0.0.1")
     port = os.environ.get("PORT", "8000")
