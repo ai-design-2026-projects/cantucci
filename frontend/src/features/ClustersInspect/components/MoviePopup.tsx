@@ -1,7 +1,7 @@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/dialog'
 import { Badge } from '@/components/badge'
 import { useMovieDetails } from '../hooks/useMovieDetails'
-import { clusterColorFromUuid } from '@/styles/theme'
+import { clusterColorFromUuid, clusterColorKey } from '@/styles/theme'
 import { useThemeStore } from '@/store/useThemeStore'
 import type { ClusterSnapshotDto } from '@/api/dto/snapshots'
 
@@ -64,7 +64,7 @@ export function MoviePopup({
 									<div className="flex items-center gap-1.5">
 										<span
 											className="inline-block w-2 h-2 rounded-sm flex-shrink-0"
-											style={{ backgroundColor: clusterColorFromUuid(matchedCluster.id, isDark) }}
+											style={{ backgroundColor: clusterColorFromUuid(clusterColorKey(snapshot!.operation, matchedCluster), isDark) }}
 										/>
 										<span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs border border-[var(--color-border)] text-[var(--color-text)]">
 											{matchedCluster.label ?? 'Unlabeled cluster'}

@@ -1,11 +1,13 @@
 import { useMemo } from 'react'
 import type { ClusterSnapshotDto } from '@/api/dto/snapshots'
+import { clusterColorKey } from '@/styles/theme'
 
 export interface ScatterPoint {
     movieId: number
     title: string
     clusterId: string | null
     clusterLabel: string | null
+    colorKey: string | null
     x: number
     y: number
     probability: number
@@ -24,6 +26,7 @@ export function useScatterData(snapshot: ClusterSnapshotDto | undefined): Scatte
     return useMemo(() => {
         if (!snapshot) return []
         const labelByClusterId = new Map(snapshot.clusters.map((c) => [c.id, c.label]))
+        const colorKeyByClusterId = new Map(snapshot.clusters.map((c) => [c.id, clusterColorKey(snapshot.operation, c)]))
 
         const exemplarSet = new Set<number>()
         for (const cluster of snapshot.clusters) {
@@ -35,6 +38,7 @@ export function useScatterData(snapshot: ClusterSnapshotDto | undefined): Scatte
             title: m.title,
             clusterId: m.cluster_id,
             clusterLabel: labelByClusterId.get(m.cluster_id) ?? null,
+            colorKey: colorKeyByClusterId.get(m.cluster_id) ?? m.cluster_id,
             x: m.umap_x,
             y: m.umap_y,
             probability: m.probability,
