@@ -105,3 +105,35 @@ def format_partition_reply(attribute: str, n_new: int, n_movies: int) -> str:
         A human-readable summary of the partition result.
     """
     return f"Partitioned {n_movies} movies by {attribute} into {n_new} groups."
+
+
+def format_bin_proposal(
+    attribute: str,
+    bins: list,
+    bin_counts: dict[str, int],
+    unspecified: int,
+) -> str:
+    """Format a proactive bin proposal before executing a numeric partition.
+
+    Shown to the user for confirmation; no cluster state has changed yet.
+
+    Args:
+        attribute:   The partition attribute name (e.g. ``"runtime"``).
+        bins:        Proposed ``PartitionBin`` objects from the partition advisor.
+        bin_counts:  Number of movies per bin label.
+        unspecified: Number of movies that fall outside all bins or have no value.
+
+    Returns:
+        A conversational proposal message with per-bin movie counts.
+    """
+    attr_label = attribute.replace("_", " ")
+    lines = [f"I'll split by {attr_label} into:"]
+    for b in bins:
+        count = bin_counts.get(b.label, 0)
+        lines.append(f"  • {b.label} — {count:,} film{'s' if count != 1 else ''}")
+    if unspecified:
+        lines.append(
+            f"  • (no value / out of range) — {unspecified:,} film{'s' if unspecified != 1 else ''}"
+        )
+    lines.append("Does that work, or would you prefer different thresholds?")
+    return "\n".join(lines)

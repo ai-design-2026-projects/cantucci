@@ -3,10 +3,12 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 
 from backend.agents.clustering.agent import cross_filter, drill_down, focus, merge_clusters, partition_by
-from backend.agents.clustering.types import NavigationMode
+from backend.agents.clustering.types import NavigationMode, PartitionAttribute, PartitionSpec
+from backend.agents.coordinator.tools.clarification_state import mark_awaiting
 from backend.agents.coordinator.tools.labeling import label_unlabeled_clusters
 from backend.agents.coordinator.tools.persist import persist_and_label
 from backend.agents.concept.agent import build_concept
+from backend.agents.partition_advisor.agent import propose_bins
 from backend.agents.responder import replies
 from backend.agents.coordinator.tools.progress import ProgressReporter
 from backend.agents.coordinator.types import sentinel_cluster_snapshot_id
@@ -20,6 +22,13 @@ from backend.data_access.cluster_snapshots.queries import (
 from backend.data_access.cluster_snapshots.types import ClusterRow
 from backend.data_access.conversations.queries import set_current_cluster_snapshot
 from backend.data_access.conversations.types import ConversationRow
+from backend.data_access.movies.queries import fetch_numeric_stats, fetch_partition_values
+
+_NUMERIC_ATTRIBUTES = {
+    PartitionAttribute.RUNTIME,
+    PartitionAttribute.RELEASE_YEAR,
+    PartitionAttribute.VOTE_AVERAGE,
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -232,18 +241,28 @@ async def handle_focus(ctx: ActionContext) -> tuple[str, uuid.UUID | None, float
 async def handle_partition_by(ctx: ActionContext) -> tuple[str, uuid.UUID | None, float]:
     """Handle a PARTITION_BY action by grouping movies into deterministic attribute buckets.
 
+    When the intent specifies a numeric attribute without bins, intercepts before
+    execution and instead calls the partition advisor to propose bins to the user.
+    The conversation is marked as awaiting confirmation; on the next turn the intent
+    agent re-classifies with the proposed bins as context and executes normally.
+
     Args:
         ctx: Action context.  ``ctx.action.partition_spec`` carries the attribute and bins.
 
     Returns:
-        Tuple of (reply text, new snapshot id, 0.0 cost).
+        Tuple of (reply text, new snapshot id, step cost).
     """
     if ctx.action.partition_spec is None:
         return replies.UNSUPPORTED_OPERATION, ctx.current_cluster_snapshot_id, 0.0
 
+    spec = ctx.action.partition_spec
+
+    if spec.attribute in _NUMERIC_ATTRIBUTES and not spec.bins:
+        return await _propose_numeric_bins(ctx, spec)
+
     ctx.reporter.step("clustering")
     draft = await partition_by(
-        spec=ctx.action.partition_spec,
+        spec=spec,
         parent_cluster_snapshot_id=ctx.current_cluster_snapshot_id,
         source_cluster_id=ctx.action.target_cluster_id,
     )
@@ -253,10 +272,74 @@ async def handle_partition_by(ctx: ActionContext) -> tuple[str, uuid.UUID | None
     )
     n_new = len(draft.clusters)
     return (
-        replies.format_partition_reply(ctx.action.partition_spec.attribute.value, n_new, n_movies),
+        replies.format_partition_reply(spec.attribute.value, n_new, n_movies),
         new_cluster_snapshot_id,
         label_cost,
     )
+
+
+async def _propose_numeric_bins(
+    ctx: ActionContext, spec: PartitionSpec
+) -> tuple[str, uuid.UUID | None, float]:
+    """Propose default bins to the user when a numeric partition_by has no bins specified.
+
+    Resolves the in-scope movie set, fetches distribution stats, calls the partition
+    advisor to generate labelled bins, counts movies per bin, and returns a proposal
+    message.  Marks the conversation as awaiting so the next turn passes the proposal
+    as clarification context to the intent agent.
+
+    Args:
+        ctx:  Action context.
+        spec: The partition spec with a numeric attribute and no bins.
+
+    Returns:
+        Tuple of (proposal text, unchanged snapshot id, advisor call cost).
+    """
+    from backend.agents.clustering.operations._helpers import resolve_movie_ids
+
+    ctx.reporter.step("clustering")
+
+    resolved_ids = resolve_movie_ids(
+        source_cluster_id=ctx.action.target_cluster_id,
+        movie_ids=None,
+        parent_cluster_snapshot_id=ctx.current_cluster_snapshot_id,
+    )
+    if not resolved_ids:
+        return replies.UNSUPPORTED_OPERATION, ctx.current_cluster_snapshot_id, 0.0
+
+    stats = fetch_numeric_stats(resolved_ids, spec.attribute.value)
+    advisor_result = await propose_bins(
+        attribute=spec.attribute.value,
+        stats=stats,
+        conversation_id=ctx.conversation_id,
+        message_id=ctx.message_id,
+        accumulated_cost=ctx.accumulated_cost,
+    )
+
+    raw_values = fetch_partition_values(resolved_ids, spec.attribute.value)
+    bin_counts: dict[str, int] = {b.label: 0 for b in advisor_result.bins}
+    unspecified = 0
+    for mid in resolved_ids:
+        value = raw_values.get(mid)
+        if value is None:
+            unspecified += 1
+            continue
+        matched = False
+        for b in advisor_result.bins:
+            lo_ok = b.min is None or float(value) >= b.min  # type: ignore[arg-type]
+            hi_ok = b.max is None or float(value) < b.max  # type: ignore[arg-type]
+            if lo_ok and hi_ok:
+                bin_counts[b.label] += 1
+                matched = True
+                break
+        if not matched:
+            unspecified += 1
+
+    proposal_text = replies.format_bin_proposal(
+        spec.attribute.value, advisor_result.bins, bin_counts, unspecified
+    )
+    mark_awaiting(ctx.conversation_id)
+    return proposal_text, ctx.current_cluster_snapshot_id, advisor_result.cost
 
 
 async def handle_cross_filter(ctx: ActionContext) -> tuple[str, uuid.UUID | None, float]:

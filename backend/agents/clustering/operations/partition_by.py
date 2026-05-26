@@ -1,13 +1,12 @@
 import logging
 import uuid
 
-from backend.agents.clustering.operations._helpers import exemplars
+from backend.agents.clustering.operations._helpers import exemplars, resolve_movie_ids
 from backend.agents.clustering.types import ClusterDraft, ClusterSnapshotDraft, PartitionAttribute, PartitionSpec
+from backend.data_access.movies.queries import fetch_partition_values
+from backend.settings import get_settings
 
 _CATEGORICAL = {PartitionAttribute.GENRE, PartitionAttribute.DIRECTOR, PartitionAttribute.ORIGINAL_LANGUAGE}
-from backend.data_access.cluster_snapshots.queries import get_memberships
-from backend.data_access.movies.queries import fetch_partition_values, list_movie_ids
-from backend.settings import get_settings
 
 log = logging.getLogger(__name__)
 
@@ -44,7 +43,9 @@ async def partition_by(
                                     ``None`` when operating from the unclustered
                                     state).
         source_cluster_id:          Cluster whose members form the input universe;
-                                    ``None`` to use the full catalogue or *movie_ids*.
+                                    ``None`` falls through to *movie_ids*, then to the
+                                    parent snapshot's union of movies, then to the full
+                                    catalogue.
         movie_ids:                  Explicit movie ID list; only used when
                                     ``source_cluster_id`` is ``None``.
 
@@ -57,15 +58,10 @@ async def partition_by(
     cfg = get_settings()
     top_n = cfg.labeling.top_exemplars
 
-    if source_cluster_id is not None:
-        memberships = get_memberships(source_cluster_id)
-        if not memberships:
-            raise ValueError(f"Cluster {source_cluster_id} has no members")
-        resolved_ids = [m.movie_id for m in memberships]
-    else:
-        resolved_ids = movie_ids if movie_ids is not None else list_movie_ids()
-        if not resolved_ids:
-            raise ValueError("No movies found for partition_by")
+    resolved_ids = resolve_movie_ids(source_cluster_id, movie_ids, parent_cluster_snapshot_id)
+
+    if not resolved_ids:
+        raise ValueError("No movies found for partition_by")
 
     attribute = spec.attribute.value
     raw = fetch_partition_values(resolved_ids, attribute)
@@ -82,16 +78,32 @@ async def partition_by(
                 for v in values:  # type: ignore[union-attr]
                     buckets.setdefault(v, []).append(mid)
 
-        sorted_keys = sorted(buckets.keys())
+        top_n_cat = cfg.clustering.partition_by.categorical_top_n
+        sorted_items = sorted(buckets.items(), key=lambda x: len(x[1]), reverse=True)
+        if len(sorted_items) > top_n_cat:
+            other_mids = [mid for _, mids in sorted_items[top_n_cat:] for mid in mids]
+            top_items = sorted(sorted_items[:top_n_cat], key=lambda x: x[0])
+        else:
+            other_mids = []
+            top_items = sorted(sorted_items, key=lambda x: x[0])
+
         clusters: list[ClusterDraft] = []
-        for key in sorted_keys:
-            mids = buckets[key]
+        for key, mids in top_items:
             clusters.append(ClusterDraft(
                 label=None,
                 summary=None,
                 exemplar_movie_ids=exemplars(mids, [1.0] * len(mids), top_n),
                 parent_cluster_id=source_cluster_id,
                 memberships=[(mid, 1.0) for mid in mids],
+            ))
+        if other_mids:
+            attr_label = attribute.replace("_", " ")
+            clusters.append(ClusterDraft(
+                label=f"Other {attr_label}",
+                summary=f"Movies not in the top {top_n_cat} {attr_label} groups.",
+                exemplar_movie_ids=exemplars(other_mids, [1.0] * len(other_mids), top_n),
+                parent_cluster_id=source_cluster_id,
+                memberships=[(mid, 1.0) for mid in other_mids],
             ))
         if unspecified:
             clusters.append(ClusterDraft(

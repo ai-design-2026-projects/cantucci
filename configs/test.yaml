@@ -34,6 +34,8 @@ clustering:
   online:
     drilldown_min_cluster_size: 10
     recut_min_cluster_size: 30
+  partition_by:
+    categorical_top_n: 20
 
 fusion:
   text_weight: 0.6

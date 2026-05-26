@@ -4,8 +4,16 @@ log = logging.getLogger(__name__)
 
 # USD per million tokens for known model families.  Models are matched by
 # prefix so version suffixes are tolerated (e.g. "gpt-4o-mini-2024-07-18"
-# matches "gpt-4o-mini").
+# matches "gpt-4o-mini"). OpenRouter-prefixed model strings (e.g.
+# "openai/gpt-4o-mini") must be placed before their bare equivalents to
+# prevent shadowing.
 _COST_PER_M: dict[str, dict[str, float]] = {
+    # OpenRouter free tier (development/testing)
+    "openrouter/owl-alpha": {"input": 0.0, "output": 0.0},
+    # OpenRouter-prefixed GPT family (must precede bare prefixes)
+    "openai/gpt-4o-mini": {"input": 0.15, "output": 0.60},
+    "openai/gpt-4o": {"input": 2.50, "output": 10.00},
+    # Direct OpenAI bare prefixes (legacy / direct-API usage)
     "gpt-4o-mini": {"input": 0.15, "output": 0.60},
     "gpt-4o": {"input": 2.50, "output": 10.00},
     "claude-opus": {"input": 15.0, "output": 75.0},

@@ -4,7 +4,7 @@ from typing import Union
 import numpy as np
 
 from backend.data_access.connection import transaction
-from backend.data_access.movies.types import ClusterProfileRow, MovieDetailsRow, MovieRow, MovieSearchHitRow, MovieStubRow
+from backend.data_access.movies.types import ClusterProfileRow, MovieDetailsRow, MovieRow, MovieSearchHitRow, MovieStubRow, NumericStats
 from backend.settings import get_settings
 
 _MODALITY_COLUMN: dict[str, str] = {
@@ -444,6 +444,53 @@ def get_movies_by_ids(ids: list[int]) -> list[MovieDetailsRow]:
     if not ids:
         return []
     return fetch_movie_details(ids)
+
+
+_NUMERIC_STAT_COLUMNS: dict[str, str] = {
+    "runtime": "runtime",
+    "release_year": "release_year",
+    "vote_average": "vote_average",
+}
+
+
+def fetch_numeric_stats(movie_ids: list[int], attribute: str) -> NumericStats:
+    """Return distribution statistics for a numeric attribute over a set of movies.
+
+    Used by the partition advisor to propose sensible bin boundaries before the
+    user commits to a numeric ``partition_by`` operation.
+
+    Args:
+        movie_ids: TMDB integer IDs to aggregate over.
+        attribute: One of ``"runtime"``, ``"release_year"``, ``"vote_average"``.
+
+    Returns:
+        ``NumericStats`` with min, max, 25th/50th/75th percentiles, and non-null count.
+
+    Raises:
+        ValueError: If ``attribute`` is not one of the three supported numeric attributes.
+    """
+    col = _NUMERIC_STAT_COLUMNS.get(attribute)
+    if col is None:
+        raise ValueError(f"Unsupported numeric attribute for stats: {attribute!r}")
+    if not movie_ids:
+        return NumericStats(min_val=None, max_val=None, p25=None, p50=None, p75=None, count=0)
+    with transaction() as conn:
+        row = conn.execute(
+            f"""
+            SELECT
+                MIN({col})::float                                           AS min_val,
+                MAX({col})::float                                           AS max_val,
+                percentile_cont(0.25) WITHIN GROUP (ORDER BY {col})::float  AS p25,
+                percentile_cont(0.50) WITHIN GROUP (ORDER BY {col})::float  AS p50,
+                percentile_cont(0.75) WITHIN GROUP (ORDER BY {col})::float  AS p75,
+                COUNT(*) FILTER (WHERE {col} IS NOT NULL)                   AS count
+            FROM movies
+            WHERE id = ANY(%s)
+            """,
+            (movie_ids,),
+        ).fetchone()
+    log.debug("fetch_numeric_stats", extra={"attribute": attribute, "n_movies": len(movie_ids)})
+    return NumericStats.from_row(dict(row))
 
 
 def fetch_partition_values(
