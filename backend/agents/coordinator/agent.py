@@ -74,7 +74,7 @@ class Coordinator:
         current_clusters = current_snapshot.clusters if current_snapshot else []
 
         message_id = uuid.uuid4()
-
+        
         clusters = current_clusters
         if any(cluster.label is None for cluster in current_clusters):
             reporter.step("labeling")
@@ -83,6 +83,9 @@ class Coordinator:
             )
             accumulated_cost += label_cost
 
+        # Check for a recent assistant message awaiting clarification — if the 
+        # user is responding to a clarifier question, pass that question to the intent agent 
+        # for better parsing of short/pronoun-heavy replies.
         clarification_question: str | None = None
         if take_awaiting(conversation_id):
             recent = get_messages(conversation_id, limit=2)
@@ -90,6 +93,7 @@ class Coordinator:
             if prior_assistant is not None:
                 clarification_question = prior_assistant.content
 
+        # Intent classification and dispatch
         reporter.step("intent")
         intent = await classify_intent(
             user_message=user_message,

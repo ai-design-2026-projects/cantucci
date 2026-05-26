@@ -59,10 +59,15 @@ def resolve_movie_ids(
 def reduce_for_clustering(embeddings: np.ndarray, umap_cfg: UmapConfig, seed: int) -> np.ndarray:
     """Apply UMAP dimensionality reduction before HDBSCAN clustering.
 
-    Runs only when ``embeddings.shape[0] >= umap_cfg.clustering_min_dataset_size``.
-    Below that threshold the original embeddings are returned unchanged — running
-    UMAP on very small subsets produces unstable layouts and offers no quality
-    benefit for HDBSCAN.
+    Three tiers based on dataset size:
+
+    * ``n >= clustering_min_dataset_size``: full reduction to
+      ``clustering_n_components`` dimensions.
+    * ``n >= 2 * clustering_n_neighbors``: light reduction to
+      ``min(n // 3, 20)`` dimensions — reduces the curse of dimensionality
+      on small subsets without the instability of a full UMAP run.
+    * ``n < 2 * clustering_n_neighbors``: embeddings returned unchanged —
+      too few points for UMAP to be reliable.
 
     Args:
         embeddings: Float32 (n, dim) L2-normalised embedding matrix.
@@ -70,17 +75,22 @@ def reduce_for_clustering(embeddings: np.ndarray, umap_cfg: UmapConfig, seed: in
         seed:       Random seed for reproducibility.
 
     Returns:
-        Float32 (n, clustering_n_components) reduced array, or the original
-        array unchanged when n is below the minimum dataset size.
+        Float32 reduced array, or the original array when n is too small.
     """
-    n = embeddings.shape[0]
-    if n < umap_cfg.clustering_min_dataset_size:
-        return embeddings
-
     from umap import UMAP
 
+    n = embeddings.shape[0]
+    min_for_light = 2 * umap_cfg.clustering_n_neighbors
+
+    if n >= umap_cfg.clustering_min_dataset_size:
+        n_components = umap_cfg.clustering_n_components
+    elif n >= min_for_light:
+        n_components = max(2, min(n // 3, 20))
+    else:
+        return embeddings
+
     reducer = UMAP(
-        n_components=umap_cfg.clustering_n_components,
+        n_components=n_components,
         n_neighbors=umap_cfg.clustering_n_neighbors,
         min_dist=umap_cfg.clustering_min_dist,
         metric="cosine",
@@ -106,8 +116,8 @@ def exemplars(movie_ids: list[int], probs: list[float], n: int) -> list[int]:
 def subcluster(
     embeddings: np.ndarray | None,
     min_cluster_size: int,
-    min_samples: int,
     distance_matrix: np.ndarray | None = None,
+    cluster_selection_epsilon: float = 0.0,
 ) -> SoftClusterResult:
     """Run HDBSCAN soft clustering on a subset (drill-down or recut).
 
@@ -115,16 +125,20 @@ def subcluster(
     distance matrix (from ``core.fusion.combined_distance_matrix``). Exactly
     one of *embeddings* or *distance_matrix* must be provided.
 
-    Falls back to a reduced min_cluster_size when the subset is smaller than
-    the requested minimum (minimum of 2 enforced).
+    ``min_cluster_size`` is capped at ``n // 5`` so that small subsets always
+    produce at least a few clusters. ``min_samples`` is derived as
+    ``max(1, effective_min // 3)``, which is more conservative than a fixed
+    value of 1 and produces better-shaped clusters on dense subsets.
 
     Args:
-        embeddings:       Float32 (n, dim) L2-normalised embeddings. Pass
-                          ``None`` when providing *distance_matrix*.
-        min_cluster_size: Requested minimum cluster size.
-        min_samples:      HDBSCAN min_samples.
-        distance_matrix:  Float32 (n, n) precomputed symmetric distance matrix.
-                          Pass ``None`` when providing *embeddings*.
+        embeddings:                Float32 (n, dim) L2-normalised embeddings.
+                                   Pass ``None`` when providing *distance_matrix*.
+        min_cluster_size:          Requested minimum cluster size; capped
+                                   adaptively based on subset size.
+        distance_matrix:           Float32 (n, n) precomputed symmetric distance
+                                   matrix. Pass ``None`` when providing *embeddings*.
+        cluster_selection_epsilon: Distance threshold for merging very close
+                                   clusters in the HDBSCAN condensed tree.
 
     Returns:
         ``SoftClusterResult`` for the subset.
@@ -139,12 +153,13 @@ def subcluster(
     data = (embeddings if embeddings is not None else distance_matrix).astype(np.float64)
     n = data.shape[0]
     effective_min = max(2, min(min_cluster_size, n // 5))
-    effective_samples = max(1, min(min_samples, effective_min))
+    effective_samples = max(1, effective_min // 3)
 
     metric = "euclidean" if distance_matrix is None else "precomputed"
     return hdbscan_soft(
         data,
         min_cluster_size=effective_min,
         min_samples=effective_samples,
+        cluster_selection_epsilon=cluster_selection_epsilon,
         metric=metric,
     )

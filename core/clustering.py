@@ -59,7 +59,8 @@ def hdbscan_soft(
 
     Raises:
         ValueError: If data array is empty or metric is unsupported.
-        RuntimeError: If HDBSCAN finds zero clusters (all noise).
+        RuntimeError: If HDBSCAN finds zero clusters (all noise) after up to three
+                      attempts, each halving ``min_cluster_size`` and ``min_samples``.
     """
     import hdbscan
 
@@ -70,24 +71,44 @@ def hdbscan_soft(
 
     use_soft = metric != "precomputed"
 
-    clusterer = hdbscan.HDBSCAN(
-        min_cluster_size=min_cluster_size,
-        min_samples=min_samples,
-        cluster_selection_method=cluster_selection_method,
-        cluster_selection_epsilon=cluster_selection_epsilon,
-        metric=metric,
-        prediction_data=use_soft,
-    )
-    clusterer.fit(data)
+    current_min_cluster_size = min_cluster_size
+    current_min_samples = min_samples
+    max_attempts = 3
+    clusterer = None
+    n_clusters = 0
 
-    n_clusters = int(clusterer.labels_.max()) + 1
+    for attempt in range(max_attempts):
+        clusterer = hdbscan.HDBSCAN(
+            min_cluster_size=current_min_cluster_size,
+            min_samples=current_min_samples,
+            cluster_selection_method=cluster_selection_method,
+            cluster_selection_epsilon=cluster_selection_epsilon,
+            metric=metric,
+            prediction_data=use_soft,
+        )
+        clusterer.fit(data)
+        n_clusters = int(clusterer.labels_.max()) + 1
+        if n_clusters > 0:
+            break
+        if attempt < max_attempts - 1:
+            log.warning(
+                "hdbscan_all_noise_retry",
+                extra={
+                    "attempt": attempt + 1,
+                    "min_cluster_size": current_min_cluster_size,
+                    "min_samples": current_min_samples,
+                },
+            )
+            current_min_cluster_size = max(2, current_min_cluster_size // 2)
+            current_min_samples = max(1, current_min_samples // 2)
+
     if n_clusters == 0:
         raise RuntimeError(
-            f"HDBSCAN found zero clusters (all noise) with "
-            f"min_cluster_size={min_cluster_size}, min_samples={min_samples}. "
-            "Reduce min_cluster_size or check the embedding quality."
+            f"HDBSCAN found zero clusters (all noise) after {max_attempts} attempts; "
+            f"final min_cluster_size={current_min_cluster_size}, min_samples={current_min_samples}."
         )
 
+    assert clusterer is not None
     n_points = data.shape[0]
     if use_soft:
         probs = hdbscan.all_points_membership_vectors(clusterer)
@@ -113,6 +134,8 @@ def hdbscan_soft(
             "n_clusters": n_clusters,
             "noise_points": int((clusterer.labels_ == -1).sum()),
             "metric": metric,
+            "min_cluster_size": current_min_cluster_size,
+            "min_samples": current_min_samples,
         },
     )
     return SoftClusterResult(labels=clusterer.labels_, probabilities=probs, n_clusters=n_clusters)

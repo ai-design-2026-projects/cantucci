@@ -108,9 +108,14 @@ class OnlineClusteringConfig(BaseModel):
     Attributes:
         drilldown_min_cluster_size: min_cluster_size for sub-clustering a cluster.
         recut_min_cluster_size:     min_cluster_size for full re-clustering.
+        cluster_selection_epsilon:  Distance threshold for merging very close clusters
+                                    in the HDBSCAN condensed tree.  A non-zero value
+                                    reduces fragmentation on dense subsets.  Passed
+                                    directly to ``hdbscan.HDBSCAN``.
     """
     drilldown_min_cluster_size: int = 10
     recut_min_cluster_size: int = 30
+    cluster_selection_epsilon: float = 0.0
 
 
 class PartitionByConfig(BaseModel):
