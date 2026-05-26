@@ -9,6 +9,8 @@ export interface LayoutNode {
 	sopIndex: number
 	created_at: string
 	parent_id: string | null
+	params: Record<string, unknown>
+	resolved_cluster_labels: Record<string, string>
 }
 
 export const UNCLUSTERED_NODE_ID = '__unclustered__'
@@ -21,6 +23,8 @@ const SYNTHETIC_UNCLUSTERED: ClusterSnapshotGraphNode = {
 	parent_id: null,
 	operation: 'unclustered',
 	created_at: '',
+	params: {},
+	resolved_cluster_labels: {},
 }
 
 /**
@@ -125,6 +129,8 @@ export function radialLayout(nodes: ClusterSnapshotGraphNode[]): LayoutNode[] {
 				sopIndex: 1,
 				created_at: node.created_at,
 				parent_id: layoutParentId,
+				params: node.params,
+				resolved_cluster_labels: node.resolved_cluster_labels,
 			}
 		}
 
@@ -137,6 +143,8 @@ export function radialLayout(nodes: ClusterSnapshotGraphNode[]): LayoutNode[] {
 			sopIndex: placement.sopIndex,
 			created_at: node.created_at,
 			parent_id: layoutParentId,
+			params: node.params,
+			resolved_cluster_labels: node.resolved_cluster_labels,
 		}
 	})
 }

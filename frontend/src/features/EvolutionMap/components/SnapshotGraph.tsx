@@ -53,6 +53,14 @@ export const SnapshotGraph = forwardRef<SnapshotGraphHandle, SnapshotGraphProps>
           onWheel={handleWheel}
         >
           <g transform={`translate(${transform.x}, ${transform.y}) scale(${scale})`}>
+            <defs>
+              {layout.map((n) => (
+                <clipPath key={`clip-${n.id}`} id={`clip-${n.id}`}>
+                  <circle cx={n.x} cy={n.y} r={NODE_R - 2} />
+                </clipPath>
+              ))}
+            </defs>
+
             {/* Edges */}
             {layout
               .filter((n) => n.parent_id !== null)
@@ -77,7 +85,7 @@ export const SnapshotGraph = forwardRef<SnapshotGraphHandle, SnapshotGraphProps>
               const isUnclustered = n.operation === 'unclustered'
               const isActive = n.id === activeSnapshotId
               const isHovered = n.id === hoveredId
-              const opLines = formatSnapshotOperationLines(n.operation)
+              const opLines = formatSnapshotOperationLines(n)
               const indexLabel = formatSnapshotIndexLabel(n.operation, n.sopIndex)
               const blockCenterY = n.y - (indexLabel ? LABEL_LINE_HEIGHT / 2 : 0)
               const firstLineY = blockCenterY - ((opLines.length - 1) * LABEL_LINE_HEIGHT) / 2
@@ -112,6 +120,7 @@ export const SnapshotGraph = forwardRef<SnapshotGraphHandle, SnapshotGraphProps>
                     fontSize={9}
                     fontFamily="Inter, system-ui, sans-serif"
                     fill={textFill}
+                    clipPath={`url(#clip-${n.id})`}
                     style={{ pointerEvents: 'none', userSelect: 'none' }}
                   >
                     {opLines.map((line, i) => (
@@ -126,7 +135,7 @@ export const SnapshotGraph = forwardRef<SnapshotGraphHandle, SnapshotGraphProps>
                       y={blockCenterY + (opLines.length * LABEL_LINE_HEIGHT) / 2 + 2}
                       textAnchor="middle"
                       dominantBaseline="middle"
-                      fontSize={9}
+                      fontSize={8}
                       fontFamily="Inter, system-ui, sans-serif"
                       fill={isActive ? 'var(--color-surface)' : 'var(--color-muted)'}
                       style={{ pointerEvents: 'none', userSelect: 'none' }}

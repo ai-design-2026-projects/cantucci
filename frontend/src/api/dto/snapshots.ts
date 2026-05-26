@@ -36,6 +36,8 @@ export interface ClusterSnapshotGraphNode {
     parent_id: string | null
     operation: string
     created_at: string
+    params: Record<string, unknown>
+    resolved_cluster_labels: Record<string, string>
 }
 
 export interface ClusterSnapshotGraphDto {

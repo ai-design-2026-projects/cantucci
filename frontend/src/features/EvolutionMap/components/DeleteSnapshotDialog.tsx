@@ -1,6 +1,7 @@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/dialog'
 import { Button } from '@/components/button'
 import type { LayoutNode } from '../lib/radialLayout'
+import { formatSnapshotTooltipTitle } from '../lib/snapshotGraph'
 
 /**
  * Confirmation dialog for deleting a cluster snapshot.
@@ -27,10 +28,7 @@ export function DeleteSnapshotDialog({
 }) {
 	if (!node) return null
 
-	const label =
-		node.operation === 'base'
-			? 'Base snapshot'
-			: `${node.operation.replace('_', ' ')} #${node.sopIndex}`
+	const label = node.operation === 'base' ? 'Base snapshot' : formatSnapshotTooltipTitle(node)
 
 	const createdAt = new Date(node.created_at).toLocaleString(undefined, {
 		dateStyle: 'medium',

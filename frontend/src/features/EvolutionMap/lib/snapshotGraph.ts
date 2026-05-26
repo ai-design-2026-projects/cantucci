@@ -3,34 +3,108 @@ import type { LayoutNode } from './radialLayout'
 export const NODE_R = 32
 export const LABEL_LINE_HEIGHT = 11
 
-const OPERATION_LABELS: Record<string, string[]> = {
-	unclustered:  ['unclustered'],
-	base:         ['base'],
-	drill_down:   ['drill down'],
-	merge:        ['merge'],
-	focus:        ['focus'],
-	cross_filter: ['cross', 'filter'],
+const MAX_LINE = 11
+
+function trunc(s: string, max = MAX_LINE): string {
+	return s.length > max ? s.slice(0, max - 1) + '…' : s
+}
+
+function circleLines(node: LayoutNode): string[] {
+	const { operation, params, resolved_cluster_labels } = node
+	switch (operation) {
+		case 'base':
+			return ['Base']
+		case 'unclustered':
+			return ['Unclustered']
+		case 'drill_down': {
+			const concept = typeof params.concept === 'string' ? params.concept : ''
+			return ['Drill down', trunc(concept)]
+		}
+		case 'merge': {
+			const labels = Object.values(resolved_cluster_labels)
+			if (labels.length === 0) return ['Merge']
+			const shorts = labels.slice(0, 2).map((l) => trunc(l.split(' ')[0], 5))
+			return ['Merge', shorts.join(' + ') + (labels.length > 2 ? ` +${labels.length - 2}` : '')]
+		}
+		case 'focus': {
+			const label = Object.values(resolved_cluster_labels)[0] ?? ''
+			return ['Focus', trunc(label)]
+		}
+		case 'cross_filter': {
+			const parts: string[] = []
+			if (Array.isArray(params.genres) && params.genres.length > 0)
+				parts.push((params.genres as string[]).slice(0, 2).join(', '))
+			if (typeof params.release_year_min === 'number' && typeof params.release_year_max === 'number')
+				parts.push(`${params.release_year_min}–${params.release_year_max}`)
+			else if (typeof params.release_year_min === 'number')
+				parts.push(`≥${params.release_year_min}`)
+			else if (typeof params.release_year_max === 'number')
+				parts.push(`≤${params.release_year_max}`)
+			if (typeof params.director === 'string') parts.push(params.director)
+			if (parts.length === 0) return ['Filter']
+			return ['Filter', trunc(parts.slice(0, 2).join(', '))]
+		}
+		default:
+			return [operation.replace(/_/g, ' ')]
+	}
+}
+
+function tooltipTitle(node: LayoutNode): string {
+	const { operation, params, resolved_cluster_labels } = node
+	switch (operation) {
+		case 'base':
+		case 'unclustered':
+			return operation
+		case 'drill_down': {
+			const concept = typeof params.concept === 'string' ? params.concept : ''
+			return `Drill down ${concept}`
+		}
+		case 'merge': {
+			const labels = Object.values(resolved_cluster_labels)
+			if (labels.length === 0) return 'Merge'
+			return `Merge: ${labels.join(' + ')}`
+		}
+		case 'focus': {
+			const label = Object.values(resolved_cluster_labels)[0] ?? ''
+			return `Focus: ${label}`
+		}
+		case 'cross_filter': {
+			const parts: string[] = []
+			if (Array.isArray(params.genres) && params.genres.length > 0)
+				parts.push((params.genres as string[]).join(', '))
+			if (typeof params.release_year_min === 'number' && typeof params.release_year_max === 'number')
+				parts.push(`${params.release_year_min}–${params.release_year_max}`)
+			else if (typeof params.release_year_min === 'number')
+				parts.push(`≥${params.release_year_min}`)
+			else if (typeof params.release_year_max === 'number')
+				parts.push(`≤${params.release_year_max}`)
+			if (typeof params.director === 'string') parts.push(params.director)
+			return `Filter: ${parts.join(', ')}`
+		}
+		default:
+			return operation.replace(/_/g, ' ')
+	}
 }
 
 /**
- * Returns display lines for a snapshot operation, split for fitting inside the node circle.
+ * Returns display lines for a snapshot node, split for fitting inside the node circle.
  *
- * @param operation - Snapshot operation name.
+ * @param node - Snapshot layout node.
  * @returns Array of text lines to render inside the node.
  */
-export function formatSnapshotOperationLines(operation: string): string[] {
-	return OPERATION_LABELS[operation] ?? [operation.replace(/_/g, ' ')]
+export function formatSnapshotOperationLines(node: LayoutNode): string[] {
+	return circleLines(node)
 }
 
 /**
- * Formats the small index line shown under non-base nodes.
+ * Always returns an empty string — the sequential index suffix is no longer shown.
  *
- * @param operation - Snapshot operation name.
- * @param sopIndex - Sequence number used for the node label.
- * @returns Empty string for base nodes, otherwise a numbered label.
+ * @param _operation - Unused.
+ * @param _sopIndex  - Unused.
+ * @returns Empty string.
  */
-export function formatSnapshotIndexLabel(operation: string, sopIndex: number): string {
-	return operation === 'base' || operation === 'unclustered' ? '' : `#${sopIndex}`
+export function formatSnapshotIndexLabel(_operation: string, _sopIndex: number): string {
+	return ''
 }
 
 /**
@@ -40,7 +114,5 @@ export function formatSnapshotIndexLabel(operation: string, sopIndex: number): s
  * @returns Human-readable title for the tooltip card.
  */
 export function formatSnapshotTooltipTitle(node: LayoutNode): string {
-	const lines = OPERATION_LABELS[node.operation] ?? [node.operation.replace(/_/g, ' ')]
-	const label = lines.join(' ')
-	return node.operation === 'base' || node.operation === 'unclustered' ? label : `${label} #${node.sopIndex}`
+	return tooltipTitle(node)
 }

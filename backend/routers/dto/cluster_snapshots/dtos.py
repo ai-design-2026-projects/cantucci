@@ -63,13 +63,33 @@ class ClusterSnapshotDto(BaseModel):
     created_at: datetime
 
 
+class ClusterSnapshotGraphNodeDto(BaseModel):
+    """A single node in the cluster snapshot graph (no cluster detail).
+
+    Attributes:
+        id:                       Cluster snapshot UUID.
+        parent_id:                Parent cluster snapshot UUID, or None for the root.
+        operation:                Operation that produced this snapshot.
+        created_at:               UTC creation timestamp.
+        params:                   Replayability parameters (operation inputs).
+        resolved_cluster_labels:  Labels for cluster UUIDs referenced in params, keyed by
+                                  UUID string. Used by the Evolution Map to build display names.
+    """
+    id: uuid.UUID
+    parent_id: uuid.UUID | None
+    operation: str
+    created_at: datetime
+    params: dict[str, Any]
+    resolved_cluster_labels: dict[str, str]
+
+
 class ClusterSnapshotGraphDto(BaseModel):
     """The full cluster snapshot graph for a conversation (for future Obsidian-style viz).
 
     Attributes:
-        cluster_snapshots: All cluster snapshot rows for the conversation (no cluster detail).
+        cluster_snapshots: All cluster snapshot nodes for the conversation (no cluster detail).
     """
-    cluster_snapshots: list[dict[str, Any]]
+    cluster_snapshots: list[ClusterSnapshotGraphNodeDto]
 
 
 class ClusterMembershipDto(BaseModel):

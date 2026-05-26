@@ -40,6 +40,23 @@ class ClusterSnapshotRow:
             created_at=r["created_at"],
         )
 
+    def referenced_cluster_ids(self) -> list[uuid.UUID]:
+        """Return cluster UUIDs stored in params that require label resolution for display.
+
+        ``drill_down`` and ``focus`` reference one cluster via ``source_cluster_id``.
+        ``merge`` references one or more via ``merged_cluster_ids``.
+        All other operations return an empty list.
+
+        Returns:
+            List of cluster UUIDs whose labels should be fetched for the Evolution Map.
+        """
+        if self.operation in ("drill_down", "focus"):
+            cid = self.params.get("source_cluster_id")
+            return [uuid.UUID(str(cid))] if cid is not None else []
+        if self.operation == "merge":
+            return [uuid.UUID(str(cid)) for cid in self.params.get("merged_cluster_ids", [])]
+        return []
+
 
 @dataclass(frozen=True, slots=True)
 class ClusterRow:

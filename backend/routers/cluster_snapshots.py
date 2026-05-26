@@ -1,6 +1,5 @@
 import logging
 import uuid
-from typing import Any
 
 from fastapi import APIRouter, HTTPException
 
@@ -15,7 +14,7 @@ from backend.data_access.cluster_snapshots.queries import (
 )
 from backend.exceptions import ClusterSnapshotNotFound, NotFoundError, SnapshotHasChildren
 from backend.routers.dto.cluster_snapshots.dtos import ClusterMembershipDto, ClusterSnapshotDto, ClusterSnapshotGraphDto, SnapshotMemberDto
-from backend.routers.dto.cluster_snapshots.build_snapshot import build_snapshot_dto
+from backend.routers.dto.cluster_snapshots.build_snapshot import build_snapshot_dto, build_snapshot_graph_dto
 import demo.chat_record_replay as _demo
 
 log = logging.getLogger(__name__)
@@ -144,14 +143,6 @@ def get_cluster_snapshot_graph(conversation_id: uuid.UUID) -> ClusterSnapshotGra
         ``ClusterSnapshotGraphDto`` with all cluster snapshot nodes.
     """
     snapshots = get_conversation_cluster_snapshots(conversation_id)
-    nodes: list[dict[str, Any]] = [
-        {
-            "id": str(s.id),
-            "parent_id": str(s.parent_id) if s.parent_id else None,
-            "operation": s.operation,
-            "created_at": s.created_at.isoformat(),
-        }
-        for s in snapshots
-    ]
-    log.debug("cluster_snapshot_graph", extra={"conversation_id": str(conversation_id), "n_nodes": len(nodes)})
-    return ClusterSnapshotGraphDto(cluster_snapshots=nodes)
+    dto = build_snapshot_graph_dto(snapshots)
+    log.debug("cluster_snapshot_graph", extra={"conversation_id": str(conversation_id), "n_nodes": len(dto.cluster_snapshots)})
+    return dto
