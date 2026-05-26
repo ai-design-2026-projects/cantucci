@@ -83,8 +83,8 @@ def subcluster(
     if (embeddings is None) == (distance_matrix is None):
         raise ValueError("Exactly one of embeddings or distance_matrix must be provided")
 
-    data = embeddings if embeddings is not None else distance_matrix
-    n = data.shape[0]  # type: ignore[union-attr]
+    data = (embeddings if embeddings is not None else distance_matrix).astype(np.float64)
+    n = data.shape[0]
     effective_min = max(2, min(min_cluster_size, n // 5))
     effective_samples = max(1, min(min_samples, effective_min))
 

@@ -26,19 +26,20 @@ EXPLAIN_TARGET_UNCLEAR = (
 )
 
 
-def format_drill_down_reply(labels: list[str | None], n_new: int) -> str:
+def format_drill_down_reply(labels: list[str | None], n_new: int, n_movies: int) -> str:
     """Format the reply for a completed DRILL_DOWN operation.
 
     Args:
-        labels: Label strings of the new sub-clusters (may contain None).
-        n_new:  Total number of new sub-clusters produced.
+        labels:   Label strings of the new sub-clusters (may contain None).
+        n_new:    Total number of new sub-clusters produced.
+        n_movies: Total number of movies across all sub-clusters.
 
     Returns:
         A human-readable summary of the split result.
     """
     display = [lbl for lbl in labels[:5]]
     ellipsis = "…" if n_new > 5 else ""
-    return f"Split into {n_new} sub-clusters: {', '.join(str(l) for l in display)}{ellipsis}."
+    return f"Split into {n_new} sub-clusters ({n_movies} movies): {', '.join(str(l) for l in display)}{ellipsis}."
 
 
 def format_recut_reply(n_new: int) -> str:
@@ -79,13 +80,14 @@ def format_focus_reply(label: str | None, n_members: int) -> str:
     return f"Focused on '{name}' — {n_members} movies retained, all others discarded."
 
 
-def format_cross_filter_reply(n_new: int) -> str:
+def format_cross_filter_reply(n_new: int, n_movies: int) -> str:
     """Format the reply for a completed CROSS_FILTER operation.
 
     Args:
-        n_new: Total number of new clusters produced after filtering and re-clustering.
+        n_new:    Total number of new clusters produced after filtering and re-clustering.
+        n_movies: Total number of movies that survived the filter.
 
     Returns:
         A human-readable summary of the cross-filter result.
     """
-    return f"Applied metadata filter and re-clustered the survivors into {n_new} clusters."
+    return f"Applied metadata filter and re-clustered {n_movies} survivors into {n_new} clusters."

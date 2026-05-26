@@ -55,6 +55,7 @@ async def clarify(
         guessed_target_label=guessed_target_label,
         confidence=action.confidence,
     )
+    log.debug("llm_prompt", extra={"template": "clarify_v1.j2", "prompt": prompt})
     messages = [{"role": "user", "content": prompt}]
 
     resp = await llm_harness.call(
@@ -72,6 +73,7 @@ async def clarify(
         accumulated_cost_usd=accumulated_cost,
         dry_run=cfg.models.fast.dry_run,
     )
+    log.debug("llm_response", extra={"step_type": "clarifier_agent", "content": resp.content})
 
     result = ClarifierResult.from_llm_response(resp.content, cost=resp.cost_usd)
     log.info(

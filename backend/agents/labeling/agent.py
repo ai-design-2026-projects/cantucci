@@ -77,6 +77,7 @@ async def label_clusters(
 
     template = _ENV.get_template("label_v4.j2")
     prompt = template.render(clusters=clusters_for_prompt, concept=concept)
+    log.debug("llm_prompt", extra={"template": "label_v4.j2", "prompt": prompt})
     messages = [{"role": "user", "content": prompt}]
 
     resp = await llm_harness.call(
@@ -95,6 +96,7 @@ async def label_clusters(
         dry_run=cfg.models.fast.dry_run,
         response_schema=BatchLabelLLMResponse,
     )
+    log.debug("llm_response", extra={"step_type": "label_clusters", "content": resp.content})
 
     parsed: BatchLabelLLMResponse = resp.parsed  # type: ignore[assignment]
     result = BatchLabelResult.from_llm_response(parsed, n_expected=len(exemplar_groups), total_cost=resp.cost_usd)

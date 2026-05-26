@@ -3,14 +3,23 @@ import type { LayoutNode } from './radialLayout'
 export const NODE_R = 32
 export const LABEL_LINE_HEIGHT = 11
 
+const OPERATION_LABELS: Record<string, string[]> = {
+	unclustered:  ['unclustered'],
+	base:         ['base'],
+	drill_down:   ['drill down'],
+	merge:        ['merge'],
+	focus:        ['focus'],
+	cross_filter: ['cross', 'filter'],
+}
+
 /**
- * Formats a snapshot operation for the in-node label.
+ * Returns display lines for a snapshot operation, split for fitting inside the node circle.
  *
  * @param operation - Snapshot operation name.
- * @returns Human-readable label for the graph node.
+ * @returns Array of text lines to render inside the node.
  */
-export function formatSnapshotOperationLabel(operation: LayoutNode['operation']): string {
-	return operation === 'base' ? 'base' : operation.replace('_', ' ')
+export function formatSnapshotOperationLines(operation: string): string[] {
+	return OPERATION_LABELS[operation] ?? [operation.replace(/_/g, ' ')]
 }
 
 /**
@@ -20,8 +29,8 @@ export function formatSnapshotOperationLabel(operation: LayoutNode['operation'])
  * @param sopIndex - Sequence number used for the node label.
  * @returns Empty string for base nodes, otherwise a numbered label.
  */
-export function formatSnapshotIndexLabel(operation: LayoutNode['operation'], sopIndex: number): string {
-	return operation === 'base' ? '' : `#${sopIndex}`
+export function formatSnapshotIndexLabel(operation: string, sopIndex: number): string {
+	return operation === 'base' || operation === 'unclustered' ? '' : `#${sopIndex}`
 }
 
 /**
@@ -31,5 +40,7 @@ export function formatSnapshotIndexLabel(operation: LayoutNode['operation'], sop
  * @returns Human-readable title for the tooltip card.
  */
 export function formatSnapshotTooltipTitle(node: LayoutNode): string {
-	return node.operation === 'base' ? 'Base snapshot' : `${node.operation.replace('_', ' ')} #${node.sopIndex}`
+	const lines = OPERATION_LABELS[node.operation] ?? [node.operation.replace(/_/g, ' ')]
+	const label = lines.join(' ')
+	return node.operation === 'base' || node.operation === 'unclustered' ? label : `${label} #${node.sopIndex}`
 }

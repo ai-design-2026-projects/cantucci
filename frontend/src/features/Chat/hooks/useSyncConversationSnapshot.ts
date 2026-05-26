@@ -14,7 +14,8 @@ export function useSyncConversationSnapshot(
 	const activeSnapshotId = useSnapshotStore((s) => s.activeSnapshotId)
 
 	useEffect(() => {
-		if (currentClusterSnapshotId && currentClusterSnapshotId !== activeSnapshotId) {
+		if (currentClusterSnapshotId === undefined) return
+		if (currentClusterSnapshotId !== activeSnapshotId) {
 			setActiveSnapshotId(currentClusterSnapshotId)
 		}
 	}, [currentClusterSnapshotId, activeSnapshotId, setActiveSnapshotId])

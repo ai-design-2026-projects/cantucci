@@ -31,9 +31,9 @@ export function ResetHistoryDialog({
                 </DialogHeader>
                 <div className="space-y-3 text-sm text-[var(--color-text)]">
                     <p className="text-[var(--color-muted)]">
-                        This will permanently delete {snapshotCount} snapshot{snapshotCount !== 1 ? 's' : ''}, keeping
-                        only the base snapshot. Conversations pointing to deleted snapshots will be moved to the base.
-                        This cannot be undone.
+                        {snapshotCount > 0
+                            ? `This will permanently delete ${snapshotCount} snapshot${snapshotCount !== 1 ? 's' : ''} and return to the unclustered state. This cannot be undone.`
+                            : 'This will return to the unclustered state.'}
                     </p>
                 </div>
                 <div className="flex justify-end gap-2 mt-2">

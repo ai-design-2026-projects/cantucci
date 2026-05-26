@@ -16,9 +16,10 @@ class UpdateConversationRequest(BaseModel):
     """Body for ``PATCH /conversations/{id}``.
 
     Attributes:
-        current_cluster_snapshot_id: New active cluster snapshot UUID.
+        current_cluster_snapshot_id: New active cluster snapshot UUID, or None to
+                                     move the conversation back to the unclustered state.
     """
-    current_cluster_snapshot_id: uuid.UUID
+    current_cluster_snapshot_id: uuid.UUID | None
 
 
 class SendMessageRequest(BaseModel):

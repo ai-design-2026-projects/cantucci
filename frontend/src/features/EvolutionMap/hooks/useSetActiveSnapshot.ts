@@ -18,11 +18,15 @@ export function useSetActiveSnapshot(conversationId: string) {
 	const [, setSearchParams] = useSearchParams()
 
 	return useMutation({
-		mutationFn: (snapshotId: string) =>
+		mutationFn: (snapshotId: string | null) =>
 			patchConversationFetcher(conversationId, snapshotId),
 		onSuccess: (_, snapshotId) => {
 			setActiveSnapshotId(snapshotId)
-			setSearchParams({ snapshot: snapshotId }, { replace: true })
+			if (snapshotId) {
+				setSearchParams({ snapshot: snapshotId }, { replace: true })
+			} else {
+				setSearchParams({}, { replace: true })
+			}
 			queryClient.invalidateQueries({ queryKey: ['conversation', conversationId] })
 		},
 		onError: (err: Error) => {

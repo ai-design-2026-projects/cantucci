@@ -3,6 +3,7 @@ export interface MessageDto {
     role: 'user' | 'assistant'
     content: string
     created_at: string
+    suggestion?: string | null
 }
 
 export interface ConversationDto {

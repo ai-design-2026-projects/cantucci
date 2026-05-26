@@ -164,7 +164,6 @@ def get_conversation_endpoint(conversation_id: uuid.UUID) -> ConversationDto:
 def update_conversation_endpoint(
     conversation_id: uuid.UUID,
     body: UpdateConversationRequest,
-    user: Annotated[User | None, Depends(get_current_user)],
 ) -> ConversationDto:
     """Set the active cluster snapshot for a conversation.
 
@@ -174,32 +173,28 @@ def update_conversation_endpoint(
     Args:
         conversation_id: Conversation UUID.
         body:            Body with the new ``current_cluster_snapshot_id``.
-        user:            Authenticated user. Anonymous callers receive 401.
 
     Returns:
         Updated ``ConversationDto``.
 
     Raises:
-        HTTPException(401):       If the request is anonymous.
         ConversationNotFound:     If the conversation does not exist.
         ClusterSnapshotNotFound:  If the requested snapshot does not exist.
     """
-    if user is None:
-        raise HTTPException(status_code=401, detail="Authentication required.")
     row = get_conversation(conversation_id)
     if row is None:
         raise ConversationNotFound(conversation_id)
-    snapshot = get_cluster_snapshot(body.current_cluster_snapshot_id)
-    if snapshot is None:
-        raise ClusterSnapshotNotFound(body.current_cluster_snapshot_id)
+    if body.current_cluster_snapshot_id is not None:
+        snapshot = get_cluster_snapshot(body.current_cluster_snapshot_id)
+        if snapshot is None:
+            raise ClusterSnapshotNotFound(body.current_cluster_snapshot_id)
+        record_conversation_snapshot_ref(conversation_id, body.current_cluster_snapshot_id)
     set_current_cluster_snapshot(conversation_id, body.current_cluster_snapshot_id)
-    record_conversation_snapshot_ref(conversation_id, body.current_cluster_snapshot_id)
     log.info(
         "active_snapshot_set",
         extra={
             "conversation_id": str(conversation_id),
-            "snapshot_id": str(body.current_cluster_snapshot_id),
-            "user_id": str(user.id),
+            "snapshot_id": str(body.current_cluster_snapshot_id) if body.current_cluster_snapshot_id else "null",
         },
     )
     messages = get_messages(conversation_id, limit=20)

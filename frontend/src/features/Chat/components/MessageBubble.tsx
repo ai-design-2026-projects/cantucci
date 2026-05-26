@@ -32,6 +32,11 @@ export function MessageBubble({ message }: { message: MessageDto }) {
 					}`}
 			>
 				{message.content}
+				{!isUser && message.suggestion && (
+					<p className="mt-2 pt-2 border-t border-[var(--color-border)] text-xs opacity-70 leading-relaxed">
+						{message.suggestion}
+					</p>
+				)}
 			</div>
 		</motion.div>
 	)

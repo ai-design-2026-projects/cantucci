@@ -34,7 +34,15 @@ export function useSendMessage(conversationId: string) {
 		},
 		onSuccess: (data) => {
 			const oldSnapshotId = queryClient.getQueryData<ConversationDto>(queryKey)?.current_cluster_snapshot_id
-			queryClient.invalidateQueries({ queryKey })
+			queryClient.setQueryData<ConversationDto>(queryKey, (old) =>
+				old
+					? {
+						...old,
+						current_cluster_snapshot_id: data.cluster_snapshot_id,
+						messages: [...old.messages, data.message],
+					}
+					: old
+			)
 
 			const newSnapshotId = data.cluster_snapshot_id
 			const isNewSnapshot =

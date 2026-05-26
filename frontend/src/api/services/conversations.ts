@@ -74,12 +74,12 @@ export async function deleteConversationFetcher(conversationId: string): Promise
  * Update a conversation's active cluster snapshot.
  *
  * @param conversationId          - Conversation UUID.
- * @param currentClusterSnapshotId - New active snapshot UUID.
+ * @param currentClusterSnapshotId - New active snapshot UUID, or null to return to unclustered state.
  * @returns Updated ConversationDto.
  */
 export async function patchConversationFetcher(
     conversationId: string,
-    currentClusterSnapshotId: string,
+    currentClusterSnapshotId: string | null,
 ): Promise<ConversationDto> {
     return apiClient<ConversationDto>(`/conversations/${conversationId}`, {
         method: 'PATCH',

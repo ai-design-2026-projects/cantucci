@@ -3,6 +3,7 @@ import uuid
 
 from backend.agents.clarifier.agent import clarify
 from backend.agents.coordinator.tools.actions import ActionContext, execute_action
+from backend.agents.coordinator.tools.clarification_state import mark_awaiting, take_awaiting
 from backend.agents.coordinator.tools.labeling import label_unlabeled_clusters
 from backend.agents.coordinator.tools.progress import ProgressReporter
 from backend.agents.responder.suggestions import maybe_suggest
@@ -12,6 +13,7 @@ from backend.agents.clustering.types import NavigationMode
 from backend.agents.intent.types import DialogueMode, IntentAction, IntentResult
 from backend.data_access.cluster_snapshots.queries import get_cluster_snapshot_with_clusters
 from backend.data_access.cluster_snapshots.types import ClusterRow
+from backend.data_access.conversations.queries import get_messages
 from backend.data_access.conversations.types import ConversationRow
 from backend.settings import get_settings
 
@@ -81,6 +83,13 @@ class Coordinator:
             )
             accumulated_cost += label_cost
 
+        clarification_question: str | None = None
+        if take_awaiting(conversation_id):
+            recent = get_messages(conversation_id, limit=2)
+            prior_assistant = next((m for m in reversed(recent) if m.role == "assistant"), None)
+            if prior_assistant is not None:
+                clarification_question = prior_assistant.content
+
         reporter.step("intent")
         intent = await classify_intent(
             user_message=user_message,
@@ -88,6 +97,7 @@ class Coordinator:
             conversation_id=conversation_id,
             message_id=message_id,
             accumulated_cost=accumulated_cost,
+            clarification_question=clarification_question,
         )
         accumulated_cost += intent.cost
 
@@ -227,6 +237,7 @@ class Coordinator:
             message_id=message_id,
             accumulated_cost=accumulated_cost,
         )
+        mark_awaiting(conversation_id)
         return CoordinatorResult(
             reply_text=clarification.text,
             cluster_snapshot_id=current_cluster_snapshot_id or sentinel_cluster_snapshot_id(),

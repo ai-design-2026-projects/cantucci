@@ -1,4 +1,5 @@
 import { deleteSnapshotFetcher } from '@/api/services/snapshots'
+import { UNCLUSTERED_NODE_ID } from './radialLayout'
 import type { LayoutNode } from './radialLayout'
 
 /**
@@ -10,7 +11,7 @@ import type { LayoutNode } from './radialLayout'
  * @throws Re-throws any network error from deleteSnapshotFetcher.
  */
 export async function resetHistory(nodes: LayoutNode[]): Promise<void> {
-    const nonBase = nodes.filter((n) => n.operation !== 'base')
+    const nonBase = nodes.filter((n) => n.operation !== 'base' && n.id !== UNCLUSTERED_NODE_ID)
     if (nonBase.length === 0) return
 
     const childrenOf = new Map<string, string[]>()

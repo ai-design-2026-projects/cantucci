@@ -66,6 +66,7 @@ async def explain_placement(
         cluster_summary=cluster_summary,
         exemplar_titles=exemplar_titles,
     )
+    log.debug("llm_prompt", extra={"template": "explain_v2.j2", "prompt": prompt})
     messages = [{"role": "user", "content": prompt}]
 
     resp = await llm_harness.call(
@@ -83,6 +84,7 @@ async def explain_placement(
         accumulated_cost_usd=accumulated_cost,
         dry_run=cfg.models.strong.dry_run,
     )
+    log.debug("llm_response", extra={"step_type": "explanation_agent", "content": resp.content})
 
     log.info("explanation_generated", extra={"movie_id": movie_id, "cluster_id": str(cluster_id)})
     return ExplanationResult.from_llm_response(
