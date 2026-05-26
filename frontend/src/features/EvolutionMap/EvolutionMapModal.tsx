@@ -139,6 +139,7 @@ export function EvolutionMapModal({ open, onClose, conversationId }: EvolutionMa
 						onClick={onClose}
 					>
 						<motion.div
+							data-testid="evolution-map-modal"
 							className="relative w-full max-w-5xl h-[80vh] bg-[var(--color-surface)] rounded-2xl border border-[var(--color-border)] overflow-hidden shadow-2xl flex flex-col"
 							initial={{ scale: 0.92, opacity: 0 }}
 							animate={{ scale: 1, opacity: 1 }}

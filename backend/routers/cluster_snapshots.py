@@ -10,19 +10,15 @@ from backend.data_access.cluster_snapshots.queries import (
     get_conversation_cluster_snapshots,
     get_memberships,
     get_root_cluster_snapshot,
-    get_snapshot_members,
 )
 from backend.exceptions import ClusterSnapshotNotFound, NotFoundError, SnapshotHasChildren
 from backend.routers.dto.cluster_snapshots.dtos import ClusterMembershipDto, ClusterSnapshotDto, ClusterSnapshotGraphDto, SnapshotMemberDto
 from backend.routers.dto.cluster_snapshots.build_snapshot import build_snapshot_dto, build_snapshot_graph_dto
-import demo.chat_record_replay as _demo
+import demo.utils.replay as _demo
 
 log = logging.getLogger(__name__)
 
 router = APIRouter(tags=["cluster-snapshots"])
-
-
-
 
 
 @router.get("/cluster-snapshots/root", response_model=ClusterSnapshotDto)
@@ -142,6 +138,11 @@ def get_cluster_snapshot_graph(conversation_id: uuid.UUID) -> ClusterSnapshotGra
     Returns:
         ``ClusterSnapshotGraphDto`` with all cluster snapshot nodes.
     """
+    if _demo.is_replay_mode():
+        recorded = _demo.get_recorded_snapshot_graph(str(conversation_id))
+        if recorded is not None:
+            return recorded
+
     snapshots = get_conversation_cluster_snapshots(conversation_id)
     dto = build_snapshot_graph_dto(snapshots)
     log.debug("cluster_snapshot_graph", extra={"conversation_id": str(conversation_id), "n_nodes": len(dto.cluster_snapshots)})

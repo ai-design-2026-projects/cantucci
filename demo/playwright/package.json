@@ -3,8 +3,8 @@
   "private": true,
   "description": "Playwright script for CinePal demo record/replay sessions.",
   "scripts": {
-    "test": "playwright test",
-    "test:headed": "playwright test --headed",
+    "demo": "playwright test",
+    "demo:headed": "playwright test --headed",
     "install:browsers": "playwright install chromium"
   },
   "devDependencies": {

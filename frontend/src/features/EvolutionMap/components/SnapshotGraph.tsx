@@ -98,6 +98,8 @@ export const SnapshotGraph = forwardRef<SnapshotGraphHandle, SnapshotGraphProps>
                 <g
                   key={n.id}
                   data-node="true"
+                  data-operation={n.operation}
+                  data-snapshot-id={n.id}
                   style={{ cursor: 'pointer' }}
                   onClick={() => onNodeClick(n.id)}
                   onMouseEnter={() => setHoveredId(n.id)}

@@ -9,7 +9,7 @@ from fastapi.responses import JSONResponse
 
 from backend.exceptions import DomainError
 from backend.logging_setup import configure_logging
-import demo.chat_record_replay as _demo
+import demo.utils.replay as _demo
 from backend.routers.auth import router as auth_router
 from backend.routers.movies import router as movies_router
 from backend.routers.conversations import router as conversations_router
