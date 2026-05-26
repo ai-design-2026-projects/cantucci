@@ -70,7 +70,7 @@ async def persist_and_label(
     conversation_id: uuid.UUID,
     parent_cluster_snapshot_id: uuid.UUID | None,
     accumulated_cost: float,
-) -> uuid.UUID:
+) -> tuple[uuid.UUID, float]:
     """Persist a ClusterSnapshotDraft, generate LLM labels in one batch call, and update
     the conversation pointer.
 
@@ -88,7 +88,7 @@ async def persist_and_label(
         accumulated_cost:            Running LLM cost this conversation.
 
     Returns:
-        UUID of the cached-or-newly-created cluster snapshot.
+        Tuple of (cluster snapshot UUID, labeling cost in USD).
     """
     canon_params = canonicalize_params(draft.params)
     config_hash = get_config_hash()
@@ -105,7 +105,7 @@ async def persist_and_label(
                 "operation": draft.operation,
             },
         )
-        return cached
+        return cached, 0.0
 
     cluster_snapshot_id = create_cluster_snapshot(
         operation=draft.operation,
@@ -154,6 +154,7 @@ async def persist_and_label(
 
     record_conversation_snapshot_ref(conversation_id, cluster_snapshot_id)
     set_current_cluster_snapshot(conversation_id, cluster_snapshot_id)
+    label_cost = batch_result.cost if batch_result is not None else 0.0
     log.info(
         "cluster_snapshot_persisted",
         extra={
@@ -163,4 +164,4 @@ async def persist_and_label(
             "n_clusters": len(draft.clusters),
         },
     )
-    return cluster_snapshot_id
+    return cluster_snapshot_id, label_cost

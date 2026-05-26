@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { RefObject } from 'react'
 import type { ScatterPoint } from './useScatterData.ts'
 import type { ClusterSnapshotDto } from '@/api/dto/snapshots'
-import { clusterColorFromUuid } from '@/styles/theme'
+import { clusterColorFromUuid, clusterColorKey } from '@/styles/theme'
 
 const PHASE_DURATION = 350
 const TOTAL_DURATION = PHASE_DURATION * 2
@@ -17,6 +17,7 @@ function easeOutQuad(t: number): number { return t * (2 - t) }
 
 interface CentroidData {
     clusterId: string
+    colorKey: string
     label: string | null
     x: number
     y: number
@@ -53,7 +54,7 @@ function computeCentroidsFromSnapshot(snapshot: ClusterSnapshotDto): CentroidDat
             sumY += m.probability * m.umap_y
         }
         if (sumW === 0) continue
-        result.push({ clusterId: cluster.id, label: cluster.label, x: sumX / sumW, y: sumY / sumW })
+        result.push({ clusterId: cluster.id, colorKey: clusterColorKey(snapshot.operation, cluster), label: cluster.label, x: sumX / sumW, y: sumY / sumW })
     }
     return result
 }
@@ -140,7 +141,7 @@ export function useCanvasScatterPlot({
         for (const p of pts) {
             if (xd[1] === xd[0] || yd[1] === yd[0]) continue
             const { px, py } = dataToPixel(p.x, p.y, m, W, H, xd, yd)
-            const color = da ? muted : (p.clusterId ? clusterColorFromUuid(p.clusterId, dark) : muted)
+            const color = da ? muted : (p.colorKey ? clusterColorFromUuid(p.colorKey, dark) : muted)
             const dimmed = !da && sel !== null && p.clusterId !== sel
 
             let opacity: number
@@ -169,7 +170,7 @@ export function useCanvasScatterPlot({
             for (const c of centsToRender) {
                 if (xd[1] === xd[0] || yd[1] === yd[0]) continue
                 const { px, py } = dataToPixel(c.x, c.y, m, W, H, xd, yd)
-                const color = clusterColorFromUuid(c.clusterId, dark)
+                const color = clusterColorFromUuid(c.colorKey, dark)
                 const dimmed = sel !== null && c.clusterId !== sel
                 const opacity = c._animOpacity !== undefined
                     ? c._animOpacity
