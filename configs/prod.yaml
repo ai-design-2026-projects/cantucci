@@ -1,11 +1,11 @@
 models:
   strong:
-    name: "anthropic/claude-3.5-sonnet"
+    name: "openai/gpt-4o"
     provider: openrouter
     seed: 42
-    max_tokens: 1024
+    max_tokens: 2048
   fast:
-    name: "anthropic/claude-3.5-haiku"
+    name: "openai/gpt-4o-mini"
     provider: openrouter
     seed: 42
     max_tokens: 512

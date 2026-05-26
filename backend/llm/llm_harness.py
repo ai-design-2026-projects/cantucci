@@ -141,7 +141,14 @@ async def call(
             if provider == "openai":
                 kwargs["seed"] = seed
             if response_schema is not None:
-                kwargs["response_format"] = {"type": "json_object"}
+                kwargs["response_format"] = {
+                    "type": "json_schema",
+                    "json_schema": {
+                        "name": response_schema.__name__,
+                        "schema": response_schema.model_json_schema(),
+                        "strict": False,
+                    },
+                }
             response = await _client_mod.get_client(provider).chat.completions.create(**kwargs)
             latency_ms = (time.monotonic() - t0) * 1000.0
         except _retry_mod.TRANSIENT_ERRORS as exc:
