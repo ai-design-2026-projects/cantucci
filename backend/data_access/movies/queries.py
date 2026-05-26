@@ -538,4 +538,31 @@ def fetch_partition_values(
         log.debug("fetch_partition_values", extra={"attribute": attribute, "n_movies": len(movie_ids)})
         return result_year
 
+    if attribute == "vote_average":
+        with transaction() as conn:
+            rows = conn.execute(
+                "SELECT id, vote_average FROM movies WHERE id = ANY(%s)",
+                (movie_ids,),
+            ).fetchall()
+        result_rating: dict[int, float | None] = {r["id"]: r["vote_average"] for r in rows}
+        for mid in movie_ids:
+            result_rating.setdefault(mid, None)
+        log.debug("fetch_partition_values", extra={"attribute": attribute, "n_movies": len(movie_ids)})
+        return result_rating
+
+    if attribute == "original_language":
+        with transaction() as conn:
+            rows = conn.execute(
+                "SELECT id, original_language FROM movies WHERE id = ANY(%s)",
+                (movie_ids,),
+            ).fetchall()
+        result_lang: dict[int, list[str]] = {
+            r["id"]: ([r["original_language"]] if r["original_language"] else [])
+            for r in rows
+        }
+        for mid in movie_ids:
+            result_lang.setdefault(mid, [])
+        log.debug("fetch_partition_values", extra={"attribute": attribute, "n_movies": len(movie_ids)})
+        return result_lang
+
     raise ValueError(f"Unsupported partition attribute: {attribute!r}")

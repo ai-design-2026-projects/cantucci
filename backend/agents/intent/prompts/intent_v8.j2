@@ -23,7 +23,7 @@ Navigation modes:
 Decision hints:
 - Choose drill_down with a target cluster when the user wants to subdivide one cluster along a SEMANTIC concept (mood, tone, narrative style, era-feel, visual aesthetics, etc.).
 - Choose drill_down without a target cluster when the user wants to re-cluster the entire catalogue with a new SEMANTIC approach.
-- Choose partition_by when the user wants EXACT deterministic groups based on a concrete metadata attribute: genre names, runtime/duration (with numeric thresholds), release year or decade, or director. Do NOT use drill_down for these — use partition_by.
+- Choose partition_by when the user wants EXACT deterministic groups based on a concrete metadata attribute: genre names, runtime/duration (with numeric thresholds), release year or decade, director, audience rating/score (vote_average with numeric thresholds), or original language. Do NOT use drill_down for these — use partition_by.
 - Choose merge when the user mentions combining, joining, or grouping clusters together.
 - Choose focus when the user wants to zoom into or work only with one specific cluster.
 - Choose cross_filter when the user wants to NARROW the working set by a metadata predicate (keep only Horror films, keep only 90s films) and then re-cluster the survivors semantically. This is a filter, not a grouping.
@@ -37,6 +37,8 @@ Key distinction — partition_by vs drill_down vs cross_filter:
 - "split by runtime: short under 1h, medium 1–2h, long over 2h" → partition_by with bins.
 - "group by decade" → partition_by with release_year bins.
 - "group by director" → partition_by (one cluster per director).
+- "split by rating: low, medium, high" → partition_by with vote_average bins.
+- "group by language" → partition_by (one cluster per original_language value).
 - "cluster by tone" → drill_down (tone is semantic, not a DB field).
 - "show only Horror films and re-cluster" → cross_filter (narrow then re-cluster, not group-by).
 
@@ -56,14 +58,14 @@ Metadata filter (metadata_filter field — only for cross_filter):
 - Example: "show only 90s horror films" → genres: ["Horror"], release_year_min: 1990, release_year_max: 1999.
 
 Partition spec (partition_spec field — only for partition_by):
-- Set attribute to one of: "genre", "runtime", "release_year", "director".
+- Set attribute to one of: "genre", "runtime", "release_year", "director", "vote_average", "original_language".
 - For numeric attributes ("runtime", "release_year") supply bins: a list of {label, min, max} objects.
   - min and max are in attribute units (minutes for runtime, year integer for release_year).
   - min is inclusive lower bound (null = no lower bound); max is exclusive upper bound (null = no upper bound).
   - Cover the full range of plausible values — add an open-ended bin on each end when appropriate.
   - Example for "short <1h, long >2h": bins: [{"label": "Short (<1h)", "min": null, "max": 60}, {"label": "Medium (1–2h)", "min": 60, "max": 120}, {"label": "Long (>2h)", "min": 120, "max": null}]
   - Example for "group by decade": bins: [{"label": "Pre-1960s", "min": null, "max": 1960}, {"label": "1960s", "min": 1960, "max": 1970}, {"label": "1970s", "min": 1970, "max": 1980}, {"label": "1980s", "min": 1980, "max": 1990}, {"label": "1990s", "min": 1990, "max": 2000}, {"label": "2000s", "min": 2000, "max": 2010}, {"label": "2010s", "min": 2010, "max": 2020}, {"label": "2020s", "min": 2020, "max": null}]
-- For categorical attributes ("genre", "director") leave bins null — the system derives buckets automatically.
+- For categorical attributes ("genre", "director", "original_language") leave bins null — the system derives buckets automatically.
 - Set partition_spec to null for all modes except partition_by.
 
 ---
@@ -224,6 +226,28 @@ User: "Group the current clusters by director"
      "partition_spec": {"attribute": "director", "bins": null}}
   ]}
 
+User: "Split by rating: bad under 5, average 5–7, good above 7"
+→ {"actions": [
+    {"mode": "partition_by", "concept": null,
+     "merged_label": null, "target_cluster_id": null,
+     "confidence": 0.92, "embedding_spaces": ["text"],
+     "metadata_filter": null,
+     "partition_spec": {"attribute": "vote_average", "bins": [
+       {"label": "Bad (<5)", "min": null, "max": 5},
+       {"label": "Average (5–7)", "min": 5, "max": 7},
+       {"label": "Good (>7)", "min": 7, "max": null}
+     ]}}
+  ]}
+
+User: "Group by original language"
+→ {"actions": [
+    {"mode": "partition_by", "concept": null,
+     "merged_label": null, "target_cluster_id": null,
+     "confidence": 0.92, "embedding_spaces": ["text"],
+     "metadata_filter": null,
+     "partition_spec": {"attribute": "original_language", "bins": null}}
+  ]}
+
 User: "Drill into the Action cluster and then divide the result by gritty realism vs spectacle"
 → {"actions": [
     {"mode": "drill_down", "concept": null,
@@ -271,7 +295,7 @@ Respond with exactly this JSON object and nothing else:
       "confidence": <0.0–1.0>,
       "embedding_spaces": ["text"] or ["text", "trailer"] or ["text", "review"] etc.,
       "metadata_filter": {"genres": [...] or null, "release_year_min": <int> or null, "release_year_max": <int> or null, "director": "<string>" or null} or null,
-      "partition_spec": {"attribute": "<genre|runtime|release_year|director>", "bins": [{"label": "<string>", "min": <number> or null, "max": <number> or null}] or null} or null
+      "partition_spec": {"attribute": "<genre|runtime|release_year|director|vote_average|original_language>", "bins": [{"label": "<string>", "min": <number> or null, "max": <number> or null}] or null} or null
     }
   ]
 }

@@ -74,16 +74,20 @@ class PartitionAttribute(str, Enum):
     """Metadata attributes supported by the ``partition_by`` operation.
 
     Attributes:
-        GENRE:        Group by movie genre (multi-valued; a movie may appear in
-                      multiple clusters).
-        RUNTIME:      Bucket by runtime in minutes using LLM-specified numeric bins.
-        RELEASE_YEAR: Bucket by release year using LLM-specified numeric bins.
-        DIRECTOR:     Group by director name (multi-valued when a movie has co-directors).
+        GENRE:             Group by movie genre (multi-valued; a movie may appear in
+                           multiple clusters).
+        RUNTIME:           Bucket by runtime in minutes using LLM-specified numeric bins.
+        RELEASE_YEAR:      Bucket by release year using LLM-specified numeric bins.
+        DIRECTOR:          Group by director name (multi-valued when a movie has co-directors).
+        VOTE_AVERAGE:      Bucket by audience rating (0–10 scale) using LLM-specified bins.
+        ORIGINAL_LANGUAGE: Group by original production language (categorical).
     """
     GENRE = "genre"
     RUNTIME = "runtime"
     RELEASE_YEAR = "release_year"
     DIRECTOR = "director"
+    VOTE_AVERAGE = "vote_average"
+    ORIGINAL_LANGUAGE = "original_language"
 
 
 @dataclass(frozen=True, slots=True)

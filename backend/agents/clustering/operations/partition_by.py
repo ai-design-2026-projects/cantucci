@@ -3,6 +3,8 @@ import uuid
 
 from backend.agents.clustering.operations._helpers import exemplars
 from backend.agents.clustering.types import ClusterDraft, ClusterSnapshotDraft, PartitionAttribute, PartitionSpec
+
+_CATEGORICAL = {PartitionAttribute.GENRE, PartitionAttribute.DIRECTOR, PartitionAttribute.ORIGINAL_LANGUAGE}
 from backend.data_access.cluster_snapshots.queries import get_memberships
 from backend.data_access.movies.queries import fetch_partition_values, list_movie_ids
 from backend.settings import get_settings
@@ -66,7 +68,7 @@ async def partition_by(
     attribute = spec.attribute.value
     raw = fetch_partition_values(resolved_ids, attribute)
 
-    if spec.attribute in (PartitionAttribute.GENRE, PartitionAttribute.DIRECTOR):
+    if spec.attribute in _CATEGORICAL:
         buckets: dict[str, list[int]] = {}
         unspecified: list[int] = []
 
