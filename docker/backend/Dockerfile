@@ -7,16 +7,20 @@ RUN apt-get update \
 
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
-ENV UV_SYSTEM_PYTHON=1
+ENV VIRTUAL_ENV=/app/.venv
+ENV PATH="$VIRTUAL_ENV/bin:$PATH"
 
 WORKDIR /app
 
 COPY pyproject.toml uv.lock ./
-RUN uv sync --frozen --no-dev
+RUN uv sync --frozen --no-dev --extra dataset
 
 COPY backend/ ./backend/
 COPY configs/ ./configs/
 COPY db/ ./db/
+COPY demo/ ./demo/
+COPY dataset/ ./dataset/
+COPY core/ ./core/
 
 COPY docker/backend/entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
