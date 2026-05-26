@@ -8,6 +8,8 @@ log = logging.getLogger(__name__)
 # "openai/gpt-4o-mini") must be placed before their bare equivalents to
 # prevent shadowing.
 _COST_PER_M: dict[str, dict[str, float]] = {
+    # OpenRouter free tier (development/testing)
+    "openrouter/owl-alpha": {"input": 0.0, "output": 0.0},
     # OpenRouter-prefixed GPT family (must precede bare prefixes)
     "openai/gpt-4o-mini": {"input": 0.15, "output": 0.60},
     "openai/gpt-4o": {"input": 2.50, "output": 10.00},
