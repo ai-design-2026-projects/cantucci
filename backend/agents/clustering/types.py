@@ -20,8 +20,6 @@ class Modality(str, Enum):
     TRAILER = "trailer"
     REVIEW = "review"
 
-from enum import Enum
-
 
 class NavigationMode(str, Enum):
     """Clustering operations a user can request.
@@ -60,12 +58,69 @@ class NavigationMode(str, Enum):
         "keep only movies matching a metadata predicate (genre, year, director) "
         "then re-cluster the survivors",
     )
+    PARTITION_BY = (
+        "partition_by",
+        "split the working set into deterministic clusters by an exact metadata "
+        "attribute — genre, runtime, release year, or director",
+    )
 
     @property
     def description(self) -> str:
         """One-line description of this mode for use in the intent prompt."""
         return self._description  # type: ignore[attr-defined]
     
+
+class PartitionAttribute(str, Enum):
+    """Metadata attributes supported by the ``partition_by`` operation.
+
+    Attributes:
+        GENRE:             Group by movie genre (multi-valued; a movie may appear in
+                           multiple clusters).
+        RUNTIME:           Bucket by runtime in minutes using LLM-specified numeric bins.
+        RELEASE_YEAR:      Bucket by release year using LLM-specified numeric bins.
+        DIRECTOR:          Group by director name (multi-valued when a movie has co-directors).
+        VOTE_AVERAGE:      Bucket by audience rating (0–10 scale) using LLM-specified bins.
+        ORIGINAL_LANGUAGE: Group by original production language (categorical).
+    """
+    GENRE = "genre"
+    RUNTIME = "runtime"
+    RELEASE_YEAR = "release_year"
+    DIRECTOR = "director"
+    VOTE_AVERAGE = "vote_average"
+    ORIGINAL_LANGUAGE = "original_language"
+
+
+@dataclass(frozen=True, slots=True)
+class PartitionBin:
+    """A single labelled bucket for numeric ``partition_by`` operations.
+
+    ``min`` and ``max`` are both inclusive-lower / exclusive-upper edges.
+    Either may be ``None`` to represent an open-ended range.
+
+    Attributes:
+        label: Human-readable bucket name (e.g. ``"Short (<1h)"``).
+        min:   Lower bound in attribute units, inclusive; ``None`` = no lower bound.
+        max:   Upper bound in attribute units, exclusive; ``None`` = no upper bound.
+    """
+
+    label: str
+    min: float | None
+    max: float | None
+
+
+@dataclass(frozen=True, slots=True)
+class PartitionSpec:
+    """Full specification for a ``partition_by`` operation.
+
+    Attributes:
+        attribute: Which metadata field to group by.
+        bins:      Required for numeric attributes (``RUNTIME``, ``RELEASE_YEAR``);
+                   ``None`` for categorical attributes (``GENRE``, ``DIRECTOR``).
+    """
+
+    attribute: PartitionAttribute
+    bins: list[PartitionBin] | None
+
 
 @dataclass(frozen=True, slots=True)
 class MetadataFilter:
@@ -102,6 +157,7 @@ class NavigationRequest:
         cluster_ids:                Clusters to merge (merge).
         merged_label:               Label for the merged cluster.
         metadata_filter:            Metadata predicate for filtering (cross_filter).
+        partition_spec:             Attribute + bins for deterministic grouping (partition_by).
         embedding_spaces:           Embedding modalities to fuse.
     """
     mode: NavigationMode
@@ -113,6 +169,7 @@ class NavigationRequest:
     cluster_ids: list[uuid.UUID] | None = None
     merged_label: str | None = None
     metadata_filter: MetadataFilter | None = None
+    partition_spec: PartitionSpec | None = None
     embedding_spaces: list[Modality] | None = None
 
 
