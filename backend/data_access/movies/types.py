@@ -56,6 +56,42 @@ class MovieSearchHitRow:
 
 
 @dataclass(frozen=True, slots=True)
+class NumericStats:
+    """Distribution statistics for a numeric partition attribute within a movie set.
+
+    Attributes:
+        min_val: Minimum non-null value.
+        max_val: Maximum non-null value.
+        p25:     25th-percentile value.
+        p50:     Median value.
+        p75:     75th-percentile value.
+        count:   Number of movies with a non-null value for this attribute.
+    """
+    min_val: float | None
+    max_val: float | None
+    p25: float | None
+    p50: float | None
+    p75: float | None
+    count: int
+
+    @classmethod
+    def from_row(cls, r: dict) -> "NumericStats":
+        """Construct from a psycopg dict_row result of the fetch_numeric_stats aggregate query.
+
+        Args:
+            r: Dict-row from the aggregate SQL query.
+        """
+        return cls(
+            min_val=float(r["min_val"]) if r["min_val"] is not None else None,
+            max_val=float(r["max_val"]) if r["max_val"] is not None else None,
+            p25=float(r["p25"]) if r["p25"] is not None else None,
+            p50=float(r["p50"]) if r["p50"] is not None else None,
+            p75=float(r["p75"]) if r["p75"] is not None else None,
+            count=int(r["count"]) if r["count"] is not None else 0,
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class MovieRow:
     """Enriched movie metadata for agent consumption.
 

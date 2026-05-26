@@ -7,7 +7,7 @@ from backend.agents.clustering.types import ClusterDraft, ClusterSnapshotDraft
 from backend.agents.concept.scoring import score_movies
 from backend.agents.concept.types import ConceptRep
 from backend.agents.clustering.types import Modality
-from backend.data_access.cluster_snapshots.queries import get_memberships
+from backend.data_access.cluster_snapshots.queries import get_cluster_snapshot_with_clusters, get_memberships
 from backend.data_access.movies.queries import fetch_text_embeddings, fetch_modality_embeddings, list_movie_ids
 from backend.settings import get_settings
 from core.fusion import combined_distance_matrix
@@ -30,7 +30,8 @@ async def drill_down(
     The input movie set is resolved in this order:
     1. If ``source_cluster_id`` is set: the cluster's existing members (drill-down into one cluster).
     2. If ``movie_ids`` is set: that explicit list (used by cross_filter for pre-filtered sets).
-    3. Otherwise: the full catalogue (re-cluster from scratch).
+    3. If ``parent_cluster_snapshot_id`` is set: the union of all movies across that snapshot's clusters.
+    4. Otherwise: the full catalogue (re-cluster from scratch).
 
     If a concept is supplied, movies are scored and split at the median before clustering
     each half separately. Otherwise HDBSCAN runs on the full input set.
@@ -60,11 +61,27 @@ async def drill_down(
             raise ValueError(f"Cluster {source_cluster_id} has no members")
         resolved_movie_ids = [m.movie_id for m in memberships]
         parent_cluster_ref: uuid.UUID | None = source_cluster_id
-    else:
-        resolved_movie_ids = movie_ids if movie_ids is not None else list_movie_ids()
-        if not resolved_movie_ids:
-            raise ValueError("No movies found for clustering")
+    elif movie_ids is not None:
+        resolved_movie_ids = movie_ids
         parent_cluster_ref = None
+    elif parent_cluster_snapshot_id is not None:
+        cswc = get_cluster_snapshot_with_clusters(parent_cluster_snapshot_id)
+        if cswc is None:
+            raise ValueError(f"Cluster snapshot {parent_cluster_snapshot_id} not found")
+        seen: set[int] = set()
+        resolved_movie_ids = []
+        for cluster in cswc.clusters:
+            for m in get_memberships(cluster.id):
+                if m.movie_id not in seen:
+                    seen.add(m.movie_id)
+                    resolved_movie_ids.append(m.movie_id)
+        parent_cluster_ref = None
+    else:
+        resolved_movie_ids = list_movie_ids()
+        parent_cluster_ref = None
+
+    if not resolved_movie_ids:
+        raise ValueError("No movies found for clustering")
 
     # Determine the embedding map based on the specified embedding spaces
     if len(embedding_spaces) == 1 and embedding_spaces[0] == Modality.TEXT:

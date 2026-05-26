@@ -113,15 +113,31 @@ class OnlineClusteringConfig(BaseModel):
     recut_min_cluster_size: int = 30
 
 
+class PartitionByConfig(BaseModel):
+    """Parameters for the ``partition_by`` clustering operation.
+
+    Attributes:
+        categorical_top_n: Maximum number of clusters to produce for categorical
+                           attributes (``genre``, ``director``, ``original_language``).
+                           When more distinct values exist, only the top N by movie
+                           count are kept; the remainder are grouped into a single
+                           ``"Other <attribute>"`` cluster.  Set to a large number
+                           to disable the cap.
+    """
+    categorical_top_n: int = 20
+
+
 class ClusteringConfig(BaseModel):
     """Top-level clustering configuration.
 
     Attributes:
-        base:   Parameters for the offline root cluster snapshot.
-        online: Parameters for interactive drill-down and recut.
+        base:         Parameters for the offline root cluster snapshot.
+        online:       Parameters for interactive drill-down and recut.
+        partition_by: Parameters for the deterministic partition_by operation.
     """
     base: BaseClusteringConfig = BaseClusteringConfig()
     online: OnlineClusteringConfig = OnlineClusteringConfig()
+    partition_by: PartitionByConfig = PartitionByConfig()
 
 
 class FusionConfig(BaseModel):
