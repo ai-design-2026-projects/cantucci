@@ -14,7 +14,6 @@ from backend.llm.utils import client as _client_mod
 from backend.llm.utils import retry as _retry_mod
 from backend.llm.utils.dry_run import dry_run_response
 from backend.llm.utils.pricing import estimate_cost
-from demo.record_replay import is_record_mode, is_replay_mode, record_append, replay_next
 from backend.llm.utils.schema_validation import validate_response
 
 log = logging.getLogger(__name__)
@@ -93,19 +92,6 @@ async def call(
             config_hash=config_hash,
             model_and_version=model_and_version,
             prompt_hash=prompt_hash,
-        )
-
-    if is_replay_mode():
-        return await replay_next(
-            session_id=str(conversation_id),
-            step_type=step_type,
-            run_id=run_id,
-            turn_id=message_id,
-            seed=seed,
-            config_hash=config_hash,
-            model_and_version=model_and_version,
-            prompt_hash=prompt_hash,
-            response_schema=response_schema,
         )
 
     log.debug(
@@ -223,8 +209,6 @@ async def call(
             cost_usd=cost,
             parsed=parsed,
         )
-        if is_record_mode():
-            record_append(str(conversation_id), step_type, str(message_id), resp)
         return resp
 
     if isinstance(last_exc, LLMParseError):

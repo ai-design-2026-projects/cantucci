@@ -59,5 +59,5 @@ class ReplayDriftError(OperationalError):
         super().__init__(
             f"Replay drift in session {session_id!r}: "
             f"expected step_type={expected!r} but got {got!r}. "
-            "Re-record the manifest (CINEPAL_LLM_MODE=record)."
+            "Re-record the manifest (CINEPAL_DEMO_MODE=record)."
         )

@@ -16,6 +16,7 @@ from backend.data_access.cluster_snapshots.queries import (
 from backend.exceptions import ClusterSnapshotNotFound, NotFoundError, SnapshotHasChildren
 from backend.routers.dto.cluster_snapshots.dtos import ClusterMembershipDto, ClusterSnapshotDto, ClusterSnapshotGraphDto, SnapshotMemberDto
 from backend.routers.dto.cluster_snapshots.build_snapshot import build_snapshot_dto
+import demo.chat_record_replay as _demo
 
 log = logging.getLogger(__name__)
 
@@ -57,6 +58,10 @@ def get_cluster_snapshot_endpoint(cluster_snapshot_id: uuid.UUID) -> ClusterSnap
     Raises:
         ClusterSnapshotNotFound: If the cluster snapshot does not exist.
     """
+    if _demo.is_replay_mode():
+        recorded = _demo.get_recorded_snapshot(str(cluster_snapshot_id))
+        if recorded is not None:
+            return recorded
     return build_snapshot_dto(cluster_snapshot_id)
 
 

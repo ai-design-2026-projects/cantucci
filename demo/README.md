@@ -1,46 +1,73 @@
 # demo/ — record/replay demo scripts
 
-This directory contains scripts for recording a live CinePal session to a JSONL manifest and replaying it later with zero live LLM calls. Useful for demos, CI smoke tests, and deterministic regression checks.
+This directory contains scripts and a Playwright spec for recording a live CinePal chat session and replaying it later with zero LLM calls. Useful for screen-recording demos and deterministic re-takes.
 
 ---
 
-## Scripts
+## How it works
 
-| Script | Description |
-|---|---|
-| `demo_record.sh` | Launch the backend in record mode; all LLM responses are saved to a JSONL manifest. |
-| `demo_replay.sh` | Launch the backend in replay mode against the newest manifest; no live LLM calls are made. |
+Recording operates at the **chat level**: each completed user→assistant turn is saved together with the full cluster snapshot it produced. On replay the backend short-circuits every `POST /conversations/{id}/messages` call and returns the recorded reply and snapshot instantly — no agents, no API spend.
 
-Manifests are written to and read from `demo/manifests/`.
+Recordings are self-contained JSON files. You can take them to a fresh machine (or a wiped database) and replay them by running the provided Playwright spec.
 
 ---
 
-## Usage
+## Quick start
 
-### Record a session
+### 1. Record a session
 
 ```bash
-bash demo/demo_record.sh
+# Terminal 1 — start the backend in record mode
+bash demo/demo_record.sh --name my-demo
+
+# Terminal 2 — start the frontend
+cd frontend && npm run dev
 ```
 
-Starts the backend with `CINEPAL_LLM_MODE=record`. Interact with the UI normally. Every LLM response is appended to `demo/manifests/session_<timestamp>.jsonl`. Stop the server when done.
+Chat with the application normally. Every turn you complete is appended to `demo/recordings/my-demo.json`. Stop the backend with Ctrl-C when finished.
 
-### Replay a session
+### 2. Replay the recording
 
 ```bash
-bash demo/demo_replay.sh
+# Terminal 1 — start the backend in replay mode
+bash demo/demo_replay.sh demo/recordings/my-demo.json
+
+# Terminal 2 — start the frontend
+cd frontend && npm run dev
+
+# Terminal 3 — run the Playwright demo script
+cd demo/playwright
+npm install          # first time only
+DEMO_RECORDING=../recordings/my-demo.json npx playwright test --headed
 ```
 
-Starts the backend with `CINEPAL_LLM_MODE=replay` pointed at the newest `.jsonl` file in `demo/manifests/`. Replaying the same sequence of user messages produces bit-identical LLM responses from the manifest — no API key needed, no token spend.
+The Playwright spec navigates to the app, creates a new conversation, and types each recorded user message. The backend serves the recorded assistant replies and cluster snapshots instantly.
 
 ---
 
-## `CINEPAL_LLM_MODE` env var
+## File layout
 
-| Value | Behaviour |
-|---|---|
-| *(unset)* | Normal live mode — all LLM calls go to the configured provider. |
-| `record` | Live mode + append each LLM response to the active manifest file. |
-| `replay` | Serve LLM responses from the manifest; raise `ReplayDriftError` if the request sequence diverges. |
+```
+demo/
+  demo_record.sh           Start backend in record mode
+  demo_replay.sh           Start backend in replay mode
+  chat_record_replay.py    Core Python module (imported by backend)
+  recordings/              Recorded sessions (JSON)
+  playwright/
+    package.json
+    playwright.config.ts
+    tests/demo.spec.ts     Playwright test that drives the demo
+```
 
-The manifest path is controlled by `CINEPAL_LLM_MANIFEST` (defaults to the newest file in `demo/manifests/` when replaying, or a new timestamped file when recording).
+---
+
+## Environment variables
+
+| Variable | Where used | Description |
+|---|---|---|
+| `CINEPAL_DEMO_MODE` | backend | `record` or `replay`; unset for live mode |
+| `CINEPAL_DEMO_RECORDING` | backend | Path to the recording JSON file |
+| `DEMO_RECORDING` | Playwright | Path to the recording JSON file (relative to `demo/playwright/` or absolute) |
+| `DEMO_TURN_PAUSE_MS` | Playwright | Milliseconds to pause between turns (default `1500`) |
+| `APP_URL` | Playwright | Frontend URL (default `http://127.0.0.1:5173`) |
+| `RECORD_VIDEO` | Playwright | Set to `1` to capture a video of the run |
