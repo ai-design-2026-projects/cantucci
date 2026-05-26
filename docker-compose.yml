@@ -34,5 +34,18 @@ services:
     ports:
       - "80:80"
 
+  mcp_server:
+    image: ghcr.io/ai-design-2026-projects/cinepal-mcp:${CINEPAL_VERSION:-latest}
+    build:
+      context: .
+      dockerfile: docker/mcp_server/Dockerfile
+    environment:
+      CINEPAL_MCP_BACKEND_URL: http://backend:8000
+    depends_on:
+      - backend
+    stdin_open: true
+    tty: true
+    profiles: ["mcp"]
+
 volumes:
   cinepal-pgdata:
