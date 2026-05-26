@@ -125,11 +125,20 @@ async def drill_down(
             runtime_weights = cfg.fusion.runtime_weights
             dist_mat = combined_distance_matrix(embs_by_modality, runtime_weights)
             # Run HDBSCAN directly on the precomputed distance matrix, since we don't have a single embedding space to reduce to
-            return subcluster(None, cfg.clustering.online.drilldown_min_cluster_size, 1, distance_matrix=dist_mat)
+            return subcluster(
+                None,
+                cfg.clustering.online.drilldown_min_cluster_size,
+                distance_matrix=dist_mat,
+                cluster_selection_epsilon=cfg.clustering.online.cluster_selection_epsilon,
+            )
         else:
             group_embs = np.array([emb_map[movie_id] for movie_id in group_ids], dtype=np.float32)
             group_embs = reduce_for_clustering(group_embs, cfg.umap, cfg.split.seed)
-            return subcluster(group_embs, cfg.clustering.online.drilldown_min_cluster_size, 1)
+            return subcluster(
+                group_embs,
+                cfg.clustering.online.drilldown_min_cluster_size,
+                cluster_selection_epsilon=cfg.clustering.online.cluster_selection_epsilon,
+            )
 
     # If a concept is provided, score the movies and split into high/low groups before clustering each separately to create more concept-coherent clusters
     if concept is not None:

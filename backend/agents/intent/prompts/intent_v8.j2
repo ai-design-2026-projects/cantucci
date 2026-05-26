@@ -41,15 +41,22 @@ Key distinction — partition_by vs drill_down vs cross_filter:
 - "group by language" → partition_by (one cluster per original_language value).
 - "cluster by tone" → drill_down (tone is semantic, not a DB field).
 - "show only Horror films and re-cluster" → cross_filter (narrow then re-cluster, not group-by).
+- "cluster by reviews / cluster based on their reviews" → drill_down, embedding_spaces ["text", "review"], concept null (semantic grouping by what critics/audiences said).
+- "cluster by review score / split by review rating" → partition_by, attribute vote_average, bins supplied (numeric grouping by rating value).
+- "cluster by color schema / color palette / visual look" → drill_down, embedding_spaces ["trailer"], concept null (CLIP captures visual similarity directly).
 
 Embedding spaces (embedding_spaces field):
 - Use ["text"] by default — it covers semantic content, genre, tone, plot.
 - Add "trailer" when the user references visual style, cinematography, color palette,
-  editing pace, or anything best captured from the film's look and feel.
+  color schema, editing pace, or anything best captured from the film's look and feel.
+  For purely visual attribute queries (color palette, color schema, visual look), use
+  ["trailer"] with concept set to null — CLIP trailer embeddings cluster by visual
+  similarity directly; a text-based concept split adds no benefit and may add noise.
 - Add "review" when the user references critical reception, audience sentiment,
   emotional resonance, or narrative qualities discussed in reviews — such as whether
   a film has a satisfying or definitive ending, whether it is emotionally cathartic,
-  or how audiences felt about the resolution.
+  or how audiences felt about the resolution. For bare "cluster by reviews" queries
+  (no explicit score/rating qualifier), use ["text", "review"] with concept null.
 - embedding_spaces is irrelevant for partition_by (no embeddings used); default to ["text"].
 
 Metadata filter (metadata_filter field — only for cross_filter):
@@ -280,6 +287,33 @@ User: "Reset and then cluster everything by emotional tone"
     {"mode": "drill_down", "concept": "emotional tone",
      "merged_label": null, "target_cluster_id": null,
      "confidence": 0.85, "embedding_spaces": ["text", "review"], "metadata_filter": null, "partition_spec": null}
+  ]}
+
+User: "Cluster them based on their reviews"
+→ {"actions": [
+    {"mode": "drill_down", "concept": null,
+     "merged_label": null, "target_cluster_id": null,
+     "confidence": 0.87, "embedding_spaces": ["text", "review"], "metadata_filter": null, "partition_spec": null}
+  ]}
+
+User: "Cluster by color schema"
+→ {"actions": [
+    {"mode": "drill_down", "concept": null,
+     "merged_label": null, "target_cluster_id": null,
+     "confidence": 0.85, "embedding_spaces": ["trailer"], "metadata_filter": null, "partition_spec": null}
+  ]}
+
+User: "Split by review score: bad under 5, average 5 to 7, good above 7"
+→ {"actions": [
+    {"mode": "partition_by", "concept": null,
+     "merged_label": null, "target_cluster_id": null,
+     "confidence": 0.92, "embedding_spaces": ["text"],
+     "metadata_filter": null,
+     "partition_spec": {"attribute": "vote_average", "bins": [
+       {"label": "Bad (<5)", "min": null, "max": 5},
+       {"label": "Average (5–7)", "min": 5, "max": 7},
+       {"label": "Good (>7)", "min": 7, "max": null}
+     ]}}
   ]}
 
 ---

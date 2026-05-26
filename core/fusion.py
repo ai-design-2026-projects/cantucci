@@ -117,8 +117,9 @@ def combined_distance_matrix(
 
     combined /= total_weight
 
+    effective_weights = {name: float(weights.get(name, 1.0)) for name in embeddings_by_modality}
     log.info(
         "combined_distance_matrix",
-        extra={"n": n, "modalities": list(embeddings_by_modality.keys()), "weights": weights},
+        extra={"n": n, "modalities": list(embeddings_by_modality.keys()), "weights": effective_weights},
     )
     return combined.astype(np.float32)
