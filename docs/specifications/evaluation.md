@@ -116,20 +116,3 @@ A separate judge (`eval/judge/agent.py`) reads the completed transcript and fina
 | `label_accuracy` | Do the cluster labels and summaries accurately describe their exemplar films? |
 | `intent_alignment` | Does the final clustering reflect what the oracle was actually asking for? |
 
-Each score is stored alongside the rendered judge prompt hash so multiple judge versions can coexist and all scoring variations are auditable.
-
-**Validation gate.** Before use in published results, the judge should be calibrated against 30–50 session transcripts hand-labelled independently by both authors. A dimension is cleared for automated scoring only if the judge reaches κ ≥ 0.6 against the human consensus. Dimensions below threshold are reported as "not auto-benchmarkable" and scored manually.
-
----
-
-## 8 Aggregation and reporting
-
-After each run, all session metrics and judge scores can be aggregated into a metric bundle. The recommended approach is mean + 95% percentile bootstrap CI (2000 resamples, seeded) per metric. Aggregation can be broken down by persona, enabling per-persona sensitivity analysis.
-
----
-
-## 9 Oracle types
-
-**LLM-simulated oracles** provide the scale needed for ablation. Each simulated oracle receives a persona, a taste description, and a turn budget. Conditions can be run over N ≥ 20 sessions per condition using the same set of distinct personas, giving within-persona comparisons.
-
-**Human oracles** provide ground truth. A within-subject study (N ≥ 5, randomised condition order, scripted opening prompt, consented recording) runs each participant through conditions. The key validation question is whether the relative ordering of conditions by turns-to-convergence agrees between LLM and human oracles. If they disagree, the human results are authoritative.

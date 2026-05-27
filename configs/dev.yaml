@@ -73,16 +73,6 @@ conversation:
 
 eval:
   max_turns: 15
-  convergence_turns: 2
-  accept_phrases:
-    - "perfect"
-    - "yes, that's it"
-    - "that's exactly"
-    - "show me the full list"
-    - "accept"
-    - "love it"
-    - "that works"
-    - "you got it"
   judge_dimensions:
     - clustering_coherence
     - question_quality

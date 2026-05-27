@@ -60,15 +60,14 @@ CREATE INDEX IF NOT EXISTS eval_sessions_run_id_idx ON eval_sessions (run_id);
 -- Token counts are omitted: only cost_usd is persisted in the live schema.
 CREATE TABLE IF NOT EXISTS conversation_metrics (
     conversation_id      UUID          PRIMARY KEY REFERENCES conversations (id) ON DELETE CASCADE,
-    converged            BOOLEAN       NOT NULL DEFAULT FALSE,
-    turns_to_convergence SMALLINT,                                    -- NULL if not converged
-    num_turns            SMALLINT      NOT NULL DEFAULT 0,
-    avg_cognitive_load   FLOAT,
-    final_num_clusters   SMALLINT,
     silhouette           FLOAT,                                       -- NULL if < 2 clusters
     mean_membership_prob FLOAT,
     noise_fraction       FLOAT,
+    final_num_clusters   SMALLINT,
     spec_satisfaction_rate FLOAT,                                     -- NULL when no ground truth
+    converged            BOOLEAN       NOT NULL DEFAULT FALSE,
+    turns_to_convergence SMALLINT,                                    -- NULL if not converged
+    num_turns            SMALLINT      NOT NULL DEFAULT 0,
     total_cost_usd       NUMERIC(10,4) NOT NULL DEFAULT 0,
     computed_at          TIMESTAMPTZ   NOT NULL DEFAULT NOW()
 );

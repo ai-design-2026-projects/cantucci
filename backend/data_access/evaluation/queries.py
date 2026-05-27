@@ -316,16 +316,15 @@ def list_eval_sessions_for_run(run_id: uuid.UUID) -> list[EvalSessionRow]:
 
 def upsert_conversation_metrics(
     conversation_id: uuid.UUID,
+    silhouette: float | None,
+    mean_membership_prob: float | None,
+    noise_fraction: float | None,
+    final_num_clusters: int | None,
+    spec_satisfaction_rate: float | None,
     converged: bool,
     num_turns: int,
     total_cost_usd: float,
     turns_to_convergence: int | None = None,
-    avg_cognitive_load: float | None = None,
-    final_num_clusters: int | None = None,
-    silhouette: float | None = None,
-    mean_membership_prob: float | None = None,
-    noise_fraction: float | None = None,
-    spec_satisfaction_rate: float | None = None,
 ) -> None:
     """Insert or overwrite deterministic eval metrics for a conversation.
 
@@ -333,45 +332,41 @@ def upsert_conversation_metrics(
 
     Args:
         conversation_id:       Parent conversation UUID.
-        converged:             True if a convergence signal was detected.
-        num_turns:             Total oracle turns.
-        total_cost_usd:        Accumulated LLM cost.
-        turns_to_convergence:  Turn index of first convergence signal, or None.
-        avg_cognitive_load:    Mean cognitive load per assistant turn.
-        final_num_clusters:    Number of clusters in the final snapshot.
         silhouette:            Silhouette score, or None when not computable.
         mean_membership_prob:  Mean argmax membership probability.
         noise_fraction:        Fraction of low-probability movies.
+        final_num_clusters:    Number of clusters in the final snapshot.
         spec_satisfaction_rate: Hidden-spec satisfaction rate, or None.
+        converged:             True if the oracle explicitly accepted.
+        num_turns:             Total oracle turns.
+        total_cost_usd:        Accumulated LLM cost.
+        turns_to_convergence:  Turn index of acceptance, or None.
     """
     with transaction() as conn:
         conn.execute(
             """
             INSERT INTO conversation_metrics (
-                conversation_id, converged, turns_to_convergence, num_turns,
-                avg_cognitive_load, final_num_clusters, silhouette,
-                mean_membership_prob, noise_fraction, spec_satisfaction_rate,
-                total_cost_usd, computed_at
+                conversation_id, silhouette, mean_membership_prob, noise_fraction,
+                final_num_clusters, spec_satisfaction_rate, converged,
+                turns_to_convergence, num_turns, total_cost_usd, computed_at
             )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
             ON CONFLICT (conversation_id) DO UPDATE SET
-                converged             = EXCLUDED.converged,
-                turns_to_convergence  = EXCLUDED.turns_to_convergence,
-                num_turns             = EXCLUDED.num_turns,
-                avg_cognitive_load    = EXCLUDED.avg_cognitive_load,
-                final_num_clusters    = EXCLUDED.final_num_clusters,
                 silhouette            = EXCLUDED.silhouette,
                 mean_membership_prob  = EXCLUDED.mean_membership_prob,
                 noise_fraction        = EXCLUDED.noise_fraction,
+                final_num_clusters    = EXCLUDED.final_num_clusters,
                 spec_satisfaction_rate = EXCLUDED.spec_satisfaction_rate,
+                converged             = EXCLUDED.converged,
+                turns_to_convergence  = EXCLUDED.turns_to_convergence,
+                num_turns             = EXCLUDED.num_turns,
                 total_cost_usd        = EXCLUDED.total_cost_usd,
                 computed_at           = NOW()
             """,
             (
-                conversation_id, converged, turns_to_convergence, num_turns,
-                avg_cognitive_load, final_num_clusters, silhouette,
-                mean_membership_prob, noise_fraction, spec_satisfaction_rate,
-                total_cost_usd,
+                conversation_id, silhouette, mean_membership_prob, noise_fraction,
+                final_num_clusters, spec_satisfaction_rate, converged,
+                turns_to_convergence, num_turns, total_cost_usd,
             ),
         )
     log.info("conversation_metrics_upserted", extra={"conversation_id": str(conversation_id), "converged": converged})
@@ -389,10 +384,9 @@ def get_conversation_metrics(conversation_id: uuid.UUID) -> ConversationMetricsR
     with transaction() as conn:
         row = conn.execute(
             """
-            SELECT conversation_id, converged, turns_to_convergence, num_turns,
-                   avg_cognitive_load, final_num_clusters, silhouette,
-                   mean_membership_prob, noise_fraction, spec_satisfaction_rate,
-                   total_cost_usd, computed_at
+            SELECT conversation_id, silhouette, mean_membership_prob, noise_fraction,
+                   final_num_clusters, spec_satisfaction_rate, converged,
+                   turns_to_convergence, num_turns, total_cost_usd, computed_at
             FROM conversation_metrics WHERE conversation_id = %s
             """,
             (conversation_id,),

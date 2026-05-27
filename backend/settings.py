@@ -251,22 +251,13 @@ class EvalConfig(BaseModel):
     """Evaluation harness configuration.
 
     Attributes:
-        max_turns:           Maximum oracle turns before the runner ends a simulated session.
-        convergence_turns:   Number of consecutive non-state-changing assistant turns that
-                             trigger behavioural convergence.
-        accept_phrases:      Substrings whose presence in an oracle message signals explicit
-                             acceptance (case-insensitive match).
-        judge_dimensions:    Ordered list of LLM-judge dimension names.
-        judge_model_tier:    Which model tier to use for judging (``"strong"`` or ``"fast"``).
-        silhouette_metric:   Distance metric for silhouette_score computation.
+        max_turns:            Maximum oracle turns before the runner ends a simulated session.
+        judge_dimensions:     Ordered list of LLM-judge dimension names.
+        judge_model_tier:     Which model tier to use for judging (``"strong"`` or ``"fast"``).
+        silhouette_metric:    Distance metric for silhouette_score computation.
         noise_prob_threshold: Membership probability below which a movie is counted as noise.
     """
     max_turns: int = 15
-    convergence_turns: int = 2
-    accept_phrases: list[str] = [
-        "perfect", "yes, that's it", "that's exactly", "show me the full list",
-        "accept", "love it", "that works", "you got it",
-    ]
     judge_dimensions: list[str] = [
         "clustering_coherence",
         "question_quality",

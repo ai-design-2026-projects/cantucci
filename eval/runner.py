@@ -218,15 +218,15 @@ async def evaluate_conversation(
 
     upsert_conversation_metrics(
         conversation_id=conversation_id,
+        silhouette=clustering_m.silhouette if clustering_m else None,
+        mean_membership_prob=clustering_m.mean_membership_prob if clustering_m else None,
+        noise_fraction=clustering_m.noise_fraction if clustering_m else None,
+        final_num_clusters=clustering_m.final_num_clusters if clustering_m else None,
+        spec_satisfaction_rate=spec_rate,
         converged=convergence.converged,
         num_turns=convergence.num_turns,
         total_cost_usd=total_cost,
         turns_to_convergence=convergence.turns_to_convergence,
-        final_num_clusters=clustering_m.final_num_clusters if clustering_m else None,
-        silhouette=clustering_m.silhouette if clustering_m else None,
-        mean_membership_prob=clustering_m.mean_membership_prob if clustering_m else None,
-        noise_fraction=clustering_m.noise_fraction if clustering_m else None,
-        spec_satisfaction_rate=spec_rate,
     )
 
     judge_result = await judge_conversation(

@@ -25,15 +25,15 @@ class ClusteringMetrics:
     """Deterministic clustering-quality metrics from the final snapshot.
 
     Attributes:
-        final_num_clusters:   Number of clusters in the snapshot.
         silhouette:           Silhouette score in [-1, 1], or None if not computable.
         mean_membership_prob: Mean argmax membership probability across all movies.
         noise_fraction:       Fraction of movies below the noise_prob_threshold.
+        final_num_clusters:   Number of clusters in the snapshot.
     """
-    final_num_clusters: int
     silhouette: float | None
     mean_membership_prob: float | None
     noise_fraction: float | None
+    final_num_clusters: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -74,10 +74,10 @@ def compute_clustering_metrics(snapshot_id: uuid.UUID) -> ClusteringMetrics:
     members = get_snapshot_member_embeddings(snapshot_id)
     if not members:
         return ClusteringMetrics(
-            final_num_clusters=0,
             silhouette=None,
             mean_membership_prob=None,
             noise_fraction=None,
+            final_num_clusters=0,
         )
 
     cluster_ids = sorted({m.cluster_id for m in members})
@@ -110,10 +110,10 @@ def compute_clustering_metrics(snapshot_id: uuid.UUID) -> ClusteringMetrics:
 
     if not embeddings:
         return ClusteringMetrics(
-            final_num_clusters=num_clusters,
             silhouette=None,
             mean_membership_prob=None,
             noise_fraction=None,
+            final_num_clusters=num_clusters,
         )
 
     embedding_matrix = np.stack(embeddings)
@@ -146,70 +146,39 @@ def compute_clustering_metrics(snapshot_id: uuid.UUID) -> ClusteringMetrics:
         },
     )
     return ClusteringMetrics(
-        final_num_clusters=num_clusters,
         silhouette=silhouette,
         mean_membership_prob=mean_prob,
         noise_fraction=noise_frac,
+        final_num_clusters=num_clusters,
     )
 
 
 def compute_convergence(conversation_id: uuid.UUID) -> ConvergenceResult:
-    """Detect convergence post-hoc by scanning the message history.
+    """Detect convergence from the oracle eval-session status.
 
-    Two signals are checked in order:
-    1. **Explicit acceptance** — an oracle (user) message contains one of the
-       configured ``accept_phrases`` (case-insensitive).
-    2. **Behavioural stability** — ``convergence_turns`` consecutive pairs of
-       (user, assistant) exchanges contain no state-changing vocabulary,
-       indicating the oracle stopped offering corrections.
-
-    The turn index is 1-based (first oracle message = turn 1).
+    Convergence is meaningful only for simulated oracle sessions: the oracle
+    explicitly signals acceptance via intent="accept", which the runner records
+    as ``eval_session.status = "converged"``. Real users simply quit — they
+    produce no convergence signal and always return ``converged=False``.
 
     Args:
-        conversation_id: UUID of the conversation to scan.
+        conversation_id: UUID of the conversation to check.
 
     Returns:
         ``ConvergenceResult`` with convergence flag and turn index.
     """
-    cfg = get_settings()
-    phrases = [p.lower() for p in cfg.eval.accept_phrases]
-    stability_window = cfg.eval.convergence_turns
-
-    _STATE_CHANGING_SIGNALS = {
-        "split", "merge", "focus", "drill", "different", "change",
-        "move", "put", "separate", "no, ", "not ", "actually", "instead",
-    }
+    from backend.data_access.evaluation.queries import get_eval_session_by_conversation
 
     messages = get_messages(conversation_id, limit=1000)
-    user_messages = [m for m in messages if m.role == "user"]
-    num_turns = len(user_messages)
+    num_turns = sum(1 for m in messages if m.role == "user")
 
-    if num_turns == 0:
-        return ConvergenceResult(converged=False, turns_to_convergence=None, num_turns=0)
-
-    for i, msg in enumerate(user_messages):
-        content_lower = msg.content.lower()
-        if any(phrase in content_lower for phrase in phrases):
-            log.debug(
-                "convergence_explicit_accept",
-                extra={"conversation_id": str(conversation_id), "turn": i + 1},
-            )
-            return ConvergenceResult(converged=True, turns_to_convergence=i + 1, num_turns=num_turns)
-
-    stable_count = 0
-    for msg in user_messages:
-        content_lower = msg.content.lower()
-        if not any(sig in content_lower for sig in _STATE_CHANGING_SIGNALS):
-            stable_count += 1
-            if stable_count >= stability_window:
-                turn_idx = num_turns - stability_window + 1
-                log.debug(
-                    "convergence_behavioural",
-                    extra={"conversation_id": str(conversation_id), "turn": turn_idx},
-                )
-                return ConvergenceResult(converged=True, turns_to_convergence=max(1, turn_idx), num_turns=num_turns)
-        else:
-            stable_count = 0
+    session = get_eval_session_by_conversation(conversation_id)
+    if session is not None and session.status == "converged":
+        log.debug(
+            "convergence_oracle_accept",
+            extra={"conversation_id": str(conversation_id), "num_turns": num_turns},
+        )
+        return ConvergenceResult(converged=True, turns_to_convergence=num_turns, num_turns=num_turns)
 
     return ConvergenceResult(converged=False, turns_to_convergence=None, num_turns=num_turns)
 

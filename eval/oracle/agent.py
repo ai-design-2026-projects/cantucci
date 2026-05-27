@@ -20,30 +20,6 @@ _VERBOSITY_HINTS = {
     "verbose": "a short paragraph of four to six sentences",
 }
 
-_MIN_ACCEPT_TURN_FROM_DECISIVENESS = {
-    range(0, 20): 10,
-    range(20, 40): 7,
-    range(40, 60): 5,
-    range(60, 80): 3,
-    range(80, 101): 1,
-}
-
-
-def _min_accept_turn(decisiveness: float) -> int:
-    """Derive the earliest turn the oracle is willing to accept.
-
-    Args:
-        decisiveness: Float in [0, 1]; 1.0 = accepts immediately.
-
-    Returns:
-        1-based minimum turn number for acceptance.
-    """
-    pct = int(decisiveness * 100)
-    for rng, turn in _MIN_ACCEPT_TURN_FROM_DECISIVENESS.items():
-        if pct in rng:
-            return turn
-    return 1
-
 
 def _seeded_roll(probability: float, persona_slug: str, gt_slug: str, seed: int, turn_number: int, salt: str) -> bool:
     """Deterministic Bernoulli roll keyed on session identifiers.
@@ -82,10 +58,6 @@ async def oracle_turn(
     target film set). Behavioural modifiers (drift, contradiction) are rolled
     deterministically so reruns of the same session reproduce the same sequence.
 
-    The acceptance gate is applied after the LLM emits "accept": if the oracle
-    has not yet reached its minimum-turn threshold, the intent is overridden to
-    "continue".
-
     Args:
         persona:         Oracle persona row.
         ground_truth:    Ground truth row (description shown; spec/targets hidden).
@@ -113,15 +85,13 @@ async def oracle_turn(
     )
 
     verbosity_hint = _VERBOSITY_HINTS.get(persona.verbosity, _VERBOSITY_HINTS["medium"])
-    min_turn = _min_accept_turn(persona.decisiveness)
 
-    template = _ENV.get_template("oracle_v1.j2")
+    template = _ENV.get_template("oracle_v2.j2")
     prompt = template.render(
         taste_description=ground_truth.description,
         verbosity=persona.verbosity,
         verbosity_hint=verbosity_hint,
         decisiveness=persona.decisiveness,
-        min_accept_turn=min_turn,
         injected_tangent=injected_tangent,
         injected_contradiction=injected_contradiction,
         transcript=transcript,
@@ -148,13 +118,6 @@ async def oracle_turn(
 
     parsed: OracleLLMResponse = resp.parsed  # type: ignore[assignment]
     result = OracleTurnResult.from_llm_response(parsed, cost=resp.cost_usd)
-
-    if result.intent == "accept" and turn_number < min_turn:
-        log.debug(
-            "oracle_acceptance_gate_blocked",
-            extra={"turn_number": turn_number, "min_accept_turn": min_turn},
-        )
-        result = OracleTurnResult(message=result.message, intent="continue", cost=result.cost)
 
     log.debug(
         "oracle_turn_done",

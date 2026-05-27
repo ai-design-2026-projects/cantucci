@@ -174,28 +174,26 @@ class ConversationMetricsRow:
 
     Attributes:
         conversation_id:       Parent conversation UUID.
-        converged:             True if a convergence signal was detected.
-        turns_to_convergence:  Oracle turn on which convergence fired, or None.
-        num_turns:             Total oracle turns in the conversation.
-        avg_cognitive_load:    Mean cognitive load per assistant turn.
-        final_num_clusters:    Number of clusters in the final snapshot.
         silhouette:            Silhouette score of the final clustering, or None.
         mean_membership_prob:  Mean argmax membership probability across all movies.
         noise_fraction:        Fraction of movies with low membership probability.
+        final_num_clusters:    Number of clusters in the final snapshot.
         spec_satisfaction_rate: Fraction of final-cluster members satisfying the spec, or None.
+        converged:             True if the oracle explicitly accepted (always False for human sessions).
+        turns_to_convergence:  Oracle turn on which acceptance fired, or None.
+        num_turns:             Total oracle turns in the conversation.
         total_cost_usd:        Accumulated LLM cost for the conversation.
         computed_at:           UTC timestamp of this computation.
     """
     conversation_id: uuid.UUID
-    converged: bool
-    turns_to_convergence: int | None
-    num_turns: int
-    avg_cognitive_load: float | None
-    final_num_clusters: int | None
     silhouette: float | None
     mean_membership_prob: float | None
     noise_fraction: float | None
+    final_num_clusters: int | None
     spec_satisfaction_rate: float | None
+    converged: bool
+    turns_to_convergence: int | None
+    num_turns: int
     total_cost_usd: float
     computed_at: datetime
 
@@ -204,15 +202,14 @@ class ConversationMetricsRow:
         """Construct from a psycopg dict_row result."""
         return cls(
             conversation_id=r["conversation_id"],
-            converged=r["converged"],
-            turns_to_convergence=r["turns_to_convergence"],
-            num_turns=r["num_turns"],
-            avg_cognitive_load=r["avg_cognitive_load"],
-            final_num_clusters=r["final_num_clusters"],
             silhouette=r["silhouette"],
             mean_membership_prob=r["mean_membership_prob"],
             noise_fraction=r["noise_fraction"],
+            final_num_clusters=r["final_num_clusters"],
             spec_satisfaction_rate=r["spec_satisfaction_rate"],
+            converged=r["converged"],
+            turns_to_convergence=r["turns_to_convergence"],
+            num_turns=r["num_turns"],
             total_cost_usd=float(r["total_cost_usd"]),
             computed_at=r["computed_at"],
         )

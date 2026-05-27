@@ -81,7 +81,7 @@ async def partition_by(
         top_n_cat = cfg.clustering.partition_by.categorical_top_n
         sorted_items = sorted(buckets.items(), key=lambda x: len(x[1]), reverse=True)
         if len(sorted_items) > top_n_cat:
-            other_mids = [mid for _, mids in sorted_items[top_n_cat:] for mid in mids]
+            other_mids = list(dict.fromkeys(mid for _, mids in sorted_items[top_n_cat:] for mid in mids))
             top_items = sorted(sorted_items[:top_n_cat], key=lambda x: x[0])
         else:
             other_mids = []
