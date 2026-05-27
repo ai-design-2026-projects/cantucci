@@ -45,5 +45,6 @@ The second sprint was dedicated to completing the system architecture, improving
 
 **6. Written documentation**: Alongside my teammate, I contributed to the documentation of the system, including the API specifications and the README files for both the backend and frontend components.
 [
-    [PR #32](https://github.com/ai-design-2026-projects/cantucci/pull/32)
+    [PR #32](https://github.com/ai-design-2026-projects/cantucci/pull/32),
+    [PR #91](https://github.com/ai-design-2026-projects/cantucci/pull/91)
 ]
