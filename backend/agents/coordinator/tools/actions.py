@@ -250,6 +250,10 @@ async def handle_focus(ctx: ActionContext) -> tuple[str, uuid.UUID | None, float
 async def handle_partition_by(ctx: ActionContext) -> tuple[str, uuid.UUID | None, float]:
     """Handle a PARTITION_BY action by grouping movies into deterministic attribute buckets.
 
+    When no target cluster is specified and clusters already exist, returns a clarification
+    question listing the current clusters.  When no clusters exist (unclustered state),
+    proceeds with full-catalogue partitioning as the initial partition path.
+
     When the intent specifies a numeric attribute without bins, intercepts before
     execution and instead calls the partition advisor to propose bins to the user.
     The conversation is marked as awaiting confirmation; on the next turn the intent
@@ -257,12 +261,23 @@ async def handle_partition_by(ctx: ActionContext) -> tuple[str, uuid.UUID | None
 
     Args:
         ctx: Action context.  ``ctx.action.partition_spec`` carries the attribute and bins.
+             ``ctx.action.target_cluster_id`` scopes the partition; ``None`` triggers a
+             clarification when clusters exist, or full-catalogue partitioning from the
+             unclustered state.
 
     Returns:
         Tuple of (reply text, new snapshot id, step cost).
     """
     if ctx.action.partition_spec is None:
         return replies.UNSUPPORTED_OPERATION, ctx.current_cluster_snapshot_id, 0.0
+
+    if ctx.action.target_cluster_id is None and ctx.clusters:
+        mark_awaiting(ctx.conversation_id)
+        return (
+            replies.format_partition_clarification([c.label for c in ctx.clusters]),
+            ctx.current_cluster_snapshot_id,
+            0.0,
+        )
 
     spec = ctx.action.partition_spec
 
