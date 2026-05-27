@@ -429,23 +429,6 @@ def fetch_cluster_profile(movie_ids: list[int]) -> ClusterProfileRow:
     return result
 
 
-def get_movies_by_ids(ids: list[int]) -> list[MovieDetailsRow]:
-    """Return full movie details for a batch of IDs in a single query.
-
-    Silently omits IDs not present in the catalogue. The returned list order
-    mirrors the input *ids* order; unknown IDs are dropped without error.
-
-    Args:
-        ids: Up to 200 TMDB integer IDs to look up.
-
-    Returns:
-        List of ``MovieDetailsRow`` in the same order as *ids*, with missing IDs dropped.
-    """
-    if not ids:
-        return []
-    return fetch_movie_details(ids)
-
-
 _NUMERIC_STAT_COLUMNS: dict[str, str] = {
     "runtime": "runtime",
     "release_year": "release_year",
@@ -561,41 +544,18 @@ def fetch_partition_values(
         log.debug("fetch_partition_values", extra={"attribute": attribute, "n_movies": len(movie_ids)})
         return result_dir
 
-    if attribute == "runtime":
+    col = _NUMERIC_STAT_COLUMNS.get(attribute)
+    if col is not None:
         with transaction() as conn:
             rows = conn.execute(
-                "SELECT id, runtime FROM movies WHERE id = ANY(%s)",
+                f"SELECT id, {col} FROM movies WHERE id = ANY(%s)",
                 (movie_ids,),
             ).fetchall()
-        result_num: dict[int, float | None] = {r["id"]: r["runtime"] for r in rows}
+        result_num: dict[int, float | None] = {r["id"]: r[col] for r in rows}
         for mid in movie_ids:
             result_num.setdefault(mid, None)
         log.debug("fetch_partition_values", extra={"attribute": attribute, "n_movies": len(movie_ids)})
         return result_num
-
-    if attribute == "release_year":
-        with transaction() as conn:
-            rows = conn.execute(
-                "SELECT id, release_year FROM movies WHERE id = ANY(%s)",
-                (movie_ids,),
-            ).fetchall()
-        result_year: dict[int, float | None] = {r["id"]: r["release_year"] for r in rows}
-        for mid in movie_ids:
-            result_year.setdefault(mid, None)
-        log.debug("fetch_partition_values", extra={"attribute": attribute, "n_movies": len(movie_ids)})
-        return result_year
-
-    if attribute == "vote_average":
-        with transaction() as conn:
-            rows = conn.execute(
-                "SELECT id, vote_average FROM movies WHERE id = ANY(%s)",
-                (movie_ids,),
-            ).fetchall()
-        result_rating: dict[int, float | None] = {r["id"]: r["vote_average"] for r in rows}
-        for mid in movie_ids:
-            result_rating.setdefault(mid, None)
-        log.debug("fetch_partition_values", extra={"attribute": attribute, "n_movies": len(movie_ids)})
-        return result_rating
 
     if attribute == "original_language":
         with transaction() as conn:

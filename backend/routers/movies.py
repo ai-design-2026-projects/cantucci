@@ -2,7 +2,7 @@ import logging
 
 from fastapi import APIRouter
 
-from backend.data_access.movies.queries import fetch_movie_details, get_movies_by_ids
+from backend.data_access.movies.queries import fetch_movie_details
 from backend.exceptions import MovieNotFound
 from backend.routers.dto.movies.dtos import MovieBatchRequest, MovieDto
 
@@ -69,6 +69,6 @@ def get_movies_batch(body: MovieBatchRequest) -> list[MovieDto]:
     Returns:
         List of ``MovieDto`` in the same order as *body.ids*, missing IDs dropped.
     """
-    rows = get_movies_by_ids(body.ids)
+    rows = fetch_movie_details(body.ids)
     log.debug("movies_batch", extra={"requested": len(body.ids), "returned": len(rows)})
     return [_row_to_dto(r) for r in rows]

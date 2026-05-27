@@ -108,30 +108,17 @@ def find_cached_snapshot(
         UUID of the cached snapshot if it exists, else None.
     """
     with transaction() as conn:
-        if parent_id is None:
-            row = conn.execute(
-                """
-                SELECT id FROM cluster_snapshots
-                WHERE parent_id IS NULL
-                  AND operation = %s
-                  AND params = %s::jsonb
-                  AND config_hash = %s
-                LIMIT 1
-                """,
-                (operation, json.dumps(params), config_hash),
-            ).fetchone()
-        else:
-            row = conn.execute(
-                """
-                SELECT id FROM cluster_snapshots
-                WHERE parent_id = %s
-                  AND operation = %s
-                  AND params = %s::jsonb
-                  AND config_hash = %s
-                LIMIT 1
-                """,
-                (parent_id, operation, json.dumps(params), config_hash),
-            ).fetchone()
+        row = conn.execute(
+            """
+            SELECT id FROM cluster_snapshots
+            WHERE parent_id IS NOT DISTINCT FROM %s
+              AND operation = %s
+              AND params = %s::jsonb
+              AND config_hash = %s
+            LIMIT 1
+            """,
+            (parent_id, operation, json.dumps(params), config_hash),
+        ).fetchone()
     return row["id"] if row else None
 
 
@@ -258,7 +245,7 @@ def get_cluster_snapshot(cluster_snapshot_id: uuid.UUID) -> ClusterSnapshotRow |
 
 
 def get_cluster_snapshot_with_clusters(cluster_snapshot_id: uuid.UUID) -> ClusterSnapshotWithClusters | None:
-    """Fetch a cluster snapshot and all its clusters.
+    """Fetch a cluster snapshot and all its clusters in a single transaction.
 
     Args:
         cluster_snapshot_id: UUID to look up.
@@ -266,12 +253,14 @@ def get_cluster_snapshot_with_clusters(cluster_snapshot_id: uuid.UUID) -> Cluste
     Returns:
         ``ClusterSnapshotWithClusters`` if found, ``None`` otherwise.
     """
-    snapshot = get_cluster_snapshot(cluster_snapshot_id)
-    if snapshot is None:
-        return None
-
     with transaction() as conn:
-        rows = conn.execute(
+        snapshot_row = conn.execute(
+            "SELECT id, parent_id, operation, params, config_hash, created_at FROM cluster_snapshots WHERE id = %s",
+            (cluster_snapshot_id,),
+        ).fetchone()
+        if snapshot_row is None:
+            return None
+        cluster_rows = conn.execute(
             """
             SELECT id, cluster_snapshot_id, label, summary, exemplar_movie_ids, parent_cluster_id
             FROM clusters
@@ -280,7 +269,8 @@ def get_cluster_snapshot_with_clusters(cluster_snapshot_id: uuid.UUID) -> Cluste
             (cluster_snapshot_id,),
         ).fetchall()
 
-    clusters = [ClusterRow.from_row(r) for r in rows]
+    snapshot = ClusterSnapshotRow.from_row(snapshot_row)
+    clusters = [ClusterRow.from_row(r) for r in cluster_rows]
     log.debug("get_cluster_snapshot_with_clusters", extra={"cluster_snapshot_id": str(cluster_snapshot_id), "n_clusters": len(clusters)})
     return ClusterSnapshotWithClusters(cluster_snapshot=snapshot, clusters=clusters)
 
