@@ -572,4 +572,36 @@ def fetch_partition_values(
         log.debug("fetch_partition_values", extra={"attribute": attribute, "n_movies": len(movie_ids)})
         return result_lang
 
+
+def sample_movies_for_gt(n: int, seed: int) -> list[MovieStubRow]:
+    """Return a random sample of movie stubs for ground-truth trajectory building.
+
+    Uses ``TABLESAMPLE BERNOULLI`` with a PostgreSQL seed for reproducibility.
+    Falls back to ``ORDER BY random()`` when the catalogue is too small for
+    TABLESAMPLE to reliably return enough rows.
+
+    Args:
+        n:    Number of movies to return.
+        seed: Integer seed forwarded to ``setseed()``.
+
+    Returns:
+        List of up to *n* ``MovieStubRow`` instances.
+    """
+    if n <= 0:
+        return []
+    with transaction() as conn:
+        conn.execute("SELECT setseed(%s)", (float(seed % 1000) / 1000.0,))
+        rows = conn.execute(
+            """
+            SELECT id, title, poster_path, release_year, vote_average
+            FROM movies
+            ORDER BY random()
+            LIMIT %s
+            """,
+            (n,),
+        ).fetchall()
+    result = [MovieStubRow.from_row(r) for r in rows]
+    log.debug("sample_movies_for_gt", extra={"n_requested": n, "n_returned": len(result), "seed": seed})
+    return result
+
     raise ValueError(f"Unsupported partition attribute: {attribute!r}")

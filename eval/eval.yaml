@@ -1,11 +1,12 @@
 models:
+  # System under test — loaded by get_settings() via CONFIG_PATH=eval/eval.yaml
   strong:
-    name: "openrouter/owl-alpha"
+    name: "openai/gpt-4o"
     provider: openrouter
     seed: 42
-    max_tokens: 1024
+    max_tokens: 2048
   fast:
-    name: "openrouter/owl-alpha"
+    name: "openai/gpt-4o-mini"
     provider: openrouter
     seed: 42
     max_tokens: 512
@@ -68,7 +69,7 @@ suggestions:
   top_n_signals: 2
 
 conversation:
-  cost_limit_usd: 5.0
+  cost_limit_usd: 10.0
   max_messages: 100
 
 ingestion:
@@ -78,3 +79,41 @@ ingestion:
     main: embeddings/main_20260522.parquet
     mini: embeddings/mini_20260525.parquet
     eval_holdout: embeddings/eval_holdout_20260525.parquet
+
+# Offline eval harness — not parsed by get_settings(); read directly by eval/ modules.
+eval_harness:
+  oracle:
+    # Family B — oracle simulation (Google / Gemini, cheap)
+    name: "google/gemini-flash-1.5"
+    provider: openrouter
+    seed: 42
+    max_tokens: 512
+    cost_limit_usd: 2.0
+    dry_run: false
+
+  judge:
+    # Family C — LLM judge (Anthropic / Claude, stronger)
+    name: "anthropic/claude-3.5-sonnet"
+    provider: openrouter
+    seed: 42
+    max_tokens: 1024
+    cost_limit_usd: 2.0
+    dry_run: false
+
+  runner:
+    max_turns: 15
+
+  scorer:
+    dimensions:
+      - operation_appropriateness
+      - label_accuracy
+      - suggestion_meaningfulness
+      - explanation_quality
+      - intent_alignment
+    silhouette_metric: cosine
+    noise_prob_threshold: 0.3
+
+  gt_builder:
+    max_movies: 30
+    min_ops: 3
+    max_ops: 6

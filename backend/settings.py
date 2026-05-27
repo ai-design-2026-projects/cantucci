@@ -38,7 +38,7 @@ class ModelConfig(BaseModel):
 
 
 class ModelTiers(BaseModel):
-    """Two-tier LLM configuration: a strong default and a cheaper fast tier.
+    """LLM configuration for the system under test.
 
     Attributes:
         strong: Primary model for judgment-heavy agents.
@@ -247,28 +247,6 @@ class ConversationConfig(BaseModel):
     max_messages: int = 100
 
 
-class EvalConfig(BaseModel):
-    """Evaluation harness configuration.
-
-    Attributes:
-        max_turns:            Maximum oracle turns before the runner ends a simulated session.
-        judge_dimensions:     Ordered list of LLM-judge dimension names.
-        judge_model_tier:     Which model tier to use for judging (``"strong"`` or ``"fast"``).
-        silhouette_metric:    Distance metric for silhouette_score computation.
-        noise_prob_threshold: Membership probability below which a movie is counted as noise.
-    """
-    max_turns: int = 15
-    judge_dimensions: list[str] = [
-        "clustering_coherence",
-        "question_quality",
-        "label_accuracy",
-        "intent_alignment",
-    ]
-    judge_model_tier: str = "strong"
-    silhouette_metric: str = "cosine"
-    noise_prob_threshold: float = 0.3
-
-
 class IngestionArtifacts(BaseModel):
     """Timestamped parquet paths in the HF dataset repo.
 
@@ -299,7 +277,7 @@ class Settings(BaseModel):
     """Full typed configuration loaded from a YAML config file.
 
     Attributes:
-        models:         Two-tier LLM model parameters.
+        models:         LLM model tiers for the system under test.
         retrieval:      Vector-search parameters.
         split:          Dataset-generation split parameters.
         representation: Embedding model configuration.
@@ -310,7 +288,6 @@ class Settings(BaseModel):
         intent:         Intent agent parameters (confidence threshold).
         suggestions:    Post-turn suggestion parameters.
         conversation:   Per-conversation limits.
-        eval:           Evaluation harness parameters.
         ingestion:      HF artifact source.
     """
     models: ModelTiers
@@ -324,7 +301,6 @@ class Settings(BaseModel):
     intent: IntentConfig = IntentConfig()
     suggestions: SuggestionsConfig = SuggestionsConfig()
     conversation: ConversationConfig = ConversationConfig()
-    eval: EvalConfig = EvalConfig()
     ingestion: IngestionConfig
 
 

@@ -4,21 +4,18 @@ import uuid
 from typing import Any
 
 from backend.data_access.connection import transaction
-from backend.data_access.evaluation.types import (
+from backend.data_access.eval.types import (
     ConversationMetricsRow,
     EvalSessionRow,
     GroundTruthRow,
     JudgeScoreRow,
     PersonaRow,
     RunRow,
+    TurnIntentRow,
 )
 
 log = logging.getLogger(__name__)
 
-
-# ---------------------------------------------------------------------------
-# Runs
-# ---------------------------------------------------------------------------
 
 def create_run(
     config_hash: str,
@@ -36,7 +33,7 @@ def create_run(
         config_snapshot: Full YAML config dict.
         seed:            RNG seed for the run.
         name:            Human-readable run label.
-        condition:       Experimental condition (conversational | baseline | human).
+        condition:       Experimental condition (conversational | no_agents | monolithic | human).
         model_version:   LLM model identifier string.
         notes:           Free-text notes.
 
@@ -93,16 +90,32 @@ def get_run(run_id: uuid.UUID) -> RunRow | None:
     return RunRow.from_row(row) if row else None
 
 
-# ---------------------------------------------------------------------------
-# Personas
-# ---------------------------------------------------------------------------
+def list_runs(limit: int = 50, offset: int = 0) -> list[RunRow]:
+    """Return runs ordered by creation time descending.
+
+    Args:
+        limit:  Maximum rows to return.
+        offset: Pagination offset.
+
+    Returns:
+        List of ``RunRow``.
+    """
+    with transaction() as conn:
+        rows = conn.execute(
+            """
+            SELECT run_id, config_hash, config_snapshot, seed, started_at,
+                   name, condition, model_version, ended_at, status, notes
+            FROM runs ORDER BY started_at DESC LIMIT %s OFFSET %s
+            """,
+            (limit, offset),
+        ).fetchall()
+    return [RunRow.from_row(r) for r in rows]
+
 
 def create_persona(
     slug: str,
     verbosity: str = "medium",
-    decisiveness: float = 0.5,
-    drift_probability: float = 0.0,
-    contradiction_rate: float = 0.0,
+    patience: float = 0.5,
     definition: dict[str, Any] | None = None,
 ) -> uuid.UUID:
     """Insert a new persona row and return its UUID.
@@ -110,12 +123,10 @@ def create_persona(
     Personas are write-once; changing behaviour requires a new slug.
 
     Args:
-        slug:               Unique persona identifier.
-        verbosity:          Reply-length dial (terse | medium | verbose).
-        decisiveness:       Minimum-turn acceptance probability [0, 1].
-        drift_probability:  Per-turn tangent injection probability [0, 1].
-        contradiction_rate: Per-turn contradiction injection probability [0, 1].
-        definition:         Extra JSONB fields.
+        slug:       Unique persona identifier.
+        verbosity:  Reply-length dial (terse | medium | verbose).
+        patience:   Willingness to continue after system misbehaviour [0, 1].
+        definition: Extra JSONB fields.
 
     Returns:
         UUID of the newly created persona.
@@ -123,11 +134,11 @@ def create_persona(
     with transaction() as conn:
         row = conn.execute(
             """
-            INSERT INTO personas (slug, verbosity, decisiveness, drift_probability, contradiction_rate, definition)
-            VALUES (%s, %s, %s, %s, %s, %s)
+            INSERT INTO personas (slug, verbosity, patience, definition)
+            VALUES (%s, %s, %s, %s)
             RETURNING id
             """,
-            (slug, verbosity, decisiveness, drift_probability, contradiction_rate, json.dumps(definition or {})),
+            (slug, verbosity, patience, json.dumps(definition or {})),
         ).fetchone()
     persona_id: uuid.UUID = row["id"]
     log.info("persona_created", extra={"persona_id": str(persona_id), "slug": slug})
@@ -145,7 +156,7 @@ def get_persona_by_slug(slug: str) -> PersonaRow | None:
     """
     with transaction() as conn:
         row = conn.execute(
-            "SELECT id, slug, verbosity, decisiveness, drift_probability, contradiction_rate, definition, created_at FROM personas WHERE slug = %s",
+            "SELECT id, slug, verbosity, patience, definition, created_at FROM personas WHERE slug = %s",
             (slug,),
         ).fetchone()
     return PersonaRow.from_row(row) if row else None
@@ -159,30 +170,29 @@ def list_personas() -> list[PersonaRow]:
     """
     with transaction() as conn:
         rows = conn.execute(
-            "SELECT id, slug, verbosity, decisiveness, drift_probability, contradiction_rate, definition, created_at FROM personas ORDER BY created_at ASC",
+            "SELECT id, slug, verbosity, patience, definition, created_at FROM personas ORDER BY created_at ASC",
         ).fetchall()
     return [PersonaRow.from_row(r) for r in rows]
 
 
-# ---------------------------------------------------------------------------
-# Ground truths
-# ---------------------------------------------------------------------------
-
 def create_ground_truth(
     slug: str,
-    description: str,
-    seed_movie_ids: list[int],
-    target_movie_ids: list[int],
-    spec: dict[str, Any] | None = None,
+    intent_description: str,
+    operations: list[dict[str, str]],
+    prompt_hash: str,
+    *,
+    version: int = 1,
+    seed_movie_ids: list[int] | None = None,
 ) -> uuid.UUID:
     """Insert a new ground truth row and return its UUID.
 
     Args:
-        slug:             Unique identifier string.
-        description:      Neutral taste description shown to the oracle.
-        seed_movie_ids:   Seed TMDB IDs used to expand the target set.
-        target_movie_ids: Hidden expanded film set for spec-satisfaction scoring.
-        spec:             Positive/negative criteria dict.
+        slug:              Unique identifier string.
+        intent_description: Neutral intent description shown to the oracle.
+        operations:        Ordered list of {op, concept} dicts.
+        prompt_hash:       SHA-256 hex of the GT builder prompts.
+        version:           Schema version for replay compatibility.
+        seed_movie_ids:    Movie IDs used by the builder for audit, or None.
 
     Returns:
         UUID of the newly created ground truth.
@@ -190,16 +200,17 @@ def create_ground_truth(
     with transaction() as conn:
         row = conn.execute(
             """
-            INSERT INTO ground_truths (slug, description, seed_movie_ids, target_movie_ids, spec)
-            VALUES (%s, %s, %s, %s, %s)
+            INSERT INTO ground_truths (slug, version, intent_description, operations, seed_movie_ids, prompt_hash)
+            VALUES (%s, %s, %s, %s, %s, %s)
             RETURNING id
             """,
             (
                 slug,
-                description,
-                json.dumps(seed_movie_ids),
-                json.dumps(target_movie_ids),
-                json.dumps(spec or {}),
+                version,
+                intent_description,
+                json.dumps(operations),
+                json.dumps(seed_movie_ids) if seed_movie_ids is not None else None,
+                prompt_hash,
             ),
         ).fetchone()
     gt_id: uuid.UUID = row["id"]
@@ -218,20 +229,36 @@ def get_ground_truth_by_slug(slug: str) -> GroundTruthRow | None:
     """
     with transaction() as conn:
         row = conn.execute(
-            "SELECT id, slug, description, seed_movie_ids, target_movie_ids, spec, created_at FROM ground_truths WHERE slug = %s",
+            """
+            SELECT id, slug, version, intent_description, operations, seed_movie_ids, prompt_hash, created_at
+            FROM ground_truths WHERE slug = %s
+            """,
             (slug,),
         ).fetchone()
     return GroundTruthRow.from_row(row) if row else None
 
 
-# ---------------------------------------------------------------------------
-# Eval sessions
-# ---------------------------------------------------------------------------
+def list_ground_truths() -> list[GroundTruthRow]:
+    """Return all ground truths ordered by creation time.
+
+    Returns:
+        List of ``GroundTruthRow`` ordered by ``created_at`` ascending.
+    """
+    with transaction() as conn:
+        rows = conn.execute(
+            """
+            SELECT id, slug, version, intent_description, operations, seed_movie_ids, prompt_hash, created_at
+            FROM ground_truths ORDER BY created_at ASC
+            """,
+        ).fetchall()
+    return [GroundTruthRow.from_row(r) for r in rows]
+
 
 def create_eval_session(
     run_id: uuid.UUID,
     conversation_id: uuid.UUID,
     seed: int,
+    condition: str = "conversational",
     persona_id: uuid.UUID | None = None,
     ground_truth_id: uuid.UUID | None = None,
 ) -> uuid.UUID:
@@ -241,6 +268,7 @@ def create_eval_session(
         run_id:          Parent run UUID.
         conversation_id: Linked conversation UUID.
         seed:            Per-session RNG seed.
+        condition:       Experimental condition.
         persona_id:      Oracle persona UUID, or None for human sessions.
         ground_truth_id: Ground truth UUID, or None for human sessions.
 
@@ -250,30 +278,38 @@ def create_eval_session(
     with transaction() as conn:
         row = conn.execute(
             """
-            INSERT INTO eval_sessions (run_id, conversation_id, persona_id, ground_truth_id, seed)
-            VALUES (%s, %s, %s, %s, %s)
+            INSERT INTO eval_sessions (run_id, conversation_id, persona_id, ground_truth_id, seed, condition)
+            VALUES (%s, %s, %s, %s, %s, %s)
             RETURNING id
             """,
-            (run_id, conversation_id, persona_id, ground_truth_id, seed),
+            (run_id, conversation_id, persona_id, ground_truth_id, seed, condition),
         ).fetchone()
     session_id: uuid.UUID = row["id"]
     log.info("eval_session_created", extra={"eval_session_id": str(session_id), "conversation_id": str(conversation_id)})
     return session_id
 
 
-def set_eval_session_status(conversation_id: uuid.UUID, status: str) -> None:
-    """Update the status of an eval session keyed by its conversation.
+def set_eval_session_termination(
+    eval_session_id: uuid.UUID,
+    *,
+    status: str,
+    rationale: str | None,
+    oracle_rating: int | None,
+) -> None:
+    """Record the oracle's termination decision on an eval session.
 
     Args:
-        conversation_id: Linked conversation UUID.
-        status:          New status (active | converged | abandoned).
+        eval_session_id: Eval session UUID to update.
+        status:          Terminal status (finished_trajectory | finished_misbehaviour | finished_budget).
+        rationale:       Free-text rationale from oracle.
+        oracle_rating:   1–5 self-rating from oracle, or None for human/no-rating.
     """
     with transaction() as conn:
         conn.execute(
-            "UPDATE eval_sessions SET status = %s WHERE conversation_id = %s",
-            (status, conversation_id),
+            "UPDATE eval_sessions SET status = %s, termination_rationale = %s, oracle_rating = %s WHERE id = %s",
+            (status, rationale, oracle_rating, eval_session_id),
         )
-    log.info("eval_session_status_updated", extra={"conversation_id": str(conversation_id), "status": status})
+    log.info("eval_session_terminated", extra={"eval_session_id": str(eval_session_id), "status": status})
 
 
 def get_eval_session_by_conversation(conversation_id: uuid.UUID) -> EvalSessionRow | None:
@@ -287,8 +323,33 @@ def get_eval_session_by_conversation(conversation_id: uuid.UUID) -> EvalSessionR
     """
     with transaction() as conn:
         row = conn.execute(
-            "SELECT id, run_id, conversation_id, persona_id, ground_truth_id, seed, status, created_at FROM eval_sessions WHERE conversation_id = %s",
+            """
+            SELECT id, run_id, conversation_id, persona_id, ground_truth_id,
+                   seed, condition, status, termination_rationale, oracle_rating, created_at
+            FROM eval_sessions WHERE conversation_id = %s
+            """,
             (conversation_id,),
+        ).fetchone()
+    return EvalSessionRow.from_row(row) if row else None
+
+
+def get_eval_session(eval_session_id: uuid.UUID) -> EvalSessionRow | None:
+    """Fetch an eval session by its UUID.
+
+    Args:
+        eval_session_id: Eval session UUID.
+
+    Returns:
+        ``EvalSessionRow`` if found, ``None`` otherwise.
+    """
+    with transaction() as conn:
+        row = conn.execute(
+            """
+            SELECT id, run_id, conversation_id, persona_id, ground_truth_id,
+                   seed, condition, status, termination_rationale, oracle_rating, created_at
+            FROM eval_sessions WHERE id = %s
+            """,
+            (eval_session_id,),
         ).fetchone()
     return EvalSessionRow.from_row(row) if row else None
 
@@ -304,15 +365,90 @@ def list_eval_sessions_for_run(run_id: uuid.UUID) -> list[EvalSessionRow]:
     """
     with transaction() as conn:
         rows = conn.execute(
-            "SELECT id, run_id, conversation_id, persona_id, ground_truth_id, seed, status, created_at FROM eval_sessions WHERE run_id = %s ORDER BY created_at ASC",
+            """
+            SELECT id, run_id, conversation_id, persona_id, ground_truth_id,
+                   seed, condition, status, termination_rationale, oracle_rating, created_at
+            FROM eval_sessions WHERE run_id = %s ORDER BY created_at ASC
+            """,
             (run_id,),
         ).fetchall()
     return [EvalSessionRow.from_row(r) for r in rows]
 
 
-# ---------------------------------------------------------------------------
-# Conversation metrics
-# ---------------------------------------------------------------------------
+def insert_turn_intent(
+    conversation_id: uuid.UUID,
+    turn_number: int,
+    mode: str,
+    confidence: float,
+    raw_intent: dict[str, Any],
+    *,
+    concept: str | None = None,
+    target_cluster_id: uuid.UUID | None = None,
+    clarifier_fired: bool = False,
+) -> uuid.UUID:
+    """Persist one intent action row for a coordinator turn.
+
+    Compound turns with multiple actions produce multiple rows (same turn_number,
+    different mode). The UNIQUE constraint on (conversation_id, turn_number, mode)
+    prevents duplicate inserts.
+
+    Args:
+        conversation_id:   Parent conversation UUID.
+        turn_number:       1-based oracle turn ordinal.
+        mode:              NavigationMode or DialogueMode value string.
+        confidence:        Intent confidence in [0, 1].
+        raw_intent:        Full raw intent dict for audit.
+        concept:           Semantic concept string, or None.
+        target_cluster_id: Target cluster UUID, or None.
+        clarifier_fired:   True if the clarifier gate fired this turn.
+
+    Returns:
+        UUID of the inserted row.
+    """
+    with transaction() as conn:
+        row = conn.execute(
+            """
+            INSERT INTO turn_intents (
+                conversation_id, turn_number, mode, concept,
+                target_cluster_id, confidence, clarifier_fired, raw_intent
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (conversation_id, turn_number, mode) DO NOTHING
+            RETURNING id
+            """,
+            (
+                conversation_id, turn_number, mode, concept,
+                target_cluster_id, confidence, clarifier_fired,
+                json.dumps(raw_intent),
+            ),
+        ).fetchone()
+    if row is None:
+        log.debug("turn_intent_duplicate_skipped", extra={"conversation_id": str(conversation_id), "turn_number": turn_number, "mode": mode})
+        return uuid.UUID(int=0)
+    return row["id"]
+
+
+def list_turn_intents(conversation_id: uuid.UUID) -> list[TurnIntentRow]:
+    """Return all turn intent rows for a conversation, ordered by turn then created.
+
+    Args:
+        conversation_id: Parent conversation UUID.
+
+    Returns:
+        List of ``TurnIntentRow`` ordered by (turn_number, created_at) ascending.
+    """
+    with transaction() as conn:
+        rows = conn.execute(
+            """
+            SELECT id, conversation_id, turn_number, mode, concept,
+                   target_cluster_id, confidence, clarifier_fired, raw_intent, created_at
+            FROM turn_intents WHERE conversation_id = %s
+            ORDER BY turn_number ASC, created_at ASC
+            """,
+            (conversation_id,),
+        ).fetchall()
+    return [TurnIntentRow.from_row(r) for r in rows]
+
 
 def upsert_conversation_metrics(
     conversation_id: uuid.UUID,
@@ -320,11 +456,11 @@ def upsert_conversation_metrics(
     mean_membership_prob: float | None,
     noise_fraction: float | None,
     final_num_clusters: int | None,
-    spec_satisfaction_rate: float | None,
-    converged: bool,
+    operation_recall: float | None,
+    clarifier_trigger_rate: float | None,
     num_turns: int,
+    num_operations: int,
     total_cost_usd: float,
-    turns_to_convergence: int | None = None,
 ) -> None:
     """Insert or overwrite deterministic eval metrics for a conversation.
 
@@ -336,40 +472,40 @@ def upsert_conversation_metrics(
         mean_membership_prob:  Mean argmax membership probability.
         noise_fraction:        Fraction of low-probability movies.
         final_num_clusters:    Number of clusters in the final snapshot.
-        spec_satisfaction_rate: Hidden-spec satisfaction rate, or None.
-        converged:             True if the oracle explicitly accepted.
+        operation_recall:      Fraction of GT operations executed, or None.
+        clarifier_trigger_rate: Fraction of turns with clarifier gate fired.
         num_turns:             Total oracle turns.
+        num_operations:        Total navigation operations executed.
         total_cost_usd:        Accumulated LLM cost.
-        turns_to_convergence:  Turn index of acceptance, or None.
     """
     with transaction() as conn:
         conn.execute(
             """
             INSERT INTO conversation_metrics (
                 conversation_id, silhouette, mean_membership_prob, noise_fraction,
-                final_num_clusters, spec_satisfaction_rate, converged,
-                turns_to_convergence, num_turns, total_cost_usd, computed_at
+                final_num_clusters, operation_recall, clarifier_trigger_rate,
+                num_turns, num_operations, total_cost_usd, computed_at
             )
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
             ON CONFLICT (conversation_id) DO UPDATE SET
-                silhouette            = EXCLUDED.silhouette,
-                mean_membership_prob  = EXCLUDED.mean_membership_prob,
-                noise_fraction        = EXCLUDED.noise_fraction,
-                final_num_clusters    = EXCLUDED.final_num_clusters,
-                spec_satisfaction_rate = EXCLUDED.spec_satisfaction_rate,
-                converged             = EXCLUDED.converged,
-                turns_to_convergence  = EXCLUDED.turns_to_convergence,
-                num_turns             = EXCLUDED.num_turns,
-                total_cost_usd        = EXCLUDED.total_cost_usd,
-                computed_at           = NOW()
+                silhouette             = EXCLUDED.silhouette,
+                mean_membership_prob   = EXCLUDED.mean_membership_prob,
+                noise_fraction         = EXCLUDED.noise_fraction,
+                final_num_clusters     = EXCLUDED.final_num_clusters,
+                operation_recall       = EXCLUDED.operation_recall,
+                clarifier_trigger_rate = EXCLUDED.clarifier_trigger_rate,
+                num_turns              = EXCLUDED.num_turns,
+                num_operations         = EXCLUDED.num_operations,
+                total_cost_usd         = EXCLUDED.total_cost_usd,
+                computed_at            = NOW()
             """,
             (
                 conversation_id, silhouette, mean_membership_prob, noise_fraction,
-                final_num_clusters, spec_satisfaction_rate, converged,
-                turns_to_convergence, num_turns, total_cost_usd,
+                final_num_clusters, operation_recall, clarifier_trigger_rate,
+                num_turns, num_operations, total_cost_usd,
             ),
         )
-    log.info("conversation_metrics_upserted", extra={"conversation_id": str(conversation_id), "converged": converged})
+    log.info("conversation_metrics_upserted", extra={"conversation_id": str(conversation_id)})
 
 
 def get_conversation_metrics(conversation_id: uuid.UUID) -> ConversationMetricsRow | None:
@@ -385,18 +521,14 @@ def get_conversation_metrics(conversation_id: uuid.UUID) -> ConversationMetricsR
         row = conn.execute(
             """
             SELECT conversation_id, silhouette, mean_membership_prob, noise_fraction,
-                   final_num_clusters, spec_satisfaction_rate, converged,
-                   turns_to_convergence, num_turns, total_cost_usd, computed_at
+                   final_num_clusters, operation_recall, clarifier_trigger_rate,
+                   num_turns, num_operations, total_cost_usd, computed_at
             FROM conversation_metrics WHERE conversation_id = %s
             """,
             (conversation_id,),
         ).fetchone()
     return ConversationMetricsRow.from_row(row) if row else None
 
-
-# ---------------------------------------------------------------------------
-# Judge scores
-# ---------------------------------------------------------------------------
 
 def insert_judge_score(
     conversation_id: uuid.UUID,
