@@ -8,7 +8,7 @@ from backend.agents.concept.scoring import score_movies
 from backend.agents.concept.types import ConceptRep
 from backend.agents.clustering.types import Modality
 from backend.data_access.cluster_snapshots.queries import get_cluster_snapshot_with_clusters, get_memberships
-from backend.data_access.movies.queries import fetch_text_embeddings, fetch_modality_embeddings, list_movie_ids
+from backend.data_access.movies.queries import fetch_modality_embeddings, list_movie_ids
 from backend.settings import get_settings
 from core.fusion import combined_distance_matrix
 
@@ -36,6 +36,12 @@ async def drill_down(
     If a concept is supplied, movies are scored and split at the median before clustering
     each half separately. Otherwise HDBSCAN runs on the full input set.
 
+    All paths go through UMAP dimensionality reduction before HDBSCAN so that every
+    modality (text, trailer, review, or any combination) benefits from the same
+    soft-clustering quality as the single-text path. For multi-modal requests the
+    combined distance matrix is embedded via UMAP with ``metric="precomputed"``; for
+    groups too small for UMAP the precomputed-distance path is used as a fallback.
+
     Args:
         source_cluster_id:          Cluster to split; ``None`` to operate on a broader set.
         concept:                    Optional concept to guide the split.
@@ -47,8 +53,11 @@ async def drill_down(
 
     Returns:
         ``ClusterSnapshotDraft`` ready to be persisted.
+
+    Raises:
+        ValueError: If concept-based clustering is requested without text embeddings in
+                    ``embedding_spaces`` (concept scoring requires text vectors).
     """
-    # If no embedding spaces were specified, default to using the text embeddings
     if embedding_spaces is None:
         embedding_spaces = [Modality.TEXT]
 
@@ -83,27 +92,26 @@ async def drill_down(
     if not resolved_movie_ids:
         raise ValueError("No movies found for clustering")
 
-    # Determine the embedding map based on the specified embedding spaces
-    if len(embedding_spaces) == 1 and embedding_spaces[0] == Modality.TEXT:
-        emb_map = fetch_text_embeddings(resolved_movie_ids)
-        available_ids = [movie_id for movie_id in resolved_movie_ids if movie_id in emb_map]
-        multi_modal = False
-    else:
-        space_keys = [s.value for s in embedding_spaces]
-        # Fetch embeddings for all specified modalities in one go
-        modal_data = fetch_modality_embeddings(resolved_movie_ids, space_keys)
-
-        # Only keep movies that have embeddings in all the specified modalities
-        available_ids = [
-            movie_id for movie_id in resolved_movie_ids
-            if all(movie_id in modal_data[m] for m in space_keys)
-        ]
-        multi_modal = True
-        emb_map = {movie_id: modal_data["text"][movie_id].tolist() for movie_id in available_ids if "text" in modal_data}
+    space_keys = [s.value for s in embedding_spaces]
+    modal_data = fetch_modality_embeddings(resolved_movie_ids, space_keys)
+    available_ids = [
+        movie_id for movie_id in resolved_movie_ids
+        if all(movie_id in modal_data[m] for m in space_keys)
+    ]
 
     if not available_ids:
         src = str(source_cluster_id) if source_cluster_id else "full catalogue"
         raise ValueError(f"No embeddings found for {src}")
+
+    # Concept scoring operates in text embedding space; raise early if text is absent.
+    emb_map: dict[int, list[float]] = {}
+    if concept is not None:
+        if Modality.TEXT.value not in space_keys:
+            raise ValueError(
+                "Concept-based drill_down requires text embeddings; "
+                "none were requested in embedding_spaces"
+            )
+        emb_map = {mid: modal_data[Modality.TEXT.value][mid].tolist() for mid in available_ids}
 
     params: dict = {
         "operation": "drill_down",
@@ -114,33 +122,33 @@ async def drill_down(
     }
 
     def _cluster_group(group_ids: list[int]) -> "SoftClusterResult":  # type: ignore[name-defined]
-        """Cluster the given group of movie IDs, using either single-modality or multi-modal embeddings as appropriate."""
-        if multi_modal:
-            # Map each modality to its embedding matrix for the movies in this group
-            embs_by_modality = {
-                space.value: np.array([modal_data[space.value][movie_id] for movie_id in group_ids], dtype=np.float32)
-                for space in embedding_spaces
-            }
-            # Compute a combined distance matrix across modalities and feed it to HDBSCAN for clustering
-            runtime_weights = cfg.fusion.runtime_weights
-            dist_mat = combined_distance_matrix(embs_by_modality, runtime_weights)
-            # Run HDBSCAN directly on the precomputed distance matrix, since we don't have a single embedding space to reduce to
-            return subcluster(
-                None,
-                cfg.clustering.online.drilldown_min_cluster_size,
-                distance_matrix=dist_mat,
-                cluster_selection_epsilon=cfg.clustering.online.cluster_selection_epsilon,
-            )
-        else:
-            group_embs = np.array([emb_map[movie_id] for movie_id in group_ids], dtype=np.float32)
-            group_embs = reduce_for_clustering(group_embs, cfg.umap, cfg.split.seed)
-            return subcluster(
-                group_embs,
-                cfg.clustering.online.drilldown_min_cluster_size,
-                cluster_selection_epsilon=cfg.clustering.online.cluster_selection_epsilon,
-            )
+        """Cluster the given group of movie IDs via UMAP reduction then soft euclidean HDBSCAN.
 
-    # If a concept is provided, score the movies and split into high/low groups before clustering each separately to create more concept-coherent clusters
+        Single-modality requests reduce the embedding matrix with UMAP(metric="cosine").
+        Multi-modal requests build a combined cosine distance matrix then reduce it with
+        UMAP(metric="precomputed"); groups too small for UMAP fall back to precomputed
+        HDBSCAN with hard labels.
+        """
+        min_cluster_size = cfg.clustering.online.drilldown_min_cluster_size
+        epsilon = cfg.clustering.online.cluster_selection_epsilon
+
+        if len(embedding_spaces) == 1:
+            space_key = embedding_spaces[0].value
+            group_embs = np.array([modal_data[space_key][mid] for mid in group_ids], dtype=np.float32)
+            group_embs = reduce_for_clustering(group_embs, cfg.umap, cfg.split.seed)
+            return subcluster(group_embs, min_cluster_size, cluster_selection_epsilon=epsilon)
+
+        embs_by_modality = {
+            space.value: np.array([modal_data[space.value][mid] for mid in group_ids], dtype=np.float32)
+            for space in embedding_spaces
+        }
+        dist_mat = combined_distance_matrix(embs_by_modality, cfg.fusion.runtime_weights)
+        reduced = reduce_for_clustering(dist_mat, cfg.umap, cfg.split.seed, metric="precomputed")
+        if reduced.shape == dist_mat.shape:
+            # Group too small for UMAP; use precomputed distance path with hard labels.
+            return subcluster(None, min_cluster_size, distance_matrix=dist_mat, cluster_selection_epsilon=epsilon)
+        return subcluster(reduced, min_cluster_size, cluster_selection_epsilon=epsilon)
+
     if concept is not None:
         concept_scores = score_movies(concept, available_ids, emb_map)
         median_score = float(np.median(list(concept_scores.values())))
@@ -165,7 +173,6 @@ async def drill_down(
                     memberships=members,
                 ))
     else:
-        # No concept provided, just cluster the whole set of available movies in one go
         result = _cluster_group(available_ids)
         clusters = []
         for ci in range(result.n_clusters):
