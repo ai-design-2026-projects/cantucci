@@ -8,8 +8,7 @@ An AI system that clusters a movie catalogue by *conversing* with a human oracle
 ---
 ## Demo video
 
-https://github.com/user-attachments/assets/b308d0ea-cb32-4a1b-897f-7ba45f78df00
-
+https://github.com/user-attachments/assets/42d8f3e9-570d-4299-9873-528132f1a5f6
 
 ---
 
