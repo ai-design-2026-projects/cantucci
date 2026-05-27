@@ -1,60 +1,81 @@
 # Data Model
 
 PostgreSQL schema for the conversational clustering system.
-We distinguish two logical groups:
+We distinguish three logical groups:
 - **catalogue tables** — ingested once from the dataset, read-only during session runtime.
-- **session tables** — written at runtime to capture the evolving state of each conversation.
+- **conversation tables** — written at runtime to capture the evolving state of each conversation.
+- **clustering tables** — the content-addressed snapshot tree, its clusters, and soft memberships.
 
-Extensions required: `pgvector` (for `VECTOR` columns) and `pgcrypto` (for `gen_random_uuid()`).
+Extensions required: `vector` (pgvector, for `VECTOR` columns), `pgcrypto` (for `gen_random_uuid()`),
+and `pg_trgm` (trigram indexing). See `db/migrations/001_extensions.sql`.
+
+The authoritative source is the numbered migrations under `db/migrations/`; this document is the
+effective final shape after migrations 001–011.
 
 ---
 
 ## Catalogue tables
 
-Populated once at ingest time by `db/ingest.py`, which loads the HuggingFace-hosted embedded parquet (produced by `db/scrape.py` → `notebooks/embed_in_colab.ipynb`) into the schema below. Read-only during the conversational loop.
+Populated once at ingest time by `db/ingest.py`, which loads the HuggingFace-hosted embedded
+parquet (produced by `dataset/scraper.py` → `notebooks/embed_in_colab.ipynb`) into the schema
+below. Read-only during the conversational loop.
 
 ### `movies`
 
-Primary entity. One row per film.
+Primary entity. One row per film. Defined in `db/migrations/003_catalogue.sql`; the
+`trailer_embedding` index is added in `010_trailer_embedding_index.sql`.
 
 ```sql
 CREATE TABLE movies (
-    id                BIGINT       PRIMARY KEY,         -- TMDB integer ID
-    imdb_id           VARCHAR(12)  UNIQUE,              -- e.g. "tt0111161"
-    title             TEXT         NOT NULL,
-    original_title    TEXT,
-    original_language VARCHAR(10),                      -- ISO 639-1
-    overview          TEXT,                             -- synopsis
-    tagline           TEXT,
-    release_date      DATE,
-    release_year      SMALLINT     GENERATED ALWAYS AS (EXTRACT(YEAR FROM release_date)::SMALLINT) STORED,
-    runtime           FLOAT,                            -- minutes
-    budget            BIGINT,                           -- USD; 0 = unknown
-    revenue           BIGINT,                           -- USD; 0 = unknown
-    popularity        FLOAT,                            -- TMDB score at capture time
-    vote_average      FLOAT,
-    vote_count        INTEGER,
-    bayesian_rating   FLOAT,                            -- (v*R + m*C)/(v+m) computed at ingest
-    status            VARCHAR(30),                      -- Released, In Production, etc.
-    adult             BOOLEAN      DEFAULT FALSE,
-    video             BOOLEAN      DEFAULT FALSE,
-    poster_path       TEXT,                             -- relative; prepend TMDB base URL at serve time
-    homepage          TEXT,
-    collection_id     BIGINT       REFERENCES collections(id),
-    embedding         VECTOR(1024) NOT NULL             -- BAAI/bge-large-en-v1.5 on composite text
+    id                  INTEGER PRIMARY KEY,          -- TMDB integer ID
+    title               TEXT    NOT NULL,
+    original_title      TEXT,
+    release_year        INTEGER,
+    runtime             FLOAT,                         -- minutes
+    vote_average        FLOAT,
+    vote_count          INTEGER,
+    bayesian_rating     FLOAT,                         -- (v*R + m*C)/(v+m) computed at ingest
+    overview            TEXT,                          -- synopsis
+    tagline             TEXT,
+    poster_path         TEXT,                          -- relative; prepend TMDB base URL at serve time
+    original_language   TEXT,                          -- ISO 639-1
+    composite_text      TEXT,                          -- concatenated fields embedded as text_embedding
+    reviews_text        TEXT,                          -- concatenated reviews embedded as review_embedding
+    text_embedding      VECTOR(1024),                  -- BAAI/bge-large-en-v1.5 on composite_text
+    review_embedding    VECTOR(1024),                  -- BGE on reviews_text; NULL when no reviews
+    trailer_youtube_key TEXT,                          -- YouTube key of the official trailer, or NULL
+    trailer_embedding   VECTOR(1024),                  -- mean-pooled CLIP over trailer frames; NULL when absent
+    umap_x              FLOAT,                          -- 2D UMAP projection for scatter visualisation
+    umap_y              FLOAT
 );
 
-CREATE INDEX ON movies USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100);
-CREATE INDEX ON movies (release_year);
-CREATE INDEX ON movies (original_language);
-CREATE INDEX ON movies (vote_count);
+CREATE INDEX movies_text_embedding_idx
+    ON movies USING ivfflat (text_embedding vector_cosine_ops) WITH (lists = 100);
+
+CREATE INDEX movies_review_embedding_idx
+    ON movies USING ivfflat (review_embedding vector_cosine_ops) WITH (lists = 100)
+    WHERE review_embedding IS NOT NULL;
+
+CREATE INDEX movies_trailer_embedding_idx
+    ON movies USING ivfflat (trailer_embedding vector_cosine_ops) WITH (lists = 100)
+    WHERE trailer_embedding IS NOT NULL;
 ```
 
-`bayesian_rating` uses `(v * R + m * C) / (v + m)` where `v = vote_count`, `R = vote_average`, `m` = minimum vote threshold, `C` = global mean. Use this as the ranking signal; raw `vote_average` should not be used alone.
+`bayesian_rating` uses `(v * R + m * C) / (v + m)` where `v = vote_count`, `R = vote_average`,
+`m` = minimum vote threshold, `C` = global mean. Use this as the ranking signal; raw
+`vote_average` should not be used alone.
 
-The `embedding` column stores the pre-computed vector representation of the movie based on a composite of its metadata fields. This allows for efficient similarity search during retrieval.
+Each movie carries **three embedding modalities**, matching the `Modality` enum used at runtime
+(`backend/agents/clustering/types.py`):
 
-The composite text should include the most salient attributes for clustering. We concatenate the following fields:
+- `text_embedding` — always present; the fused/text BGE embedding over `composite_text`.
+- `review_embedding` — present when reviews were available.
+- `trailer_embedding` — present when a trailer was fetched and frame-encoded via CLIP.
+
+The review and trailer indexes are **partial** (`WHERE … IS NOT NULL`) so the many rows without
+that modality are not indexed.
+
+`composite_text` concatenates the most salient attributes for clustering, e.g.:
 
 ```
 {title} {original_title} {overview} {tagline} {genres} {top3_cast} {director}
@@ -62,166 +83,94 @@ The composite text should include the most salient attributes for clustering. We
 
 ---
 
-### `collections`
+### `genres`, `people`, `keywords`
 
-Extracted from the `belongs_to_collection` field on each TMDB API response. Represents franchises (e.g. "The Lord of the Rings Collection").
-
-```sql
-CREATE TABLE collections (
-    id            BIGINT  PRIMARY KEY,     -- TMDB collection ID
-    name          TEXT    NOT NULL,
-    poster_path   TEXT,
-    backdrop_path TEXT
-);
-```
-
----
-
-### `genres`
-Each movie can belong to multiple genres and each genre can apply to multiple movies, so we use a join table:
+Simple lookup tables with `SERIAL` primary keys.
 
 ```sql
 CREATE TABLE genres (
-    id    INTEGER     PRIMARY KEY,         -- TMDB genre ID
-    name  VARCHAR(50) NOT NULL
+    id   SERIAL PRIMARY KEY,
+    name TEXT   NOT NULL UNIQUE
 );
 
-CREATE TABLE movie_genres (
-    movie_id  BIGINT  NOT NULL REFERENCES movies(id) ON DELETE CASCADE,
-    genre_id  INTEGER NOT NULL REFERENCES genres(id),
-    PRIMARY KEY (movie_id, genre_id)
+CREATE TABLE people (
+    id   SERIAL PRIMARY KEY,
+    name TEXT   NOT NULL
+);
+
+CREATE TABLE keywords (
+    id   SERIAL PRIMARY KEY,
+    name TEXT   NOT NULL UNIQUE
 );
 ```
 
 ---
 
-### `people`, `cast_members`, `crew_members`
+### Catalogue join tables
 
-The role is determined in the join tables (`cast_members` and `crew_members`) which reference `people.id` and specify the department/job or character played.
+Many-to-many relationships between movies and the lookup tables above.
 
 ```sql
-CREATE TABLE people (
-    id      BIGINT   PRIMARY KEY,          -- TMDB person ID
-    name    TEXT     NOT NULL,
-    gender  SMALLINT                       -- 0 = unspecified, 1 = female, 2 = male
+CREATE TABLE movie_genres (
+    movie_id  INTEGER NOT NULL REFERENCES movies (id) ON DELETE CASCADE,
+    genre_id  INTEGER NOT NULL REFERENCES genres (id) ON DELETE CASCADE,
+    PRIMARY KEY (movie_id, genre_id)
 );
 
 CREATE TABLE cast_members (
-    movie_id   BIGINT      NOT NULL REFERENCES movies(id) ON DELETE CASCADE,
-    person_id  BIGINT      NOT NULL REFERENCES people(id),
-    character  TEXT,
-    cast_order SMALLINT,                   -- billing order; 0 = top-billed
-    credit_id  VARCHAR(30),
-    PRIMARY KEY (movie_id, person_id, credit_id)
+    movie_id   INTEGER NOT NULL REFERENCES movies (id) ON DELETE CASCADE,
+    person_id  INTEGER NOT NULL REFERENCES people (id) ON DELETE CASCADE,
+    cast_order INTEGER,                       -- billing order; 0 = top-billed
+    PRIMARY KEY (movie_id, person_id)
 );
-CREATE INDEX ON cast_members (person_id);
 
 CREATE TABLE crew_members (
-    movie_id   BIGINT      NOT NULL REFERENCES movies(id) ON DELETE CASCADE,
-    person_id  BIGINT      NOT NULL REFERENCES people(id),
-    department VARCHAR(50),
-    job        VARCHAR(100),
-    credit_id  VARCHAR(30),
-    PRIMARY KEY (movie_id, person_id, credit_id)
-);
-CREATE INDEX ON crew_members (person_id);
-CREATE INDEX ON crew_members (job);        -- frequent filter: job = 'Director'
-```
-
----
-
-### `keywords`
-We define a separate `keywords` table and a many-to-many `movie_keywords` join table to capture the TMDB keywords associated with each movie. These are user-generated tags that can provide additional signals for clustering (e.g. "time travel", "based on novel", "space opera").
-
-```sql
-CREATE TABLE keywords (
-    id    INTEGER PRIMARY KEY,
-    name  TEXT    NOT NULL
+    movie_id  INTEGER NOT NULL REFERENCES movies (id) ON DELETE CASCADE,
+    person_id INTEGER NOT NULL REFERENCES people (id) ON DELETE CASCADE,
+    job       TEXT    NOT NULL,               -- frequent filter: job = 'Director'
+    PRIMARY KEY (movie_id, person_id, job)
 );
 
 CREATE TABLE movie_keywords (
-    movie_id   BIGINT  NOT NULL REFERENCES movies(id) ON DELETE CASCADE,
-    keyword_id INTEGER NOT NULL REFERENCES keywords(id),
+    movie_id   INTEGER NOT NULL REFERENCES movies (id) ON DELETE CASCADE,
+    keyword_id INTEGER NOT NULL REFERENCES keywords (id) ON DELETE CASCADE,
     PRIMARY KEY (movie_id, keyword_id)
 );
 ```
 
----
-
-### `production_companies`
-Some movies are produced by multiple companies, and some companies produce multiple movies, so we use a join table:
-
-```sql
-CREATE TABLE production_companies (
-    id    BIGINT PRIMARY KEY,
-    name  TEXT   NOT NULL
-);
-```
-
-Again, many-to-many relationships to capture the spoken languages and production countries for each movie:
-
-```sql
-CREATE TABLE movie_companies (
-    movie_id   BIGINT NOT NULL REFERENCES movies(id) ON DELETE CASCADE,
-    company_id BIGINT NOT NULL REFERENCES production_companies(id),
-    PRIMARY KEY (movie_id, company_id)
-);
-```
-
----
-
-### `languages` and `countries`
-
-```sql
-CREATE TABLE languages (
-    iso_639_1 CHAR(2) PRIMARY KEY,
-    name      TEXT    NOT NULL
-);
-
-CREATE TABLE movie_spoken_languages (
-    movie_id  BIGINT  NOT NULL REFERENCES movies(id) ON DELETE CASCADE,
-    iso_639_1 CHAR(2) NOT NULL REFERENCES languages(iso_639_1),
-    PRIMARY KEY (movie_id, iso_639_1)
-);
-
-CREATE TABLE countries (
-    iso_3166_1 CHAR(2) PRIMARY KEY,
-    name       TEXT    NOT NULL
-);
-
-CREATE TABLE movie_countries (
-    movie_id   BIGINT  NOT NULL REFERENCES movies(id) ON DELETE CASCADE,
-    iso_3166_1 CHAR(2) NOT NULL REFERENCES countries(iso_3166_1),
-    PRIMARY KEY (movie_id, iso_3166_1)
-);
-```
+Production companies, spoken languages, and countries are fetched from TMDB but are **not**
+persisted as normalised tables in the current schema; only the genre, cast, crew, and keyword
+relationships are stored.
 
 ---
 
 ## Auth tables
 
-### `roles` and `users`
+Defined in `db/migrations/002_users.sql`.
 
 ```sql
 CREATE TABLE roles (
-    id   SERIAL      PRIMARY KEY,
-    name VARCHAR(50) UNIQUE NOT NULL    -- 'user' | 'admin'
+    id   SERIAL PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE        -- 'user' | 'admin'
 );
+
+INSERT INTO roles (name) VALUES ('user'), ('admin');
 
 CREATE TABLE users (
     id            UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
-    email         TEXT        UNIQUE NOT NULL,
+    email         TEXT        NOT NULL UNIQUE,
     password_hash TEXT        NOT NULL,
-    role_id       INTEGER     NOT NULL REFERENCES roles(id),
+    role_id       INTEGER     NOT NULL REFERENCES roles (id),
     created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 ```
 
-Admin accounts are provisioned via `python -m db.create_user --role admin`; the register endpoint always creates `role = user`.
+The register endpoint always creates `role = user`. The `roles` table seeds both `user` and
+`admin`, but no HTTP route checks for `admin` in the current backend.
 
 ---
 
-## Run & evaluation tables
+## Run table
 
 These tables are written by the evaluation harness (`eval/`) to group conversations into experimental runs and store per-conversation results. They are **not** written by the live conversational loop.
 
@@ -496,7 +445,12 @@ eval harness:
 
 ## pgvector notes
 
-- **Dimension**: 1024 (matches `BAAI/bge-large-en-v1.5`). If the model changes via `representation.model` / `representation.embedding_dim` in config, the column must be recreated.
-- **Index**: `IVFFlat` with `lists = 100`, tuned for ~45k vectors. Scale `lists` proportionally with catalogue size.
+- **Dimension**: 1024 (matches `BAAI/bge-large-en-v1.5`) for all three modalities. If the model
+  changes via config, the `VECTOR(1024)` columns must be recreated.
+- **Modalities**: `text_embedding` (always present, indexed), `review_embedding` and
+  `trailer_embedding` (optional, **partial** IVFFlat indexes on `… IS NOT NULL`).
+- **Index**: `IVFFlat` with `lists = 100`, tuned for ~45k vectors. Scale `lists` proportionally
+  with catalogue size.
 - **Similarity**: cosine distance (`vector_cosine_ops`). Query: `ORDER BY embedding <=> $query_vec LIMIT k`.
-- **Cluster centroids** (`clusters.centroid`) are not ANN-indexed — used for display and drift detection only.
+- **Clusters carry no stored centroid**; the responder agent computes centroids on the fly from
+  exemplar embeddings when deriving suggestion signals.
