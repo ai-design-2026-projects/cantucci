@@ -10,14 +10,17 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from backend.data_access.cluster_snapshots.queries import (
-    get_snapshot_member_embeddings,
-)
+from backend.data_access.cluster_snapshots.queries import get_snapshot_member_embeddings
 from backend.data_access.conversations.queries import get_conversation, get_messages
+from backend.data_access.eval.queries import list_turn_intents
+from backend.data_access.eval.types import GroundTruthRow
 from backend.settings import get_settings
+from eval.config import load_eval_harness_config
 
 log = logging.getLogger(__name__)
 
+_GT_OPERATION_VOCABULARY = {"drill_down", "merge", "focus", "cross_filter"}
+_NAVIGATION_MODES = {"drill_down", "merge", "focus", "cross_filter", "partition_by"}
 
 
 @dataclass(frozen=True, slots=True)
@@ -34,21 +37,6 @@ class ClusteringMetrics:
     mean_membership_prob: float | None
     noise_fraction: float | None
     final_num_clusters: int
-
-
-@dataclass(frozen=True, slots=True)
-class ConvergenceResult:
-    """Post-hoc convergence detection result.
-
-    Attributes:
-        converged:             True if a convergence signal was detected.
-        turns_to_convergence:  1-based oracle turn index of the first convergence
-                               signal, or None if the conversation did not converge.
-        num_turns:             Total number of oracle (user) turns in the conversation.
-    """
-    converged: bool
-    turns_to_convergence: int | None
-    num_turns: int
 
 
 def compute_clustering_metrics(snapshot_id: uuid.UUID) -> ClusteringMetrics:
@@ -68,8 +56,9 @@ def compute_clustering_metrics(snapshot_id: uuid.UUID) -> ClusteringMetrics:
     from sklearn.metrics import silhouette_score
 
     cfg = get_settings()
-    noise_thresh = cfg.eval.noise_prob_threshold
-    silhouette_metric = cfg.eval.silhouette_metric
+    harness_cfg = load_eval_harness_config()
+    noise_thresh = harness_cfg.scorer.noise_prob_threshold
+    silhouette_metric = harness_cfg.scorer.silhouette_metric
 
     members = get_snapshot_member_embeddings(snapshot_id)
     if not members:
@@ -153,36 +142,6 @@ def compute_clustering_metrics(snapshot_id: uuid.UUID) -> ClusteringMetrics:
     )
 
 
-def compute_convergence(conversation_id: uuid.UUID) -> ConvergenceResult:
-    """Detect convergence from the oracle eval-session status.
-
-    Convergence is meaningful only for simulated oracle sessions: the oracle
-    explicitly signals acceptance via intent="accept", which the runner records
-    as ``eval_session.status = "converged"``. Real users simply quit — they
-    produce no convergence signal and always return ``converged=False``.
-
-    Args:
-        conversation_id: UUID of the conversation to check.
-
-    Returns:
-        ``ConvergenceResult`` with convergence flag and turn index.
-    """
-    from backend.data_access.evaluation.queries import get_eval_session_by_conversation
-
-    messages = get_messages(conversation_id, limit=1000)
-    num_turns = sum(1 for m in messages if m.role == "user")
-
-    session = get_eval_session_by_conversation(conversation_id)
-    if session is not None and session.status == "converged":
-        log.debug(
-            "convergence_oracle_accept",
-            extra={"conversation_id": str(conversation_id), "num_turns": num_turns},
-        )
-        return ConvergenceResult(converged=True, turns_to_convergence=num_turns, num_turns=num_turns)
-
-    return ConvergenceResult(converged=False, turns_to_convergence=None, num_turns=num_turns)
-
-
 def compute_cost(conversation_id: uuid.UUID) -> float:
     """Return the accumulated LLM cost for a conversation in USD.
 
@@ -196,43 +155,100 @@ def compute_cost(conversation_id: uuid.UUID) -> float:
     return row.accumulated_cost_usd if row is not None else 0.0
 
 
-def compute_spec_satisfaction(
-    final_snapshot_id: uuid.UUID,
-    spec: dict,
-    target_movie_ids: list[int],
-) -> float | None:
-    """Compute the hidden-spec satisfaction rate for the final clustering.
+def compute_num_operations(conversation_id: uuid.UUID) -> int:
+    """Count turn_intents rows whose mode is a NavigationMode value.
 
-    Scans the movies in the final snapshot and counts how many are in
-    ``target_movie_ids`` (the hidden expanded film set). Returns the fraction
-    of final-snapshot movies that appear in the target set. Returns ``None``
-    when target_movie_ids is empty.
+    Counts all five NavigationMode values (drill_down, merge, focus,
+    cross_filter, partition_by).
 
     Args:
-        final_snapshot_id: UUID of the final cluster snapshot.
-        spec:              Hidden spec dict (reserved for future richer matching).
-        target_movie_ids:  Hidden expanded film set from the ground truth.
+        conversation_id: UUID of the conversation.
 
     Returns:
-        Spec-satisfaction rate in [0, 1], or ``None`` if no ground truth.
+        Total number of navigation operation intents recorded.
     """
-    if not target_movie_ids:
-        return None
+    turn_intents = list_turn_intents(conversation_id)
+    return sum(1 for ti in turn_intents if ti.mode in _NAVIGATION_MODES)
 
-    members = get_snapshot_member_embeddings(final_snapshot_id)
-    if not members:
+
+def compute_clarifier_trigger_rate(conversation_id: uuid.UUID) -> float:
+    """Compute the fraction of turns on which the clarifier fired.
+
+    Args:
+        conversation_id: UUID of the conversation.
+
+    Returns:
+        Rate in [0, 1]. Returns 0.0 when there are no recorded turn_intents.
+    """
+    turn_intents = list_turn_intents(conversation_id)
+    if not turn_intents:
         return 0.0
 
-    target_set = set(target_movie_ids)
-    hits = sum(1 for m in members if m.movie_id in target_set)
-    rate = hits / len(members)
+    turns_with_clarifier = {ti.turn_number for ti in turn_intents if ti.clarifier_fired}
+    all_turns = {ti.turn_number for ti in turn_intents}
+    return len(turns_with_clarifier) / len(all_turns)
+
+
+def compute_operation_recall(
+    conversation_id: uuid.UUID,
+    ground_truth: GroundTruthRow | None,
+) -> float | None:
+    """Compute operation recall against a ground truth trajectory.
+
+    Matches executed (op, concept) pairs against the GT operations list.
+    Op-type match is exact; concept match is case-insensitive after stripping
+    whitespace. Only the four GT-vocabulary ops are counted (drill_down, merge,
+    focus, cross_filter).
+
+    Args:
+        conversation_id: UUID of the conversation.
+        ground_truth:    Ground truth row. Returns None when absent.
+
+    Returns:
+        Fraction of GT ``(op, concept)`` pairs found in turn_intents,
+        or None if no ground truth is provided or GT has no operations.
+    """
+    if ground_truth is None:
+        return None
+
+    gt_ops = [
+        (op["op"], op["concept"].strip().lower())
+        for op in ground_truth.operations
+        if op["op"] in _GT_OPERATION_VOCABULARY
+    ]
+    if not gt_ops:
+        return None
+
+    turn_intents = list_turn_intents(conversation_id)
+    executed = {
+        (ti.mode, (ti.concept or "").strip().lower())
+        for ti in turn_intents
+        if ti.mode in _GT_OPERATION_VOCABULARY
+    }
+
+    matched = sum(1 for pair in gt_ops if pair in executed)
+    recall = matched / len(gt_ops)
+
     log.debug(
-        "spec_satisfaction_computed",
+        "operation_recall_computed",
         extra={
-            "snapshot_id": str(final_snapshot_id),
-            "hits": hits,
-            "total": len(members),
-            "rate": rate,
+            "conversation_id": str(conversation_id),
+            "gt_ops": len(gt_ops),
+            "matched": matched,
+            "recall": recall,
         },
     )
-    return rate
+    return recall
+
+
+def compute_num_turns(conversation_id: uuid.UUID) -> int:
+    """Return the number of user (oracle) turns in the conversation.
+
+    Args:
+        conversation_id: UUID of the conversation.
+
+    Returns:
+        Count of messages with role "user".
+    """
+    messages = get_messages(conversation_id, limit=1000)
+    return sum(1 for m in messages if m.role == "user")

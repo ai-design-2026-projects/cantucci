@@ -14,6 +14,7 @@ from backend.routers.auth import router as auth_router
 from backend.routers.movies import router as movies_router
 from backend.routers.conversations import router as conversations_router
 from backend.routers.cluster_snapshots import router as cluster_snapshots_router
+from backend.routers.eval import router as eval_router
 
 log = logging.getLogger(__name__)
 
@@ -73,3 +74,4 @@ app.include_router(auth_router)
 app.include_router(movies_router)
 app.include_router(conversations_router)
 app.include_router(cluster_snapshots_router)
+app.include_router(eval_router)

@@ -1,9 +1,10 @@
 """CLI entry point for the evaluation harness.
 
 Usage:
-    python -m eval.run simulate --run <run_id> --persona <slug> --ground-truth <slug> --seed <int>
-    python -m eval.run evaluate --conversation <conversation_id> [--ground-truth <slug>]
     python -m eval.run create-run [--name <name>] [--condition <cond>] [--notes <text>]
+    python -m eval.run simulate --run <run_id> --persona <slug> --ground-truth <slug> --seed <int> [--condition <cond>]
+    python -m eval.run evaluate --conversation <conversation_id> [--ground-truth <slug>]
+    python -m eval.run build-gt --slug <slug> [--hint <text>]
 """
 import argparse
 import asyncio
@@ -24,7 +25,11 @@ def _build_parser() -> argparse.ArgumentParser:
 
     create_run_cmd = sub.add_parser("create-run", help="Register a new eval run and print its UUID.")
     create_run_cmd.add_argument("--name", default=None)
-    create_run_cmd.add_argument("--condition", default="conversational", choices=["conversational", "baseline", "human"])
+    create_run_cmd.add_argument(
+        "--condition",
+        default="conversational",
+        choices=["conversational", "no_agents", "monolithic", "human"],
+    )
     create_run_cmd.add_argument("--notes", default=None)
 
     simulate_cmd = sub.add_parser("simulate", help="Drive one simulated oracle session and evaluate it.")
@@ -32,16 +37,27 @@ def _build_parser() -> argparse.ArgumentParser:
     simulate_cmd.add_argument("--persona", required=True, help="Persona slug.")
     simulate_cmd.add_argument("--ground-truth", required=True, dest="ground_truth", help="Ground truth slug.")
     simulate_cmd.add_argument("--seed", type=int, required=True, help="RNG seed.")
+    simulate_cmd.add_argument(
+        "--condition",
+        default="conversational",
+        choices=["conversational", "no_agents", "monolithic"],
+    )
 
     evaluate_cmd = sub.add_parser("evaluate", help="Score an existing conversation (idempotent).")
     evaluate_cmd.add_argument("--conversation", required=True, help="Conversation UUID.")
-    evaluate_cmd.add_argument("--ground-truth", default=None, dest="ground_truth", help="Ground truth slug (optional).")
+    evaluate_cmd.add_argument(
+        "--ground-truth", default=None, dest="ground_truth", help="Ground truth slug (optional)."
+    )
+
+    build_gt_cmd = sub.add_parser("build-gt", help="Build and persist a ground truth trajectory.")
+    build_gt_cmd.add_argument("--slug", required=True, help="Unique slug for the new ground truth.")
+    build_gt_cmd.add_argument("--hint", default=None, help="Optional free-text exploration hint.")
 
     return parser
 
 
 async def _cmd_create_run(args: argparse.Namespace) -> None:
-    from backend.data_access.evaluation.queries import create_run
+    from backend.data_access.eval.queries import create_run
 
     run_id = create_run(
         config_hash=get_config_hash(),
@@ -63,6 +79,7 @@ async def _cmd_simulate(args: argparse.Namespace) -> None:
         persona_slug=args.persona,
         ground_truth_slug=args.ground_truth,
         seed=args.seed,
+        condition=args.condition,
     )
     print(f"conversation_id={conversation_id}")
 
@@ -78,6 +95,13 @@ async def _cmd_evaluate(args: argparse.Namespace) -> None:
     print(f"evaluated conversation_id={conversation_id}")
 
 
+async def _cmd_build_gt(args: argparse.Namespace) -> None:
+    from eval.ground_truths.builder import build_ground_truth
+
+    row = await build_ground_truth(slug=args.slug, hint=args.hint)
+    print(f"ground_truth_id={row.id}  slug={row.slug}  ops={len(row.operations)}")
+
+
 async def _main() -> None:
     configure_logging()
     parser = _build_parser()
@@ -89,6 +113,8 @@ async def _main() -> None:
         await _cmd_simulate(args)
     elif args.command == "evaluate":
         await _cmd_evaluate(args)
+    elif args.command == "build-gt":
+        await _cmd_build_gt(args)
     else:
         parser.print_help()
         sys.exit(1)

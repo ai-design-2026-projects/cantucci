@@ -1,15 +1,18 @@
 import hashlib
 import logging
 import uuid
+from collections import defaultdict
 from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader
 
 from backend.data_access.cluster_snapshots.queries import get_cluster_snapshot_with_clusters
 from backend.data_access.conversations.queries import get_conversation, get_messages
+from backend.data_access.eval.queries import list_turn_intents
 from backend.data_access.movies.queries import fetch_stubs
 from backend.llm import llm_harness
-from backend.settings import get_config_hash, get_settings
+from backend.settings import get_config_hash
+from eval.config import load_eval_harness_config
 from eval.judge.types import JudgeLLMResponse, JudgeResult
 
 log = logging.getLogger(__name__)
@@ -20,32 +23,31 @@ _ENV = Environment(loader=FileSystemLoader(str(_PROMPTS_DIR)), autoescape=False)
 
 async def judge_conversation(
     conversation_id: uuid.UUID,
-    accumulated_cost: float,
-    ground_truth_description: str | None = None,
+    ground_truth_intent_description: str | None,
+    ground_truth_operations: list[dict] | None,
 ) -> JudgeResult:
-    """Score a completed conversation on four quality dimensions.
+    """Score a completed conversation on five quality dimensions.
 
-    Reads the conversation transcript and final cluster snapshot from the
-    database, renders the judge prompt, and calls the LLM harness once.
-    The rendered prompt's SHA-256 hash is included in the result for audit.
+    Offline operation: always starts at accumulated_cost=0.0 and uses the
+    judge-specific cost limit from eval/eval.yaml, not the runtime conversation
+    limit.  Reads the transcript, per-turn intent rows, and final cluster
+    snapshot from the database, then calls the LLM harness once.
 
     Args:
-        conversation_id:         UUID of the completed conversation to judge.
-        accumulated_cost:        Running LLM cost to check against the limit.
-        ground_truth_description: Optional taste description shown to the oracle
-                                  (included in the judge prompt for fidelity
-                                  assessment; never the hidden target set).
+        conversation_id:                 UUID of the completed conversation to judge.
+        ground_truth_intent_description: Intent description from the GT (shown to judge).
+        ground_truth_operations:         Ordered list of GT ``{op, concept}`` dicts.
 
     Returns:
         ``JudgeResult`` with validated per-dimension scores and prompt hash.
 
     Raises:
-        CostLimitExceeded: If accumulated cost exceeds the conversation limit.
+        FileNotFoundError: If eval/eval.yaml is missing.
         LLMParseError:     If the LLM response is missing a required dimension
                            or contains a score outside [1, 5].
     """
-    cfg = get_settings()
-    model = cfg.models.strong
+    harness_cfg = load_eval_harness_config()
+    model = harness_cfg.judge
 
     conversation = get_conversation(conversation_id)
     if conversation is None:
@@ -53,6 +55,24 @@ async def judge_conversation(
 
     messages = get_messages(conversation_id, limit=1000)
     transcript = [{"role": m.role, "content": m.content} for m in messages]
+
+    turn_intents = list_turn_intents(conversation_id)
+
+    turns_by_number: dict[int, list] = defaultdict(list)
+    for ti in turn_intents:
+        turns_by_number[ti.turn_number].append(ti)
+
+    turn_action_log = []
+    for turn_num in sorted(turns_by_number):
+        rows = turns_by_number[turn_num]
+        turn_action_log.append({
+            "modes": [r.mode for r in rows],
+            "concepts": [r.concept for r in rows],
+            "confidence": min(r.confidence for r in rows),
+            "clarifier_fired": any(r.clarifier_fired for r in rows),
+            "suggestion": None,
+            "explanation": None,
+        })
 
     clusters_info: list[dict] = []
     if conversation.current_cluster_snapshot_id is not None:
@@ -69,9 +89,11 @@ async def judge_conversation(
 
     template = _ENV.get_template("judge_v1.j2")
     prompt = template.render(
-        ground_truth_description=ground_truth_description,
+        intent_description=ground_truth_intent_description or "(not provided)",
+        ground_truth_operations=ground_truth_operations or [],
         transcript=transcript,
-        clusters=clusters_info,
+        turn_action_log=turn_action_log,
+        final_clusters=clusters_info,
     )
 
     prompt_hash = hashlib.sha256(prompt.encode()).hexdigest()
@@ -88,8 +110,8 @@ async def judge_conversation(
         max_tokens=model.max_tokens,
         step_type="judge",
         messages=[{"role": "user", "content": prompt}],
-        cost_limit_usd=cfg.conversation.cost_limit_usd,
-        accumulated_cost_usd=accumulated_cost,
+        cost_limit_usd=model.cost_limit_usd,
+        accumulated_cost_usd=0.0,
         dry_run=model.dry_run,
         response_schema=JudgeLLMResponse,
     )
@@ -97,7 +119,7 @@ async def judge_conversation(
     parsed: JudgeLLMResponse = resp.parsed  # type: ignore[assignment]
     result = JudgeResult.from_llm_response(
         parsed,
-        expected_dimensions=cfg.eval.judge_dimensions,
+        expected_dimensions=harness_cfg.scorer.dimensions,
         cost=resp.cost_usd,
         prompt_hash=prompt_hash,
     )

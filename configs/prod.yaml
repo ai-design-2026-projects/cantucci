@@ -71,17 +71,6 @@ conversation:
   cost_limit_usd: 5.0
   max_messages: 100
 
-eval:
-  max_turns: 15
-  judge_dimensions:
-    - clustering_coherence
-    - question_quality
-    - label_accuracy
-    - intent_alignment
-  judge_model_tier: strong
-  silhouette_metric: cosine
-  noise_prob_threshold: 0.3
-
 ingestion:
   hf_repo: "446f6e6e79/CinePal-embeddings"
   artifacts:
