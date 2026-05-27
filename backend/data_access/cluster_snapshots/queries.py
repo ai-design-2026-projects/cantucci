@@ -10,6 +10,7 @@ from backend.data_access.cluster_snapshots.types import (
     ClusterRow,
     ClusterSnapshotRow,
     ClusterSnapshotWithClusters,
+    SnapshotMemberEmbeddingRow,
     SnapshotMemberRow,
 )
 from backend.settings import get_config_hash
@@ -509,6 +510,41 @@ def get_snapshot_members(cluster_snapshot_id: uuid.UUID) -> list[SnapshotMemberR
             (cluster_snapshot_id,),
         ).fetchall()
     return [SnapshotMemberRow.from_row(r) for r in rows]
+
+
+def get_snapshot_member_embeddings(cluster_snapshot_id: uuid.UUID) -> list[SnapshotMemberEmbeddingRow]:
+    """Return the argmax cluster assignment and raw embeddings for every movie in a snapshot.
+
+    Used by the evaluation metrics module to compute the silhouette score and
+    spec-satisfaction rate over the final clustering. Movies that have no text
+    embedding are excluded since silhouette requires a numeric representation.
+
+    Args:
+        cluster_snapshot_id: UUID of the cluster snapshot.
+
+    Returns:
+        List of ``SnapshotMemberEmbeddingRow`` with one row per movie.
+    """
+    with transaction() as conn:
+        rows = conn.execute(
+            """
+            SELECT DISTINCT ON (cm.movie_id)
+                cm.movie_id,
+                c.id AS cluster_id,
+                cm.probability,
+                m.text_embedding,
+                m.review_embedding,
+                m.trailer_embedding
+            FROM cluster_memberships cm
+            JOIN clusters c ON c.id = cm.cluster_id
+            JOIN movies m ON m.id = cm.movie_id
+            WHERE c.cluster_snapshot_id = %s
+              AND m.text_embedding IS NOT NULL
+            ORDER BY cm.movie_id, cm.probability DESC
+            """,
+            (cluster_snapshot_id,),
+        ).fetchall()
+    return [SnapshotMemberEmbeddingRow.from_row(r) for r in rows]
 
 
 def get_memberships(cluster_id: uuid.UUID) -> list[ClusterMembershipRow]:

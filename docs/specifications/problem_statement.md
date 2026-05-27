@@ -258,10 +258,10 @@ This also makes the system useful beyond a single session: a preference profile 
 Knowing when to stop is as important as knowing what to ask. Stopping too early wastes the oracle's trust; stopping too late wastes their time. Three conditions trigger convergence — whichever fires first:
 
 - **Explicit acceptance** — the oracle says something that clearly signals satisfaction (*"perfect"*, *"yes, that's it"*, *"show me the full list"*). This is the cleanest signal and always takes priority.
-- **Behavioural convergence** — no corrective feedback for 2 consecutive turns. The oracle is only confirming or making minor tweaks, which means the clustering has stabilised even if they haven't said so explicitly. The threshold of 2 turns is a configurable parameter (`session.convergence_turns`).
-- **Turn budget** — a hard cap configured per session in YAML (`session.max_turns`, default 15). This exists to bound cost and prevent sessions that drift without converging. When the budget is hit, the system presents the current best clustering as the final result and notifies the oracle that the session has ended.
+- **Behavioural convergence** — no corrective feedback for 2 consecutive turns. The oracle is only confirming or making minor tweaks, which means the clustering has stabilised even if they haven't said so explicitly. The threshold of 2 turns is a configurable parameter (`eval.convergence_turns`).
+- **Turn budget** — a hard cap configured per session in YAML (`eval.max_turns`, default 15). This exists to bound cost and prevent sessions that drift without converging. When the budget is hit, the runner stops and the final clustering state is treated as the session result.
 
-When convergence is declared, the session status is set to `converged`, the preference profile is produced, and no further oracle turns are accepted.
+Convergence is detected **post-hoc** by the evaluation harness (`eval/metrics.py: compute_convergence`) scanning the message history after the session ends. The live Coordinator loop does not declare convergence mid-session; the runner controls the turn budget and stops iteration when the oracle emits `accept` or `abandon`. This separation keeps the production path unmodified across evaluation conditions.
 
 ---
 
@@ -286,8 +286,9 @@ When convergence is declared, the session status is set to `converged`, the pref
 | **Session** | Provide shareable session URL (UUID-based) | `sessions` API | MVP |
 | **Session** | Mark session `abandoned` after 24 h of inactivity | background job | Post-MVP |
 | **UX** | Display poster, title, year, and rating for every recommended title | `TitleCard` component | MVP |
-| **Evaluation** | Run LLM-simulated oracle sessions with seeded persona and preference spec | `oracle_simulator.py` | MVP |
-| **Evaluation** | Score sessions via LLM-as-Judge (coherence, question quality, profile fidelity) | `judge.py` | MVP |
+| **Evaluation** | Run LLM-simulated oracle sessions with seeded persona and preference spec | `eval/oracle/agent.py`, `eval/runner.py` | MVP |
+| **Evaluation** | Score sessions via LLM-as-Judge (4 dims: clustering_coherence, question_quality, label_accuracy, intent_alignment) | `eval/judge/agent.py` | MVP |
+| **Evaluation** | Compute deterministic clustering metrics (silhouette, turns-to-convergence, cost, spec-satisfaction) post-hoc | `eval/metrics.py` | MVP |
 
 ### 5.2 Non-functional requirements
 

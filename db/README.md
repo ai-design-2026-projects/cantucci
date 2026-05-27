@@ -39,7 +39,7 @@ Re-running `apply` is safe — files already recorded in `schema_migrations` are
 | File | Contents |
 |---|---|
 | `001_extensions.sql` | `pgvector`, `pgcrypto` |
-| `002_users.sql` | `users`, `roles`, `user_roles` — user registry and role-based access |
+| `002_users.sql` | `users`, `roles` — user registry; `role_id` FK on `users` |
 | `003_catalogue.sql` | Catalogue tables: `movies`, `genres`, `people`, `keywords`, `cast_members`, `crew_members`, `movie_genres`, `movie_keywords` + IVFFlat vector indexes |
 | `004_runs.sql` | `runs` — experimental run registry keyed on config hash |
 | `005_conversations.sql` | `conversations`, `messages` — per-user conversation history |
@@ -48,6 +48,8 @@ Re-running `apply` is safe — files already recorded in `schema_migrations` are
 | `008_nullable_cluster_label.sql` | Allow `clusters.label` to be NULL (labels generated lazily) |
 | `009_snapshot_cache.sql` | `config_hash` column, `conversation_snapshot_refs` join table, cache-key unique index on `cluster_snapshots` |
 | `010_trailer_embedding_index.sql` | IVFFlat index on `movies.trailer_embedding` for fast cosine-similarity search |
+| `011_message_and_conversation_costs.sql` | `cost_usd` on `messages`; `accumulated_cost_usd` on `conversations` |
+| `012_evaluation.sql` | Eval harness tables: `personas`, `ground_truths`, `eval_sessions`, `conversation_metrics`, `judge_scores`; extends `runs` with `name`, `condition`, `model_version`, `ended_at`, `status`, `notes` |
 
 ---
 

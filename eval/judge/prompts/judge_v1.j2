@@ -1,0 +1,52 @@
+You are an expert evaluator of conversational clustering systems. You will read a completed conversation between a human oracle and a clustering system, then score the session on four dimensions.
+
+{% if ground_truth_description %}
+ORACLE'S TASTE DESCRIPTION (what the oracle was trying to find)
+{{ ground_truth_description }}
+
+{% endif %}
+---
+CONVERSATION TRANSCRIPT
+{% for msg in transcript %}
+{{ msg.role | upper }}: {{ msg.content }}
+{% endfor %}
+
+---
+FINAL CLUSTERING STATE
+The conversation ended with the following clusters:
+{% for cluster in clusters %}
+Cluster {{ loop.index }}: {{ cluster.label or "(unlabelled)" }}
+  Summary: {{ cluster.summary or "(none)" }}
+  Exemplars: {{ cluster.exemplar_titles | join(", ") }}
+
+{% endfor %}
+---
+
+Score the session on each of the following four dimensions. Use a scale of 1 (very poor) to 5 (excellent).
+
+DIMENSIONS
+
+1. clustering_coherence — Are the named clusters internally consistent (similar films grouped together) and meaningfully distinct from one another throughout the session? A score of 5 means every cluster has a clear, coherent theme; a score of 1 means clusters are arbitrary or overlapping.
+
+2. question_quality — Are the system's clarifying questions targeted, non-redundant, and specific enough to distinguish between different taste directions? A score of 5 means each question efficiently resolved genuine ambiguity; a score of 1 means questions were vague, repetitive, or off-topic.
+
+3. label_accuracy — Do the cluster labels and summaries accurately describe their exemplar films? A score of 5 means labels are precise and instantly recognisable; a score of 1 means labels are misleading, generic ("Films", "Movies"), or contradicted by the exemplars.
+
+4. intent_alignment — Does the final clustering reflect what the oracle was actually asking for, based on the conversation? A score of 5 means the final clusters clearly capture the oracle's expressed preferences; a score of 1 means the final state ignores or contradicts key oracle requests.
+
+---
+
+Respond with valid JSON only. The JSON must contain a "scores" array. Each element of the array must have:
+- "dimension": one of "clustering_coherence", "question_quality", "label_accuracy", "intent_alignment"
+- "score": an integer from 1 to 5
+- "rationale": one sentence explaining the score
+
+Example format:
+{
+  "scores": [
+    {"dimension": "clustering_coherence", "score": 4, "rationale": "Clusters were distinct and thematically coherent throughout."},
+    {"dimension": "question_quality", "score": 3, "rationale": "Questions were relevant but occasionally too broad."},
+    {"dimension": "label_accuracy", "score": 5, "rationale": "Labels precisely matched the exemplar films shown."},
+    {"dimension": "intent_alignment", "score": 4, "rationale": "Final clusters closely matched the oracle's stated preferences."}
+  ]
+}

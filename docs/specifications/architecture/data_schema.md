@@ -223,49 +223,97 @@ Admin accounts are provisioned via `python -m db.create_user --role admin`; the 
 
 ## Run & evaluation tables
 
-These tables are written by the evaluation harness (not the live conversational loop) to group sessions into experimental conditions and store per-session and per-run results.
+These tables are written by the evaluation harness (`eval/`) to group conversations into experimental runs and store per-conversation results. They are **not** written by the live conversational loop.
 
 ### `runs`
 
-Groups N sessions under one experimental condition with a single config snapshot for replay.
+Experimental run registry. Extended from migration 004 by migration 012.
 
 ```sql
 CREATE TABLE runs (
-    id              UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
-    name            TEXT        NOT NULL,
-    condition       VARCHAR(20) NOT NULL,   -- baseline | uncertainty | random | boundary | popularity | component_test | human
-    config_hash     VARCHAR(8)  NOT NULL,   -- 8-char SHA-256 prefix of raw YAML config bytes
+    run_id          UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    config_hash     TEXT        NOT NULL,       -- 8-char SHA-256 prefix of active YAML config
     config_snapshot JSONB       NOT NULL,
-    seed            BIGINT      NOT NULL,
-    model_version   TEXT        NOT NULL,
+    seed            INTEGER     NOT NULL,
     started_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    name            TEXT,
+    condition       VARCHAR(20) DEFAULT 'conversational',  -- conversational | baseline | human
+    model_version   TEXT,
     ended_at        TIMESTAMPTZ,
     status          VARCHAR(20) NOT NULL DEFAULT 'running',  -- running | completed | aborted
     notes           TEXT
 );
-
-CREATE INDEX ON runs (condition);
-CREATE INDEX ON runs (config_hash);
 ```
 
-### `session_metrics`
+### `personas`
 
-One row per session; computed after the session ends by the eval harness. Safe to rewrite on recompute (PK = `session_id`).
+Write-once oracle persona definitions. New behaviour requires a new slug/row.
 
 ```sql
-CREATE TABLE session_metrics (
-    session_id           UUID          PRIMARY KEY REFERENCES sessions(id) ON DELETE CASCADE,
-    converged            BOOLEAN       NOT NULL,
-    turns_to_convergence SMALLINT,              -- NULL if abandoned
+CREATE TABLE personas (
+    id                  UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    slug                TEXT        UNIQUE NOT NULL,
+    verbosity           TEXT        NOT NULL DEFAULT 'medium',   -- terse | medium | verbose
+    decisiveness        FLOAT       NOT NULL DEFAULT 0.5,        -- [0, 1]
+    drift_probability   FLOAT       NOT NULL DEFAULT 0.0,
+    contradiction_rate  FLOAT       NOT NULL DEFAULT 0.0,
+    definition          JSONB       NOT NULL DEFAULT '{}',
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+```
+
+### `ground_truths`
+
+Taste targets for simulated oracle sessions. `description` is shown to the oracle; `target_movie_ids` and `spec` are hidden and used for spec-satisfaction scoring.
+
+```sql
+CREATE TABLE ground_truths (
+    id               UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    slug             TEXT        UNIQUE NOT NULL,
+    description      TEXT        NOT NULL,
+    seed_movie_ids   JSONB       NOT NULL DEFAULT '[]',
+    target_movie_ids JSONB       NOT NULL DEFAULT '[]',
+    spec             JSONB       NOT NULL DEFAULT '{}',
+    created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+```
+
+### `eval_sessions`
+
+Links a conversation to a run, persona, and ground truth. `persona_id` and `ground_truth_id` are NULL for human-oracle sessions.
+
+```sql
+CREATE TABLE eval_sessions (
+    id               UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    run_id           UUID        NOT NULL REFERENCES runs (run_id) ON DELETE CASCADE,
+    conversation_id  UUID        UNIQUE NOT NULL REFERENCES conversations (id) ON DELETE CASCADE,
+    persona_id       UUID        REFERENCES personas (id) ON DELETE SET NULL,
+    ground_truth_id  UUID        REFERENCES ground_truths (id) ON DELETE SET NULL,
+    seed             BIGINT      NOT NULL,
+    status           VARCHAR(20) NOT NULL DEFAULT 'active',  -- active | converged | abandoned
+    created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX ON eval_sessions (run_id);
+```
+
+### `conversation_metrics`
+
+Deterministic eval metrics, 1:1 per conversation. Safe to recompute (PK = `conversation_id`, upsert on recompute). Token counts are omitted — only `cost_usd` is persisted in the live schema.
+
+```sql
+CREATE TABLE conversation_metrics (
+    conversation_id      UUID          PRIMARY KEY REFERENCES conversations (id) ON DELETE CASCADE,
+    converged            BOOLEAN       NOT NULL DEFAULT FALSE,
+    turns_to_convergence SMALLINT,                                    -- NULL if not converged
+    num_turns            SMALLINT      NOT NULL DEFAULT 0,
     avg_cognitive_load   FLOAT,
-    explicit_acceptance  BOOLEAN       NOT NULL DEFAULT FALSE,
-    drift_events         SMALLINT      NOT NULL DEFAULT 0,
-    total_input_tokens   INTEGER       NOT NULL DEFAULT 0,
-    total_output_tokens  INTEGER       NOT NULL DEFAULT 0,
+    final_num_clusters   SMALLINT,
+    silhouette           FLOAT,                                       -- NULL if < 2 clusters
+    mean_membership_prob FLOAT,
+    noise_fraction       FLOAT,
+    spec_satisfaction_rate FLOAT,                                     -- NULL for human sessions
     total_cost_usd       NUMERIC(10,4) NOT NULL DEFAULT 0,
-    precision_at_k       FLOAT,                -- fraction of top-K hits in gt_movie_ids
-    recall_at_k          FLOAT,                -- fraction of gt_movie_ids recovered in top-K
-    ndcg_at_k            FLOAT,                -- normalised discounted cumulative gain at K
     computed_at          TIMESTAMPTZ   NOT NULL DEFAULT NOW()
 );
 ```
@@ -277,141 +325,141 @@ LLM-judge dimension scores. Append-only; `judge_prompt_hash` lets multiple judge
 ```sql
 CREATE TABLE judge_scores (
     id                UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
-    session_id        UUID        NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
-    dimension         VARCHAR(40) NOT NULL,    -- clustering_coherence | question_quality | profile_fidelity
+    conversation_id   UUID        NOT NULL REFERENCES conversations (id) ON DELETE CASCADE,
+    dimension         VARCHAR(40) NOT NULL,  -- clustering_coherence | question_quality | label_accuracy | intent_alignment
     score             SMALLINT    NOT NULL CHECK (score BETWEEN 1 AND 5),
     rationale         TEXT,
     judge_model       TEXT        NOT NULL,
-    judge_prompt_hash CHAR(64)    NOT NULL,    -- SHA-256 hex of rendered judge prompt
+    judge_prompt_hash CHAR(64)    NOT NULL,  -- SHA-256 hex of rendered judge prompt
     created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    UNIQUE (session_id, dimension, judge_prompt_hash)
+    UNIQUE (conversation_id, dimension, judge_prompt_hash)
 );
 
-CREATE INDEX ON judge_scores (session_id);
+CREATE INDEX ON judge_scores (conversation_id);
 CREATE INDEX ON judge_scores (dimension);
 ```
 
 ---
 
-## Session tables
+## Runtime (session) tables
 
-To store various per session data, we have the following tables. These are written to at runtime by the conversational loop to capture the evolving state of each session, including the turns taken, the cluster states, and the oracle feedback.
+Written at runtime by the conversational loop (`backend/agents/coordinator/`) to capture the evolving state of each conversation.
 
-A `uuid` is generated for each session and turn to serve as stable identifiers that can be referenced across tables. The `session_id` foreign key links all related records together, while `turn_number` captures the sequential order of turns within a session.
+### `conversations`
 
-### `sessions`
-
-Table that identifies a single session. Each time a new conversation is started, a new session is created. The `status` field tracks whether the session is active, has converged, or was abandoned. The `config_hash` allows us to link back to the exact configuration used for this session for reproducibility. The `preference_profile` is populated at convergence with the structured profile extracted from oracle feedback.
+One row per user conversation. `current_cluster_snapshot_id` is the live pointer to the most recent cluster state.
 
 ```sql
-CREATE TABLE sessions (
-    id                 UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
-    run_id             UUID         NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
-    seed               BIGINT       NOT NULL,          -- per-session RNG seed for exact replay
-    config_hash        VARCHAR(8)   NOT NULL,           -- 8-char SHA-256 prefix; must match parent run
-    model_version      TEXT         NOT NULL,
-    user_id            UUID         REFERENCES users(id) ON DELETE SET NULL,  -- NULL for anonymous
-    persona_id         VARCHAR(64),                    -- NULL for human oracles; slug for simulated
-    ground_truth_id    VARCHAR(64),                    -- NULL for human sessions; slug for eval runs
-    created_at         TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
-    updated_at         TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
-    status             VARCHAR(20)  NOT NULL DEFAULT 'active',  -- active | converged | abandoned
-    max_turns          INTEGER      NOT NULL DEFAULT 15,
-    cost_limit_usd     NUMERIC(10,4),
-    preference_profile JSONB                           -- populated at convergence by the profile agent
+CREATE TABLE conversations (
+    id                          UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id                     UUID        REFERENCES users(id) ON DELETE SET NULL,
+    current_cluster_snapshot_id UUID        REFERENCES cluster_snapshots(id),
+    config_snapshot             JSONB       NOT NULL,
+    created_at                  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    accumulated_cost_usd        FLOAT       NOT NULL DEFAULT 0.0
 );
-
-CREATE INDEX ON sessions (run_id);
-CREATE INDEX ON sessions (user_id);
-CREATE INDEX ON sessions (persona_id) WHERE persona_id IS NOT NULL;
-CREATE INDEX ON sessions (ground_truth_id) WHERE ground_truth_id IS NOT NULL;
 ```
 
----
+### `messages`
 
-### `turns`
-
-One row per conversation turn.
+One row per turn (user message or assistant reply).
 
 ```sql
-CREATE TABLE turns (
-    id                UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
-    session_id        UUID        NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
-    turn_number       SMALLINT    NOT NULL,
-    user_message      TEXT        NOT NULL,    -- raw oracle utterance
-    assistant_message TEXT,                    -- system response (question or recommendation)
-    step_type         VARCHAR(20),             -- show | ask | stop
-    converged         BOOLEAN     NOT NULL DEFAULT FALSE,
-    created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    UNIQUE (session_id, turn_number)
+CREATE TABLE messages (
+    id              UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    conversation_id UUID        NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+    role            TEXT        NOT NULL CHECK (role IN ('user', 'assistant')),
+    content         TEXT        NOT NULL,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    cost_usd        FLOAT       NOT NULL DEFAULT 0.0
 );
 
-CREATE INDEX ON turns (session_id);
+CREATE INDEX ON messages (conversation_id);
 ```
 
----
+### `cluster_snapshots`
+
+Content-addressed snapshot tree. Each node is keyed on `(parent_id, operation, params, config_hash)`; identical operations on the same parent are shared across conversations.
+
+```sql
+CREATE TABLE cluster_snapshots (
+    id          UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    parent_id   UUID        REFERENCES cluster_snapshots(id) ON DELETE SET NULL,
+    operation   TEXT        NOT NULL,
+    params      JSONB       NOT NULL DEFAULT '{}',
+    config_hash TEXT        NOT NULL,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE NULLS NOT DISTINCT (parent_id, operation, params, config_hash)
+);
+```
 
 ### `clusters`
 
-Snapshot of cluster state after each turn. Supports a two-level hierarchy: `level = 0` coarse, `level = 1` fine.
+Named clusters belonging to a snapshot.
 
 ```sql
 CREATE TABLE clusters (
-    id                UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
-    session_id        UUID        NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
-    turn_id           UUID        NOT NULL REFERENCES turns(id) ON DELETE CASCADE,
-    parent_cluster_id UUID        REFERENCES clusters(id),  -- NULL for level=0
-    name              TEXT        NOT NULL,
-    description       TEXT,
-    level             SMALLINT    NOT NULL DEFAULT 0,        -- 0 = coarse, 1 = fine
-    centroid          VECTOR(1024),                          -- mean embedding; not indexed for ANN
-    created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    id                  UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    cluster_snapshot_id UUID        NOT NULL REFERENCES cluster_snapshots(id) ON DELETE CASCADE,
+    label               TEXT,                   -- NULL for unlabelled root clusters; filled lazily
+    summary             TEXT,
+    exemplar_movie_ids  JSONB       DEFAULT '[]',
+    parent_cluster_id   UUID        REFERENCES clusters(id)
 );
-
-CREATE INDEX ON clusters (session_id, turn_id);
 ```
 
-`parent_cluster_id` encodes the two-level hierarchy: coarse clusters (`level = 0`) have `parent_cluster_id = NULL`; fine clusters (`level = 1`) reference their parent coarse cluster.
+### `cluster_memberships`
 
----
-
-### `cluster_assignments`
-
-Soft assignment of a film to a cluster for a given turn snapshot.
+Soft assignment of a movie to a cluster.
 
 ```sql
-CREATE TABLE cluster_assignments (
-    id         UUID    PRIMARY KEY DEFAULT gen_random_uuid(),
-    cluster_id UUID    NOT NULL REFERENCES clusters(id) ON DELETE CASCADE,
-    movie_id   BIGINT  NOT NULL REFERENCES movies(id),
-    score      FLOAT   NOT NULL,           -- soft-assignment probability [0, 1]
-    excluded   BOOLEAN NOT NULL DEFAULT FALSE  -- oracle explicitly rejected this film
+CREATE TABLE cluster_memberships (
+    cluster_id  UUID    NOT NULL REFERENCES clusters(id) ON DELETE CASCADE,
+    movie_id    INTEGER NOT NULL REFERENCES movies(id),
+    probability FLOAT   NOT NULL,
+    PRIMARY KEY (cluster_id, movie_id)
 );
 
-CREATE INDEX ON cluster_assignments (cluster_id);
-CREATE INDEX ON cluster_assignments (movie_id);
+CREATE INDEX ON cluster_memberships (cluster_id);
+CREATE INDEX ON cluster_memberships (movie_id);
 ```
 
----
+### `conversation_snapshot_refs`
 
-### `oracle_feedback`
-
-Immutable log of every oracle action. Never updated; new rows only.
+Join table linking conversations to every snapshot they have ever visited. Allows shared snapshots to survive individual conversation deletion.
 
 ```sql
-CREATE TABLE oracle_feedback (
-    id             UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
-    session_id     UUID        NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
-    turn_id        UUID        NOT NULL REFERENCES turns(id) ON DELETE CASCADE,
-    feedback_level VARCHAR(20) NOT NULL,  -- global | cluster | point | instructional
-    feedback_type  VARCHAR(30) NOT NULL,  -- accept | reject | split | merge | resolve_drift | constraint
-    target_id      TEXT,                  -- cluster UUID or TMDB movie ID as text, depending on level
-    content        TEXT        NOT NULL,
-    created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+CREATE TABLE conversation_snapshot_refs (
+    conversation_id UUID NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+    snapshot_id     UUID NOT NULL REFERENCES cluster_snapshots(id) ON DELETE CASCADE,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (conversation_id, snapshot_id)
 );
 
-CREATE INDEX ON oracle_feedback (session_id);
-CREATE INDEX ON oracle_feedback (feedback_type);
+CREATE INDEX ON conversation_snapshot_refs (snapshot_id);
+```
+
+### `concepts` and `concept_scores`
+
+Oracle-derived linear axes and prototype concepts. Used by the `partition_by` and `drill_down` operations to split clusters along a meaningful dimension.
+
+```sql
+CREATE TABLE concepts (
+    id         UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    name       TEXT        NOT NULL,
+    type       TEXT        NOT NULL CHECK (type IN ('linear_axis', 'prototype')),
+    definition JSONB       DEFAULT '{}',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE concept_scores (
+    concept_id UUID    NOT NULL REFERENCES concepts(id) ON DELETE CASCADE,
+    movie_id   INTEGER NOT NULL REFERENCES movies(id),
+    score      FLOAT   NOT NULL,
+    PRIMARY KEY (concept_id, movie_id)
+);
+
+CREATE INDEX ON concept_scores (concept_id);
 ```
 
 ---
@@ -419,23 +467,29 @@ CREATE INDEX ON oracle_feedback (feedback_type);
 ## Entity-relationship summary
 
 ```
-collections ◄── movies ──► movie_genres       ──► genres
-                    │
-                    ├──► cast_members          ──► people
-                    ├──► crew_members          ──► people
-                    ├──► movie_keywords        ──► keywords
-                    ├──► movie_companies       ──► production_companies
-                    ├──► movie_spoken_languages ──► languages
-                    └──► movie_countries       ──► countries
+catalogue:
+  collections ◄── movies ──► movie_genres       ──► genres
+                      │
+                      ├──► cast_members          ──► people
+                      ├──► crew_members          ──► people
+                      ├──► movie_keywords        ──► keywords
+                      ├──► movie_companies       ──► production_companies
+                      ├──► movie_spoken_languages ──► languages
+                      └──► movie_countries       ──► countries
 
-roles ◄── users ──► sessions
-              │
-runs ─────────┤
-              └──► turns ──► clusters ──► cluster_assignments ──► movies
-                        └──► oracle_feedback
+runtime:
+  roles ◄── users ──► conversations ──► messages
+                            │
+                            ├──► conversation_snapshot_refs ──► cluster_snapshots ──► clusters ──► cluster_memberships ──► movies
+                            └── (current_cluster_snapshot_id) ──►    cluster_snapshots
 
-sessions ──► session_metrics  (1:1, written by eval harness)
-         └──► judge_scores     (1:N, written by eval harness)
+eval harness:
+  runs ──► eval_sessions ──► conversations
+  personas ──►  eval_sessions
+  ground_truths ──► eval_sessions
+
+  conversations ──► conversation_metrics  (1:1, written by eval harness)
+               └──► judge_scores           (1:N, written by eval harness)
 ```
 
 ---
