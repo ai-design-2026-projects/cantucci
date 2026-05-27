@@ -8,7 +8,7 @@ from backend.agents.coordinator.tools.clarification_state import mark_awaiting
 from backend.agents.coordinator.tools.labeling import label_unlabeled_clusters
 from backend.agents.coordinator.tools.persist import persist_and_label
 from backend.agents.concept.agent import build_concept
-from backend.agents.partition_advisor.agent import propose_bins
+from backend.agents.clustering.partition_bins import propose_bins
 from backend.agents.responder import replies
 from backend.agents.coordinator.tools.progress import ProgressReporter
 from backend.agents.coordinator.types import sentinel_cluster_snapshot_id
@@ -258,7 +258,7 @@ async def handle_partition_by(ctx: ActionContext) -> tuple[str, uuid.UUID | None
     spec = ctx.action.partition_spec
 
     if spec.attribute in _NUMERIC_ATTRIBUTES and not spec.bins:
-        return await _propose_numeric_bins(ctx, spec)
+        return _propose_numeric_bins(ctx, spec)
 
     ctx.reporter.step("clustering")
     draft = await partition_by(
@@ -278,22 +278,22 @@ async def handle_partition_by(ctx: ActionContext) -> tuple[str, uuid.UUID | None
     )
 
 
-async def _propose_numeric_bins(
+def _propose_numeric_bins(
     ctx: ActionContext, spec: PartitionSpec
 ) -> tuple[str, uuid.UUID | None, float]:
     """Propose default bins to the user when a numeric partition_by has no bins specified.
 
-    Resolves the in-scope movie set, fetches distribution stats, calls the partition
-    advisor to generate labelled bins, counts movies per bin, and returns a proposal
-    message.  Marks the conversation as awaiting so the next turn passes the proposal
-    as clarification context to the intent agent.
+    Resolves the in-scope movie set, fetches distribution stats, computes labelled bins
+    deterministically, counts movies per bin, and returns a proposal message. Marks the
+    conversation as awaiting so the next turn passes the proposal as clarification context
+    to the intent agent.
 
     Args:
         ctx:  Action context.
         spec: The partition spec with a numeric attribute and no bins.
 
     Returns:
-        Tuple of (proposal text, unchanged snapshot id, advisor call cost).
+        Tuple of (proposal text, unchanged snapshot id, 0.0 cost).
     """
     from backend.agents.clustering.operations._helpers import resolve_movie_ids
 
@@ -308,16 +308,10 @@ async def _propose_numeric_bins(
         return replies.UNSUPPORTED_OPERATION, ctx.current_cluster_snapshot_id, 0.0
 
     stats = fetch_numeric_stats(resolved_ids, spec.attribute.value)
-    advisor_result = await propose_bins(
-        attribute=spec.attribute.value,
-        stats=stats,
-        conversation_id=ctx.conversation_id,
-        message_id=ctx.message_id,
-        accumulated_cost=ctx.accumulated_cost,
-    )
+    bins = propose_bins(attribute=spec.attribute.value, stats=stats)
 
     raw_values = fetch_partition_values(resolved_ids, spec.attribute.value)
-    bin_counts: dict[str, int] = {b.label: 0 for b in advisor_result.bins}
+    bin_counts: dict[str, int] = {b.label: 0 for b in bins}
     unspecified = 0
     for mid in resolved_ids:
         value = raw_values.get(mid)
@@ -325,7 +319,7 @@ async def _propose_numeric_bins(
             unspecified += 1
             continue
         matched = False
-        for b in advisor_result.bins:
+        for b in bins:
             lo_ok = b.min is None or float(value) >= b.min  # type: ignore[arg-type]
             hi_ok = b.max is None or float(value) < b.max  # type: ignore[arg-type]
             if lo_ok and hi_ok:
@@ -335,11 +329,9 @@ async def _propose_numeric_bins(
         if not matched:
             unspecified += 1
 
-    proposal_text = replies.format_bin_proposal(
-        spec.attribute.value, advisor_result.bins, bin_counts, unspecified
-    )
+    proposal_text = replies.format_bin_proposal(spec.attribute.value, bins, bin_counts, unspecified)
     mark_awaiting(ctx.conversation_id)
-    return proposal_text, ctx.current_cluster_snapshot_id, advisor_result.cost
+    return proposal_text, ctx.current_cluster_snapshot_id, 0.0
 
 
 async def handle_cross_filter(ctx: ActionContext) -> tuple[str, uuid.UUID | None, float]:
@@ -394,11 +386,10 @@ _DISPATCH: dict[NavigationMode | DialogueMode, _Handler] = {
 
 
 async def execute_action(ctx: ActionContext) -> tuple[str, uuid.UUID | None, float]:
-    """Dispatch a single classified action to its handler and return the result.
-
+    """
+    Dispatch a single classified action to its handler and return the result.
     Args:
         ctx: Immutable bundle of action inputs.
-
     Returns:
         Tuple of (reply_fragment, new_cluster_snapshot_id, step_cost).
     """

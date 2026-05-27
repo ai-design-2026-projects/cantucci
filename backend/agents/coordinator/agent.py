@@ -93,7 +93,7 @@ class Coordinator:
             if prior_assistant is not None:
                 clarification_question = prior_assistant.content
 
-        # Intent classification and dispatch
+        # INTENT AGENT
         reporter.step("intent")
         intent = await classify_intent(
             user_message=user_message,
@@ -105,6 +105,9 @@ class Coordinator:
         )
         accumulated_cost += intent.cost
 
+        # If the confidence of any state-changing action is below the threshold, 
+        # call the Clarifier and return early with the clarification question.  
+        # This prevents low-confidence operations from modifying cluster state before we have a chance to disambiguate.
         early_return = await self._clarify_if_low_confidence(
             intent=intent,
             clusters=clusters,
@@ -115,6 +118,7 @@ class Coordinator:
             current_cluster_snapshot_id=current_cluster_snapshot_id,
             reporter=reporter,
         )
+        # If early_return is not None, it contains the clarification question and we should return immediately without executing any actions.
         if early_return is not None:
             reporter.done()
             return CoordinatorResult(
@@ -123,7 +127,7 @@ class Coordinator:
                 turn_cost_usd=accumulated_cost - turn_start_cost,
                 suggestion=early_return.suggestion,
             )
-
+        
         log.info(
             "coordinator_dispatch",
             extra={
@@ -133,13 +137,14 @@ class Coordinator:
                 "n_clusters": len(clusters),
             },
         )
-
+        # Execute each action sequentially, threading the resulting cluster snapshot into the next action.
         reply_fragments: list[str] = []
-
         for action in intent.actions:
+            # Retrieve the latest cluster snapshot and clusters from the DB
             step_snapshot = get_cluster_snapshot_with_clusters(current_cluster_snapshot_id) if current_cluster_snapshot_id else None
             step_clusters = step_snapshot.clusters if step_snapshot else []
-
+            
+            # Build the action context and execute it
             ctx = ActionContext(
                 action=action,
                 current_cluster_snapshot_id=current_cluster_snapshot_id,

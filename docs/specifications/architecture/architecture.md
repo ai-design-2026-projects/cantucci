@@ -7,8 +7,6 @@ and finalised by **Labeling**), an **Explanation** path, and a **Responder** tha
 follow-up suggestion. Cluster state is stored as a content-addressed tree of snapshots in the
 vector database.
 
-> The previous retrieval/decision/convergence design (Retrieval, Profile, State, Decision agents)
-> has been replaced by the navigation-based clustering model described here.
 
 ## System components
 
@@ -72,6 +70,7 @@ new clusters.
 | `merge` | navigation | Combine two or more clusters into one under a chosen label. | "these two are basically the same, combine them" |
 | `focus` | navigation | Discard every cluster except the selected one, narrowing the working set to its members. | "just keep the sci-fi cluster" |
 | `cross_filter` | navigation | Keep only movies matching a metadata predicate (genres, year range, director), then re-cluster the survivors. | "only 90s movies directed by Spielberg, then regroup" |
+| `partition_by` | navigation | Group a cluster (or the whole catalogue) into contiguous buckets of a numeric attribute (`runtime`, `release_year`, `vote_average`). When no bins are supplied the Coordinator proposes round-number defaults and asks the oracle to confirm before clustering. | "split by decade", "group by runtime" |
 | `reset` | dialogue | Return to the unclustered state (no active snapshot). | "start over" |
 | `go_to_base` | dialogue | Jump back to the pre-computed ingest-time base clustering. | "go back to the original groups" |
 | `explain` | dialogue | Explain why a given movie sits in a given cluster. | "why is Blade Runner in this group?" |
@@ -88,6 +87,7 @@ each action carries the parameters the operation needs, all inferred from the sa
 - `merged_label` — the name for a merged cluster.
 - `embedding_spaces` — which modalities to fuse for this operation (defaults to `TEXT`; adds `TRAILER` when the user references visual style or tone).
 - `confidence` — the model's certainty in the classification.
+- `partition_spec` — for `partition_by`: the numeric attribute and an optional ordered list of `PartitionBin` objects (each with `label`, inclusive `min`, exclusive `max`). When the attribute is numeric and no bins are supplied, the Coordinator calls the deterministic `propose_bins` helper (see Agent entry points) to suggest round-number edges adapted to the in-scope subset, and returns a proposal for the oracle to confirm before any clustering occurs.
 
 Because the action set is closed and each action is fully parameterised from natural language, the
 oracle controls a precise clustering operation without learning any command syntax. When a
@@ -113,6 +113,7 @@ The Coordinator and its `tools/` helpers are the only code that writes to the da
 | **Responder** | `maybe_suggest(...)` / `suggest(...)` | Compute centroid-similarity / dominance / noise signals; call the LLM only when a signal trips. |
 | **Coordinator** | `persist_and_label(...)` | Content-addressed snapshot cache: on cache hit reuse the snapshot (skip clustering + labelling); on miss persist clusters + memberships and label them. |
 | **Coordinator** | `label_unlabeled_clusters(...)` | Lazily label ingested root clusters on first conversation access. |
+| **Clustering (helper)** | `propose_bins(attribute, stats) -> list[PartitionBin]` | Deterministic (no LLM call, zero cost). Snaps p25/p75 of the in-scope distribution to the nearest round-number candidate edge per attribute, building 1–3 labelled `PartitionBin` objects. Lives in `backend/agents/clustering/partition_bins.py`. |
 
 ## Turn Handling
 
@@ -155,6 +156,7 @@ dispatches to the matching handler. Each handler returns `(reply_fragment, new_s
 | `NavigationMode.MERGE` | `handle_merge` | Merge first two clusters → `clustering` step → `persist_and_label` | via `persist_and_label` |
 | `NavigationMode.FOCUS` | `handle_focus` | Narrow to one cluster → `clustering` step → `persist_and_label` | via `persist_and_label` |
 | `NavigationMode.CROSS_FILTER` | `handle_cross_filter` | Metadata filter → optional `concept` step → `clustering` step → `persist_and_label` | via `persist_and_label` |
+| `NavigationMode.PARTITION_BY` | `handle_partition_by` | When numeric bins are absent: call `propose_bins` → return proposal, mark awaiting (no DB write). When bins are confirmed: `clustering` step → `persist_and_label` | via `persist_and_label` (confirmed path only) |
 
 Clustering handlers go through `persist_and_label`, which first checks the content-addressed cache
 `(parent_id, operation, params, config_hash)`; on a hit it reuses the existing snapshot and skips

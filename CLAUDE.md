@@ -118,6 +118,8 @@ Oracle → `routers/sessions.py` → `Orchestrator.run_turn` → Retrieval Agent
 
 **LLM harness** (`backend/llm/llm_harness.py`): `call()` is the only entry point. Enforces `cost_limit_usd` before each call (raises `CostLimitExceeded`), retries 3× on transient OpenAI errors with exponential backoff, supports `dry_run=True` for tests, emits one `log_llm_call(...)` record per attempt.
 
+**Partition advisor** (`backend/agents/partition_advisor/agent.py`): called when a `partition_by` on a numeric attribute (`runtime`, `release_year`, `vote_average`) has no user-supplied bins. `propose_bins(attribute, stats)` is fully deterministic — it snaps the p33/p67 positions of the distribution to the nearest round-number candidate edge (multiples of 15/30 for runtime, decade boundaries for release_year, 0.5 increments for vote_average) and builds 3 labelled `PartitionBin` objects. No LLM call is made; `cost` is always 0.0.
+
 **DB access boundary**: nothing outside `backend/data_access/` opens a cursor. `backend/data_access/connection.py` exposes a connection pool + `transaction()` context manager; each `data_access/<domain>/queries.py` is a typed CRUD module consumed by routers and agents.
 
 **Tests boot real Postgres**: `tests/db/test_config.py` registers the `db_url` fixture via `testcontainers`. `pyproject.toml` injects it with `addopts = "-p tests.db.test_config"`. Each test gets a fresh schema. No SQLite fallback exists.
