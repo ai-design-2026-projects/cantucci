@@ -335,42 +335,30 @@ def _propose_numeric_bins(
 
 
 async def handle_cross_filter(ctx: ActionContext) -> tuple[str, uuid.UUID | None, float]:
-    """Handle a CROSS_FILTER action by filtering by metadata then re-clustering survivors.
+    """Handle a CROSS_FILTER action by filtering movies by metadata.
+
+    Produces a snapshot with a single cluster containing the surviving movies.
+    No clustering is performed; the user can follow up with a drill_down to cluster them.
 
     Args:
         ctx: Action context.  ``ctx.action.metadata_filter`` carries the predicate.
-             ``ctx.action.concept`` optionally guides clustering of the filtered set.
 
     Returns:
-        Tuple of (reply text, new snapshot id, cumulative step cost).
+        Tuple of (reply text, new snapshot id, label cost).
     """
     if ctx.action.metadata_filter is None:
         return replies.UNSUPPORTED_OPERATION, ctx.current_cluster_snapshot_id, 0.0
-
-    step_cost = 0.0
-    concept = None
-    if ctx.action.concept:
-        ctx.reporter.step("concept")
-        concept = await build_concept(
-            ctx.action.concept, ctx.conversation_id, ctx.message_id, ctx.accumulated_cost + step_cost
-        )
-        step_cost += concept.cost
 
     ctx.reporter.step("clustering")
     draft = await cross_filter(
         parent_cluster_snapshot_id=ctx.current_cluster_snapshot_id,
         metadata_filter=ctx.action.metadata_filter,
-        concept=concept,
-        embedding_spaces=ctx.action.embedding_spaces,
     )
     n_movies = len({mid for c in draft.clusters for mid, _ in c.memberships})
     new_cluster_snapshot_id, label_cost = await persist_and_label(
-        draft, ctx.conversation_id, ctx.current_cluster_snapshot_id, ctx.accumulated_cost + step_cost
+        draft, ctx.conversation_id, ctx.current_cluster_snapshot_id, ctx.accumulated_cost
     )
-    step_cost += label_cost
-    new_cswc = get_cluster_snapshot_with_clusters(new_cluster_snapshot_id)
-    n_new = len(new_cswc.clusters) if new_cswc else 0
-    return replies.format_cross_filter_reply(n_new, n_movies), new_cluster_snapshot_id, step_cost
+    return replies.format_cross_filter_reply(n_movies), new_cluster_snapshot_id, label_cost
 
 
 _DISPATCH: dict[NavigationMode | DialogueMode, _Handler] = {
