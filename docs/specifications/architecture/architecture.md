@@ -15,7 +15,7 @@ vector database.
 | **User (Oracle)** | Oracle | The source of truth: a human participant or an MCP/LLM client. Sends free-form natural-language messages requesting clustering operations, explanations, or navigation. |
 | **Coordinator** | Orchestration & handoffs | The sole orchestrator and **only writer to the database**. Per message it loads current cluster state, labels any unlabeled clusters, classifies intent, applies a confidence gate, executes each requested action in order, and optionally asks the Responder for a suggestion. Holds no in-memory session state — every turn re-reads from the DB. |
 | **Intent Agent** | Intent classification | Parses the oracle's message into an ordered list of actions, each tagged with a `NavigationMode` or `DialogueMode`, a confidence score, and operation-specific parameters (concept, target cluster, merged label, metadata filter, embedding modalities).|
-| **Clustering Agent** | Grouping & navigation | Five pure operations over movie embeddings — `drill_down`, `merge`, `focus`, `cross_filter`, `cross_filter` — each producing a draft snapshot of clusters with per-movie soft-membership probabilities. Runs no LLM call itself; concept scoring and HDBSCAN do the work. Never writes to the DB. |
+| **Clustering Agent** | Grouping & navigation | Five pure operations over movie embeddings — `drill_down`, `merge`, `focus`, `cross_filter`, `partition_by` — each producing a draft snapshot of clusters with per-movie soft-membership probabilities. Runs no LLM call itself; concept scoring and HDBSCAN do the work. Never writes to the DB. |
 | **Concept Agent** | Semantic axis building | Turns a user concept string (e.g. "surrealism") into either a `linear_axis` (normalized difference of pole descriptions) or a `prototype` (centroid of exemplar movie embeddings). Used to guide drill-down and cross-filter splits. Uses the strong model. |
 | **Labeling Agent** | Naming | A single batched LLM call that names and summarises all unlabeled clusters at once (root clusters are ingested unlabeled and labelled lazily on first access). Uses the fast model. |
 | **Clarifier Agent** | Disambiguation gate | When any state-changing action falls below the configured confidence threshold, produces a clarification question and the turn returns early without mutating state. |
@@ -37,7 +37,7 @@ We can distinguish two families:
 | `drill_down` | navigation | Split one cluster further along a semantic concept, or re-cluster the full catalogue when no target is given. | "break the noir group down by how violent they are", "cluster these further" |
 | `merge` | navigation | Combine two or more clusters into one under a chosen label. | "these two are basically the same, combine them" |
 | `focus` | navigation | Discard every cluster except the selected one, narrowing the working set to its members. | "just keep the sci-fi cluster" |
-| `cross_filter` | navigation | Keep only movies matching a metadata predicate (genres, year range, director), then re-cluster the survivors. | "only 90s movies directed by Spielberg, then regroup" |
+| `cross_filter` | navigation | Keep only movies matching a metadata predicate (genres, year range, director) | "only 90s movies directed by Spielberg, then regroup" |
 | `partition_by` | navigation | Group a cluster (or the whole catalogue) into contiguous buckets of a numeric attribute (`runtime`, `release_year`, `vote_average`). When no bins are supplied the Coordinator proposes round-number defaults and asks the oracle to confirm before clustering. | "split by decade", "group by runtime" |
 | `reset` | dialogue | Return to the unclustered state (no active snapshot). | "start over" |
 | `go_to_base` | dialogue | Jump back to the pre-computed ingest-time base clustering. | "go back to the original groups" |
@@ -46,30 +46,21 @@ We can distinguish two families:
 
 The Intent agent emits an **ordered list of actions**, so a single message can request a compound
 sequence (e.g. *"reset, then split everything by mood"* → `reset` then `drill_down`); the Coordinator
-executes them in order, threading each resulting snapshot into the next. Beyond the operation itself,
-each action carries the parameters the operation needs, all inferred from the same message:
+executes them in order, threading each resulting snapshot into the next. 
 
-- `target_cluster_id` — which cluster to act on (drill-down / merge / focus / explain); absent means "operate on the whole snapshot".
-- `concept` — a free-text semantic dimension (e.g. "surrealism") that, when present, routes through the Concept agent to guide a drill-down or cross-filter split.
-- `metadata_filter` — a structured predicate (`genres`, `release_year_min/max`, `director`) for cross-filter.
-- `merged_label` — the name for a merged cluster.
-- `embedding_spaces` — which modalities to fuse for this operation (defaults to `TEXT`; adds `TRAILER` when the user references visual style or tone).
-- `confidence` — the model's certainty in the classification.
-- `partition_spec` — for `partition_by`: the numeric attribute and an optional ordered list of `PartitionBin` objects (each with `label`, inclusive `min`, exclusive `max`). When the attribute is numeric and no bins are supplied, the Coordinator calls the deterministic `propose_bins` helper (see Agent entry points) to suggest round-number edges adapted to the in-scope subset, and returns a proposal for the oracle to confirm before any clustering occurs.
+Each action carries
+`target_cluster_id`, `concept`, `metadata_filter`, `merged_label`, `embedding_spaces`, `confidence`,
+and `partition_spec` — all inferred from natural language. For `partition_by`, if no bins are
+supplied the Coordinator calls the deterministic `propose_bins` helper to suggest round-number edges
+and returns a proposal for the oracle to confirm before clustering. When a state-changing action's
+`confidence` falls below the configured threshold the **Clarifier** asks a disambiguating question
+instead of guessing (see Turn Handling, Phase 3).
 
-Because the action set is closed and each action is fully parameterised from natural language, the
-oracle controls a precise clustering operation without learning any command syntax. When a
-state-changing action's `confidence` falls below the configured threshold, the **Clarifier** asks a
-disambiguating question instead of guessing (see Turn Handling, Phase 3).
-
-## Representation & clustering substrate
-
-The agents operate over pre-computed movie embeddings. The encoding and clustering primitives live
-in `core/` and are shared with the offline ingest pipeline (see `dataset/README.md` for the offline
-side); the online loop only reads the stored vectors and re-clusters subsets of them.
+## Embeddings & fusion
 
 Each movie carries up to three 1024-dimensional, L2-normalised embeddings, matching the `Modality`
-enum and the embedding columns in `data_schema.md`:
+enum and the embedding columns in `data_schema.md`. The encoding primitives live in `core/` and are
+shared with the offline ingest pipeline; the online loop only reads stored vectors.
 
 | Modality | Model | Encodes | Column |
 |---|---|---|---|
@@ -77,25 +68,42 @@ enum and the embedding columns in `data_schema.md`:
 | `REVIEW` | `BAAI/bge-large-en-v1.5` | `reviews_text` (concatenated reviews) | `review_embedding` |
 | `TRAILER` | open_clip `ViT-H/14` | 16 evenly-spaced trailer frames, CLIP-encoded then mean-pooled (fallback to the poster if no trailer is available) | `trailer_embedding` |
 
-**Fusion** (`core/fusion.py`) takes two paths because the spaces are not interchangeable.
-- Text and reviews share the same BGE space, so they are simply combined by a **weighted vector average**
-(`fuse_batch`); rows without a review stay text-only.
-- BGE text and CLIP trailer embeddings live in incompatible spaces, so they are combined at the **distance level** (`combined_distance_matrix`, weights from `fusion.runtime_weights`) rather than by averaging vectors. For each modality a full `(n, n)` cosine-distance matrix is computed independently (`d = 1 − emb @ emb.T`, valid because embeddings are L2-normalised), and those matrices are weighted-summed and renormalised:
+**Fusion** (`core/fusion.py`) takes two paths.
+- Text and reviews share the same BGE space and are combined by a **weighted vector average** (`fuse_batch`); rows without a review stay text-only.
+- BGE text and CLIP trailer embeddings are combined at the **distance level** (`combined_distance_matrix`): a full cosine-distance matrix is computed per modality and the matrices are weighted-summed:
 
   ```
   d_combined(A, B) = ( w_text · d_text(A, B) + w_trailer · d_trailer(A, B) ) / (w_text + w_trailer)
   ```
 
-  Two movies are therefore close in the combined space when they are both semantically similar **and** visually similar. Operating at the distance level — rather than concatenating or averaging vectors — is correct here because it makes no assumption about the geometry of the two spaces relative to each other; each modality contributes only its own notion of similarity.
-
 The intent agent picks which modalities to fuse per operation via `embedding_spaces`.
 
-**Clustering** (`core/clustering.py`, `backend/agents/clustering/operations/`) reduces the chosen
-embeddings with UMAP and runs **HDBSCAN soft clustering**, yielding per-movie soft-membership
-probabilities (noise points spread uniformly across clusters); cross-space operations feed the
-precomputed distance matrix to HDBSCAN instead. When a drill-down is **concept-guided**, the Concept
-agent's axis or prototype scores every movie, the set is split at the **median** score into high/low
-halves, and each half is clustered separately to produce more concept-coherent groups.
+## Clustering
+
+The Clustering Agent (`core/clustering.py`, `backend/agents/clustering/operations/`) is a pure
+computation layer: it receives embeddings or a precomputed distance matrix and returns a
+`ClusterSnapshotDraft`; it never writes to the DB.
+
+**Algorithm** — embeddings are first reduced with UMAP, then grouped with **HDBSCAN soft
+clustering**. Each movie receives a per-cluster membership probability; noise points are spread
+uniformly across clusters so every movie always belongs somewhere.
+
+**Cross-space operations** — when both TEXT and TRAILER modalities are active, the precomputed
+combined distance matrix (`core/fusion.py:combined_distance_matrix`) is fed directly to HDBSCAN
+instead of fusing embedding vectors.
+
+**Concept-guided drill-down** — when a `drill_down` action carries a concept, the Concept agent
+produces either a `linear_axis` (normalised difference of two pole descriptions) or a `prototype`
+(centroid of exemplar movie embeddings). Every movie in scope is scored against this axis; the set
+is split at the **median** score into high/low halves, and each half is clustered independently to
+produce more concept-coherent groups.
+
+**Persist & label** (`backend/agents/coordinator/tools/persist.py`) — after the Clustering Agent
+returns a draft, the Coordinator checks the **content-addressed cache** keyed by
+`(parent_snapshot_id, operation, canonical_params, config_hash)`. On a cache hit the existing
+snapshot is reused with no re-labelling cost. On a miss: a new `cluster_snapshots` row is created,
+the Labeling Agent names all clusters in one batched LLM call, memberships are bulk-inserted, and
+`conversations.current_cluster_snapshot_id` is updated.
 
 ## Navigating the execution graph
 
@@ -135,11 +143,14 @@ Each user message is handled by a stateless `Coordinator.handle_message`
 **deterministic sequential pipeline**, and writes results back. A `ProgressReporter` emits SSE
 step events throughout (consumed by `GET /conversations/{id}/events`).
 
-### Phase 1 — Load & lazy label
+### Phase 1 — Load, label & context
 
 The Coordinator reads the conversation's `current_cluster_snapshot_id` and its clusters. If any
 cluster is unlabeled (true for freshly ingested root clusters), it emits a `labeling` step and
-labels them all in one batched call, persisting the labels.
+labels them all in one batched call, persisting the labels. It then checks `take_awaiting(conversation_id)`:
+if the prior turn ended with a clarification question, the Coordinator fetches that assistant message
+and passes it to the Intent agent so follow-up answers ("the first option", "yes, that one") resolve
+correctly.
 
 ### Phase 2 — Intent classification
 
