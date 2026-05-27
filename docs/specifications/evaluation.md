@@ -28,19 +28,14 @@ A **monolithic LLM**: a single LLM acts as the clustering agent end-to-end, hold
 
 Ground truths are built offline from a held-out partition of the catalogue that is never ingested into the main catalogue (the `eval_holdout` parquet artifact).
 
-A ground truth is a **target cluster structure**: a labelled partition of N films from the holdout into K named groups, together with a short *intent description* of the partition (the theme, axis, or split the partition encodes) and a list of seed films used to anchor each group.
+A ground truth is a **target navigation trajectory**: an ordered list of operations — each tagged with its operation type (`drill_down`, `merge`, `focus`, `cross_filter`) and its concept (the semantic axis or target the operation applies to) — together with an *intent description* that paraphrases that trajectory in natural language.
 
-- NO CLUSTER, ONLY INTENT LIST 
+**Procedure:**
+1. Call an LLM to propose a plausible navigation trajectory: 3–6 operations with their concepts, such that the trajectory tells a coherent exploration story over the catalogue ("drill_down by tone", "focus on slow-burn", "drill_down by setting", …).
+2. Call a second LLM pass to write a neutral, voice-agnostic intent description that resembles the trajectory in natural language ("I want to split modern thrillers by their tone, then zoom in on the slow-burn ones and break those down by setting").
+3. Store the operation list, the intent description, and the LLM prompt hash as a versioned `ground_truths` row.
 
-**Procedure (TODO — open question on the right generation strategy):**
-1. Sample K × M seed films from the holdout set using a fixed random seed.
-2. Call an LLM to propose a labelled K-way partition over the sampled films, together with a short intent description ("split by tone vs. plot complexity", "European arthouse vs. American mainstream", …).
-3. The LLM expands each group to its target size by selecting the nearest holdout neighbours of the group's exemplars in fused embedding space.
-4. Store the seeds, target partition, intent description, and the LLM prompt hash as a versioned `ground_truths` row.
-
-> ⚠ **To check.** Pure LLM-only generation is the current choice for speed but has not been validated against human judgment. The fallback options — manual curation, or offline HDBSCAN + LLM labelling — should be revisited before committing to large-scale runs.
-
-**Oracle access.** The oracle sees only the intent description. The target partition (film-to-group mapping) is held by the runner and used for structural scoring after the session ends. This separation is enforced so the oracle cannot reverse-engineer the target from the snapshots it produces during the conversation.
+**Oracle access.** The oracle is given both the intent description (as conversational style and framing) and the operation trajectory (as a private to-do list). Each turn it paraphrases the next pending operation into a free-form message; the system sees only that message and must recover the intended operation from natural language alone. The trajectory is never exposed to the system.
 
 ---
 
@@ -48,7 +43,7 @@ A ground truth is a **target cluster structure**: a labelled partition of N film
 
 A simulated oracle is an LLM agent instantiated with a **ground truth** (intent description) overlaid with a **persona** (communication style). One oracle instance is used per session and must not be reused. The oracle is implemented in `eval/oracle/agent.py`.
 
-The oracle's task is to **articulate the target partition through navigation operations**: it reads the current snapshot's labels and summaries, and emits messages that should drive the system toward the target structure (asking for splits along the right axis, merging groups that should be one, focusing on the right subset). The oracle is not given the target film list — only the intent description and the current snapshot state.
+The oracle's task is to **drive the system through its target trajectory**: it reads the current snapshot's labels and summaries, picks the next pending operation from its private to-do list, and paraphrases it into a free-form message in the voice of the intent description. The system never sees the trajectory — only the messages the oracle emits.
 
 ### Persona dials
 
@@ -60,7 +55,7 @@ The oracle's task is to **articulate the target partition through navigation ope
 
 ### Behavioural reproducibility
 
-All per-turn behavioural rolls (drift, contradiction, disengagement) are seeded and deterministic, keyed on a combination of persona slug, ground-truth slug, session seed, and turn number. The same quadruple always produces the same sequence of conversational events, making behaviour reproducible across reruns even though the LLM output is stochastic.
+Persona dials are deterministic prompt-level controls (they shape the oracle's system prompt; they do not roll per-turn dice). All non-determinism comes from LLM sampling, which is keyed on the quadruple `(persona slug, ground-truth slug, session seed, turn number)`. The same quadruple always produces the same oracle output, making sessions reproducible across reruns.
 
 ---
 
@@ -74,12 +69,13 @@ The runner (`eval/runner.py`, CLI `python -m eval.run`) drives the full cross-pr
 
 ## 6 Session termination
 
-The runner ends a session when the first of three signals fires:
+The oracle decides termination at each turn from its own state; the runner only enforces the turn-budget cap. On every turn the oracle weighs three signals and chooses to continue or stop:
 
-- **ORACLE CHOICE BASED ON HAS PERFOMED ALL ACTION, OR THE CLUSTERING AGENT PERFORMS A UNDESIRED ACTION FOR THE ORACLE HE CHOICES IF TO CONTINUE OR NOT**
-- **Turn budget** — `eval.max_turns` caps the runner unconditionally.
+- **Trajectory completion** — every operation in the oracle's to-do list has been requested and executed appropriately by the system. The oracle ends the session as satisfied.
+- **System misbehaviour** — the system has performed an undesired or off-target operation in response to a paraphrased request. Whether this ends the session depends on the oracle's `patience` dial: a patient oracle tolerates several misclassifications before giving up, an impatient oracle abandons sooner.
+- **Turn budget** — `eval.max_turns` caps the runner unconditionally as a safety net, regardless of oracle state.
 
-WHEN YOU FINISH RATE THE CONVERSATION
+At session end, the oracle emits a final **session rating** (1–5) summarising how well the system understood its intent and executed the requested operations. The rating is persisted alongside the deterministic metrics.
 
 ---
 
@@ -91,29 +87,34 @@ All metrics are persisted after each session in `conversation_metrics` (determin
 
 | Metric | How measured |
 |---|---|
-| **Silhouette score** | `sklearn.metrics.silhouette_score` on the fused embeddings of the final snapshot's members, using argmax cluster assignment and cosine distance. `NULL` when fewer than 2 clusters or any cluster has fewer than 2 members. Diagnostic only — structural alignment with the target partition is the objective function. | (EXTEND WITH FORMULAS AND EXPLANATION OF THE METRIC)
-| **Mean membership probability** | Mean argmax membership probability across all movies in the final snapshot. Measures cluster firmness. |
-| **Noise fraction** | Fraction of movies with argmax probability below `eval.noise_prob_threshold`. |
-| **iNTET GROUND TRUTH vs target** | Adjusted Rand Index between the final snapshot's partition and the ground-truth target partition, computed over the films that appear in both. `NULL` for human-oracle sessions. The primary structural quality signal. |
+| **Silhouette score** | Mean of the per-point silhouette `s(i) = (b(i) − a(i)) / max(a(i), b(i))`, where `a(i)` is the mean cosine distance from point `i` to other members of its own cluster and `b(i)` is the mean cosine distance from `i` to members of the nearest other cluster. Range `[-1, 1]`: values near `1` mean dense, well-separated clusters; values near `0` mean overlapping clusters; negative values mean points are closer to a different cluster than their own. Computed via `sklearn.metrics.silhouette_score` on the fused embeddings of the final snapshot's members under argmax cluster assignment. `NULL` when fewer than 2 clusters or any cluster has fewer than 2 members. Diagnostic only — alignment with the GT operation trajectory is the objective function. |
+| **Mean membership probability** | Mean argmax soft-membership probability across all movies in the final snapshot. Measures cluster firmness: high values mean HDBSCAN was confident in its assignments, low values mean many borderline memberships. |
+| **Noise fraction** | Fraction of movies in the final snapshot whose argmax probability falls below `eval.noise_prob_threshold`. Quantifies the share of the catalogue that the clustering could not place confidently. |
+| **Operation recall vs GT** | Fraction of ground-truth operations (matched by operation type and concept) that the system actually executed during the session. `NULL` for human-oracle sessions. The primary structural quality signal. |
 | **Clarifier trigger rate** | Fraction of turns on which the Clarifier gate fired and the turn returned without mutating state. |
 | **Num turns** | Total oracle turns in the conversation. |
-| **Num operations** | Total navigation operations executed across the session (drill_down, merge, focus, cross_filter). |
+| **Num operations** | Total navigation operations executed across the session |
 | **Final num clusters** | Number of clusters in the final snapshot. |
 | **Total cost (USD)** | `conversations.accumulated_cost_usd` — the running total of all LLM costs for the session. |
+| **Oracle rating** | Self-rating (1–5) emitted by the simulated oracle at session end, summarising how well the system understood its intent and executed the requested operations. `NULL` for human-oracle sessions. |
 
 
 ### LLM-judge scores (subjective, 1–5)
 
-A separate judge (`eval/judge/agent.py`) reads the completed transcript, the per-turn action log, and the final cluster state (labels, summaries, exemplar titles). It scores four dimensions independently:
+A separate judge (`eval/judge/agent.py`) reads the completed transcript, the per-turn action log, and the final cluster state (labels, summaries, exemplar titles). It scores five dimensions independently:
 
 | Dimension | What is assessed |
 |---|---|
 | `operation_appropriateness` | Across the session, did the system pick the right operation (`drill_down`, `merge`, `focus`, `cross_filter`) given each oracle message, with sensible parameters (concept, target cluster, modalities)? |
-| `label_accuracy` | Do the cluster labels and summaries accurately describe their exemplar films at each snapshot? | (ACROSS THE CLUSTER SNAPSHOTS AND ON DIFFERENT TURN THEY REMAIN PERSISTENT)
-| seuggestion meningfullness |
-| explanation quality |
-| `intent_alignment` | Does the final clustering reflect the partition the oracle was trying to articulate, as conveyed by the intent description? |
+| `label_accuracy` | Do the cluster labels and summaries accurately describe their exemplar films at each snapshot, and do they remain consistent across snapshots and turns (no cosmetic thrashing between synonyms when cluster contents are unchanged)? |
+| `suggestion_meaningfulness` | When the Responder volunteers a follow-up suggestion, is it relevant to the current snapshot state, well-timed, and non-redundant with what the oracle has already requested? |
+| `explanation_quality` | When the Explanation agent justifies why a movie sits in a given cluster, is the rationale faithful to the cluster's label and exemplars, and specific enough to be informative rather than generic? |
+| `intent_alignment` | Does the system's executed sequence of operations and the resulting final snapshot reflect what the oracle was trying to elicit through the intent description? |
 
-## Notes
-judge, oracle and system, should use three different families of LLMs
-Oracle can have dumb models.
+---
+
+## 8 Notes
+
+- **Three LLM families.** The judge, the oracle, and the system under test must each run on a different family of LLMs. Same-family pairs (e.g. judge and system both on the same vendor or fine-tune lineage) bias scores upward because models reward outputs that match their own conventions.
+- **Oracle model class.** The oracle does not need a strong reasoning model. Its job is to paraphrase the next pending operation in the voice of the intent description — consistency matters more than depth. Cheap, small models are acceptable and reduce eval cost meaningfully across large cross-products.
+- **Confidence Interval.** All the metrics are delivered with their 95% confidence intervals computed via bootstrapping across sessions. The confidence intervals are the primary signal for comparing variants: non-overlapping intervals indicate statistically significant differences in performance.
