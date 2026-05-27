@@ -200,82 +200,105 @@ Write-once oracle persona definitions. New behaviour requires a new slug/row.
 
 ```sql
 CREATE TABLE personas (
-    id                  UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
-    slug                TEXT        UNIQUE NOT NULL,
-    verbosity           TEXT        NOT NULL DEFAULT 'medium',   -- terse | medium | verbose
-    decisiveness        FLOAT       NOT NULL DEFAULT 0.5,        -- [0, 1]
-    drift_probability   FLOAT       NOT NULL DEFAULT 0.0,
-    contradiction_rate  FLOAT       NOT NULL DEFAULT 0.0,
-    definition          JSONB       NOT NULL DEFAULT '{}',
-    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    id         UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    slug       TEXT        UNIQUE NOT NULL,
+    verbosity  TEXT        NOT NULL DEFAULT 'medium',  -- terse | medium | verbose
+    patience   FLOAT       NOT NULL DEFAULT 0.5,       -- [0, 1]
+    definition JSONB       NOT NULL DEFAULT '{}',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 ```
 
 ### `ground_truths`
 
-Taste targets for simulated oracle sessions. `description` is shown to the oracle; `target_movie_ids` and `spec` are hidden and used for spec-satisfaction scoring.
+Ordered trajectory of `(op, concept)` pairs representing the intended navigation path for a simulated session. Built by the GT builder using the judge model tier. `seed_movie_ids` records the catalogue sample used during construction.
 
 ```sql
 CREATE TABLE ground_truths (
-    id               UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
-    slug             TEXT        UNIQUE NOT NULL,
-    description      TEXT        NOT NULL,
-    seed_movie_ids   JSONB       NOT NULL DEFAULT '[]',
-    target_movie_ids JSONB       NOT NULL DEFAULT '[]',
-    spec             JSONB       NOT NULL DEFAULT '{}',
-    created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    id                 UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    slug               TEXT        UNIQUE NOT NULL,
+    version            SMALLINT    NOT NULL DEFAULT 1,
+    intent_description TEXT        NOT NULL,
+    operations         JSONB       NOT NULL,  -- ordered list[{op: str, concept: str}]
+    seed_movie_ids     JSONB,                 -- nullable; builder audit trail
+    prompt_hash        CHAR(64)    NOT NULL,  -- SHA-256 of the GT builder prompts
+    created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 ```
 
 ### `eval_sessions`
 
-Links a conversation to a run, persona, and ground truth. `persona_id` and `ground_truth_id` are NULL for human-oracle sessions.
+Links a conversation to a run, persona, and ground truth. `condition` records which experimental arm was run. `oracle_rating` is the 1–5 session-level self-rating emitted by the oracle at stop; NULL for human-oracle sessions.
 
 ```sql
 CREATE TABLE eval_sessions (
-    id               UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
-    run_id           UUID        NOT NULL REFERENCES runs (run_id) ON DELETE CASCADE,
-    conversation_id  UUID        UNIQUE NOT NULL REFERENCES conversations (id) ON DELETE CASCADE,
-    persona_id       UUID        REFERENCES personas (id) ON DELETE SET NULL,
-    ground_truth_id  UUID        REFERENCES ground_truths (id) ON DELETE SET NULL,
-    seed             BIGINT      NOT NULL,
-    status           VARCHAR(20) NOT NULL DEFAULT 'active',  -- active | converged | abandoned
-    created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    id                    UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    run_id                UUID        NOT NULL REFERENCES runs (id) ON DELETE CASCADE,
+    conversation_id       UUID        UNIQUE NOT NULL REFERENCES conversations (id) ON DELETE CASCADE,
+    persona_id            UUID        REFERENCES personas (id) ON DELETE SET NULL,
+    ground_truth_id       UUID        REFERENCES ground_truths (id) ON DELETE SET NULL,
+    seed                  BIGINT      NOT NULL,
+    condition             VARCHAR(20) NOT NULL DEFAULT 'conversational',  -- conversational | no_agents | monolithic | human
+    status                VARCHAR(20) NOT NULL DEFAULT 'active',          -- active | finished_trajectory | finished_misbehaviour | finished_budget
+    termination_rationale TEXT,
+    oracle_rating         SMALLINT    CHECK (oracle_rating IS NULL OR oracle_rating BETWEEN 1 AND 5),
+    created_at            TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE INDEX ON eval_sessions (run_id);
 ```
 
+### `turn_intents`
+
+Per-turn intent classification records written by the coordinator (or baseline runner) on every oracle turn. Enables `operation_recall` and `clarifier_trigger_rate` computation. Compound turns (multiple modes in one turn) produce multiple rows with the same `turn_number`.
+
+```sql
+CREATE TABLE turn_intents (
+    id               UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    conversation_id  UUID        NOT NULL REFERENCES conversations (id) ON DELETE CASCADE,
+    turn_number      SMALLINT    NOT NULL,    -- 1-based ordinal
+    mode             VARCHAR(40) NOT NULL,    -- any NavigationMode or DialogueMode value
+    concept          TEXT,
+    target_cluster_id UUID,                   -- not FK'd; snapshots may rotate
+    confidence       FLOAT       NOT NULL,
+    clarifier_fired  BOOLEAN     NOT NULL DEFAULT FALSE,
+    raw_intent       JSONB       NOT NULL,
+    created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (conversation_id, turn_number, mode)
+);
+
+CREATE INDEX ON turn_intents (conversation_id, turn_number);
+```
+
 ### `conversation_metrics`
 
-Deterministic eval metrics, 1:1 per conversation. Safe to recompute (PK = `conversation_id`, upsert on recompute). Token counts are omitted — only `cost_usd` is persisted in the live schema.
+Deterministic eval metrics, 1:1 per conversation. Safe to recompute (PK = `conversation_id`, upsert on recompute). `oracle_rating` lives on `eval_sessions` (session-level emission).
 
 ```sql
 CREATE TABLE conversation_metrics (
-    conversation_id      UUID          PRIMARY KEY REFERENCES conversations (id) ON DELETE CASCADE,
-    converged            BOOLEAN       NOT NULL DEFAULT FALSE,
-    turns_to_convergence SMALLINT,                                    -- NULL if not converged
-    num_turns            SMALLINT      NOT NULL DEFAULT 0,
-    avg_cognitive_load   FLOAT,
-    final_num_clusters   SMALLINT,
-    silhouette           FLOAT,                                       -- NULL if < 2 clusters
-    mean_membership_prob FLOAT,
-    noise_fraction       FLOAT,
-    spec_satisfaction_rate FLOAT,                                     -- NULL for human sessions
-    total_cost_usd       NUMERIC(10,4) NOT NULL DEFAULT 0,
-    computed_at          TIMESTAMPTZ   NOT NULL DEFAULT NOW()
+    conversation_id       UUID          PRIMARY KEY REFERENCES conversations (id) ON DELETE CASCADE,
+    silhouette            FLOAT,                                       -- NULL if < 2 clusters or any cluster < 2 members
+    mean_membership_prob  FLOAT,
+    noise_fraction        FLOAT,
+    final_num_clusters    SMALLINT,
+    operation_recall      FLOAT,                                       -- NULL for human oracle / no GT
+    clarifier_trigger_rate FLOAT,
+    num_turns             SMALLINT      NOT NULL DEFAULT 0,
+    num_operations        SMALLINT      NOT NULL DEFAULT 0,
+    total_cost_usd        NUMERIC(10,4) NOT NULL DEFAULT 0,
+    computed_at           TIMESTAMPTZ   NOT NULL DEFAULT NOW()
 );
 ```
 
 ### `judge_scores`
 
-LLM-judge dimension scores. Append-only; `judge_prompt_hash` lets multiple judge versions coexist.
+LLM-judge dimension scores. Append-only; `judge_prompt_hash` lets multiple judge versions coexist. Dimension values: `operation_appropriateness`, `label_accuracy`, `suggestion_meaningfulness`, `explanation_quality`, `intent_alignment`.
 
 ```sql
 CREATE TABLE judge_scores (
     id                UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
     conversation_id   UUID        NOT NULL REFERENCES conversations (id) ON DELETE CASCADE,
-    dimension         VARCHAR(40) NOT NULL,  -- clustering_coherence | question_quality | label_accuracy | intent_alignment
+    dimension         VARCHAR(40) NOT NULL,  -- operation_appropriateness | label_accuracy | suggestion_meaningfulness | explanation_quality | intent_alignment
     score             SMALLINT    NOT NULL CHECK (score BETWEEN 1 AND 5),
     rationale         TEXT,
     judge_model       TEXT        NOT NULL,
@@ -436,9 +459,12 @@ eval harness:
   runs ──► eval_sessions ──► conversations
   personas ──►  eval_sessions
   ground_truths ──► eval_sessions
+  eval_sessions.condition: conversational | no_agents | monolithic | human
+  eval_sessions.oracle_rating: 1–5 (NULL for human oracle)
 
   conversations ──► conversation_metrics  (1:1, written by eval harness)
-               └──► judge_scores           (1:N, written by eval harness)
+               ├──► judge_scores           (1:N, written by eval harness)
+               └──► turn_intents           (1:N, written by coordinator/baseline per turn)
 ```
 
 ---
