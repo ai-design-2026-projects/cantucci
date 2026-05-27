@@ -10,6 +10,8 @@ vector database.
 
 ## System components
 
+<img src="../../media/architecture_diagram.svg" style="background:#fff;padding:8px;" />
+
 | Component | Role in system | Purpose |
 |---|---|---|
 | **User (Oracle)** | Oracle | The source of truth: a human participant or an MCP/LLM client. Sends free-form natural-language messages requesting clustering operations, explanations, or navigation. |
@@ -137,6 +139,8 @@ is restricted to leaves (`409` otherwise) and reparents any conversation pointin
 snapshot's parent, so the graph never loses a state that is still on someone's path.
 
 ## Turn Handling
+
+<img src="../../media/flowchart.svg" style="background:#fff;padding:8px;" />
 
 Each user message is handled by a stateless `Coordinator.handle_message`
 (`backend/agents/coordinator/agent.py`), which loads current state from the DB, runs a
