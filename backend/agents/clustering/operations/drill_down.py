@@ -156,22 +156,21 @@ async def drill_down(
         low_ids = [movie_id for movie_id in available_ids if concept_scores.get(movie_id, 0) < median_score]
 
         clusters: list[ClusterDraft] = []
-        for group_ids, label_suffix in [(high_ids, f"High {concept.concept_name}"), (low_ids, f"Low {concept.concept_name}")]:
-            if len(group_ids) < 2:
+        high_scores = [concept_scores.get(mid, 0.0) for mid in high_ids]
+        low_scores = [-concept_scores.get(mid, 0.0) for mid in low_ids]
+        for group_ids, group_scores, label in [
+            (high_ids, high_scores, f"High {concept.concept_name}"),
+            (low_ids, low_scores, f"Low {concept.concept_name}"),
+        ]:
+            if not group_ids:
                 continue
-            result = _cluster_group(group_ids)
-            for ci in range(result.n_clusters):
-                col = result.probabilities[:, ci]
-                members = [(group_ids[i], float(col[i])) for i in range(len(group_ids)) if col[i] > 0]
-                mids = [m[0] for m in members]
-                prbs = [m[1] for m in members]
-                clusters.append(ClusterDraft(
-                    label=f"{label_suffix} {ci + 1}",
-                    summary=None,
-                    exemplar_movie_ids=exemplars(mids, prbs, top_n),
-                    parent_cluster_id=parent_cluster_ref,
-                    memberships=members,
-                ))
+            clusters.append(ClusterDraft(
+                label=label,
+                summary=None,
+                exemplar_movie_ids=exemplars(group_ids, group_scores, top_n),
+                parent_cluster_id=parent_cluster_ref,
+                memberships=[(mid, 1.0) for mid in group_ids],
+            ))
     else:
         result = _cluster_group(available_ids)
         clusters = []
