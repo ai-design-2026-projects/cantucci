@@ -330,6 +330,7 @@ class EnvSettings(BaseSettings):
     hf_token: str = ""
     tmdb_api_key: str = ""
     log_level: str = "INFO"
+    config_path: str = ""
 
 
 def get_env() -> EnvSettings:
@@ -377,16 +378,29 @@ def _load_raw(config_path: str) -> tuple[dict[str, Any], str]:
     return data, digest
 
 
+def _resolve_config_path() -> str:
+    """Resolve the active config file path.
+
+    Priority: ``CONFIG_PATH`` OS env var → ``config_path`` field in ``.env`` →
+    ``DEFAULT_CONFIG_PATH``.  Using ``EnvSettings`` for the fallback means
+    setting ``CONFIG_PATH`` in ``.env`` works without exporting it into the shell.
+
+    Returns:
+        Absolute path string to the active YAML config file.
+    """
+    return os.environ.get("CONFIG_PATH") or EnvSettings().config_path or str(DEFAULT_CONFIG_PATH)
+
+
 def get_settings() -> Settings:
     """Return the typed Settings object for the active config.
 
-    Reads ``CONFIG_PATH`` env var; falls back to ``DEFAULT_CONFIG_PATH``.
+    Reads ``CONFIG_PATH`` from the OS environment or ``.env`` file; falls back
+    to ``DEFAULT_CONFIG_PATH``.
 
     Returns:
         Fully-validated ``Settings`` instance.
     """
-    path = os.environ.get("CONFIG_PATH", str(DEFAULT_CONFIG_PATH))
-    data, _ = _load_raw(path)
+    data, _ = _load_raw(_resolve_config_path())
     return Settings(**data)
 
 
@@ -396,8 +410,7 @@ def get_config_hash() -> str:
     Returns:
         8-char hex string.
     """
-    path = os.environ.get("CONFIG_PATH", str(DEFAULT_CONFIG_PATH))
-    _, digest = _load_raw(path)
+    _, digest = _load_raw(_resolve_config_path())
     return digest
 
 
@@ -407,6 +420,5 @@ def get_config_snapshot() -> dict[str, Any]:
     Returns:
         Parsed YAML dict.
     """
-    path = os.environ.get("CONFIG_PATH", str(DEFAULT_CONFIG_PATH))
-    data, _ = _load_raw(path)
+    data, _ = _load_raw(_resolve_config_path())
     return data
