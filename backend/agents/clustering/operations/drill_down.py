@@ -2,7 +2,7 @@ import logging
 import uuid
 import numpy as np
 
-from backend.agents.clustering.operations._helpers import exemplars, reduce_for_clustering, subcluster
+from backend.agents.clustering.operations._helpers import adaptive_min_cluster_size, exemplars, reduce_for_clustering, subcluster
 from backend.agents.clustering.types import ClusterDraft, ClusterSnapshotDraft
 from backend.agents.concept.scoring import score_movies
 from backend.agents.concept.types import ConceptRep
@@ -129,7 +129,7 @@ async def drill_down(
         UMAP(metric="precomputed"); groups too small for UMAP fall back to precomputed
         HDBSCAN with hard labels.
         """
-        min_cluster_size = cfg.clustering.online.drilldown_min_cluster_size
+        min_cluster_size = adaptive_min_cluster_size(len(group_ids))
         epsilon = cfg.clustering.online.cluster_selection_epsilon
 
         if len(embedding_spaces) == 1:

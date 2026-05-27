@@ -126,6 +126,21 @@ def exemplars(movie_ids: list[int], probs: list[float], n: int) -> list[int]:
     paired = sorted(zip(probs, movie_ids), reverse=True)
     return [mid for _, mid in paired[:n]]
 
+def adaptive_min_cluster_size(n: int) -> int:
+    """Compute a population-relative min_cluster_size for HDBSCAN sub-clustering.
+
+    Scales with population size so small sub-sets remain sensitive and large
+    ones do not over-fragment.  Formula: ``max(5, n // 10)``.
+
+    Args:
+        n: Number of items in the sub-population to cluster.
+
+    Returns:
+        Recommended ``min_cluster_size`` for HDBSCAN.
+    """
+    return max(5, n // 10)
+
+
 def subcluster(
     embeddings: np.ndarray | None,
     min_cluster_size: int,

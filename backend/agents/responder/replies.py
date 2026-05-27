@@ -26,6 +26,32 @@ EXPLAIN_TARGET_UNCLEAR = (
 )
 
 
+def format_partition_clarification(labels: list[str | None]) -> str:
+    """Format a clarification question when no target cluster was specified for partition_by.
+
+    Args:
+        labels: Labels of the current clusters (may contain None for unlabeled).
+
+    Returns:
+        A question asking the user which cluster to partition.
+    """
+    names = ", ".join(f"'{l}'" for l in labels if l) or "the available clusters"
+    return f"Which cluster would you like to partition? Current clusters: {names}."
+
+
+def format_drill_down_clarification(labels: list[str | None]) -> str:
+    """Format a clarification question when no target cluster was specified for drill-down.
+
+    Args:
+        labels: Labels of the current clusters (may contain None for unlabeled).
+
+    Returns:
+        A question asking the user to specify which cluster to drill into.
+    """
+    names = ", ".join(f"'{l}'" for l in labels if l) or "the available clusters"
+    return f"Which cluster would you like to drill into? Current clusters: {names}."
+
+
 def format_drill_down_reply(labels: list[str | None], n_new: int, n_movies: int) -> str:
     """Format the reply for a completed DRILL_DOWN operation.
 
