@@ -143,7 +143,8 @@ class Coordinator:
             # Retrieve the latest cluster snapshot and clusters from the DB
             step_snapshot = get_cluster_snapshot_with_clusters(current_cluster_snapshot_id) if current_cluster_snapshot_id else None
             step_clusters = step_snapshot.clusters if step_snapshot else []
-
+            
+            # Build the action context and execute it
             ctx = ActionContext(
                 action=action,
                 current_cluster_snapshot_id=current_cluster_snapshot_id,
