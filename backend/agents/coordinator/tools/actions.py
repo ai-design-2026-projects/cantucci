@@ -144,18 +144,27 @@ async def handle_explain(ctx: ActionContext) -> tuple[str, uuid.UUID | None, flo
 async def handle_drill_down(ctx: ActionContext) -> tuple[str, uuid.UUID | None, float]:
     """Handle a DRILL_DOWN action by splitting the target cluster into sub-clusters.
 
-    When no target cluster is specified (including from the unclustered state), drills
-    down on the full catalogue.
+    When no target cluster is specified and clusters already exist, returns a clarification
+    question listing the current clusters.  When no clusters exist (unclustered state),
+    proceeds with full-catalogue clustering as the initial clustering path.
 
     Args:
         ctx: Action context.  ``ctx.action.target_cluster_id`` selects the cluster to split;
-             ``None`` means operate on the full catalogue.  ``ctx.action.concept`` optionally
+             ``None`` triggers a clarification when clusters exist, or full-catalogue
+             clustering from the unclustered state.  ``ctx.action.concept`` optionally
              guides the split with a semantic concept.
 
     Returns:
         Tuple of (reply text, new snapshot id, cumulative step cost).
     """
-    target_id = ctx.action.target_cluster_id or (ctx.clusters[0].id if ctx.clusters else None)
+    target_id = ctx.action.target_cluster_id
+    if target_id is None and ctx.clusters:
+        mark_awaiting(ctx.conversation_id)
+        return (
+            replies.format_drill_down_clarification([c.label for c in ctx.clusters]),
+            ctx.current_cluster_snapshot_id,
+            0.0,
+        )
 
     step_cost = 0.0
     concept = None
