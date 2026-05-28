@@ -392,11 +392,20 @@ async def handle_partition_by(ctx: ActionContext) -> tuple[str, uuid.UUID | None
     if ctx.action.partition_spec is None:
         return replies.UNSUPPORTED_OPERATION, ctx.current_cluster_snapshot_id, 0.0
 
-    clarify = _require_target_or_clarify(ctx, replies.format_partition_clarification)
-    if clarify is not None:
-        return clarify
-
     spec = ctx.action.partition_spec
+
+    if ctx.action.target_cluster_id is None and ctx.clusters:
+        mark_awaiting(
+            ctx.conversation_id,
+            pending_spec=PartitionSpec(attribute=spec.attribute, bins=None),
+        )
+        return (
+            replies.format_partition_clarification(
+                spec.attribute.value, [c.label for c in ctx.clusters]
+            ),
+            ctx.current_cluster_snapshot_id,
+            0.0,
+        )
 
     if spec.attribute in _NUMERIC_ATTRIBUTES and not spec.bins:
         return _propose_numeric_bins(ctx, spec)

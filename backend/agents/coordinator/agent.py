@@ -109,19 +109,25 @@ class Coordinator:
         )
         accumulated_cost += intent.cost
 
-        # When the user confirmed a bin proposal, substitute the stored PartitionSpec
-        # directly so the intent agent does not need to re-extract bin boundaries from text.
+        # When the user responded to a clarification, substitute the stored PartitionSpec
+        # to correct for intent-agent drift on short replies like "yes" or cluster names.
         actions_to_dispatch = list(intent.actions)
         if was_awaiting and pending_spec is not None:
             for i, a in enumerate(actions_to_dispatch):
-                if (
-                    a.mode == NavigationMode.PARTITION_BY
-                    and a.partition_spec is not None
-                    and a.partition_spec.attribute == pending_spec.attribute
-                    and a.partition_spec.bins is None
-                ):
-                    new_spec = dataclasses.replace(a.partition_spec, bins=pending_spec.bins)
-                    actions_to_dispatch[i] = dataclasses.replace(a, partition_spec=new_spec)
+                if a.mode == NavigationMode.PARTITION_BY and a.partition_spec is not None:
+                    if pending_spec.bins is not None and a.partition_spec.bins is None:
+                        # Bin-proposal confirmation: stored spec is authoritative regardless of
+                        # which attribute the intent agent returned on the short "yes" reply.
+                        actions_to_dispatch[i] = dataclasses.replace(a, partition_spec=pending_spec)
+                    elif pending_spec.bins is None and a.partition_spec.attribute != pending_spec.attribute:
+                        # Target-clarification confirmation: intent returned the wrong attribute;
+                        # restore the one from the stored spec.
+                        actions_to_dispatch[i] = dataclasses.replace(
+                            a,
+                            partition_spec=dataclasses.replace(
+                                a.partition_spec, attribute=pending_spec.attribute
+                            ),
+                        )
 
         trace_modes = [a.mode.value for a in intent.actions]
         trace_concepts = [a.concept for a in intent.actions]

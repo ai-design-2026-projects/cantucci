@@ -28,17 +28,20 @@ EXPLAIN_TARGET_UNCLEAR = (
 NO_UNDO = "Nothing to undo — there is no previous clustering snapshot to return to."
 
 
-def format_partition_clarification(labels: list[str | None]) -> str:
+def format_partition_clarification(attribute: str, labels: list[str | None]) -> str:
     """Format a clarification question when no target cluster was specified for partition_by.
 
     Args:
-        labels: Labels of the current clusters (may contain None for unlabeled).
+        attribute: The partition attribute (e.g. ``"runtime"``).
+        labels:    Labels of the current clusters (may contain None for unlabeled).
 
     Returns:
-        A question asking the user which cluster to partition.
+        A question asking the user which cluster to partition, naming the attribute so
+        the intent agent can preserve it on the follow-up turn.
     """
+    attr_label = attribute.replace("_", " ")
     names = ", ".join(f"'{l}'" for l in labels if l) or "the available clusters"
-    return f"Which cluster would you like to partition? Current clusters: {names}."
+    return f"Which cluster would you like to partition by {attr_label}? Current clusters: {names}."
 
 
 def format_drill_down_clarification(labels: list[str | None]) -> str:
