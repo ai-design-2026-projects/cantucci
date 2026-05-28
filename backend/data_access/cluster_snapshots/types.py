@@ -146,6 +146,38 @@ class SnapshotMemberRow:
 
 
 @dataclass(frozen=True, slots=True)
+class SnapshotMemberEmbeddingRow:
+    """Per-movie embedding data for a snapshot, used by the evaluation silhouette metric.
+
+    Attributes:
+        movie_id:          TMDB integer ID.
+        cluster_id:        UUID of the argmax cluster for this movie.
+        probability:       Argmax membership probability.
+        text_embedding:    BGE text embedding vector, or None if not ingested.
+        review_embedding:  BGE review embedding vector, or None if not ingested.
+        trailer_embedding: CLIP trailer embedding vector, or None.
+    """
+    movie_id: int
+    cluster_id: uuid.UUID
+    probability: float
+    text_embedding: list[float] | None
+    review_embedding: list[float] | None
+    trailer_embedding: list[float] | None
+
+    @classmethod
+    def from_row(cls, r: dict) -> "SnapshotMemberEmbeddingRow":
+        """Construct from a psycopg dict_row result."""
+        return cls(
+            movie_id=r["movie_id"],
+            cluster_id=r["cluster_id"],
+            probability=r["probability"],
+            text_embedding=list(r["text_embedding"]) if r["text_embedding"] is not None else None,
+            review_embedding=list(r["review_embedding"]) if r["review_embedding"] is not None else None,
+            trailer_embedding=list(r["trailer_embedding"]) if r["trailer_embedding"] is not None else None,
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class ClusterSnapshotWithClusters:
     """A cluster snapshot combined with its cluster list (no membership rows).
 

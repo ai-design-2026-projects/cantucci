@@ -6,108 +6,115 @@
 
 Our main objective is to explore the following question:
 
-> Does conversational refinement result in a better recommendation for the oracle? (E.g., fewer turns, lower cognitive load, higher satisfaction) than a baseline?
+> Does an intent-driven navigation loop produce more coherent clusterings of the catalogue, with less oracle effort, than other variants?
 
 We approach this from three angles:
 
-- **Questioning strategy**: how should the system decide what to ask at each turn, and what signals should drive that decision?
-- **Cluster update strategy**: how should oracle feedback propagate into cluster boundaries, and what algorithms or heuristics best support incremental refinement?
-- **Satisfaction**: how do we assess recommendation quality when the oracle is an LLM agent, and how far do those assessments generalise?
+- **Operation choice**: given a free-form oracle message, does the Intent agent pick the right navigation operation (`drill_down`, `merge`, `focus`, `cross_filter`) and the right parameters (concept, target cluster, modalities)?
+- **Cluster update strategy**: do concept-guided splits, soft HDBSCAN memberships, and the content-addressed snapshot tree yield more stable, more separable clusters than plain re-clustering on raw embeddings?
+- **Satisfaction**: how do we assess clustering quality when there is no recommended film list — only a sequence of cluster snapshots — and how far do those assessments generalise?
 
 ---
 
 ## 2 Baselines
 
-A **one-shot vector search**: the oracle's first message is embedded, the top-K most similar titles are returned as a flat ranked list, and no follow-up questions are asked. This is the simplest possible recommender on the same embedding space. Beating it is the minimum bar for the conversational loop to justify its cost.
+A **no-agents pipeline**: the oracle's first message is embedded, plain HDBSCAN is run on their fused embeddings. No Intent, Clarifier, Concept, Labeling, or Responder agent runs; clusters are presented unnamed. This is the minimum bar for the modular pipeline to justify its cost.
 
-A **monolithic LLM conversation**: a single monolithic LLM acts as the recommender: it receives the oracle's message and is prompted to either ask clarifying questions or return a ranked list of recommendations, without any attachment to the database, relying only on its knowledge. This baseline removes structured components and tests whether the architecture's modularity and retrieval support provide benefits over a single-agent approach.
+A **monolithic LLM**: a single LLM acts as the clustering agent end-to-end, holding the conversation, deciding which operation to perform, and emitting a free-form description of the resulting groups without going through the typed agent boundary. This baseline removes structured components and tests whether the architecture's modularity provides benefits over a single-agent approach.
+
+---
 
 ## 3 Ground-truth construction
 
-Ground truths are built offline from a held-out partition of the catalogue that is never used during ingestion.
+Ground truths are built offline from a held-out partition of the catalogue that is never ingested into the main catalogue (the `eval_holdout` parquet artifact).
+
+A ground truth is a **target navigation trajectory**: an ordered list of operations — each tagged with its operation type (`drill_down`, `merge`, `focus`, `cross_filter`) and its concept (the semantic axis or target the operation applies to) — together with an *intent description* that paraphrases that trajectory in natural language.
 
 **Procedure:**
-1. Sample N seed films from the holdout set using a fixed random seed.
-2. Expand to ~40 films by computing cosine similarity from each seed embedding to the full holdout and taking the nearest neighbours.
-3. Call an LLM to write a neutral, voice-agnostic taste description from the seed and expanded film lists.
-4. Store the seed films, expanded film set, and description as a versioned ground-truth entry.
+1. Call an LLM to propose a plausible navigation trajectory: 3–6 operations with their concepts, such that the trajectory tells a coherent exploration story over the catalogue ("drill_down by tone", "focus on slow-burn", "drill_down by setting", …).
+2. Call a second LLM pass to write a neutral, voice-agnostic intent description that resembles the trajectory in natural language ("I want to split modern thrillers by their tone, then zoom in on the slow-burn ones and break those down by setting").
+3. Store the operation list, the intent description, and the LLM prompt hash as a versioned `ground_truths` row.
 
-**Oracle access:** the oracle sees only the taste description. The target film set is held by the runner and used for objective metric computation after the session ends. This separation is enforced so the oracle cannot reverse-engineer the target from the films it is shown during the conversation.
+**Oracle access.** The oracle is given both the intent description (as conversational style and framing) and the operation trajectory (as a private to-do list). Each turn it paraphrases the next pending operation into a free-form message; the system sees only that message and must recover the intended operation from natural language alone. The trajectory is never exposed to the system.
 
 ---
 
 ## 4 Oracle
 
-A simulated oracle is an LLM agent instantiated with a **ground truth** (taste description) overlaid with a **persona** (communication style). One oracle instance is created per session and must not be reused.
+A simulated oracle is an LLM agent instantiated with a **ground truth** (intent description) overlaid with a **persona** (communication style). One oracle instance is used per session and must not be reused. The oracle is implemented in `eval/oracle/agent.py`.
+
+The oracle's task is to **drive the system through its target trajectory**: it reads the current snapshot's labels and summaries, picks the next pending operation from its private to-do list, and paraphrases it into a free-form message in the voice of the intent description. The system never sees the trajectory — only the messages the oracle emits.
 
 ### Persona dials
 
 | Dial | Type | Description |
 |---|---|---|
 | `verbosity` | `terse \| medium \| verbose` | Controls reply length via a system-prompt hint. |
-| `decisiveness` | `float [0, 1]` | Controls the minimum turn at which the oracle is willing to accept. `1.0` → accepts from turn 1; `0.0` → waits until turn 10+. |
-| `drift_probability` | `float [0, 1]` | Per-turn probability of injecting a tangent. |
-| `contradiction_rate` | `float [0, 1]` | Per-turn probability of injecting a self-contradiction. |
+| `patience` | `float [0, 1]` | Controls how many turns the oracle is willing to spend before disengaging. `1.0` → runs to the full turn budget; `0.0` → disengages after a few turns regardless of progress. |
+
 
 ### Behavioural reproducibility
 
-All per-turn behavioural rolls are seeded and deterministic, keyed on a combination of persona, ground truth, and session seed. The same triple always produces the same sequence of conversational events, making behaviour reproducible across reruns even though the LLM output is stochastic.
-
-### Acceptance gate
-
-The acceptance gate is applied **after** the LLM expresses intent to accept. Low-decisiveness personas cannot accept before their minimum turn threshold regardless of how good the recommendation looks — the threshold is derived from the decisiveness dial.
-
-### Oracle intents
-
-Each oracle turn returns a message and one of three intents:
-- `continue` — keep the session going.
-- `accept` — the oracle is satisfied (subject to the acceptance gate).
-- `abandon` — the oracle gives up.
+Persona dials are deterministic prompt-level controls (they shape the oracle's system prompt; they do not roll per-turn dice). All non-determinism comes from LLM sampling, which is keyed on the quadruple `(persona slug, ground-truth slug, session seed, turn number)`. The same quadruple always produces the same oracle output, making sessions reproducible across reruns.
 
 ---
 
 ## 5 Evaluation runner
 
-The runner drives the full cross-product of ground truths, personas, and random seeds against the live system API. For each cell in the cross-product it runs a session, streams turn events, and after the session ends hands the transcript to the judge for scoring.
+The runner (`eval/runner.py`, CLI `python -m eval.run`) drives the full cross-product of ground truths, personas, and random seeds against the live system in-process. For each cell in the cross-product it creates a conversation, runs oracle turns, and after the session ends evaluates the conversation. All calls go through the same Coordinator and data-access path as live sessions.
 
-**Dry-run mode** enables fixture responses for the oracle and judge without suppressing real API calls to the system. This lets the harness be exercised end-to-end without incurring LLM costs.
-
-**Single LLM mode** replaces the full system with a single LLM call per turn that receives the oracle's message.
+**dry-run mode** (enabled via `dry_run: true` in the model config, e.g. `configs/test.yaml`) replaces all LLM calls with fixture responses for both the oracle and the judge without hitting real APIs.
 
 ---
 
-## 6 Metrics
+## 6 Session termination
 
-All metrics are persisted after each session. Aggregates (mean + 95% percentile bootstrap CI) are computed per run and exposed via admin endpoints.
+The oracle decides termination at each turn from its own state; the runner only enforces the turn-budget cap. On every turn the oracle weighs three signals and chooses to continue or stop:
 
-### Objective metrics (computed from logs and ground truth)
+- **Trajectory completion** — every operation in the oracle's to-do list has been requested and executed appropriately by the system. The oracle ends the session as satisfied.
+- **System misbehaviour** — the system has performed an undesired or off-target operation in response to a paraphrased request. Whether this ends the session depends on the oracle's `patience` dial: a patient oracle tolerates several misclassifications before giving up, an impatient oracle abandons sooner.
+- **Turn budget** — `eval.max_turns` caps the runner unconditionally as a safety net, regardless of oracle state.
+
+At session end, the oracle emits a final **session rating** (1–5) summarising how well the system understood its intent and executed the requested operations. The rating is persisted alongside the deterministic metrics.
+
+---
+
+## 7 Metrics
+
+All metrics are persisted after each session in `conversation_metrics` (deterministic) and `judge_scores` (LLM-judge).
+
+### Deterministic metrics (computed from DB state)
 
 | Metric | How measured |
-|---|---
-| **Precision@K** | Fraction of top-K recommended films appearing in the ground-truth film set. Binary relevance. |
-| **Recall@K** | Fraction of the ground-truth film set recovered in the top-K recommendation. |
-| **NDCG@K** | Normalised Discounted Cumulative Gain at K. Binary relevance, logarithmic rank discount. |
-| **Turns to convergence** | Turn number when convergence is declared; null if the session is abandoned before the turn limit. |
-| **Avg cognitive load per turn** | Weighted combination of recommendation size and question length, averaged across all turns. |
-| **Explicit acceptance rate** | Whether the oracle issued an accept intent vs. convergence declared behaviourally by the system. |
-| **Drift events** | Count of drift events detected per session. |
-| **Oracle score** | A subjective rating from 1–5 provided by the oracle at the end of the session. |
-| **Total cost** | Sum of token costs across all system LLM calls in the session. |
+|---|---|
+| **Silhouette score** | Mean of the per-point silhouette `s(i) = (b(i) − a(i)) / max(a(i), b(i))`, where `a(i)` is the mean cosine distance from point `i` to other members of its own cluster and `b(i)` is the mean cosine distance from `i` to members of the nearest other cluster. Range `[-1, 1]`: values near `1` mean dense, well-separated clusters; values near `0` mean overlapping clusters; negative values mean points are closer to a different cluster than their own. Computed via `sklearn.metrics.silhouette_score` on the fused embeddings of the final snapshot's members under argmax cluster assignment. `NULL` when fewer than 2 clusters or any cluster has fewer than 2 members. Diagnostic only — alignment with the GT operation trajectory is the objective function. |
+| **Mean membership probability** | Mean argmax soft-membership probability across all movies in the final snapshot. Measures cluster firmness: high values mean HDBSCAN was confident in its assignments, low values mean many borderline memberships. |
+| **Noise fraction** | Fraction of movies in the final snapshot whose argmax probability falls below `eval.noise_prob_threshold`. Quantifies the share of the catalogue that the clustering could not place confidently. |
+| **Operation recall vs GT** | Fraction of ground-truth operations (matched by operation type and concept) that the system actually executed during the session. `NULL` for human-oracle sessions. The primary structural quality signal. |
+| **Clarifier trigger rate** | Fraction of turns on which the Clarifier gate fired and the turn returned without mutating state. |
+| **Num turns** | Total oracle turns in the conversation. |
+| **Num operations** | Total navigation operations executed across the session |
+| **Final num clusters** | Number of clusters in the final snapshot. |
+| **Total cost (USD)** | `conversations.accumulated_cost_usd` — the running total of all LLM costs for the session. |
+| **Oracle rating** | Self-rating (1–5) emitted by the simulated oracle at session end, summarising how well the system understood its intent and executed the requested operations. `NULL` for human-oracle sessions. |
+
 
 ### LLM-judge scores (subjective, 1–5)
 
-A separate judge reads the completed transcript, the converged cluster description, and the ground-truth taste description (not the persona traits). It scores three dimensions independently:
+A separate judge (`eval/judge/agent.py`) reads the completed transcript, the per-turn action log, and the final cluster state (labels, summaries, exemplar titles). It scores five dimensions independently:
 
 | Dimension | What is assessed |
 |---|---|
-| `clustering_coherence` | Are the named clusters internally consistent and meaningfully distinct throughout the session? |
-| `question_quality` | Are the system's questions targeted, non-redundant, and binary? |
-| `profile_fidelity` | Does the final recommendation match the ground-truth taste description? |
-
-Each score is stored alongside the rendered judge prompt hash so multiple judge versions can coexist and all scoring variations are auditable.
+| `operation_appropriateness` | Across the session, did the system pick the right operation (`drill_down`, `merge`, `focus`, `cross_filter`) given each oracle message, with sensible parameters (concept, target cluster, modalities)? |
+| `label_accuracy` | Do the cluster labels and summaries accurately describe their exemplar films at each snapshot, and do they remain consistent across snapshots and turns (no cosmetic thrashing between synonyms when cluster contents are unchanged)? |
+| `suggestion_meaningfulness` | When the Responder volunteers a follow-up suggestion, is it relevant to the current snapshot state, well-timed, and non-redundant with what the oracle has already requested? |
+| `explanation_quality` | When the Explanation agent justifies why a movie sits in a given cluster, is the rationale faithful to the cluster's label and exemplars, and specific enough to be informative rather than generic? |
+| `intent_alignment` | Does the system's executed sequence of operations and the resulting final snapshot reflect what the oracle was trying to elicit through the intent description? |
 
 ---
 
-## 7 Aggregation and reporting
+## 8 Notes
 
-After each run, all session metrics and judge scores are aggregated into a metric bundle — one point estimate with 95% percentile bootstrap CI per metric (2000 resamples, seeded for reproducibility). The same aggregation can be broken down by persona, enabling per-persona sensitivity analysis. Both views are exposed via admin-only endpoints, that permits to display the results in an interactive dashboard in the frontend.
+- **Three LLM families.** The judge, the oracle, and the system under test must each run on a different family of LLMs. Same-family pairs (e.g. judge and system both on the same vendor or fine-tune lineage) bias scores upward because models reward outputs that match their own conventions.
+- **Oracle model class.** The oracle does not need a strong reasoning model. Its job is to paraphrase the next pending operation in the voice of the intent description — consistency matters more than depth. Cheap, small models are acceptable and reduce eval cost meaningfully across large cross-products.
+- **Confidence Interval.** All the metrics are delivered with their 95% confidence intervals computed via bootstrapping across sessions. The confidence intervals are the primary signal for comparing variants: non-overlapping intervals indicate statistically significant differences in performance.

@@ -137,6 +137,12 @@ async def concept_drill_down(
     3. ``parent_cluster_snapshot_id`` → union across that snapshot's clusters.
     4. Otherwise → full catalogue.
 
+    All paths go through UMAP dimensionality reduction before HDBSCAN so that every
+    modality (text, trailer, review, or any combination) benefits from the same
+    soft-clustering quality as the single-text path. For multi-modal requests the
+    combined distance matrix is embedded via UMAP with ``metric="precomputed"``; for
+    groups too small for UMAP the precomputed-distance path is used as a fallback.
+
     Args:
         source_cluster_id:          Cluster to split; ``None`` to operate on a broader set.
         concept:                    Concept that guides the high/low split.

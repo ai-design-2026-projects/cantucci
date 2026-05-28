@@ -56,7 +56,12 @@ def resolve_movie_ids(
     return list_movie_ids()
 
 
-def reduce_for_clustering(embeddings: np.ndarray, umap_cfg: UmapConfig, seed: int) -> np.ndarray:
+def reduce_for_clustering(
+    embeddings: np.ndarray,
+    umap_cfg: UmapConfig,
+    seed: int,
+    metric: str = "cosine",
+) -> np.ndarray:
     """Apply UMAP dimensionality reduction before HDBSCAN clustering.
 
     Three tiers based on dataset size:
@@ -70,12 +75,20 @@ def reduce_for_clustering(embeddings: np.ndarray, umap_cfg: UmapConfig, seed: in
       too few points for UMAP to be reliable.
 
     Args:
-        embeddings: Float32 (n, dim) L2-normalised embedding matrix.
+        embeddings: Float32 (n, dim) L2-normalised embedding matrix, or float32
+                    (n, n) precomputed distance matrix when ``metric="precomputed"``.
         umap_cfg:   UMAP configuration section from the active settings.
         seed:       Random seed for reproducibility.
+        metric:     Distance metric for UMAP — ``"cosine"`` (default) for embedding
+                    vectors, ``"precomputed"`` for a square distance matrix. The
+                    reduced output is always a euclidean coordinate array regardless
+                    of the input metric.
 
     Returns:
-        Float32 reduced array, or the original array when n is too small.
+        Float32 reduced array of shape (n, k), or the original array when n is
+        too small for UMAP. When the original array is returned and
+        ``metric="precomputed"``, the caller should detect this via shape equality
+        with the input and fall back to precomputed HDBSCAN.
     """
     from umap import UMAP
 
@@ -93,7 +106,7 @@ def reduce_for_clustering(embeddings: np.ndarray, umap_cfg: UmapConfig, seed: in
         n_components=n_components,
         n_neighbors=umap_cfg.clustering_n_neighbors,
         min_dist=umap_cfg.clustering_min_dist,
-        metric="cosine",
+        metric=metric,
         random_state=seed,
     )
     return reducer.fit_transform(embeddings).astype(np.float32)
@@ -112,6 +125,21 @@ def exemplars(movie_ids: list[int], probs: list[float], n: int) -> list[int]:
     """
     paired = sorted(zip(probs, movie_ids), reverse=True)
     return [mid for _, mid in paired[:n]]
+
+def adaptive_min_cluster_size(n: int) -> int:
+    """Compute a population-relative min_cluster_size for HDBSCAN sub-clustering.
+
+    Scales with population size so small sub-sets remain sensitive and large
+    ones do not over-fragment.  Formula: ``max(5, n // 10)``.
+
+    Args:
+        n: Number of items in the sub-population to cluster.
+
+    Returns:
+        Recommended ``min_cluster_size`` for HDBSCAN.
+    """
+    return max(5, n // 10)
+
 
 def subcluster(
     embeddings: np.ndarray | None,

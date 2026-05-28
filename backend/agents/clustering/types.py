@@ -22,19 +22,7 @@ class Modality(str, Enum):
 
 
 class NavigationMode(str, Enum):
-    """Clustering operations a user can request.
-
-    Dialogue-only intents (reset, explain, small_talk, go_to_base) live in
-    ``intent.types.DialogueMode``.
-
-    Attributes:
-        DRILL_DOWN:   Split one cluster further along a semantic dimension, or cluster
-                      the full catalogue when no source cluster is specified.
-        MERGE:        Combine two or more clusters into one.
-        FOCUS:        Keep only the selected cluster's members; discard all others.
-        CROSS_FILTER: Keep only movies matching a metadata predicate, then re-cluster.
-    """
-
+    """Clustering operations a user can request via natural language."""
     def __new__(cls, value: str, description: str = "") -> "NavigationMode":
         obj = str.__new__(cls, value)
         obj._value_ = value
@@ -55,8 +43,8 @@ class NavigationMode(str, Enum):
     )
     CROSS_FILTER = (
         "cross_filter",
-        "keep only movies matching a metadata predicate (genre, year, director) "
-        "then re-cluster the survivors",
+        "keep only movies matching a metadata predicate (genre, year, director); "
+        "no clustering is performed — use drill_down afterwards to cluster the filtered set",
     )
     PARTITION_BY = (
         "partition_by",
@@ -204,14 +192,3 @@ class ClusterSnapshotDraft:
     params: dict
     clusters: list[ClusterDraft] = field(default_factory=list)
 
-    def with_operation(self, operation: str, extra_params: dict | None = None) -> "ClusterSnapshotDraft":
-        """Return a copy with a different operation name and optional extra params merged in.
-
-        Used by cross_filter to stamp its own operation name over the drill_down base draft.
-
-        Args:
-            operation:   New operation string.
-            extra_params: Additional key/value pairs to merge into params.
-        """
-        params = {**self.params, "operation": operation, **(extra_params or {})}
-        return ClusterSnapshotDraft(operation=operation, params=params, clusters=self.clusters)

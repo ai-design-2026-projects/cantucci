@@ -10,6 +10,13 @@ log = logging.getLogger(__name__)
 _COST_PER_M: dict[str, dict[str, float]] = {
     # OpenRouter free tier (development/testing)
     "openrouter/owl-alpha": {"input": 0.0, "output": 0.0},
+    # OpenRouter-prefixed Google family
+    "google/gemini-2.0-flash": {"input": 0.10, "output": 0.40},
+    "google/gemini-flash-1.5": {"input": 0.075, "output": 0.30},
+    # OpenRouter-prefixed Anthropic family (must precede bare prefixes)
+    "anthropic/claude-opus": {"input": 15.0, "output": 75.0},
+    "anthropic/claude-sonnet": {"input": 3.0, "output": 15.0},
+    "anthropic/claude-haiku": {"input": 0.80, "output": 4.0},
     # OpenRouter-prefixed GPT family (must precede bare prefixes)
     "openai/gpt-4o-mini": {"input": 0.15, "output": 0.60},
     "openai/gpt-4o": {"input": 2.50, "output": 10.00},

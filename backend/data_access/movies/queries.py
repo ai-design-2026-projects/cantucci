@@ -429,23 +429,6 @@ def fetch_cluster_profile(movie_ids: list[int]) -> ClusterProfileRow:
     return result
 
 
-def get_movies_by_ids(ids: list[int]) -> list[MovieDetailsRow]:
-    """Return full movie details for a batch of IDs in a single query.
-
-    Silently omits IDs not present in the catalogue. The returned list order
-    mirrors the input *ids* order; unknown IDs are dropped without error.
-
-    Args:
-        ids: Up to 200 TMDB integer IDs to look up.
-
-    Returns:
-        List of ``MovieDetailsRow`` in the same order as *ids*, with missing IDs dropped.
-    """
-    if not ids:
-        return []
-    return fetch_movie_details(ids)
-
-
 _NUMERIC_STAT_COLUMNS: dict[str, str] = {
     "runtime": "runtime",
     "release_year": "release_year",
@@ -561,41 +544,18 @@ def fetch_partition_values(
         log.debug("fetch_partition_values", extra={"attribute": attribute, "n_movies": len(movie_ids)})
         return result_dir
 
-    if attribute == "runtime":
+    col = _NUMERIC_STAT_COLUMNS.get(attribute)
+    if col is not None:
         with transaction() as conn:
             rows = conn.execute(
-                "SELECT id, runtime FROM movies WHERE id = ANY(%s)",
+                f"SELECT id, {col} FROM movies WHERE id = ANY(%s)",
                 (movie_ids,),
             ).fetchall()
-        result_num: dict[int, float | None] = {r["id"]: r["runtime"] for r in rows}
+        result_num: dict[int, float | None] = {r["id"]: r[col] for r in rows}
         for mid in movie_ids:
             result_num.setdefault(mid, None)
         log.debug("fetch_partition_values", extra={"attribute": attribute, "n_movies": len(movie_ids)})
         return result_num
-
-    if attribute == "release_year":
-        with transaction() as conn:
-            rows = conn.execute(
-                "SELECT id, release_year FROM movies WHERE id = ANY(%s)",
-                (movie_ids,),
-            ).fetchall()
-        result_year: dict[int, float | None] = {r["id"]: r["release_year"] for r in rows}
-        for mid in movie_ids:
-            result_year.setdefault(mid, None)
-        log.debug("fetch_partition_values", extra={"attribute": attribute, "n_movies": len(movie_ids)})
-        return result_year
-
-    if attribute == "vote_average":
-        with transaction() as conn:
-            rows = conn.execute(
-                "SELECT id, vote_average FROM movies WHERE id = ANY(%s)",
-                (movie_ids,),
-            ).fetchall()
-        result_rating: dict[int, float | None] = {r["id"]: r["vote_average"] for r in rows}
-        for mid in movie_ids:
-            result_rating.setdefault(mid, None)
-        log.debug("fetch_partition_values", extra={"attribute": attribute, "n_movies": len(movie_ids)})
-        return result_rating
 
     if attribute == "original_language":
         with transaction() as conn:
@@ -611,5 +571,37 @@ def fetch_partition_values(
             result_lang.setdefault(mid, [])
         log.debug("fetch_partition_values", extra={"attribute": attribute, "n_movies": len(movie_ids)})
         return result_lang
+
+
+def sample_movies_for_gt(n: int, seed: int) -> list[MovieStubRow]:
+    """Return a random sample of movie stubs for ground-truth trajectory building.
+
+    Uses ``TABLESAMPLE BERNOULLI`` with a PostgreSQL seed for reproducibility.
+    Falls back to ``ORDER BY random()`` when the catalogue is too small for
+    TABLESAMPLE to reliably return enough rows.
+
+    Args:
+        n:    Number of movies to return.
+        seed: Integer seed forwarded to ``setseed()``.
+
+    Returns:
+        List of up to *n* ``MovieStubRow`` instances.
+    """
+    if n <= 0:
+        return []
+    with transaction() as conn:
+        conn.execute("SELECT setseed(%s)", (float(seed % 1000) / 1000.0,))
+        rows = conn.execute(
+            """
+            SELECT id, title, poster_path, release_year, vote_average
+            FROM movies
+            ORDER BY random()
+            LIMIT %s
+            """,
+            (n,),
+        ).fetchall()
+    result = [MovieStubRow.from_row(r) for r in rows]
+    log.debug("sample_movies_for_gt", extra={"n_requested": n, "n_returned": len(result), "seed": seed})
+    return result
 
     raise ValueError(f"Unsupported partition attribute: {attribute!r}")

@@ -26,6 +26,32 @@ EXPLAIN_TARGET_UNCLEAR = (
 )
 
 
+def format_partition_clarification(labels: list[str | None]) -> str:
+    """Format a clarification question when no target cluster was specified for partition_by.
+
+    Args:
+        labels: Labels of the current clusters (may contain None for unlabeled).
+
+    Returns:
+        A question asking the user which cluster to partition.
+    """
+    names = ", ".join(f"'{l}'" for l in labels if l) or "the available clusters"
+    return f"Which cluster would you like to partition? Current clusters: {names}."
+
+
+def format_drill_down_clarification(labels: list[str | None]) -> str:
+    """Format a clarification question when no target cluster was specified for drill-down.
+
+    Args:
+        labels: Labels of the current clusters (may contain None for unlabeled).
+
+    Returns:
+        A question asking the user to specify which cluster to drill into.
+    """
+    names = ", ".join(f"'{l}'" for l in labels if l) or "the available clusters"
+    return f"Which cluster would you like to drill into? Current clusters: {names}."
+
+
 def format_drill_down_reply(labels: list[str | None], n_new: int, n_movies: int) -> str:
     """Format the reply for a completed DRILL_DOWN operation.
 
@@ -80,17 +106,16 @@ def format_focus_reply(label: str | None, n_members: int) -> str:
     return f"Focused on '{name}' — {n_members} movies retained, all others discarded."
 
 
-def format_cross_filter_reply(n_new: int, n_movies: int) -> str:
+def format_cross_filter_reply(n_movies: int) -> str:
     """Format the reply for a completed CROSS_FILTER operation.
 
     Args:
-        n_new:    Total number of new clusters produced after filtering and re-clustering.
         n_movies: Total number of movies that survived the filter.
 
     Returns:
         A human-readable summary of the cross-filter result.
     """
-    return f"Applied metadata filter and re-clustered {n_movies} survivors into {n_new} clusters."
+    return f"Applied metadata filter — {n_movies} movies matched. Use drill down to cluster them."
 
 
 def format_partition_reply(attribute: str, n_new: int, n_movies: int) -> str:

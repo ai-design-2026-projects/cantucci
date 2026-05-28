@@ -4,11 +4,13 @@ models:
     provider: openrouter
     seed: 42
     max_tokens: 1024
+    dry_run: true
   fast:
     name: "openrouter/owl-alpha"
     provider: openrouter
     seed: 42
     max_tokens: 512
+    dry_run: true
 
 retrieval:
   top_k: 50

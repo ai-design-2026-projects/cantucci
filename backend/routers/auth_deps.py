@@ -43,3 +43,28 @@ def get_current_user(
 
     _auth_log.debug("token_decoded", extra={"user_id": str(row.id), "client_ip": client_ip})
     return User(id=row.id, email=row.email, role=row.role)
+
+
+def require_admin(
+    request: Request,
+    authorization: Annotated[str | None, Header()] = None,
+) -> User:
+    """FastAPI dependency — require an authenticated admin user.
+
+    Args:
+        request:       FastAPI request (injected by the DI framework).
+        authorization: Value of the ``Authorization`` header, if present.
+
+    Returns:
+        Authenticated admin ``User``.
+
+    Raises:
+        HTTPException(401): If no valid token is present.
+        HTTPException(403): If the authenticated user is not an admin.
+    """
+    user = get_current_user(request, authorization)
+    if user is None:
+        raise HTTPException(status_code=401, detail="Authentication required.")
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required.")
+    return user

@@ -44,6 +44,13 @@ demo/
   demo_record.sh       Record a live session to a JSONL manifest
   demo_replay.sh       Replay a recorded manifest with zero live LLM calls
   manifests/           JSONL manifests produced by demo_record.sh
+eval/
+  metrics.py           Deterministic metrics: silhouette, convergence, cost, spec-satisfaction
+  runner.py            run_simulated_session + evaluate_conversation (reuses live Coordinator path)
+  run.py               CLI entry point: python -m eval.run (subcommands: create-run, simulate, evaluate)
+  oracle/              LLM-simulated oracle: agent.py, types.py, prompts/oracle_v1.j2
+  judge/               LLM-as-judge (4 dims): agent.py, types.py, prompts/judge_v1.j2
+  (SQL for eval lives in backend/data_access/evaluation/ — the sole SQL layer)
 frontend/              React + Vite + TypeScript; zustand + react-query; vitest
 tests/                 agents/, data_access/, postprocess/ — Postgres via testcontainers
 notebooks/embed_in_colab.ipynb  Stage-2 GPU embedding; reads HF snapshot, uploads embeddings/ back
@@ -110,6 +117,8 @@ Oracle → `routers/sessions.py` → `Orchestrator.run_turn` → Retrieval Agent
 **Prompts**: each agent owns a `prompts/` subdir of versioned Jinja files (e.g. `backend/orchestrator/prompts/orchestrator_system_v1.j2`). `backend.settings.prompts_dir("orchestrator")` resolves the path. New prompt version = new file; old file stays for replay.
 
 **LLM harness** (`backend/llm/llm_harness.py`): `call()` is the only entry point. Enforces `cost_limit_usd` before each call (raises `CostLimitExceeded`), retries 3× on transient OpenAI errors with exponential backoff, supports `dry_run=True` for tests, emits one `log_llm_call(...)` record per attempt.
+
+**Partition advisor** (`backend/agents/partition_advisor/agent.py`): called when a `partition_by` on a numeric attribute (`runtime`, `release_year`, `vote_average`) has no user-supplied bins. `propose_bins(attribute, stats)` is fully deterministic — it snaps the p33/p67 positions of the distribution to the nearest round-number candidate edge (multiples of 15/30 for runtime, decade boundaries for release_year, 0.5 increments for vote_average) and builds 3 labelled `PartitionBin` objects. No LLM call is made; `cost` is always 0.0.
 
 **DB access boundary**: nothing outside `backend/data_access/` opens a cursor. `backend/data_access/connection.py` exposes a connection pool + `transaction()` context manager; each `data_access/<domain>/queries.py` is a typed CRUD module consumed by routers and agents.
 

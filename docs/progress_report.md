@@ -67,15 +67,16 @@ The TMDB IDs are held only by the runner and used for objective metric computati
 
 **Oracle:** A simulated oracle is an LLM agent that embodies a **target description** overlaid with a **persona** that controls communication style. Personas are defined by four behavioral dials: `verbosity` (terse / medium / verbose), `decisiveness` (likelihood to accept early, 0–1), `drift_probability` (per-turn chance of introducing a tangent), and `contradiction_rate` (per-turn chance of self-contradicting). A seeded `BehaviorRng`, keyed on `(persona_hash, gt_id, session_seed)`, injects deterministic stage directions into the oracle's context to trigger drift or contradiction. An acceptance gate, derived from the decisiveness dial, prevents low-decisiveness personas from converging in fewer turns than their dial would allow.
 
-**Metrics** (persisted per session in `session_metrics` and `judge_scores`):
+**Metrics** (persisted per session in `conversation_metrics` and `judge_scores`):
 
-- *Precision@K, Recall@K, NDCG@K*: fraction of the top-K recommended films that appear in the ground-truth TMDB ID set.
-- *Turns to convergence*: turn number at which convergence is declared, or null if the session is abandoned.
-- *Avg cognitive load per turn*: recommendation size × 0.3 + question word count normalised to a 0–2 scale, averaged across turns.
-- *Explicit acceptance rate*: whether the oracle issued an `accept` intent vs. the system declaring convergence behaviourally.
-- *Drift events*: count of `clarify_drift` events detected by the State Agent.
-- *Oracle score*: a subjective rating from 1–5 provided by the oracle at the end of the session.
-- *LLM-judge scores*: clustering coherence, question quality, and preference-profile fidelity, each rated 1–5 by a separate judge model reading the full transcript, converged cluster, and ground-truth description (but not the oracle persona traits).
+- *Turns to convergence*: turn number at which the first convergence signal fires (explicit acceptance phrase or behavioural stability), or null if the session is abandoned.
+- *Final num clusters*: number of clusters in the final snapshot.
+- *Silhouette score*: `sklearn silhouette_score` on fused embeddings of all movies in the final snapshot (cosine distance). Diagnostic signal for cluster separation quality.
+- *Mean membership probability*: mean argmax soft-assignment probability across all movies in the final snapshot.
+- *Noise fraction*: fraction of movies with argmax probability below `eval.noise_prob_threshold`.
+- *Spec-satisfaction rate*: fraction of final-snapshot movies that appear in the ground truth's hidden target film set. `NULL` for human-oracle sessions.
+- *Total cost (USD)*: accumulated LLM cost for the session.
+- *LLM-judge scores*: `clustering_coherence`, `question_quality`, `label_accuracy`, and `intent_alignment`, each rated 1–5 by a separate judge model (`eval/judge/agent.py`) reading the full transcript and final cluster state.
 
 **Baseline**: We compare our full system against two ablations designed to isolate retrieval and agentic benefits.
 
@@ -86,6 +87,7 @@ A full specification of the evaluation setup is given in [evaluation.md](https:/
 
 ## What We Have Done
 - **End-to-end pipeline.** All six agents — Orchestrator, Retrieval, Clustering, Profile, Decision, and State — are implemented and wired together. A human user can interact with the system through the chat interface, provide feedback, and receive updated clusters turn by turn as intended.
+- **Evaluation subsystem.** The full eval harness is implemented: DB migration 012 adds `personas`, `ground_truths`, `eval_sessions`, `conversation_metrics`, and `judge_scores` tables. `eval/oracle/` provides the LLM-simulated oracle with seeded behavioral rolls and an acceptance gate. `eval/judge/` provides the 4-dimension LLM judge (`clustering_coherence`, `question_quality`, `label_accuracy`, `intent_alignment`). `eval/metrics.py` computes deterministic clustering metrics (silhouette, convergence, cost, spec-satisfaction) post-hoc from DB state. `eval/runner.py` + `eval/run.py` drive automated sessions and score existing conversations via CLI.
 - **Logging and config.** A structured logging system emits one key=value line per event, with mandatory fields (`run_id`, `session_id`, `turn_id`, `model`, `prompt_hash`, `tokens`, `latency`) on every LLM call. All session parameters (model, seed, clustering strategy) are driven by a YAML config file loaded at startup, so experimental conditions can be switched by changing a single env variable with no code edits. Each session stores the full config snapshot and a SHA-256 hash, enabling exact replay.
 - **Data pipeline.** We scrape and clean film metadata from TMDB, embed synopses using `BAAI/bge-large-en-v1.5` in a GPU Colab notebook, and upload the resulting parquet artifacts to Hugging Face. The backend ingests them into a pgvector-enabled Postgres instance on startup. Three catalogue splits are available: `mini` (dev), `main` (~40k films), and `eval_holdout` (reserved for ground-truth construction).
 - **Test suite and CI/CD.** Smoke tests cover the full turn pipeline end-to-end in dry-run mode (no live LLM calls) using fixture responses. The CI pipeline runs ruff, mypy, and pytest on every push. A CD pipeline builds and pushes versioned Docker images on merge to main.
@@ -94,7 +96,6 @@ A full specification of the evaluation setup is given in [evaluation.md](https:/
 ## Next Steps
 
 - **Finalize experimental conditions and documentation:** Specify the experiment conditions we want to perform and analyze. Then refine the whole documentation to have a proper fixed evaluation plan.
-- **Complete the evaluation setup**: Currently we have an non-functional placeholder for evaluation setup. We need to implement the missing components and refine the already defined ones.
 - **Freeze and validate the agents**: Before running ablations, we need to ensure agents behaviour is stable and correct. Any prompt or logic bug in a fixed component corrupts every condition equally and makes ablation results uninterpretable.
 - **Continuous retrieval**: Extend the clustering agent to accept fresh candidates every turn and decide internally which films to absorb or drop, rather than waiting for an explicit drift or re-retrieve event.
 - **Refine decision agent strategies**: Analyse failure cases in the decision agent's questioning strategy and define possible strategies to enhance it.

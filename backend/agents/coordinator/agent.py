@@ -7,7 +7,7 @@ from backend.agents.coordinator.tools.clarification_state import mark_awaiting, 
 from backend.agents.coordinator.tools.labeling import label_unlabeled_clusters
 from backend.agents.coordinator.tools.progress import ProgressReporter
 from backend.agents.responder.suggestions import maybe_suggest
-from backend.agents.coordinator.types import CoordinatorResult, sentinel_cluster_snapshot_id
+from backend.agents.coordinator.types import CoordinatorResult, TurnTrace, sentinel_cluster_snapshot_id
 from backend.agents.intent.agent import classify as classify_intent
 from backend.agents.clustering.types import NavigationMode
 from backend.agents.intent.types import DialogueMode, IntentAction, IntentResult
@@ -54,14 +54,14 @@ class Coordinator:
              Clusters are re-read from the DB at the start of each action so later steps
              operate on the actual post-operation state.
           6. After all actions, run the Suggester once on the final snapshot.
-          7. Return aggregated reply, final snapshot id, and optional suggestion.
+          7. Return aggregated reply, final snapshot id, optional suggestion, and turn trace.
         Args:
             conversation_id:  Conversation UUID.
             user_message:     Raw user message text.
             conversation_row: Pre-loaded conversation row (avoids double DB hit).
         Returns:
-            ``CoordinatorResult`` with reply text, active cluster snapshot ID, and
-            optional follow-up suggestion.
+            ``CoordinatorResult`` with reply text, active cluster snapshot ID,
+            optional follow-up suggestion, and a ``TurnTrace`` for eval runners.
         """
         # Create a progress reporter to send step events to the SSE stream
         reporter = ProgressReporter(str(conversation_id))
@@ -74,7 +74,7 @@ class Coordinator:
         current_clusters = current_snapshot.clusters if current_snapshot else []
 
         message_id = uuid.uuid4()
-        
+
         clusters = current_clusters
         if any(cluster.label is None for cluster in current_clusters):
             reporter.step("labeling")
@@ -83,8 +83,8 @@ class Coordinator:
             )
             accumulated_cost += label_cost
 
-        # Check for a recent assistant message awaiting clarification — if the 
-        # user is responding to a clarifier question, pass that question to the intent agent 
+        # Check for a recent assistant message awaiting clarification — if the
+        # user is responding to a clarifier question, pass that question to the intent agent
         # for better parsing of short/pronoun-heavy replies.
         clarification_question: str | None = None
         if take_awaiting(conversation_id):
@@ -105,6 +105,12 @@ class Coordinator:
         )
         accumulated_cost += intent.cost
 
+        trace_modes = [a.mode.value for a in intent.actions]
+        trace_concepts = [a.concept for a in intent.actions]
+        trace_targets = [a.target_cluster_id for a in intent.actions]
+        trace_confidence = min((a.confidence for a in intent.actions), default=1.0)
+        trace_raw = intent.raw_intent
+
         early_return = await self._clarify_if_low_confidence(
             intent=intent,
             clusters=clusters,
@@ -117,11 +123,22 @@ class Coordinator:
         )
         if early_return is not None:
             reporter.done()
+            turn_trace = TurnTrace(
+                modes=trace_modes,
+                concepts=trace_concepts,
+                target_cluster_ids=trace_targets,
+                confidence=trace_confidence,
+                clarifier_fired=True,
+                raw_intent=trace_raw,
+                suggestion=None,
+                explanation=None,
+            )
             return CoordinatorResult(
                 reply_text=early_return.reply_text,
                 cluster_snapshot_id=early_return.cluster_snapshot_id,
                 turn_cost_usd=accumulated_cost - turn_start_cost,
                 suggestion=early_return.suggestion,
+                turn_trace=turn_trace,
             )
 
         log.info(
@@ -129,7 +146,7 @@ class Coordinator:
             extra={
                 "conversation_id": str(conversation_id),
                 "n_actions": len(intent.actions),
-                "intent_modes": [a.mode.value for a in intent.actions],
+                "intent_modes": trace_modes,
                 "n_clusters": len(clusters),
             },
         )
@@ -172,12 +189,30 @@ class Coordinator:
             accumulated_cost=accumulated_cost,
         )
 
+        explanation_text: str | None = None
+        for i, action in enumerate(intent.actions):
+            if action.mode == DialogueMode.EXPLAIN and i < len(reply_fragments):
+                explanation_text = reply_fragments[i]
+                break
+
+        turn_trace = TurnTrace(
+            modes=trace_modes,
+            concepts=trace_concepts,
+            target_cluster_ids=trace_targets,
+            confidence=trace_confidence,
+            clarifier_fired=False,
+            raw_intent=trace_raw,
+            suggestion=suggestion.text if suggestion else None,
+            explanation=explanation_text,
+        )
+
         reporter.done()
         return CoordinatorResult(
             reply_text=combined_reply,
             cluster_snapshot_id=final_snapshot_id,
             turn_cost_usd=accumulated_cost - turn_start_cost,
             suggestion=suggestion.text if suggestion else None,
+            turn_trace=turn_trace,
         )
 
     async def _clarify_if_low_confidence(

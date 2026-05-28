@@ -1,60 +1,81 @@
 # Data Model
 
 PostgreSQL schema for the conversational clustering system.
-We distinguish two logical groups:
+We distinguish three logical groups:
 - **catalogue tables** — ingested once from the dataset, read-only during session runtime.
-- **session tables** — written at runtime to capture the evolving state of each conversation.
+- **conversation tables** — written at runtime to capture the evolving state of each conversation.
+- **clustering tables** — the content-addressed snapshot tree, its clusters, and soft memberships.
 
-Extensions required: `pgvector` (for `VECTOR` columns) and `pgcrypto` (for `gen_random_uuid()`).
+Extensions required: `vector` (pgvector, for `VECTOR` columns), `pgcrypto` (for `gen_random_uuid()`),
+and `pg_trgm` (trigram indexing). See `db/migrations/001_extensions.sql`.
+
+The authoritative source is the numbered migrations under `db/migrations/`; this document is the
+effective final shape after migrations 001–011.
 
 ---
 
 ## Catalogue tables
 
-Populated once at ingest time by `db/ingest.py`, which loads the HuggingFace-hosted embedded parquet (produced by `db/scrape.py` → `notebooks/embed_in_colab.ipynb`) into the schema below. Read-only during the conversational loop.
+Populated once at ingest time by `db/ingest.py`, which loads the HuggingFace-hosted embedded
+parquet (produced by `dataset/scraper.py` → `notebooks/embed_in_colab.ipynb`) into the schema
+below. Read-only during the conversational loop.
 
 ### `movies`
 
-Primary entity. One row per film.
+Primary entity. One row per film. Defined in `db/migrations/003_catalogue.sql`; the
+`trailer_embedding` index is added in `010_trailer_embedding_index.sql`.
 
 ```sql
 CREATE TABLE movies (
-    id                BIGINT       PRIMARY KEY,         -- TMDB integer ID
-    imdb_id           VARCHAR(12)  UNIQUE,              -- e.g. "tt0111161"
-    title             TEXT         NOT NULL,
-    original_title    TEXT,
-    original_language VARCHAR(10),                      -- ISO 639-1
-    overview          TEXT,                             -- synopsis
-    tagline           TEXT,
-    release_date      DATE,
-    release_year      SMALLINT     GENERATED ALWAYS AS (EXTRACT(YEAR FROM release_date)::SMALLINT) STORED,
-    runtime           FLOAT,                            -- minutes
-    budget            BIGINT,                           -- USD; 0 = unknown
-    revenue           BIGINT,                           -- USD; 0 = unknown
-    popularity        FLOAT,                            -- TMDB score at capture time
-    vote_average      FLOAT,
-    vote_count        INTEGER,
-    bayesian_rating   FLOAT,                            -- (v*R + m*C)/(v+m) computed at ingest
-    status            VARCHAR(30),                      -- Released, In Production, etc.
-    adult             BOOLEAN      DEFAULT FALSE,
-    video             BOOLEAN      DEFAULT FALSE,
-    poster_path       TEXT,                             -- relative; prepend TMDB base URL at serve time
-    homepage          TEXT,
-    collection_id     BIGINT       REFERENCES collections(id),
-    embedding         VECTOR(1024) NOT NULL             -- BAAI/bge-large-en-v1.5 on composite text
+    id                  INTEGER PRIMARY KEY,          -- TMDB integer ID
+    title               TEXT    NOT NULL,
+    original_title      TEXT,
+    release_year        INTEGER,
+    runtime             FLOAT,                         -- minutes
+    vote_average        FLOAT,
+    vote_count          INTEGER,
+    bayesian_rating     FLOAT,                         -- (v*R + m*C)/(v+m) computed at ingest
+    overview            TEXT,                          -- synopsis
+    tagline             TEXT,
+    poster_path         TEXT,                          -- relative; prepend TMDB base URL at serve time
+    original_language   TEXT,                          -- ISO 639-1
+    composite_text      TEXT,                          -- concatenated fields embedded as text_embedding
+    reviews_text        TEXT,                          -- concatenated reviews embedded as review_embedding
+    text_embedding      VECTOR(1024),                  -- BAAI/bge-large-en-v1.5 on composite_text
+    review_embedding    VECTOR(1024),                  -- BGE on reviews_text; NULL when no reviews
+    trailer_youtube_key TEXT,                          -- YouTube key of the official trailer, or NULL
+    trailer_embedding   VECTOR(1024),                  -- mean-pooled CLIP over trailer frames; NULL when absent
+    umap_x              FLOAT,                          -- 2D UMAP projection for scatter visualisation
+    umap_y              FLOAT
 );
 
-CREATE INDEX ON movies USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100);
-CREATE INDEX ON movies (release_year);
-CREATE INDEX ON movies (original_language);
-CREATE INDEX ON movies (vote_count);
+CREATE INDEX movies_text_embedding_idx
+    ON movies USING ivfflat (text_embedding vector_cosine_ops) WITH (lists = 100);
+
+CREATE INDEX movies_review_embedding_idx
+    ON movies USING ivfflat (review_embedding vector_cosine_ops) WITH (lists = 100)
+    WHERE review_embedding IS NOT NULL;
+
+CREATE INDEX movies_trailer_embedding_idx
+    ON movies USING ivfflat (trailer_embedding vector_cosine_ops) WITH (lists = 100)
+    WHERE trailer_embedding IS NOT NULL;
 ```
 
-`bayesian_rating` uses `(v * R + m * C) / (v + m)` where `v = vote_count`, `R = vote_average`, `m` = minimum vote threshold, `C` = global mean. Use this as the ranking signal; raw `vote_average` should not be used alone.
+`bayesian_rating` uses `(v * R + m * C) / (v + m)` where `v = vote_count`, `R = vote_average`,
+`m` = minimum vote threshold, `C` = global mean. Use this as the ranking signal; raw
+`vote_average` should not be used alone.
 
-The `embedding` column stores the pre-computed vector representation of the movie based on a composite of its metadata fields. This allows for efficient similarity search during retrieval.
+Each movie carries **three embedding modalities**, matching the `Modality` enum used at runtime
+(`backend/agents/clustering/types.py`):
 
-The composite text should include the most salient attributes for clustering. We concatenate the following fields:
+- `text_embedding` — always present; the fused/text BGE embedding over `composite_text`.
+- `review_embedding` — present when reviews were available.
+- `trailer_embedding` — present when a trailer was fetched and frame-encoded via CLIP.
+
+The review and trailer indexes are **partial** (`WHERE … IS NOT NULL`) so the many rows without
+that modality are not indexed.
+
+`composite_text` concatenates the most salient attributes for clustering, e.g.:
 
 ```
 {title} {original_title} {overview} {tagline} {genres} {top3_cast} {director}
@@ -62,356 +83,355 @@ The composite text should include the most salient attributes for clustering. We
 
 ---
 
-### `collections`
+### `genres`, `people`, `keywords`
 
-Extracted from the `belongs_to_collection` field on each TMDB API response. Represents franchises (e.g. "The Lord of the Rings Collection").
-
-```sql
-CREATE TABLE collections (
-    id            BIGINT  PRIMARY KEY,     -- TMDB collection ID
-    name          TEXT    NOT NULL,
-    poster_path   TEXT,
-    backdrop_path TEXT
-);
-```
-
----
-
-### `genres`
-Each movie can belong to multiple genres and each genre can apply to multiple movies, so we use a join table:
+Simple lookup tables with `SERIAL` primary keys.
 
 ```sql
 CREATE TABLE genres (
-    id    INTEGER     PRIMARY KEY,         -- TMDB genre ID
-    name  VARCHAR(50) NOT NULL
+    id   SERIAL PRIMARY KEY,
+    name TEXT   NOT NULL UNIQUE
 );
 
-CREATE TABLE movie_genres (
-    movie_id  BIGINT  NOT NULL REFERENCES movies(id) ON DELETE CASCADE,
-    genre_id  INTEGER NOT NULL REFERENCES genres(id),
-    PRIMARY KEY (movie_id, genre_id)
+CREATE TABLE people (
+    id   SERIAL PRIMARY KEY,
+    name TEXT   NOT NULL
+);
+
+CREATE TABLE keywords (
+    id   SERIAL PRIMARY KEY,
+    name TEXT   NOT NULL UNIQUE
 );
 ```
 
 ---
 
-### `people`, `cast_members`, `crew_members`
+### Catalogue join tables
 
-The role is determined in the join tables (`cast_members` and `crew_members`) which reference `people.id` and specify the department/job or character played.
+Many-to-many relationships between movies and the lookup tables above.
 
 ```sql
-CREATE TABLE people (
-    id      BIGINT   PRIMARY KEY,          -- TMDB person ID
-    name    TEXT     NOT NULL,
-    gender  SMALLINT                       -- 0 = unspecified, 1 = female, 2 = male
+CREATE TABLE movie_genres (
+    movie_id  INTEGER NOT NULL REFERENCES movies (id) ON DELETE CASCADE,
+    genre_id  INTEGER NOT NULL REFERENCES genres (id) ON DELETE CASCADE,
+    PRIMARY KEY (movie_id, genre_id)
 );
 
 CREATE TABLE cast_members (
-    movie_id   BIGINT      NOT NULL REFERENCES movies(id) ON DELETE CASCADE,
-    person_id  BIGINT      NOT NULL REFERENCES people(id),
-    character  TEXT,
-    cast_order SMALLINT,                   -- billing order; 0 = top-billed
-    credit_id  VARCHAR(30),
-    PRIMARY KEY (movie_id, person_id, credit_id)
+    movie_id   INTEGER NOT NULL REFERENCES movies (id) ON DELETE CASCADE,
+    person_id  INTEGER NOT NULL REFERENCES people (id) ON DELETE CASCADE,
+    cast_order INTEGER,                       -- billing order; 0 = top-billed
+    PRIMARY KEY (movie_id, person_id)
 );
-CREATE INDEX ON cast_members (person_id);
 
 CREATE TABLE crew_members (
-    movie_id   BIGINT      NOT NULL REFERENCES movies(id) ON DELETE CASCADE,
-    person_id  BIGINT      NOT NULL REFERENCES people(id),
-    department VARCHAR(50),
-    job        VARCHAR(100),
-    credit_id  VARCHAR(30),
-    PRIMARY KEY (movie_id, person_id, credit_id)
-);
-CREATE INDEX ON crew_members (person_id);
-CREATE INDEX ON crew_members (job);        -- frequent filter: job = 'Director'
-```
-
----
-
-### `keywords`
-We define a separate `keywords` table and a many-to-many `movie_keywords` join table to capture the TMDB keywords associated with each movie. These are user-generated tags that can provide additional signals for clustering (e.g. "time travel", "based on novel", "space opera").
-
-```sql
-CREATE TABLE keywords (
-    id    INTEGER PRIMARY KEY,
-    name  TEXT    NOT NULL
+    movie_id  INTEGER NOT NULL REFERENCES movies (id) ON DELETE CASCADE,
+    person_id INTEGER NOT NULL REFERENCES people (id) ON DELETE CASCADE,
+    job       TEXT    NOT NULL,               -- frequent filter: job = 'Director'
+    PRIMARY KEY (movie_id, person_id, job)
 );
 
 CREATE TABLE movie_keywords (
-    movie_id   BIGINT  NOT NULL REFERENCES movies(id) ON DELETE CASCADE,
-    keyword_id INTEGER NOT NULL REFERENCES keywords(id),
+    movie_id   INTEGER NOT NULL REFERENCES movies (id) ON DELETE CASCADE,
+    keyword_id INTEGER NOT NULL REFERENCES keywords (id) ON DELETE CASCADE,
     PRIMARY KEY (movie_id, keyword_id)
 );
 ```
 
----
-
-### `production_companies`
-Some movies are produced by multiple companies, and some companies produce multiple movies, so we use a join table:
-
-```sql
-CREATE TABLE production_companies (
-    id    BIGINT PRIMARY KEY,
-    name  TEXT   NOT NULL
-);
-```
-
-Again, many-to-many relationships to capture the spoken languages and production countries for each movie:
-
-```sql
-CREATE TABLE movie_companies (
-    movie_id   BIGINT NOT NULL REFERENCES movies(id) ON DELETE CASCADE,
-    company_id BIGINT NOT NULL REFERENCES production_companies(id),
-    PRIMARY KEY (movie_id, company_id)
-);
-```
-
----
-
-### `languages` and `countries`
-
-```sql
-CREATE TABLE languages (
-    iso_639_1 CHAR(2) PRIMARY KEY,
-    name      TEXT    NOT NULL
-);
-
-CREATE TABLE movie_spoken_languages (
-    movie_id  BIGINT  NOT NULL REFERENCES movies(id) ON DELETE CASCADE,
-    iso_639_1 CHAR(2) NOT NULL REFERENCES languages(iso_639_1),
-    PRIMARY KEY (movie_id, iso_639_1)
-);
-
-CREATE TABLE countries (
-    iso_3166_1 CHAR(2) PRIMARY KEY,
-    name       TEXT    NOT NULL
-);
-
-CREATE TABLE movie_countries (
-    movie_id   BIGINT  NOT NULL REFERENCES movies(id) ON DELETE CASCADE,
-    iso_3166_1 CHAR(2) NOT NULL REFERENCES countries(iso_3166_1),
-    PRIMARY KEY (movie_id, iso_3166_1)
-);
-```
+Production companies, spoken languages, and countries are fetched from TMDB but are **not**
+persisted as normalised tables in the current schema; only the genre, cast, crew, and keyword
+relationships are stored.
 
 ---
 
 ## Auth tables
 
-### `roles` and `users`
+Defined in `db/migrations/002_users.sql`.
 
 ```sql
 CREATE TABLE roles (
-    id   SERIAL      PRIMARY KEY,
-    name VARCHAR(50) UNIQUE NOT NULL    -- 'user' | 'admin'
+    id   SERIAL PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE        -- 'user' | 'admin'
 );
+
+INSERT INTO roles (name) VALUES ('user'), ('admin');
 
 CREATE TABLE users (
     id            UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
-    email         TEXT        UNIQUE NOT NULL,
+    email         TEXT        NOT NULL UNIQUE,
     password_hash TEXT        NOT NULL,
-    role_id       INTEGER     NOT NULL REFERENCES roles(id),
+    role_id       INTEGER     NOT NULL REFERENCES roles (id),
     created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 ```
 
-Admin accounts are provisioned via `python -m db.create_user --role admin`; the register endpoint always creates `role = user`.
+The register endpoint always creates `role = user`. The `roles` table seeds both `user` and
+`admin`, but no HTTP route checks for `admin` in the current backend.
 
 ---
 
-## Run & evaluation tables
+## Run table
 
-These tables are written by the evaluation harness (not the live conversational loop) to group sessions into experimental conditions and store per-session and per-run results.
+These tables are written by the evaluation harness (`eval/`) to group conversations into experimental runs and store per-conversation results. They are **not** written by the live conversational loop.
 
 ### `runs`
 
-Groups N sessions under one experimental condition with a single config snapshot for replay.
+Experimental run registry. Extended from migration 004 by migration 012.
 
 ```sql
 CREATE TABLE runs (
-    id              UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
-    name            TEXT        NOT NULL,
-    condition       VARCHAR(20) NOT NULL,   -- baseline | uncertainty | random | boundary | popularity | component_test | human
-    config_hash     VARCHAR(8)  NOT NULL,   -- 8-char SHA-256 prefix of raw YAML config bytes
+    run_id          UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    config_hash     TEXT        NOT NULL,       -- 8-char SHA-256 prefix of active YAML config
     config_snapshot JSONB       NOT NULL,
-    seed            BIGINT      NOT NULL,
-    model_version   TEXT        NOT NULL,
+    seed            INTEGER     NOT NULL,
     started_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    name            TEXT,
+    condition       VARCHAR(20) DEFAULT 'conversational',  -- conversational | baseline | human
+    model_version   TEXT,
     ended_at        TIMESTAMPTZ,
     status          VARCHAR(20) NOT NULL DEFAULT 'running',  -- running | completed | aborted
     notes           TEXT
 );
-
-CREATE INDEX ON runs (condition);
-CREATE INDEX ON runs (config_hash);
 ```
 
-### `session_metrics`
+### `personas`
 
-One row per session; computed after the session ends by the eval harness. Safe to rewrite on recompute (PK = `session_id`).
+Write-once oracle persona definitions. New behaviour requires a new slug/row.
 
 ```sql
-CREATE TABLE session_metrics (
-    session_id           UUID          PRIMARY KEY REFERENCES sessions(id) ON DELETE CASCADE,
-    converged            BOOLEAN       NOT NULL,
-    turns_to_convergence SMALLINT,              -- NULL if abandoned
-    avg_cognitive_load   FLOAT,
-    explicit_acceptance  BOOLEAN       NOT NULL DEFAULT FALSE,
-    drift_events         SMALLINT      NOT NULL DEFAULT 0,
-    total_input_tokens   INTEGER       NOT NULL DEFAULT 0,
-    total_output_tokens  INTEGER       NOT NULL DEFAULT 0,
-    total_cost_usd       NUMERIC(10,4) NOT NULL DEFAULT 0,
-    precision_at_k       FLOAT,                -- fraction of top-K hits in gt_movie_ids
-    recall_at_k          FLOAT,                -- fraction of gt_movie_ids recovered in top-K
-    ndcg_at_k            FLOAT,                -- normalised discounted cumulative gain at K
-    computed_at          TIMESTAMPTZ   NOT NULL DEFAULT NOW()
+CREATE TABLE personas (
+    id         UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    slug       TEXT        UNIQUE NOT NULL,
+    verbosity  TEXT        NOT NULL DEFAULT 'medium',  -- terse | medium | verbose
+    patience   FLOAT       NOT NULL DEFAULT 0.5,       -- [0, 1]
+    definition JSONB       NOT NULL DEFAULT '{}',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+```
+
+### `ground_truths`
+
+Ordered trajectory of `(op, concept)` pairs representing the intended navigation path for a simulated session. Built by the GT builder using the judge model tier. `seed_movie_ids` records the catalogue sample used during construction.
+
+```sql
+CREATE TABLE ground_truths (
+    id                 UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    slug               TEXT        UNIQUE NOT NULL,
+    version            SMALLINT    NOT NULL DEFAULT 1,
+    intent_description TEXT        NOT NULL,
+    operations         JSONB       NOT NULL,  -- ordered list[{op: str, concept: str}]
+    seed_movie_ids     JSONB,                 -- nullable; builder audit trail
+    prompt_hash        CHAR(64)    NOT NULL,  -- SHA-256 of the GT builder prompts
+    created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+```
+
+### `eval_sessions`
+
+Links a conversation to a run, persona, and ground truth. `condition` records which experimental arm was run. `oracle_rating` is the 1–5 session-level self-rating emitted by the oracle at stop; NULL for human-oracle sessions.
+
+```sql
+CREATE TABLE eval_sessions (
+    id                    UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    run_id                UUID        NOT NULL REFERENCES runs (id) ON DELETE CASCADE,
+    conversation_id       UUID        UNIQUE NOT NULL REFERENCES conversations (id) ON DELETE CASCADE,
+    persona_id            UUID        REFERENCES personas (id) ON DELETE SET NULL,
+    ground_truth_id       UUID        REFERENCES ground_truths (id) ON DELETE SET NULL,
+    seed                  BIGINT      NOT NULL,
+    condition             VARCHAR(20) NOT NULL DEFAULT 'conversational',  -- conversational | no_agents | monolithic | human
+    status                VARCHAR(20) NOT NULL DEFAULT 'active',          -- active | finished_trajectory | finished_misbehaviour | finished_budget
+    termination_rationale TEXT,
+    oracle_rating         SMALLINT    CHECK (oracle_rating IS NULL OR oracle_rating BETWEEN 1 AND 5),
+    created_at            TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX ON eval_sessions (run_id);
+```
+
+### `turn_intents`
+
+Per-turn intent classification records written by the coordinator (or baseline runner) on every oracle turn. Enables `operation_recall` and `clarifier_trigger_rate` computation. Compound turns (multiple modes in one turn) produce multiple rows with the same `turn_number`.
+
+```sql
+CREATE TABLE turn_intents (
+    id               UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    conversation_id  UUID        NOT NULL REFERENCES conversations (id) ON DELETE CASCADE,
+    turn_number      SMALLINT    NOT NULL,    -- 1-based ordinal
+    mode             VARCHAR(40) NOT NULL,    -- any NavigationMode or DialogueMode value
+    concept          TEXT,
+    target_cluster_id UUID,                   -- not FK'd; snapshots may rotate
+    confidence       FLOAT       NOT NULL,
+    clarifier_fired  BOOLEAN     NOT NULL DEFAULT FALSE,
+    raw_intent       JSONB       NOT NULL,
+    created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (conversation_id, turn_number, mode)
+);
+
+CREATE INDEX ON turn_intents (conversation_id, turn_number);
+```
+
+### `conversation_metrics`
+
+Deterministic eval metrics, 1:1 per conversation. Safe to recompute (PK = `conversation_id`, upsert on recompute). `oracle_rating` lives on `eval_sessions` (session-level emission).
+
+```sql
+CREATE TABLE conversation_metrics (
+    conversation_id       UUID          PRIMARY KEY REFERENCES conversations (id) ON DELETE CASCADE,
+    silhouette            FLOAT,                                       -- NULL if < 2 clusters or any cluster < 2 members
+    mean_membership_prob  FLOAT,
+    noise_fraction        FLOAT,
+    final_num_clusters    SMALLINT,
+    operation_recall      FLOAT,                                       -- NULL for human oracle / no GT
+    clarifier_trigger_rate FLOAT,
+    num_turns             SMALLINT      NOT NULL DEFAULT 0,
+    num_operations        SMALLINT      NOT NULL DEFAULT 0,
+    total_cost_usd        NUMERIC(10,4) NOT NULL DEFAULT 0,
+    computed_at           TIMESTAMPTZ   NOT NULL DEFAULT NOW()
 );
 ```
 
 ### `judge_scores`
 
-LLM-judge dimension scores. Append-only; `judge_prompt_hash` lets multiple judge versions coexist.
+LLM-judge dimension scores. Append-only; `judge_prompt_hash` lets multiple judge versions coexist. Dimension values: `operation_appropriateness`, `label_accuracy`, `suggestion_meaningfulness`, `explanation_quality`, `intent_alignment`.
 
 ```sql
 CREATE TABLE judge_scores (
     id                UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
-    session_id        UUID        NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
-    dimension         VARCHAR(40) NOT NULL,    -- clustering_coherence | question_quality | profile_fidelity
+    conversation_id   UUID        NOT NULL REFERENCES conversations (id) ON DELETE CASCADE,
+    dimension         VARCHAR(40) NOT NULL,  -- operation_appropriateness | label_accuracy | suggestion_meaningfulness | explanation_quality | intent_alignment
     score             SMALLINT    NOT NULL CHECK (score BETWEEN 1 AND 5),
     rationale         TEXT,
     judge_model       TEXT        NOT NULL,
-    judge_prompt_hash CHAR(64)    NOT NULL,    -- SHA-256 hex of rendered judge prompt
+    judge_prompt_hash CHAR(64)    NOT NULL,  -- SHA-256 hex of rendered judge prompt
     created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    UNIQUE (session_id, dimension, judge_prompt_hash)
+    UNIQUE (conversation_id, dimension, judge_prompt_hash)
 );
 
-CREATE INDEX ON judge_scores (session_id);
+CREATE INDEX ON judge_scores (conversation_id);
 CREATE INDEX ON judge_scores (dimension);
 ```
 
 ---
 
-## Session tables
+## Runtime (session) tables
 
-To store various per session data, we have the following tables. These are written to at runtime by the conversational loop to capture the evolving state of each session, including the turns taken, the cluster states, and the oracle feedback.
+Written at runtime by the conversational loop (`backend/agents/coordinator/`) to capture the evolving state of each conversation.
 
-A `uuid` is generated for each session and turn to serve as stable identifiers that can be referenced across tables. The `session_id` foreign key links all related records together, while `turn_number` captures the sequential order of turns within a session.
+### `conversations`
 
-### `sessions`
-
-Table that identifies a single session. Each time a new conversation is started, a new session is created. The `status` field tracks whether the session is active, has converged, or was abandoned. The `config_hash` allows us to link back to the exact configuration used for this session for reproducibility. The `preference_profile` is populated at convergence with the structured profile extracted from oracle feedback.
+One row per user conversation. `current_cluster_snapshot_id` is the live pointer to the most recent cluster state.
 
 ```sql
-CREATE TABLE sessions (
-    id                 UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
-    run_id             UUID         NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
-    seed               BIGINT       NOT NULL,          -- per-session RNG seed for exact replay
-    config_hash        VARCHAR(8)   NOT NULL,           -- 8-char SHA-256 prefix; must match parent run
-    model_version      TEXT         NOT NULL,
-    user_id            UUID         REFERENCES users(id) ON DELETE SET NULL,  -- NULL for anonymous
-    persona_id         VARCHAR(64),                    -- NULL for human oracles; slug for simulated
-    ground_truth_id    VARCHAR(64),                    -- NULL for human sessions; slug for eval runs
-    created_at         TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
-    updated_at         TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
-    status             VARCHAR(20)  NOT NULL DEFAULT 'active',  -- active | converged | abandoned
-    max_turns          INTEGER      NOT NULL DEFAULT 15,
-    cost_limit_usd     NUMERIC(10,4),
-    preference_profile JSONB                           -- populated at convergence by the profile agent
+CREATE TABLE conversations (
+    id                          UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id                     UUID        REFERENCES users(id) ON DELETE SET NULL,
+    current_cluster_snapshot_id UUID        REFERENCES cluster_snapshots(id),
+    config_snapshot             JSONB       NOT NULL,
+    created_at                  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    accumulated_cost_usd        FLOAT       NOT NULL DEFAULT 0.0
 );
-
-CREATE INDEX ON sessions (run_id);
-CREATE INDEX ON sessions (user_id);
-CREATE INDEX ON sessions (persona_id) WHERE persona_id IS NOT NULL;
-CREATE INDEX ON sessions (ground_truth_id) WHERE ground_truth_id IS NOT NULL;
 ```
 
----
+### `messages`
 
-### `turns`
-
-One row per conversation turn.
+One row per turn (user message or assistant reply).
 
 ```sql
-CREATE TABLE turns (
-    id                UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
-    session_id        UUID        NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
-    turn_number       SMALLINT    NOT NULL,
-    user_message      TEXT        NOT NULL,    -- raw oracle utterance
-    assistant_message TEXT,                    -- system response (question or recommendation)
-    step_type         VARCHAR(20),             -- show | ask | stop
-    converged         BOOLEAN     NOT NULL DEFAULT FALSE,
-    created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    UNIQUE (session_id, turn_number)
+CREATE TABLE messages (
+    id              UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    conversation_id UUID        NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+    role            TEXT        NOT NULL CHECK (role IN ('user', 'assistant')),
+    content         TEXT        NOT NULL,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    cost_usd        FLOAT       NOT NULL DEFAULT 0.0
 );
 
-CREATE INDEX ON turns (session_id);
+CREATE INDEX ON messages (conversation_id);
 ```
 
----
+### `cluster_snapshots`
+
+Content-addressed snapshot tree. Each node is keyed on `(parent_id, operation, params, config_hash)`; identical operations on the same parent are shared across conversations.
+
+```sql
+CREATE TABLE cluster_snapshots (
+    id          UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    parent_id   UUID        REFERENCES cluster_snapshots(id) ON DELETE SET NULL,
+    operation   TEXT        NOT NULL,
+    params      JSONB       NOT NULL DEFAULT '{}',
+    config_hash TEXT        NOT NULL,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE NULLS NOT DISTINCT (parent_id, operation, params, config_hash)
+);
+```
 
 ### `clusters`
 
-Snapshot of cluster state after each turn. Supports a two-level hierarchy: `level = 0` coarse, `level = 1` fine.
+Named clusters belonging to a snapshot.
 
 ```sql
 CREATE TABLE clusters (
-    id                UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
-    session_id        UUID        NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
-    turn_id           UUID        NOT NULL REFERENCES turns(id) ON DELETE CASCADE,
-    parent_cluster_id UUID        REFERENCES clusters(id),  -- NULL for level=0
-    name              TEXT        NOT NULL,
-    description       TEXT,
-    level             SMALLINT    NOT NULL DEFAULT 0,        -- 0 = coarse, 1 = fine
-    centroid          VECTOR(1024),                          -- mean embedding; not indexed for ANN
-    created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    id                  UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    cluster_snapshot_id UUID        NOT NULL REFERENCES cluster_snapshots(id) ON DELETE CASCADE,
+    label               TEXT,                   -- NULL for unlabelled root clusters; filled lazily
+    summary             TEXT,
+    exemplar_movie_ids  JSONB       DEFAULT '[]',
+    parent_cluster_id   UUID        REFERENCES clusters(id)
 );
-
-CREATE INDEX ON clusters (session_id, turn_id);
 ```
 
-`parent_cluster_id` encodes the two-level hierarchy: coarse clusters (`level = 0`) have `parent_cluster_id = NULL`; fine clusters (`level = 1`) reference their parent coarse cluster.
+### `cluster_memberships`
 
----
-
-### `cluster_assignments`
-
-Soft assignment of a film to a cluster for a given turn snapshot.
+Soft assignment of a movie to a cluster.
 
 ```sql
-CREATE TABLE cluster_assignments (
-    id         UUID    PRIMARY KEY DEFAULT gen_random_uuid(),
-    cluster_id UUID    NOT NULL REFERENCES clusters(id) ON DELETE CASCADE,
-    movie_id   BIGINT  NOT NULL REFERENCES movies(id),
-    score      FLOAT   NOT NULL,           -- soft-assignment probability [0, 1]
-    excluded   BOOLEAN NOT NULL DEFAULT FALSE  -- oracle explicitly rejected this film
+CREATE TABLE cluster_memberships (
+    cluster_id  UUID    NOT NULL REFERENCES clusters(id) ON DELETE CASCADE,
+    movie_id    INTEGER NOT NULL REFERENCES movies(id),
+    probability FLOAT   NOT NULL,
+    PRIMARY KEY (cluster_id, movie_id)
 );
 
-CREATE INDEX ON cluster_assignments (cluster_id);
-CREATE INDEX ON cluster_assignments (movie_id);
+CREATE INDEX ON cluster_memberships (cluster_id);
+CREATE INDEX ON cluster_memberships (movie_id);
 ```
 
----
+### `conversation_snapshot_refs`
 
-### `oracle_feedback`
-
-Immutable log of every oracle action. Never updated; new rows only.
+Join table linking conversations to every snapshot they have ever visited. Allows shared snapshots to survive individual conversation deletion.
 
 ```sql
-CREATE TABLE oracle_feedback (
-    id             UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
-    session_id     UUID        NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
-    turn_id        UUID        NOT NULL REFERENCES turns(id) ON DELETE CASCADE,
-    feedback_level VARCHAR(20) NOT NULL,  -- global | cluster | point | instructional
-    feedback_type  VARCHAR(30) NOT NULL,  -- accept | reject | split | merge | resolve_drift | constraint
-    target_id      TEXT,                  -- cluster UUID or TMDB movie ID as text, depending on level
-    content        TEXT        NOT NULL,
-    created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+CREATE TABLE conversation_snapshot_refs (
+    conversation_id UUID NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+    snapshot_id     UUID NOT NULL REFERENCES cluster_snapshots(id) ON DELETE CASCADE,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (conversation_id, snapshot_id)
 );
 
-CREATE INDEX ON oracle_feedback (session_id);
-CREATE INDEX ON oracle_feedback (feedback_type);
+CREATE INDEX ON conversation_snapshot_refs (snapshot_id);
+```
+
+### `concepts` and `concept_scores`
+
+Oracle-derived linear axes and prototype concepts. Used by the `partition_by` and `drill_down` operations to split clusters along a meaningful dimension.
+
+```sql
+CREATE TABLE concepts (
+    id         UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    name       TEXT        NOT NULL,
+    type       TEXT        NOT NULL CHECK (type IN ('linear_axis', 'prototype')),
+    definition JSONB       DEFAULT '{}',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE concept_scores (
+    concept_id UUID    NOT NULL REFERENCES concepts(id) ON DELETE CASCADE,
+    movie_id   INTEGER NOT NULL REFERENCES movies(id),
+    score      FLOAT   NOT NULL,
+    PRIMARY KEY (concept_id, movie_id)
+);
+
+CREATE INDEX ON concept_scores (concept_id);
 ```
 
 ---
@@ -419,30 +439,44 @@ CREATE INDEX ON oracle_feedback (feedback_type);
 ## Entity-relationship summary
 
 ```
-collections ◄── movies ──► movie_genres       ──► genres
-                    │
-                    ├──► cast_members          ──► people
-                    ├──► crew_members          ──► people
-                    ├──► movie_keywords        ──► keywords
-                    ├──► movie_companies       ──► production_companies
-                    ├──► movie_spoken_languages ──► languages
-                    └──► movie_countries       ──► countries
+catalogue:
+  collections ◄── movies ──► movie_genres       ──► genres
+                      │
+                      ├──► cast_members          ──► people
+                      ├──► crew_members          ──► people
+                      ├──► movie_keywords        ──► keywords
+                      ├──► movie_companies       ──► production_companies
+                      ├──► movie_spoken_languages ──► languages
+                      └──► movie_countries       ──► countries
 
-roles ◄── users ──► sessions
-              │
-runs ─────────┤
-              └──► turns ──► clusters ──► cluster_assignments ──► movies
-                        └──► oracle_feedback
+runtime:
+  roles ◄── users ──► conversations ──► messages
+                            │
+                            ├──► conversation_snapshot_refs ──► cluster_snapshots ──► clusters ──► cluster_memberships ──► movies
+                            └── (current_cluster_snapshot_id) ──►    cluster_snapshots
 
-sessions ──► session_metrics  (1:1, written by eval harness)
-         └──► judge_scores     (1:N, written by eval harness)
+eval harness:
+  runs ──► eval_sessions ──► conversations
+  personas ──►  eval_sessions
+  ground_truths ──► eval_sessions
+  eval_sessions.condition: conversational | no_agents | monolithic | human
+  eval_sessions.oracle_rating: 1–5 (NULL for human oracle)
+
+  conversations ──► conversation_metrics  (1:1, written by eval harness)
+               ├──► judge_scores           (1:N, written by eval harness)
+               └──► turn_intents           (1:N, written by coordinator/baseline per turn)
 ```
 
 ---
 
 ## pgvector notes
 
-- **Dimension**: 1024 (matches `BAAI/bge-large-en-v1.5`). If the model changes via `representation.model` / `representation.embedding_dim` in config, the column must be recreated.
-- **Index**: `IVFFlat` with `lists = 100`, tuned for ~45k vectors. Scale `lists` proportionally with catalogue size.
+- **Dimension**: 1024 (matches `BAAI/bge-large-en-v1.5`) for all three modalities. If the model
+  changes via config, the `VECTOR(1024)` columns must be recreated.
+- **Modalities**: `text_embedding` (always present, indexed), `review_embedding` and
+  `trailer_embedding` (optional, **partial** IVFFlat indexes on `… IS NOT NULL`).
+- **Index**: `IVFFlat` with `lists = 100`, tuned for ~45k vectors. Scale `lists` proportionally
+  with catalogue size.
 - **Similarity**: cosine distance (`vector_cosine_ops`). Query: `ORDER BY embedding <=> $query_vec LIMIT k`.
-- **Cluster centroids** (`clusters.centroid`) are not ANN-indexed — used for display and drift detection only.
+- **Clusters carry no stored centroid**; the responder agent computes centroids on the fly from
+  exemplar embeddings when deriving suggestion signals.
