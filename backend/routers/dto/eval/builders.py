@@ -4,6 +4,7 @@ from backend.data_access.eval.types import (
     GroundTruthRow,
     JudgeScoreRow,
     PersonaRow,
+    RunAggregateSessionRow,
     RunRow,
     TurnIntentRow,
 )
@@ -14,7 +15,11 @@ from backend.routers.dto.eval.dtos import (
     GroundTruthDto,
     JudgeScoreDto,
     PersonaDto,
+    RunAggregateDto,
+    RunAggregateSummaryDto,
     RunDto,
+    SessionAggregateRowDto,
+    SessionMetricsDto,
     TurnIntentDto,
 )
 
@@ -161,6 +166,78 @@ def eval_session_to_dto(row: EvalSessionRow) -> EvalSessionDto:
         oracle_rating=row.oracle_rating,
         termination_rationale=row.termination_rationale,
         created_at=row.created_at,
+    )
+
+
+def build_session_aggregate_row_dto(row: RunAggregateSessionRow) -> SessionAggregateRowDto:
+    """Convert a RunAggregateSessionRow to a SessionAggregateRowDto.
+
+    Args:
+        row: Composite session row from the aggregate query.
+
+    Returns:
+        Wire-safe SessionAggregateRowDto with nested metrics and judge scores.
+    """
+    metrics: SessionMetricsDto | None = None
+    if row.num_turns is not None:
+        metrics = SessionMetricsDto(
+            silhouette=row.silhouette,
+            mean_membership_prob=row.mean_membership_prob,
+            noise_fraction=row.noise_fraction,
+            final_num_clusters=row.final_num_clusters,
+            operation_recall=row.operation_recall,
+            clarifier_trigger_rate=row.clarifier_trigger_rate,
+            num_turns=row.num_turns,
+            num_operations=row.num_operations or 0,
+            total_cost_usd=row.total_cost_usd or 0.0,
+            computed_at=row.metrics_computed_at,
+        )
+    return SessionAggregateRowDto(
+        eval_session_id=row.id,
+        conversation_id=row.conversation_id,
+        persona_id=row.persona_id,
+        ground_truth_id=row.ground_truth_id,
+        status=row.status,
+        oracle_rating=row.oracle_rating,
+        termination_rationale=row.termination_rationale,
+        created_at=row.created_at,
+        metrics=metrics,
+        judge_scores=[judge_score_to_dto(js) for js in row.judge_scores],
+    )
+
+
+def build_run_aggregate_dto(run: RunRow, sessions: list[RunAggregateSessionRow]) -> RunAggregateDto:
+    """Build a RunAggregateDto from a run row and its session aggregate rows.
+
+    Computes summary statistics from the session list.
+
+    Args:
+        run:      The parent run row.
+        sessions: All sessions for the run, each with metrics and judge scores.
+
+    Returns:
+        Wire-safe RunAggregateDto with sessions and run-level summary.
+    """
+    session_dtos = [build_session_aggregate_row_dto(s) for s in sessions]
+
+    completed = [s for s in sessions if s.status.startswith("finished_")]
+    costs = [s.total_cost_usd for s in sessions if s.total_cost_usd is not None]
+    ratings = [s.oracle_rating for s in sessions if s.oracle_rating is not None]
+    turns = [s.num_turns for s in sessions if s.num_turns is not None]
+
+    summary = RunAggregateSummaryDto(
+        n_sessions=len(sessions),
+        n_completed=len(completed),
+        mean_cost_usd=sum(costs) / len(costs) if costs else None,
+        mean_oracle_rating=sum(ratings) / len(ratings) if ratings else None,
+        mean_num_turns=sum(turns) / len(turns) if turns else None,
+    )
+
+    return RunAggregateDto(
+        run=run_to_dto(run),
+        config_snapshot=run.config_snapshot,
+        sessions=session_dtos,
+        summary=summary,
     )
 
 

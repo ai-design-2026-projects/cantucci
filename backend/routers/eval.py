@@ -14,16 +14,18 @@ from backend.data_access.eval.queries import (
     get_conversation_metrics,
     get_eval_session,
     get_judge_scores,
+    get_run,
+    get_run_aggregate,
     list_eval_sessions_for_run,
     list_ground_truths,
     list_personas,
     list_runs,
     list_turn_intents,
-    get_run,
 )
 from backend.exceptions import NotFoundError
 from backend.routers.auth_deps import require_admin
 from backend.routers.dto.eval.builders import (
+    build_run_aggregate_dto,
     eval_session_to_detail_dto,
     eval_session_to_dto,
     ground_truth_to_dto,
@@ -35,6 +37,7 @@ from backend.routers.dto.eval.dtos import (
     EvalSessionDto,
     GroundTruthDto,
     PersonaDto,
+    RunAggregateDto,
     RunDto,
 )
 
@@ -82,6 +85,33 @@ def get_run_endpoint(
     if row is None:
         raise NotFoundError(f"run {run_id} not found")
     return run_to_dto(row)
+
+
+@router.get("/runs/{run_id}/aggregate", response_model=RunAggregateDto)
+def get_run_aggregate_endpoint(
+    run_id: uuid.UUID,
+    _admin: Annotated[User, Depends(require_admin)] = ...,
+) -> RunAggregateDto:
+    """Return a run with per-session metrics, judge scores, and a summary block.
+
+    All sessions for the run are fetched in a single SQL round-trip. Per-session
+    metrics and the latest judge score per dimension are inlined; per-turn intent
+    data is not included (use GET /eval/sessions/{id} for that).
+
+    Args:
+        run_id: UUID of the eval run.
+
+    Returns:
+        RunAggregateDto with run metadata, per-session rows, and summary KPIs.
+
+    Raises:
+        NotFoundError: If the run does not exist.
+    """
+    run, sessions = get_run_aggregate(run_id)
+    if run is None:
+        raise NotFoundError(f"run {run_id} not found")
+    log.info("run_aggregate_fetched", extra={"run_id": str(run_id), "n_sessions": len(sessions)})
+    return build_run_aggregate_dto(run, sessions)
 
 
 @router.get("/runs/{run_id}/sessions", response_model=list[EvalSessionDto])

@@ -1,6 +1,7 @@
 """CLI entry point for the evaluation harness.
 
 Usage:
+    python -m eval.run create-persona --slug <slug> [--verbosity terse|medium|verbose] [--patience <float>]
     python -m eval.run create-run [--name <name>] [--condition <cond>] [--notes <text>]
     python -m eval.run simulate --run <run_id> --persona <slug> --ground-truth <slug> --seed <int> [--condition <cond>]
     python -m eval.run evaluate --conversation <conversation_id> [--ground-truth <slug>]
@@ -22,6 +23,21 @@ def _build_parser() -> argparse.ArgumentParser:
         description="CinePal evaluation harness — simulate oracle sessions and score conversations.",
     )
     sub = parser.add_subparsers(dest="command", required=True)
+
+    create_persona_cmd = sub.add_parser("create-persona", help="Register an oracle persona and print its UUID.")
+    create_persona_cmd.add_argument("--slug", required=True, help="Unique persona identifier.")
+    create_persona_cmd.add_argument(
+        "--verbosity",
+        default="medium",
+        choices=["terse", "medium", "verbose"],
+        help="Reply-length dial (default: medium).",
+    )
+    create_persona_cmd.add_argument(
+        "--patience",
+        type=float,
+        default=0.5,
+        help="Willingness to continue after misbehaviour, [0, 1] (default: 0.5).",
+    )
 
     create_run_cmd = sub.add_parser("create-run", help="Register a new eval run and print its UUID.")
     create_run_cmd.add_argument("--name", default=None)
@@ -54,6 +70,17 @@ def _build_parser() -> argparse.ArgumentParser:
     build_gt_cmd.add_argument("--hint", default=None, help="Optional free-text exploration hint.")
 
     return parser
+
+
+async def _cmd_create_persona(args: argparse.Namespace) -> None:
+    from backend.data_access.eval.queries import create_persona
+
+    persona_id = create_persona(
+        slug=args.slug,
+        verbosity=args.verbosity,
+        patience=args.patience,
+    )
+    print(str(persona_id))
 
 
 async def _cmd_create_run(args: argparse.Namespace) -> None:
@@ -107,7 +134,9 @@ async def _main() -> None:
     parser = _build_parser()
     args = parser.parse_args()
 
-    if args.command == "create-run":
+    if args.command == "create-persona":
+        await _cmd_create_persona(args)
+    elif args.command == "create-run":
         await _cmd_create_run(args)
     elif args.command == "simulate":
         await _cmd_simulate(args)
