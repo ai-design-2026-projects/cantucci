@@ -1,6 +1,6 @@
 import uuid
 
-from backend.agents.clustering.types import PartitionSpec
+from backend.agents.intent.types import PartitionSpec
 
 _awaiting: set[uuid.UUID] = set()
 _pending_specs: dict[uuid.UUID, PartitionSpec] = {}
@@ -28,18 +28,15 @@ def mark_awaiting(conversation_id: uuid.UUID, pending_spec: PartitionSpec | None
 
 
 def take_awaiting(conversation_id: uuid.UUID) -> tuple[bool, PartitionSpec | None]:
-    """Return True and clear the flag if this conversation is awaiting a clarification reply.
-
-    One-shot: each call either returns ``(True, spec_or_None)`` (and removes both
-    entries) or ``(False, None)``.
-
+    """
+    Return True and clear the flag if this conversation is awaiting a clarification reply.
     Args:
         conversation_id: Conversation UUID to check.
 
     Returns:
-        A tuple of ``(was_awaiting, pending_spec)``.  ``was_awaiting`` is ``True``
-        if the previous turn ended with a clarification question; ``pending_spec``
-        carries the stored ``PartitionSpec`` when a bin proposal was pending, or
+        A tuple of ``(was_awaiting, pending_spec)``.  
+        - ``was_awaiting`` is ``True`` if the previous turn ended with a clarification question; 
+        - ``pending_spec`` carries the stored ``PartitionSpec`` when a bin proposal was pending, or
         ``None`` otherwise.
     """
     if conversation_id in _awaiting:

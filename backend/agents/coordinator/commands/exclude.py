@@ -1,12 +1,77 @@
 import logging
 import uuid
+from dataclasses import dataclass
+from typing import ClassVar
 
-from backend.agents.clustering.operations._helpers import exemplars
-from backend.agents.clustering.types import ClusterDraft, ClusterSnapshotDraft
+from backend.agents.coordinator.commands._helpers import _persist_draft
+from backend.agents.coordinator.commands.base import ActionResult, ExecutionContext
+from backend.agents.coordinator.tools.clarification_state import mark_awaiting
+from backend.agents.coordinator.types import ClusterDraft, ClusterSnapshotDraft
+from backend.agents.responder import replies
 from backend.data_access.cluster_snapshots.queries import get_cluster_snapshot_with_clusters, get_snapshot_members
 from backend.settings import get_settings
 
 log = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True, slots=True)
+class ExcludeCommand:
+    """Drop one cluster from the snapshot, keeping all others.
+
+    Inverse of FocusCommand.
+
+    Attributes:
+        target_cluster_id: Cluster to drop.
+        confidence:        LLM confidence [0, 1].
+    """
+
+    REQUIRES_SNAPSHOT: ClassVar[bool] = True
+    CREATES_SNAPSHOT: ClassVar[bool] = True
+    READS_CLUSTERS: ClassVar[bool] = True
+
+    target_cluster_id: uuid.UUID | None
+    confidence: float
+
+    async def execute(self, ctx: ExecutionContext) -> ActionResult:
+        """Exclude one cluster from the working set.
+
+        Args:
+            ctx: Execution context with session state.
+
+        Returns:
+            ActionResult with reply, new snapshot id, and cost.
+        """
+        if self.target_cluster_id is None and ctx.clusters:
+            mark_awaiting(ctx.conversation_id)
+            return ActionResult(
+                reply_fragment=replies.format_drill_down_clarification([c.label for c in ctx.clusters]),
+                cluster_snapshot_id=ctx.current_cluster_snapshot_id,
+                step_cost=0.0,
+            )
+
+        target_id = self.target_cluster_id or (ctx.clusters[0].id if ctx.clusters else None)
+        if target_id is None:
+            return ActionResult(
+                reply_fragment=replies.NO_CLUSTER_TO_SPLIT,
+                cluster_snapshot_id=ctx.current_cluster_snapshot_id,
+                step_cost=0.0,
+            )
+
+        target_cluster = next((c for c in ctx.clusters if c.id == target_id), None)
+        label = target_cluster.label if target_cluster else None
+
+        ctx.reporter.step("clustering")
+        draft = await exclude_cluster(
+            source_cluster_id=target_id,
+            parent_cluster_snapshot_id=ctx.current_cluster_snapshot_id,
+        )
+        new_snapshot_id, step_cost, _, _ = await _persist_draft(ctx, draft)
+        n_remaining = len(draft.clusters)
+        return ActionResult(
+            reply_fragment=replies.format_exclude_reply(label, n_remaining),
+            cluster_snapshot_id=new_snapshot_id,
+            step_cost=step_cost,
+        )
 
 
 async def exclude_cluster(
@@ -30,6 +95,8 @@ async def exclude_cluster(
         ValueError: If the source cluster is not found, if the snapshot is not found,
                     or if the source is the only cluster (nothing would remain).
     """
+    from backend.agents.coordinator.commands._clustering import exemplars
+
     cswc = get_cluster_snapshot_with_clusters(parent_cluster_snapshot_id)
     if cswc is None:
         raise ValueError(f"Cluster snapshot {parent_cluster_snapshot_id} not found")

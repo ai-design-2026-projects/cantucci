@@ -2,7 +2,7 @@ import logging
 import uuid
 from jinja2 import Environment, FileSystemLoader
 
-from backend.agents.clustering.types import NavigationMode
+from backend.agents.intent.types import NavigationMode
 from backend.agents.intent.types import DialogueMode, IntentResult, IntentLLMResponse
 from backend.data_access.cluster_snapshots.types import ClusterRow
 from backend.llm import llm_harness
