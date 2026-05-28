@@ -2,9 +2,9 @@
 
 ## 1. Problem Definition
 
-We build a conversational movie recommendation system in which the user (the **oracle**) interacts with an AI through a chat interface to discover films and TV series that match their taste or provide a set of suggestions. The key distinction from a standard recommender is that there is **no fixed objective function**: what constitutes a good recommendation is entirely determined by what the user accepts through a dialogue.
+We build a **conversational clustering** system: the user (the **oracle**) sends natural-language messages, and the system responds by grouping a movie catalogue into named clusters that the oracle can then inspect, navigate, and refine. There is **no fixed objective function** — clustering quality is defined entirely by the oracle's acceptance. What the oracle accepts through dialogue *is* the objective.
 
-The system does not ask the user to fill out a profile or rate movies upfront. Instead, it starts from the user's first natural-language request, proposes an initial clustering of the available movie space into meaningful groups, then refines that clustering turn by turn as the user navigates. The **clustering is the recommendation**: the user converges toward a group of titles they want, and the system's job is to reach that group as efficiently as possible, minimising cognitive load per turn while maximising the information extracted from each response.
+The system does not ask the oracle to fill out a profile or rate movies upfront. It starts from the first natural-language message, produces an initial soft clustering of the relevant catalogue slice into a handful of named groups, and then refines those groups turn by turn as the oracle navigates. The oracle converges toward a cluster of titles they want; the system's job is to reach that cluster as efficiently as possible, minimising cognitive load per turn while maximising the information extracted from each response.
 
 **Concrete user journey:**
 1. User types: *"I want something tense and psychological, not too violent, maybe a thriller from the last 10 years"*
@@ -79,7 +79,7 @@ Every TMDB API response carries `overview` and `poster_path`, so no extra enrich
 
 ### 3.1 The core idea
 
-Most recommender systems optimise for a fixed signal — clicks, ratings, watch-time — which only loosely approximates what a person actually wants. Our system takes a different stance: **there is no fixed objective**. The user tells us, turn by turn, whether the suggestions are heading in the right direction. **The user's acceptance is the objective function**.
+In the conversational clustering setting, **there is no pre-defined objective function**. The oracle tells us, turn by turn, whether the current grouping is heading in the right direction. **The oracle's acceptance is the objective function**.
 
 This is the conversational clustering setting: instead of asking the user to fill out a taste profile upfront, we start from a single natural-language message, immediately group the catalogue into a handful of candidate clusters, and then refine those groups based on what the user says next. The conversation is the optimisation loop.
 
@@ -160,7 +160,7 @@ The `drill_down` operation optionally accepts a **concept** (e.g. *"how violent 
 
 By default, the system always executes what the oracle requests. The **Clarifier Agent** is the sole exception: it fires when any state-changing action's confidence falls below the configured threshold (`intent.confidence_threshold`), returning a disambiguation question without mutating state. The oracle's reply is stored as the awaited message and re-routed correctly on the next turn.
 
-This is intentionally minimal — the system does not evaluate whether to show or ask, does not score uncertainty across the cluster space, and does not decide when recommendations are "ready". The oracle drives the pace.
+This is intentionally minimal — the system does not evaluate whether to show or ask, does not score uncertainty across the cluster space, and does not decide when clustering is "done". The oracle drives the pace.
 
 ---
 
@@ -172,7 +172,7 @@ People change their minds. What looks like a contradiction is usually **preferen
 
 ### Cluster names and descriptions
 
-Cluster names are the oracle's primary handle for navigating the recommendation space — they need to be stable enough to feel familiar across turns and accurate enough to reflect material changes in the cluster's contents.
+Cluster names are the oracle's primary handle for navigating the cluster space — they need to be stable enough to feel familiar across turns and accurate enough to reflect material changes in the cluster's contents.
 
 Naming is handled by the **Labeling Agent** in a single batched LLM call. Clusters are ingested unlabeled and labeled lazily on first access; once a snapshot is labeled its names are stored and reused on cache hits. The labeling prompt includes the previous turn's names as anchors and instructs the model to keep them unless the cluster's titles have changed significantly, preventing cosmetic thrashing between synonyms while still allowing genuine updates after splits or merges.
 
@@ -246,7 +246,7 @@ Convergence is detected **post-hoc** by the evaluation harness (`eval/metrics.py
 | **Session** | Persist full conversation history and clustering snapshot tree — every turn replayable | PostgreSQL + Coordinator | MVP |
 | **Session** | Allow oracle to navigate back to any prior snapshot | `PATCH /conversations/{id}` + snapshot lineage | MVP |
 | **Session** | Provide shareable conversation URL (UUID-based) | conversations API | MVP |
-| **UX** | Display poster, title, year, and rating for every recommended title | `TitleCard` component | MVP |
+| **UX** | Display poster, title, year, and rating for every title shown in a cluster | `TitleCard` component | MVP |
 | **Evaluation** | Run LLM-simulated oracle sessions with seeded persona and preference spec | `eval/oracle/agent.py`, `eval/runner.py` | MVP |
 | **Evaluation** | Score sessions via LLM-as-Judge (4 dims: clustering_coherence, question_quality, label_accuracy, intent_alignment) | `eval/judge/agent.py` | MVP |
 | **Evaluation** | Compute deterministic clustering metrics (silhouette, turns-to-convergence, cost, spec-satisfaction) post-hoc | `eval/metrics.py` | MVP |
