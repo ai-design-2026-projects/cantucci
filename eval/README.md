@@ -9,12 +9,12 @@ Offline pipeline that drives simulated oracle sessions against the live system a
 A complete eval run has four stages:
 
 ```
-seed personas → build ground truths → create run → simulate sessions
-                                                         ↓
-                                               metrics + judge scores written automatically
+seed personas → build ground truths → simulate sessions (--run-name auto-creates the run)
+                                              ↓
+                                    metrics + judge scores written automatically
 ```
 
-The `evaluate` subcommand is available separately for re-scoring an existing conversation without re-running it.
+`create-run` is optional — passing `--run-name` to `simulate` creates the run automatically if it does not exist. The `evaluate` subcommand re-scores an existing conversation without re-running it.
 
 ---
 

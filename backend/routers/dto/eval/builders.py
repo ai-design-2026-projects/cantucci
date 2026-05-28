@@ -34,7 +34,7 @@ def run_to_dto(row: RunRow) -> RunDto:
         Wire-safe RunDto.
     """
     return RunDto(
-        id=row.id,
+        id=row.run_id,
         name=row.name,
         condition=row.condition,
         model_version=row.model_version,

@@ -84,7 +84,7 @@ ingestion:
 eval_harness:
   oracle:
     # Family B — oracle simulation (Google / Gemini, cheap)
-    name: "google/gemini-flash-1.5"
+    name: "google/gemini-2.0-flash-001"
     provider: openrouter
     seed: 42
     max_tokens: 512
@@ -93,7 +93,7 @@ eval_harness:
 
   judge:
     # Family C — LLM judge (Anthropic / Claude, stronger)
-    name: "anthropic/claude-3.5-sonnet"
+    name: "anthropic/claude-opus-4-7"
     provider: openrouter
     seed: 42
     max_tokens: 1024

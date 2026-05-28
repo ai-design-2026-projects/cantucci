@@ -8,12 +8,17 @@ import logging
 import uuid
 
 from backend.agents.coordinator.agent import Coordinator
-from backend.data_access.cluster_snapshots.queries import get_cluster_snapshot_with_clusters
+from backend.data_access.cluster_snapshots.queries import (
+    get_cluster_snapshot_with_clusters,
+    get_root_cluster_snapshot,
+    record_conversation_snapshot_ref,
+)
 from backend.data_access.conversations.queries import (
     add_conversation_cost,
     append_message,
     create_conversation,
     get_conversation,
+    set_current_cluster_snapshot,
 )
 from backend.data_access.eval.queries import (
     create_eval_session,
@@ -137,6 +142,13 @@ async def run_simulated_session(
 
     config_snapshot = get_config_snapshot()
     conversation_id = create_conversation(user_id=user_id, config_snapshot=config_snapshot)
+
+    root = get_root_cluster_snapshot()
+    if root is None:
+        raise RuntimeError("no root cluster snapshot found — run db.ingest first")
+    set_current_cluster_snapshot(conversation_id, root.id)
+    record_conversation_snapshot_ref(conversation_id, root.id)
+
     eval_session_id = create_eval_session(
         run_id=run_id,
         conversation_id=conversation_id,

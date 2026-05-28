@@ -91,6 +91,44 @@ def get_run(run_id: uuid.UUID) -> RunRow | None:
     return RunRow.from_row(row) if row else None
 
 
+def get_run_by_name(name: str) -> RunRow | None:
+    """Fetch the most recent run matching the given name.
+
+    If multiple runs share the same name (names are not unique), the one with
+    the latest ``started_at`` is returned.
+
+    Args:
+        name: Human-readable run label to look up.
+
+    Returns:
+        ``RunRow`` if a matching run exists, ``None`` otherwise.
+    """
+    with transaction() as conn:
+        row = conn.execute(
+            """
+            SELECT run_id, config_hash, config_snapshot, seed, started_at,
+                   name, condition, model_version, ended_at, status, notes
+            FROM runs WHERE name = %s ORDER BY started_at DESC LIMIT 1
+            """,
+            (name,),
+        ).fetchone()
+    return RunRow.from_row(row) if row else None
+
+
+def count_runs_by_name(name: str) -> int:
+    """Return the number of runs with the given name.
+
+    Args:
+        name: Human-readable run label to count.
+
+    Returns:
+        Number of matching runs.
+    """
+    with transaction() as conn:
+        row = conn.execute("SELECT COUNT(*) AS n FROM runs WHERE name = %s", (name,)).fetchone()
+    return int(row["n"])
+
+
 def list_runs(limit: int = 50, offset: int = 0) -> list[RunRow]:
     """Return runs ordered by creation time descending.
 
