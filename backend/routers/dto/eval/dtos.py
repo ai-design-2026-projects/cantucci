@@ -174,3 +174,89 @@ class EvalSessionDetailDto(EvalSessionDto):
     metrics: ConversationMetricsDto | None
     judge_scores: list[JudgeScoreDto]
     turn_intents: list[TurnIntentDto]
+
+
+class SessionMetricsDto(BaseModel):
+    """Metrics for one session within a run aggregate. All nullable for LEFT JOIN semantics.
+
+    Attributes:
+        silhouette:             Silhouette score [-1, 1], or None.
+        mean_membership_prob:   Mean soft-membership probability, or None.
+        noise_fraction:         Fraction of movies below the noise threshold, or None.
+        final_num_clusters:     Number of clusters at session end, or None.
+        operation_recall:       Fraction of GT ops matched, or None.
+        clarifier_trigger_rate: Rate of turns that triggered the clarifier, or None.
+        num_turns:              Total oracle turns.
+        num_operations:         Total navigation operations.
+        total_cost_usd:         Total LLM cost in USD.
+        computed_at:            Metrics computation timestamp.
+    """
+    silhouette: float | None
+    mean_membership_prob: float | None
+    noise_fraction: float | None
+    final_num_clusters: int | None
+    operation_recall: float | None
+    clarifier_trigger_rate: float | None
+    num_turns: int
+    num_operations: int
+    total_cost_usd: float
+    computed_at: datetime
+
+
+class SessionAggregateRowDto(BaseModel):
+    """One session's contribution to a run aggregate response.
+
+    Attributes:
+        eval_session_id:       Session UUID.
+        conversation_id:       Linked conversation UUID.
+        persona_id:            Oracle persona UUID, or None for human sessions.
+        ground_truth_id:       Ground truth UUID, or None for human sessions.
+        status:                Session lifecycle status.
+        oracle_rating:         1–5 oracle self-rating, or None.
+        termination_rationale: Free-text oracle rationale, or None.
+        created_at:            Session creation timestamp.
+        metrics:               Conversation-level metrics (None if not computed).
+        judge_scores:          Latest judge score per dimension.
+    """
+    eval_session_id: uuid.UUID
+    conversation_id: uuid.UUID
+    persona_id: uuid.UUID | None
+    ground_truth_id: uuid.UUID | None
+    status: str
+    oracle_rating: int | None
+    termination_rationale: str | None
+    created_at: datetime
+    metrics: SessionMetricsDto | None
+    judge_scores: list[JudgeScoreDto]
+
+
+class RunAggregateSummaryDto(BaseModel):
+    """Run-level summary block for KPI cards.
+
+    Attributes:
+        n_sessions:        Total number of sessions in the run.
+        n_completed:       Sessions with a finished_* terminal status.
+        mean_cost_usd:     Mean LLM cost across sessions with computed metrics, or None.
+        mean_oracle_rating: Mean oracle self-rating across rated sessions, or None.
+        mean_num_turns:    Mean turn count across sessions with computed metrics, or None.
+    """
+    n_sessions: int
+    n_completed: int
+    mean_cost_usd: float | None
+    mean_oracle_rating: float | None
+    mean_num_turns: float | None
+
+
+class RunAggregateDto(BaseModel):
+    """Full run aggregate response with per-session data and run-level summary.
+
+    Attributes:
+        run:             Parent run metadata.
+        config_snapshot: Full YAML config dict stored for replay and display.
+        sessions:        One entry per eval session, including metrics and judge scores.
+        summary:         Convenience aggregate for KPI cards.
+    """
+    run: RunDto
+    config_snapshot: dict
+    sessions: list[SessionAggregateRowDto]
+    summary: RunAggregateSummaryDto

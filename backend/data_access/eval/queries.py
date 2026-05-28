@@ -10,6 +10,7 @@ from backend.data_access.eval.types import (
     GroundTruthRow,
     JudgeScoreRow,
     PersonaRow,
+    RunAggregateSessionRow,
     RunRow,
     TurnIntentRow,
 )
@@ -587,3 +588,69 @@ def get_judge_scores(conversation_id: uuid.UUID) -> list[JudgeScoreRow]:
             (conversation_id,),
         ).fetchall()
     return [JudgeScoreRow.from_row(r) for r in rows]
+
+
+def get_run_aggregate(run_id: uuid.UUID) -> tuple[RunRow | None, list[RunAggregateSessionRow]]:
+    """Return a run and all its sessions with metrics and latest judge scores in two queries.
+
+    First fetches the run row; if it exists, one SQL round-trip joins eval_sessions,
+    conversation_metrics, and the latest judge score per (conversation, dimension).
+
+    Args:
+        run_id: Target run UUID.
+
+    Returns:
+        A tuple of (RunRow | None, list[RunAggregateSessionRow]). RunRow is None when
+        the run does not exist; the session list is empty in that case.
+    """
+    run = get_run(run_id)
+    if run is None:
+        return None, []
+
+    with transaction() as conn:
+        rows = conn.execute(
+            """
+            WITH latest_judge AS (
+                SELECT DISTINCT ON (js.conversation_id, js.dimension)
+                    js.id, js.conversation_id, js.dimension, js.score, js.rationale,
+                    js.judge_model, js.judge_prompt_hash, js.created_at
+                FROM judge_scores js
+                WHERE js.conversation_id IN (
+                    SELECT conversation_id FROM eval_sessions WHERE run_id = %s
+                )
+                ORDER BY js.conversation_id, js.dimension, js.created_at DESC
+            ),
+            session_judge AS (
+                SELECT
+                    conversation_id,
+                    jsonb_agg(jsonb_build_object(
+                        'id',               id::text,
+                        'dimension',        dimension,
+                        'score',            score,
+                        'rationale',        rationale,
+                        'judge_model',      judge_model,
+                        'judge_prompt_hash', judge_prompt_hash,
+                        'created_at',       created_at::text
+                    )) AS judge_scores
+                FROM latest_judge
+                GROUP BY conversation_id
+            )
+            SELECT
+                es.id, es.run_id, es.conversation_id, es.persona_id, es.ground_truth_id,
+                es.seed, es.condition, es.status, es.termination_rationale, es.oracle_rating,
+                es.created_at,
+                cm.silhouette, cm.mean_membership_prob, cm.noise_fraction,
+                cm.final_num_clusters, cm.operation_recall, cm.clarifier_trigger_rate,
+                cm.num_turns, cm.num_operations, cm.total_cost_usd,
+                cm.computed_at AS metrics_computed_at,
+                COALESCE(sj.judge_scores, '[]'::jsonb) AS judge_scores
+            FROM eval_sessions es
+            LEFT JOIN conversation_metrics cm ON cm.conversation_id = es.conversation_id
+            LEFT JOIN session_judge sj ON sj.conversation_id = es.conversation_id
+            WHERE es.run_id = %s
+            ORDER BY es.created_at ASC
+            """,
+            (run_id, run_id),
+        ).fetchall()
+
+    return run, [RunAggregateSessionRow.from_row(r) for r in rows]

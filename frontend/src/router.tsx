@@ -2,6 +2,8 @@ import { createBrowserRouter } from 'react-router-dom'
 import App from './App'
 import { LoginPage } from './features/Auth/LoginPage'
 import { RegisterPage } from './features/Auth/RegisterPage'
+import { AdminGate } from './features/EvaluationLab/AdminGate'
+import { EvalLabPage } from './features/EvaluationLab/EvalLabPage'
 
 /**
  * Application router. All main-app paths share the App layout shell.
@@ -15,6 +17,14 @@ export const router = createBrowserRouter([
 	{
 		path: '/register',
 		element: <RegisterPage />,
+	},
+	{
+		path: '/eval-lab',
+		element: (
+			<AdminGate>
+				<EvalLabPage />
+			</AdminGate>
+		),
 	},
 	{
 		path: '/',

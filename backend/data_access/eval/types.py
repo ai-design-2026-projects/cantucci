@@ -306,3 +306,112 @@ class JudgeScoreRow:
             judge_prompt_hash=r["judge_prompt_hash"],
             created_at=r["created_at"],
         )
+
+    @classmethod
+    def from_jsonb(cls, js: dict, conversation_id: uuid.UUID) -> "JudgeScoreRow":
+        """Construct from a JSONB-aggregated dict (UUIDs and datetimes are strings).
+
+        Args:
+            js:              Dict produced by jsonb_build_object in an aggregate query.
+            conversation_id: Parent conversation UUID (not embedded in the JSON dict).
+
+        Returns:
+            JudgeScoreRow with Python-native types.
+        """
+        return cls(
+            id=uuid.UUID(js["id"]),
+            conversation_id=conversation_id,
+            dimension=js["dimension"],
+            score=js["score"],
+            rationale=js.get("rationale"),
+            judge_model=js["judge_model"],
+            judge_prompt_hash=js["judge_prompt_hash"],
+            created_at=datetime.fromisoformat(js["created_at"]),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class RunAggregateSessionRow:
+    """Composite of eval_session + conversation_metrics + judge_scores for one session.
+
+    Returned by get_run_aggregate; all metric fields are None if not yet computed.
+
+    Attributes:
+        id:                    Eval session UUID.
+        run_id:                Parent run UUID.
+        conversation_id:       Linked conversation UUID.
+        persona_id:            Oracle persona UUID, or None for human.
+        ground_truth_id:       Ground truth UUID, or None for human.
+        seed:                  Per-session RNG seed.
+        condition:             Experimental condition.
+        status:                Session lifecycle status.
+        termination_rationale: Free-text oracle rationale, or None.
+        oracle_rating:         1–5 oracle self-rating, or None.
+        created_at:            UTC creation timestamp.
+        silhouette:            Silhouette score, or None if metrics not computed.
+        mean_membership_prob:  Mean soft-membership probability, or None.
+        noise_fraction:        Noise fraction, or None.
+        final_num_clusters:    Final cluster count, or None.
+        operation_recall:      Operation recall vs ground truth, or None.
+        clarifier_trigger_rate: Clarifier trigger rate, or None.
+        num_turns:             Total turns (None means metrics not computed).
+        num_operations:        Total operations (None means metrics not computed).
+        total_cost_usd:        Total LLM cost (None means metrics not computed).
+        metrics_computed_at:   Metrics computation timestamp, or None.
+        judge_scores:          Latest judge score per dimension (may be empty).
+    """
+    id: uuid.UUID
+    run_id: uuid.UUID
+    conversation_id: uuid.UUID
+    persona_id: uuid.UUID | None
+    ground_truth_id: uuid.UUID | None
+    seed: int
+    condition: str
+    status: str
+    termination_rationale: str | None
+    oracle_rating: int | None
+    created_at: datetime
+    silhouette: float | None
+    mean_membership_prob: float | None
+    noise_fraction: float | None
+    final_num_clusters: int | None
+    operation_recall: float | None
+    clarifier_trigger_rate: float | None
+    num_turns: int | None
+    num_operations: int | None
+    total_cost_usd: float | None
+    metrics_computed_at: datetime | None
+    judge_scores: list[JudgeScoreRow]
+
+    @classmethod
+    def from_row(cls, r: dict) -> "RunAggregateSessionRow":
+        """Construct from a psycopg dict_row result of the aggregate query."""
+        conversation_id: uuid.UUID = r["conversation_id"]
+        judge_scores = [
+            JudgeScoreRow.from_jsonb(js, conversation_id)
+            for js in (r["judge_scores"] or [])
+        ]
+        return cls(
+            id=r["id"],
+            run_id=r["run_id"],
+            conversation_id=conversation_id,
+            persona_id=r["persona_id"],
+            ground_truth_id=r["ground_truth_id"],
+            seed=r["seed"],
+            condition=r["condition"],
+            status=r["status"],
+            termination_rationale=r["termination_rationale"],
+            oracle_rating=r["oracle_rating"],
+            created_at=r["created_at"],
+            silhouette=r["silhouette"],
+            mean_membership_prob=r["mean_membership_prob"],
+            noise_fraction=r["noise_fraction"],
+            final_num_clusters=r["final_num_clusters"],
+            operation_recall=r["operation_recall"],
+            clarifier_trigger_rate=r["clarifier_trigger_rate"],
+            num_turns=r["num_turns"],
+            num_operations=r["num_operations"],
+            total_cost_usd=float(r["total_cost_usd"]) if r["total_cost_usd"] is not None else None,
+            metrics_computed_at=r["metrics_computed_at"],
+            judge_scores=judge_scores,
+        )
