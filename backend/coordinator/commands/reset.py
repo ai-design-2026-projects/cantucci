@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from typing import ClassVar
 
-from backend.agents.coordinator.commands.base import ActionResult, ExecutionContext
+from backend.coordinator.commands.base import ActionResult, ExecutionContext
 from backend.agents.responder import replies
 from backend.data_access.conversations.queries import set_current_cluster_snapshot
 

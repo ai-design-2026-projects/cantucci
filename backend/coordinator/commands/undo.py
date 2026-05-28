@@ -1,8 +1,8 @@
 from dataclasses import dataclass
 from typing import ClassVar
 
-from backend.agents.coordinator.commands.base import ActionResult, ExecutionContext
-from backend.agents.coordinator.tools.labeling import label_unlabeled_clusters
+from backend.coordinator.commands.base import ActionResult, ExecutionContext
+from backend.coordinator.tools.labeling import label_unlabeled_clusters
 from backend.agents.responder import replies
 from backend.data_access.cluster_snapshots.queries import (
     get_cluster_snapshot,

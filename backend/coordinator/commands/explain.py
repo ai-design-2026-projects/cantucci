@@ -2,7 +2,7 @@ import uuid
 from dataclasses import dataclass
 from typing import ClassVar
 
-from backend.agents.coordinator.commands.base import ActionResult, ExecutionContext
+from backend.coordinator.commands.base import ActionResult, ExecutionContext
 from backend.agents.responder import replies
 
 
@@ -32,7 +32,7 @@ class ExplainCommand:
         Returns:
             ActionResult with explanation text, unchanged snapshot, and cost.
         """
-        from backend.agents.explanation.agent import explain_placement
+        from backend.agents.explanation.agent import agent as explanation_agent
 
         ctx.reporter.step("explain")
         target_cluster = (
@@ -47,7 +47,7 @@ class ExplainCommand:
             )
 
         movie_id = target_cluster.exemplar_movie_ids[0]
-        result = await explain_placement(
+        result = await explanation_agent.run(
             movie_id=movie_id,
             cluster_id=target_cluster.id,
             cluster_snapshot_id=ctx.current_cluster_snapshot_id,

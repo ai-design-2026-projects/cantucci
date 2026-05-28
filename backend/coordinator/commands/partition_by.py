@@ -3,10 +3,10 @@ import uuid
 from dataclasses import dataclass
 from typing import ClassVar
 
-from backend.agents.coordinator.commands._helpers import _NUMERIC_ATTRIBUTES, _persist_draft
-from backend.agents.coordinator.commands.base import ActionResult, ExecutionContext
-from backend.agents.coordinator.tools.clarification_state import mark_awaiting
-from backend.agents.coordinator.types import ClusterDraft, ClusterSnapshotDraft
+from backend.coordinator.commands._helpers import _NUMERIC_ATTRIBUTES, _persist_draft
+from backend.coordinator.commands.base import ActionResult, ExecutionContext
+from backend.coordinator.tools.clarification_state import mark_awaiting
+from backend.coordinator.types import ClusterDraft, ClusterSnapshotDraft
 from backend.agents.intent.types import PartitionAttribute, PartitionSpec
 from backend.agents.responder import replies
 from backend.data_access.movies.queries import fetch_numeric_stats, fetch_partition_values
@@ -49,7 +49,7 @@ class PartitionByCommand:
         Returns:
             ActionResult with reply, new snapshot id, and cost.
         """
-        from backend.agents.coordinator.commands._clustering import propose_bins
+        from backend.coordinator.commands._clustering import propose_bins
 
         if self.partition_spec is None:
             return ActionResult(
@@ -104,7 +104,7 @@ class PartitionByCommand:
         Returns:
             ActionResult with proposal text and unchanged snapshot id.
         """
-        from backend.agents.coordinator.commands._clustering import resolve_movie_ids
+        from backend.coordinator.commands._clustering import resolve_movie_ids
 
         ctx.reporter.step("clustering")
 
@@ -194,7 +194,7 @@ async def partition_by(
     Raises:
         ValueError: If the resolved movie set is empty or produces no clusters.
     """
-    from backend.agents.coordinator.commands._clustering import exemplars, resolve_movie_ids
+    from backend.coordinator.commands._clustering import exemplars, resolve_movie_ids
 
     cfg = get_settings()
     top_n = cfg.labeling.top_exemplars

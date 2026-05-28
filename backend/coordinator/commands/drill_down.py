@@ -5,10 +5,10 @@ import uuid
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, ClassVar
 
-from backend.agents.coordinator.commands._helpers import _persist_draft
-from backend.agents.coordinator.commands.base import ActionResult, ExecutionContext
-from backend.agents.coordinator.tools.clarification_state import mark_awaiting
-from backend.agents.coordinator.types import ClusterDraft, ClusterSnapshotDraft
+from backend.coordinator.commands._helpers import _persist_draft, resolve_target_or_clarify
+from backend.coordinator.commands.base import ActionResult, ExecutionContext
+from backend.coordinator.tools.clarification_state import mark_awaiting
+from backend.coordinator.types import ClusterDraft, ClusterSnapshotDraft
 from backend.agents.intent.types import Modality
 from backend.agents.responder import replies
 from backend.data_access.movies.queries import fetch_modality_embeddings, fetch_text_embeddings
@@ -52,9 +52,10 @@ class DrillDownCommand:
         Returns:
             ActionResult with reply, new snapshot id, and cost.
         """
-        from backend.agents.concept.agent import build_concept
+        from backend.agents.concept.agent import agent as concept_agent
 
-        if self.target_cluster_id is None and ctx.clusters:
+        target_id = resolve_target_or_clarify(ctx, self.target_cluster_id)
+        if target_id is None and ctx.clusters:
             mark_awaiting(ctx.conversation_id)
             return ActionResult(
                 reply_fragment=replies.format_drill_down_clarification([c.label for c in ctx.clusters]),
@@ -66,23 +67,25 @@ class DrillDownCommand:
         concept_rep = None
         if self.concept:
             ctx.reporter.step("concept")
-            concept_rep = await build_concept(
-                self.concept, ctx.conversation_id, ctx.message_id,
-                ctx.accumulated_cost + step_cost,
+            concept_rep = await concept_agent.run(
+                concept_name=self.concept,
+                conversation_id=ctx.conversation_id,
+                message_id=ctx.message_id,
+                accumulated_cost=ctx.accumulated_cost + step_cost,
             )
             step_cost += concept_rep.cost
 
         ctx.reporter.step("clustering")
         if concept_rep is not None:
             draft = await concept_drill_down(
-                source_cluster_id=self.target_cluster_id,
+                source_cluster_id=target_id,
                 concept=concept_rep,
                 parent_cluster_snapshot_id=ctx.current_cluster_snapshot_id,
                 embedding_spaces=self.embedding_spaces,
             )
         else:
             draft = await free_drill_down(
-                source_cluster_id=self.target_cluster_id,
+                source_cluster_id=target_id,
                 parent_cluster_snapshot_id=ctx.current_cluster_snapshot_id,
                 embedding_spaces=self.embedding_spaces,
             )
@@ -174,7 +177,7 @@ def _cluster_group(group_ids: list[int], emb_ctx: _EmbeddingContext) -> SoftClus
     """
     import numpy as np
 
-    from backend.agents.coordinator.commands._clustering import reduce_for_clustering, subcluster
+    from backend.coordinator.commands._clustering import reduce_for_clustering, subcluster
     from core.fusion import combined_distance_matrix
 
     cfg = get_settings()
@@ -236,7 +239,7 @@ async def concept_drill_down(
     import numpy as np
 
     from backend.agents.concept.scoring import score_movies
-    from backend.agents.coordinator.commands._clustering import exemplars, resolve_movie_ids
+    from backend.coordinator.commands._clustering import exemplars, resolve_movie_ids
     from core.clustering import hdbscan_soft
 
     if embedding_spaces is None:
@@ -338,7 +341,7 @@ async def free_drill_down(
     Raises:
         ValueError: If no movies or embeddings are found.
     """
-    from backend.agents.coordinator.commands._clustering import exemplars, resolve_movie_ids
+    from backend.coordinator.commands._clustering import exemplars, resolve_movie_ids
 
     if embedding_spaces is None:
         embedding_spaces = [Modality.TEXT]

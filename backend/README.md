@@ -25,15 +25,18 @@ backend/
 │   ├── cluster_snapshots/ CRUD: cluster_snapshots, clusters, cluster_memberships.
 │   ├── concepts/        CRUD: concepts, concept_scores.
 │   └── users/           CRUD: users (joined with roles).
-├── agents/              LLM-backed agents; each owns a prompts/ subdir of Jinja2 templates.
+├── agents/              LLM-backed agents; each subclasses LLMAgent (base.py).
+│   ├── base.py          LLMAgent abstract base class (render → harness call → parse → log).
 │   ├── intent/          Classify user message → NavigationMode + target cluster.
-│   ├── coordinator/     Orchestrate per-turn agent pipeline.
-│   ├── clustering/      Drill-down / merge / recut operations → ClusterSnapshotDraft.
 │   ├── labeling/        Batch-label unlabeled clusters via LLM.
 │   ├── explanation/     Explain a movie's cluster placement → ExplanationResult.
 │   ├── concept/         Derive a linear-axis or prototype concept from text.
 │   ├── clarifier/       Generate clarifying questions when intent is ambiguous.
-│   └── suggester/       Suggest next exploration moves.
+│   └── responder/       Suggest next exploration moves.
+├── coordinator/         Orchestrator + command layer (not an agent; moved out of agents/).
+│   ├── agent.py         Coordinator class; orchestrates one turn through the pipeline.
+│   ├── commands/        11 command classes (DrillDown, Merge, Focus, …) + factory.
+│   └── tools/           Shared helpers: labeling, clarification state, persist, SSE progress.
 ├── llm/                 LLM harness, structured response parsing, record/replay utilities.
 │   ├── llm_harness.py   Single call() entry point: cost guard, retries, dry_run.
 │   ├── types.py         LLMResponse dataclass.

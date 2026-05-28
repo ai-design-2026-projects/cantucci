@@ -7,7 +7,7 @@ indistinguishable from human sessions in the database.
 import logging
 import uuid
 
-from backend.agents.coordinator.agent import Coordinator
+from backend.coordinator.agent import Coordinator
 from backend.data_access.cluster_snapshots.queries import (
     get_cluster_snapshot_with_clusters,
     get_root_cluster_snapshot,

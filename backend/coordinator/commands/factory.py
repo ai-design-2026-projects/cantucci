@@ -1,15 +1,15 @@
 from backend.agents.intent.types import DialogueMode, IntentAction, NavigationMode
-from backend.agents.coordinator.commands.cross_filter import CrossFilterCommand
-from backend.agents.coordinator.commands.drill_down import DrillDownCommand
-from backend.agents.coordinator.commands.exclude import ExcludeCommand
-from backend.agents.coordinator.commands.explain import ExplainCommand
-from backend.agents.coordinator.commands.focus import FocusCommand
-from backend.agents.coordinator.commands.go_to_base import GoToBaseCommand
-from backend.agents.coordinator.commands.merge import MergeCommand
-from backend.agents.coordinator.commands.partition_by import PartitionByCommand
-from backend.agents.coordinator.commands.reset import ResetCommand
-from backend.agents.coordinator.commands.small_talk import SmallTalkCommand
-from backend.agents.coordinator.commands.undo import UndoCommand
+from backend.coordinator.commands.cross_filter import CrossFilterCommand
+from backend.coordinator.commands.drill_down import DrillDownCommand
+from backend.coordinator.commands.exclude import ExcludeCommand
+from backend.coordinator.commands.explain import ExplainCommand
+from backend.coordinator.commands.focus import FocusCommand
+from backend.coordinator.commands.go_to_base import GoToBaseCommand
+from backend.coordinator.commands.merge import MergeCommand
+from backend.coordinator.commands.partition_by import PartitionByCommand
+from backend.coordinator.commands.reset import ResetCommand
+from backend.coordinator.commands.small_talk import SmallTalkCommand
+from backend.coordinator.commands.undo import UndoCommand
 
 AnyCommand = (
     DrillDownCommand

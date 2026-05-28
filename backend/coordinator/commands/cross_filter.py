@@ -3,9 +3,9 @@ import uuid
 from dataclasses import dataclass
 from typing import ClassVar
 
-from backend.agents.coordinator.commands._helpers import _persist_draft
-from backend.agents.coordinator.commands.base import ActionResult, ExecutionContext
-from backend.agents.coordinator.types import ClusterDraft, ClusterSnapshotDraft
+from backend.coordinator.commands._helpers import _persist_draft
+from backend.coordinator.commands.base import ActionResult, ExecutionContext
+from backend.coordinator.types import ClusterDraft, ClusterSnapshotDraft
 from backend.agents.intent.types import MetadataFilter
 from backend.agents.responder import replies
 from backend.data_access.cluster_snapshots.queries import get_cluster_snapshot_with_clusters, get_memberships
@@ -75,7 +75,7 @@ async def cross_filter(
     Raises:
         ValueError: If the parent snapshot is not found or no movies survive the filter.
     """
-    from backend.agents.coordinator.commands._clustering import exemplars
+    from backend.coordinator.commands._clustering import exemplars
 
     cswc = get_cluster_snapshot_with_clusters(parent_cluster_snapshot_id)
     if cswc is None:

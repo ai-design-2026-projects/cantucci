@@ -1,6 +1,6 @@
 import uuid
 
-from backend.agents.responder.agent import suggest
+from backend.agents.responder.agent import agent as responder_agent
 from backend.agents.responder.signals import (
     compute_cluster_centroids,
     find_dominant_cluster,
@@ -95,7 +95,7 @@ async def maybe_suggest(
     if not signals:
         return None
 
-    return await suggest(
+    return await responder_agent.run(
         last_operation=last_operation,
         clusters=new_clusters,
         signals=signals[:cfg.suggestions.top_n_signals],

@@ -8,13 +8,13 @@ lower bound on navigation quality with zero per-session LLM cost.
 import logging
 import uuid
 
-from backend.agents.coordinator.types import TurnTrace
+from backend.coordinator.types import TurnTrace
 from backend.data_access.cluster_snapshots.queries import (
     get_root_cluster_snapshot,
     record_conversation_snapshot_ref,
 )
 from backend.data_access.conversations.queries import set_current_cluster_snapshot
-from backend.agents.coordinator.types import sentinel_cluster_snapshot_id
+from backend.coordinator.types import sentinel_cluster_snapshot_id
 
 log = logging.getLogger(__name__)
 

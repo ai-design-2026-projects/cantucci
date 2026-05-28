@@ -2,7 +2,7 @@ import uuid
 from typing import ClassVar, Protocol, runtime_checkable
 from dataclasses import dataclass
 
-from backend.agents.coordinator.tools.progress import ProgressReporter
+from backend.coordinator.tools.progress import ProgressReporter
 from backend.data_access.cluster_snapshots.types import ClusterRow
 from backend.data_access.conversations.types import ConversationRow
 

@@ -6,7 +6,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 
-from backend.agents.coordinator.agent import Coordinator
+from backend.coordinator.agent import Coordinator
 from backend.auth.types import User
 from backend.data_access.conversations.queries import (
     add_conversation_cost,
@@ -23,7 +23,7 @@ from backend.data_access.cluster_snapshots.queries import (
     record_conversation_snapshot_ref,
 )
 from backend.exceptions import ClusterSnapshotNotFound, ConversationNotFound, NotConversationOwner
-from backend.agents.coordinator.tools.progress import register_queue, unregister_queue
+from backend.coordinator.tools.progress import register_queue, unregister_queue
 from backend.routers.auth_deps import get_current_user
 from backend.routers.dto.conversations.dtos import (
     ConversationDto,
