@@ -44,6 +44,14 @@ function circleLines(node: LayoutNode): string[] {
 			if (parts.length === 0) return ['Filter']
 			return ['Filter', trunc(parts.slice(0, 2).join(', '))]
 		}
+		case 'exclude': {
+			const label = Object.values(resolved_cluster_labels)[0] ?? ''
+			return ['Exclude', trunc(label)]
+		}
+		case 'partition_by': {
+			const attr = typeof params.attribute === 'string' ? params.attribute.replace(/_/g, ' ') : ''
+			return ['By', trunc(attr)]
+		}
 		default:
 			return [operation.replace(/_/g, ' ')]
 	}
@@ -80,6 +88,16 @@ function tooltipTitle(node: LayoutNode): string {
 				parts.push(`≤${params.release_year_max}`)
 			if (typeof params.director === 'string') parts.push(params.director)
 			return `Filter: ${parts.join(', ')}`
+		}
+		case 'exclude': {
+			const label = Object.values(resolved_cluster_labels)[0] ?? '—'
+			return `Excluded: ${label}`
+		}
+		case 'partition_by': {
+			const attr = typeof params.attribute === 'string' ? params.attribute.replace(/_/g, ' ') : ''
+			const bins = Array.isArray(params.bins) ? (params.bins as Array<{ label: string }>).map((b) => b.label) : []
+			const binStr = bins.length > 0 ? ` (${bins.join(', ')})` : ''
+			return `By: ${attr}${binStr}`
 		}
 		default:
 			return operation.replace(/_/g, ' ')
