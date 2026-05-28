@@ -42,14 +42,14 @@ async def classify(
 
     modes = [(m.value, m.description) for m in (*NavigationMode, *DialogueMode)]
 
-    template = _ENV.get_template("intent_v8.j2")
+    template = _ENV.get_template("intent_v9.j2")
     prompt = template.render(
         clusters=[{"id": str(c.id), "label": c.label} for c in clusters],
         user_message=user_message,
         modes=modes,
         clarification_question=clarification_question,
     )
-    log.debug("llm_prompt", extra={"template": "intent_v8.j2", "prompt": prompt})
+    log.debug("llm_prompt", extra={"template": "intent_v9.j2", "prompt": prompt})
     messages = [{"role": "user", "content": prompt}]
 
     resp = await llm_harness.call(

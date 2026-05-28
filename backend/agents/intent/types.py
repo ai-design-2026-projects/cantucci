@@ -44,6 +44,10 @@ class DialogueMode(str, Enum):
         "small_talk",
         "casual message with no clustering operation needed",
     )
+    UNDO = (
+        "undo",
+        "step back to the previous clustering snapshot, undoing the last operation",
+    )
 
     @property
     def description(self) -> str:

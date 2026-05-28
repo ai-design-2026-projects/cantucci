@@ -2,8 +2,6 @@ import uuid
 from dataclasses import dataclass, field
 from enum import Enum
 
-from backend.agents.concept.types import ConceptRep
-
 
 class Modality(str, Enum):
     """
@@ -35,7 +33,7 @@ class NavigationMode(str, Enum):
     )
     MERGE = (
         "merge",
-        "combine two or more clusters into one",
+        "combine the two most-related clusters in the current view into one",
     )
     FOCUS = (
         "focus",
@@ -50,6 +48,10 @@ class NavigationMode(str, Enum):
         "partition_by",
         "split the working set into deterministic clusters by an exact metadata "
         "attribute — genre, runtime, release year, or director",
+    )
+    EXCLUDE = (
+        "exclude",
+        "discard one selected cluster, keeping all other clusters in the working set (inverse of focus)",
     )
 
     @property
@@ -128,37 +130,6 @@ class MetadataFilter:
     release_year_max: int | None = None
     director: str | None = None
 
-
-@dataclass(frozen=True, slots=True)
-class NavigationRequest:
-    """All inputs needed to dispatch a single clustering operation.
-
-    Attributes:
-        mode:                       Which clustering operation to run.
-        parent_cluster_snapshot_id: The current (pre-operation) snapshot; ``None`` when
-                                    the conversation is in the unclustered state.
-        conversation_id:            Conversation to update after persisting.
-        accumulated_cost:           Running LLM cost for the labelling budget.
-        concept:                    Optional semantic concept (drill_down).
-        source_cluster_id:          Cluster to split (drill_down) or focus on (focus).
-                                    ``None`` for drill_down means cluster the full catalogue.
-        cluster_ids:                Clusters to merge (merge).
-        merged_label:               Label for the merged cluster.
-        metadata_filter:            Metadata predicate for filtering (cross_filter).
-        partition_spec:             Attribute + bins for deterministic grouping (partition_by).
-        embedding_spaces:           Embedding modalities to fuse.
-    """
-    mode: NavigationMode
-    parent_cluster_snapshot_id: uuid.UUID | None
-    conversation_id: uuid.UUID
-    accumulated_cost: float
-    concept: ConceptRep | None = None
-    source_cluster_id: uuid.UUID | None = None
-    cluster_ids: list[uuid.UUID] | None = None
-    merged_label: str | None = None
-    metadata_filter: MetadataFilter | None = None
-    partition_spec: PartitionSpec | None = None
-    embedding_spaces: list[Modality] | None = None
 
 
 @dataclass(frozen=True, slots=True)

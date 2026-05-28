@@ -23,7 +23,9 @@ _STATE_CHANGING = {
     NavigationMode.DRILL_DOWN,
     NavigationMode.MERGE,
     NavigationMode.FOCUS,
+    NavigationMode.EXCLUDE,
     NavigationMode.CROSS_FILTER,
+    NavigationMode.PARTITION_BY,
     DialogueMode.RESET,
     DialogueMode.GO_TO_BASE,
 }

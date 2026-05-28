@@ -25,6 +25,8 @@ EXPLAIN_TARGET_UNCLEAR = (
     "I couldn't identify which movie or cluster to explain. Please be more specific."
 )
 
+NO_UNDO = "Nothing to undo — there is no previous clustering snapshot to return to."
+
 
 def format_partition_clarification(labels: list[str | None]) -> str:
     """Format a clarification question when no target cluster was specified for partition_by.
@@ -130,6 +132,34 @@ def format_partition_reply(attribute: str, n_new: int, n_movies: int) -> str:
         A human-readable summary of the partition result.
     """
     return f"Partitioned {n_movies} movies by {attribute} into {n_new} groups."
+
+
+def format_exclude_reply(label: str | None, n_remaining: int) -> str:
+    """Format the reply for a completed EXCLUDE operation.
+
+    Args:
+        label:       Label of the excluded cluster.
+        n_remaining: Number of clusters remaining after the exclusion.
+
+    Returns:
+        A human-readable summary of the exclude result.
+    """
+    name = label or "the selected cluster"
+    return f"Excluded '{name}' — {n_remaining} cluster{'s' if n_remaining != 1 else ''} remaining."
+
+
+def format_undo_reply(operation: str, n_clusters: int) -> str:
+    """Format the reply for a completed UNDO operation.
+
+    Args:
+        operation:  The operation name that was undone (e.g. ``"drill_down"``).
+        n_clusters: Number of clusters in the restored snapshot.
+
+    Returns:
+        A human-readable summary of the undo result.
+    """
+    op_label = operation.replace("_", " ")
+    return f"Stepped back — undid '{op_label}'. Now showing {n_clusters} cluster{'s' if n_clusters != 1 else ''}."
 
 
 def format_bin_proposal(

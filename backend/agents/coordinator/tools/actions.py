@@ -2,8 +2,13 @@ import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 
-from backend.agents.clustering.agent import concept_drill_down, cross_filter, free_drill_down, focus, merge_clusters, partition_by
-from backend.agents.clustering.types import NavigationMode, PartitionAttribute, PartitionSpec
+from backend.agents.clustering.operations.cross_filter import cross_filter
+from backend.agents.clustering.operations.drill_down import drill_down
+from backend.agents.clustering.operations.exclude import exclude_cluster
+from backend.agents.clustering.operations.focus import focus
+from backend.agents.clustering.operations.merge import merge_clusters
+from backend.agents.clustering.operations.partition_by import partition_by
+from backend.agents.clustering.types import ClusterSnapshotDraft, NavigationMode, PartitionAttribute, PartitionSpec
 from backend.agents.coordinator.tools.clarification_state import mark_awaiting
 from backend.agents.coordinator.tools.labeling import label_unlabeled_clusters
 from backend.agents.coordinator.tools.persist import persist_and_label
@@ -15,6 +20,7 @@ from backend.agents.coordinator.types import sentinel_cluster_snapshot_id
 from backend.agents.explanation.agent import explain_placement
 from backend.agents.intent.types import DialogueMode, IntentAction
 from backend.data_access.cluster_snapshots.queries import (
+    get_cluster_snapshot,
     get_cluster_snapshot_with_clusters,
     get_root_cluster_snapshot,
     record_conversation_snapshot_ref,
@@ -57,6 +63,58 @@ class ActionContext:
 
 
 _Handler = Callable[[ActionContext], Awaitable[tuple[str, uuid.UUID | None, float]]]
+
+
+async def _persist_draft(
+    ctx: ActionContext,
+    draft: ClusterSnapshotDraft,
+    base_cost: float = 0.0,
+) -> tuple[uuid.UUID, float, int, list[ClusterRow]]:
+    """Persist a cluster snapshot draft and return the new snapshot state.
+
+    Calls ``persist_and_label``, then re-reads the new snapshot to count movies
+    and collect the updated cluster list.
+
+    Args:
+        ctx:       Action context supplying conversation / cost / snapshot fields.
+        draft:     The draft to persist.
+        base_cost: Cost already accumulated within the calling handler (e.g. concept cost).
+
+    Returns:
+        Tuple of (new_snapshot_id, total_step_cost, n_distinct_movies, new_clusters).
+    """
+    new_snapshot_id, label_cost = await persist_and_label(
+        draft, ctx.conversation_id, ctx.current_cluster_snapshot_id, ctx.accumulated_cost + base_cost
+    )
+    total_cost = base_cost + label_cost
+    new_cswc = get_cluster_snapshot_with_clusters(new_snapshot_id)
+    new_clusters = new_cswc.clusters if new_cswc else []
+    n_movies = len({mid for c in draft.clusters for mid, _ in c.memberships})
+    return new_snapshot_id, total_cost, n_movies, new_clusters
+
+
+def _require_target_or_clarify(
+    ctx: ActionContext,
+    format_fn: Callable[[list[str | None]], str],
+) -> tuple[str, uuid.UUID | None, float] | None:
+    """Return a clarification reply when no target cluster is specified and clusters exist.
+
+    Args:
+        ctx:       Action context.
+        format_fn: Reply formatter that accepts a list of cluster labels.
+
+    Returns:
+        A completed handler tuple (reply, snapshot_id, 0.0) when clarification is needed,
+        or None to signal that the caller should proceed with execution.
+    """
+    if ctx.action.target_cluster_id is None and ctx.clusters:
+        mark_awaiting(ctx.conversation_id)
+        return (
+            format_fn([c.label for c in ctx.clusters]),
+            ctx.current_cluster_snapshot_id,
+            0.0,
+        )
+    return None
 
 
 async def handle_small_talk(ctx: ActionContext) -> tuple[str, uuid.UUID | None, float]:
@@ -111,6 +169,42 @@ async def handle_go_to_base(ctx: ActionContext) -> tuple[str, uuid.UUID | None, 
     return replies.format_reset_reply(len(clusters)), root.id, label_cost
 
 
+async def handle_undo(ctx: ActionContext) -> tuple[str, uuid.UUID | None, float]:
+    """Step back to the parent of the current cluster snapshot.
+
+    Reads ``parent_id`` from the current snapshot row.  If there is no current snapshot
+    or no parent, returns a no-undo reply without changing state.  Otherwise navigates
+    to the parent snapshot, lazily labeling any unlabeled clusters.
+
+    Args:
+        ctx: Action context.
+
+    Returns:
+        Tuple of (reply text, parent snapshot id, labeling cost).
+    """
+    if ctx.current_cluster_snapshot_id is None:
+        return replies.NO_UNDO, ctx.current_cluster_snapshot_id, 0.0
+
+    current_row = get_cluster_snapshot(ctx.current_cluster_snapshot_id)
+    if current_row is None or current_row.parent_id is None:
+        return replies.NO_UNDO, ctx.current_cluster_snapshot_id, 0.0
+
+    parent_id = current_row.parent_id
+    set_current_cluster_snapshot(ctx.conversation_id, parent_id)
+    record_conversation_snapshot_ref(ctx.conversation_id, parent_id)
+
+    cswc = get_cluster_snapshot_with_clusters(parent_id)
+    clusters = cswc.clusters if cswc else []
+    label_cost = 0.0
+    if any(c.label is None for c in clusters):
+        ctx.reporter.step("labeling")
+        clusters, label_cost = await label_unlabeled_clusters(
+            clusters, ctx.conversation_id, ctx.message_id, ctx.accumulated_cost
+        )
+    parent_operation = current_row.operation
+    return replies.format_undo_reply(parent_operation, len(clusters)), parent_id, label_cost
+
+
 async def handle_explain(ctx: ActionContext) -> tuple[str, uuid.UUID | None, float]:
     """Handle an EXPLAIN action by finding the target movie and calling the explanation agent.
 
@@ -119,7 +213,7 @@ async def handle_explain(ctx: ActionContext) -> tuple[str, uuid.UUID | None, flo
              falls back to the first cluster when None.
 
     Returns:
-        Tuple of (explanation text, unchanged snapshot id, 0.0 cost).
+        Tuple of (explanation text, unchanged snapshot id, explanation cost).
     """
     ctx.reporter.step("explain")
     target_cluster = (
@@ -138,7 +232,7 @@ async def handle_explain(ctx: ActionContext) -> tuple[str, uuid.UUID | None, flo
         message_id=ctx.message_id,
         accumulated_cost=ctx.accumulated_cost,
     )
-    return result.text, ctx.current_cluster_snapshot_id, 0.0
+    return result.text, ctx.current_cluster_snapshot_id, result.cost
 
 
 async def handle_drill_down(ctx: ActionContext) -> tuple[str, uuid.UUID | None, float]:
@@ -157,14 +251,9 @@ async def handle_drill_down(ctx: ActionContext) -> tuple[str, uuid.UUID | None, 
     Returns:
         Tuple of (reply text, new snapshot id, cumulative step cost).
     """
-    target_id = ctx.action.target_cluster_id
-    if target_id is None and ctx.clusters:
-        mark_awaiting(ctx.conversation_id)
-        return (
-            replies.format_drill_down_clarification([c.label for c in ctx.clusters]),
-            ctx.current_cluster_snapshot_id,
-            0.0,
-        )
+    clarify = _require_target_or_clarify(ctx, replies.format_drill_down_clarification)
+    if clarify is not None:
+        return clarify
 
     step_cost = 0.0
     concept = None
@@ -176,28 +265,16 @@ async def handle_drill_down(ctx: ActionContext) -> tuple[str, uuid.UUID | None, 
         step_cost += concept.cost
 
     ctx.reporter.step("clustering")
-    if concept is not None:
-        draft = await concept_drill_down(
-            source_cluster_id=target_id,
-            concept=concept,
-            parent_cluster_snapshot_id=ctx.current_cluster_snapshot_id,
-            embedding_spaces=ctx.action.embedding_spaces,
-        )
-    else:
-        draft = await free_drill_down(
-            source_cluster_id=target_id,
-            parent_cluster_snapshot_id=ctx.current_cluster_snapshot_id,
-            embedding_spaces=ctx.action.embedding_spaces,
-        )
-    n_movies = len({mid for c in draft.clusters for mid, _ in c.memberships})
-    new_cluster_snapshot_id, label_cost = await persist_and_label(
-        draft, ctx.conversation_id, ctx.current_cluster_snapshot_id, ctx.accumulated_cost + step_cost
+    draft = await drill_down(
+        source_cluster_id=ctx.action.target_cluster_id,
+        concept=concept,
+        parent_cluster_snapshot_id=ctx.current_cluster_snapshot_id,
+        embedding_spaces=ctx.action.embedding_spaces,
     )
-    step_cost += label_cost
-    new_cswc = get_cluster_snapshot_with_clusters(new_cluster_snapshot_id)
-    n_new = len(new_cswc.clusters) if new_cswc else 0
-    labels = [c.label for c in (new_cswc.clusters if new_cswc else [])]
-    return replies.format_drill_down_reply(labels, n_new, n_movies), new_cluster_snapshot_id, step_cost
+    new_snapshot_id, persist_cost, n_movies, new_clusters = await _persist_draft(ctx, draft, step_cost)
+    step_cost = persist_cost
+    labels = [c.label for c in new_clusters]
+    return replies.format_drill_down_reply(labels, len(new_clusters), n_movies), new_snapshot_id, step_cost
 
 
 async def handle_merge(ctx: ActionContext) -> tuple[str, uuid.UUID | None, float]:
@@ -207,7 +284,7 @@ async def handle_merge(ctx: ActionContext) -> tuple[str, uuid.UUID | None, float
         ctx: Action context.
 
     Returns:
-        Tuple of (reply text, new snapshot id, 0.0 cost).
+        Tuple of (reply text, new snapshot id, labeling cost).
     """
     if len(ctx.clusters) < 2:
         return replies.FEWER_THAN_TWO_TO_MERGE, ctx.current_cluster_snapshot_id, 0.0
@@ -219,10 +296,8 @@ async def handle_merge(ctx: ActionContext) -> tuple[str, uuid.UUID | None, float
         parent_cluster_snapshot_id=ctx.current_cluster_snapshot_id,
         merged_label=ctx.action.merged_label or "Merged",
     )
-    new_cluster_snapshot_id, label_cost = await persist_and_label(
-        draft, ctx.conversation_id, ctx.current_cluster_snapshot_id, ctx.accumulated_cost
-    )
-    return replies.MERGE_REPLY, new_cluster_snapshot_id, label_cost
+    new_snapshot_id, step_cost, _, _ = await _persist_draft(ctx, draft)
+    return replies.MERGE_REPLY, new_snapshot_id, step_cost
 
 
 async def handle_focus(ctx: ActionContext) -> tuple[str, uuid.UUID | None, float]:
@@ -233,7 +308,7 @@ async def handle_focus(ctx: ActionContext) -> tuple[str, uuid.UUID | None, float
              falls back to the first cluster when None.
 
     Returns:
-        Tuple of (reply text, new snapshot id, 0.0 cost).
+        Tuple of (reply text, new snapshot id, labeling cost).
     """
     target_id = ctx.action.target_cluster_id or (ctx.clusters[0].id if ctx.clusters else None)
     if target_id is None:
@@ -246,12 +321,44 @@ async def handle_focus(ctx: ActionContext) -> tuple[str, uuid.UUID | None, float
         source_cluster_id=target_id,
         parent_cluster_snapshot_id=ctx.current_cluster_snapshot_id,
     )
-    new_cluster_snapshot_id, label_cost = await persist_and_label(
-        draft, ctx.conversation_id, ctx.current_cluster_snapshot_id, ctx.accumulated_cost
-    )
+    new_snapshot_id, step_cost, _, _ = await _persist_draft(ctx, draft)
     n_members = len({mid for mid, _ in draft.clusters[0].memberships}) if draft.clusters else 0
     label = target_cluster.label if target_cluster else None
-    return replies.format_focus_reply(label, n_members), new_cluster_snapshot_id, label_cost
+    return replies.format_focus_reply(label, n_members), new_snapshot_id, step_cost
+
+
+async def handle_exclude(ctx: ActionContext) -> tuple[str, uuid.UUID | None, float]:
+    """Handle an EXCLUDE action by dropping one cluster and keeping the rest.
+
+    When no target cluster is specified and clusters already exist, returns a clarification
+    question.  Inverse of ``handle_focus``.
+
+    Args:
+        ctx: Action context.  ``ctx.action.target_cluster_id`` selects the cluster to drop;
+             falls back to the first cluster when None and only one cluster exists.
+
+    Returns:
+        Tuple of (reply text, new snapshot id, labeling cost).
+    """
+    clarify = _require_target_or_clarify(ctx, replies.format_drill_down_clarification)
+    if clarify is not None:
+        return clarify
+
+    target_id = ctx.action.target_cluster_id or (ctx.clusters[0].id if ctx.clusters else None)
+    if target_id is None:
+        return replies.NO_CLUSTER_TO_SPLIT, ctx.current_cluster_snapshot_id, 0.0
+
+    target_cluster = next((c for c in ctx.clusters if c.id == target_id), None)
+    label = target_cluster.label if target_cluster else None
+
+    ctx.reporter.step("clustering")
+    draft = await exclude_cluster(
+        source_cluster_id=target_id,
+        parent_cluster_snapshot_id=ctx.current_cluster_snapshot_id,
+    )
+    new_snapshot_id, step_cost, _, _ = await _persist_draft(ctx, draft)
+    n_remaining = len(draft.clusters)
+    return replies.format_exclude_reply(label, n_remaining), new_snapshot_id, step_cost
 
 
 async def handle_partition_by(ctx: ActionContext) -> tuple[str, uuid.UUID | None, float]:
@@ -278,13 +385,9 @@ async def handle_partition_by(ctx: ActionContext) -> tuple[str, uuid.UUID | None
     if ctx.action.partition_spec is None:
         return replies.UNSUPPORTED_OPERATION, ctx.current_cluster_snapshot_id, 0.0
 
-    if ctx.action.target_cluster_id is None and ctx.clusters:
-        mark_awaiting(ctx.conversation_id)
-        return (
-            replies.format_partition_clarification([c.label for c in ctx.clusters]),
-            ctx.current_cluster_snapshot_id,
-            0.0,
-        )
+    clarify = _require_target_or_clarify(ctx, replies.format_partition_clarification)
+    if clarify is not None:
+        return clarify
 
     spec = ctx.action.partition_spec
 
@@ -297,15 +400,12 @@ async def handle_partition_by(ctx: ActionContext) -> tuple[str, uuid.UUID | None
         parent_cluster_snapshot_id=ctx.current_cluster_snapshot_id,
         source_cluster_id=ctx.action.target_cluster_id,
     )
-    n_movies = len({mid for c in draft.clusters for mid, _ in c.memberships})
-    new_cluster_snapshot_id, label_cost = await persist_and_label(
-        draft, ctx.conversation_id, ctx.current_cluster_snapshot_id, ctx.accumulated_cost
-    )
+    new_snapshot_id, step_cost, n_movies, _ = await _persist_draft(ctx, draft)
     n_new = len(draft.clusters)
     return (
         replies.format_partition_reply(spec.attribute.value, n_new, n_movies),
-        new_cluster_snapshot_id,
-        label_cost,
+        new_snapshot_id,
+        step_cost,
     )
 
 
@@ -385,20 +485,20 @@ async def handle_cross_filter(ctx: ActionContext) -> tuple[str, uuid.UUID | None
         parent_cluster_snapshot_id=ctx.current_cluster_snapshot_id,
         metadata_filter=ctx.action.metadata_filter,
     )
-    n_movies = len({mid for c in draft.clusters for mid, _ in c.memberships})
-    new_cluster_snapshot_id, label_cost = await persist_and_label(
-        draft, ctx.conversation_id, ctx.current_cluster_snapshot_id, ctx.accumulated_cost
-    )
-    return replies.format_cross_filter_reply(n_movies), new_cluster_snapshot_id, label_cost
+    new_snapshot_id, step_cost, n_movies, _ = await _persist_draft(ctx, draft)
+    return replies.format_cross_filter_reply(n_movies), new_snapshot_id, step_cost
 
 
 _DISPATCH: dict[NavigationMode | DialogueMode, _Handler] = {
-    DialogueMode.SMALL_TALK: handle_small_talk,
+    DialogueMode.RESET: handle_reset,
     DialogueMode.GO_TO_BASE: handle_go_to_base,
+    DialogueMode.UNDO: handle_undo,
+    DialogueMode.SMALL_TALK: handle_small_talk,
     DialogueMode.EXPLAIN: handle_explain,
     NavigationMode.DRILL_DOWN: handle_drill_down,
     NavigationMode.MERGE: handle_merge,
     NavigationMode.FOCUS: handle_focus,
+    NavigationMode.EXCLUDE: handle_exclude,
     NavigationMode.CROSS_FILTER: handle_cross_filter,
     NavigationMode.PARTITION_BY: handle_partition_by,
 }
@@ -412,10 +512,4 @@ async def execute_action(ctx: ActionContext) -> tuple[str, uuid.UUID | None, flo
     Returns:
         Tuple of (reply_fragment, new_cluster_snapshot_id, step_cost).
     """
-    if ctx.action.mode == DialogueMode.RESET:
-        return await handle_reset(ctx)
-
-    handler = _DISPATCH.get(ctx.action.mode)
-    if handler is None:
-        return replies.UNSUPPORTED_OPERATION, ctx.current_cluster_snapshot_id, 0.0
-    return await handler(ctx)
+    return await _DISPATCH[ctx.action.mode](ctx)
