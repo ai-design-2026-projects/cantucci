@@ -1,8 +1,9 @@
 import logging
 import uuid
 
-from backend.agents.clustering.operations._helpers import exemplars
-from backend.agents.clustering.types import ClusterDraft, ClusterSnapshotDraft, MetadataFilter
+from backend.agents.clustering.operations.drill_down import concept_drill_down, free_drill_down
+from backend.agents.clustering.types import ClusterSnapshotDraft, MetadataFilter, Modality
+from backend.agents.concept.types import ConceptRep
 from backend.data_access.cluster_snapshots.queries import get_cluster_snapshot_with_clusters, get_memberships
 from backend.data_access.movies.queries import filter_movie_ids_by_metadata
 from backend.settings import get_settings
@@ -79,4 +80,20 @@ async def cross_filter(
         "release_year_max": metadata_filter.release_year_max,
         "director": metadata_filter.director,
     }
-    return ClusterSnapshotDraft(operation="cross_filter", params=params, clusters=[cluster])
+
+    if concept is not None:
+        base_draft = await concept_drill_down(
+            source_cluster_id=None,
+            movie_ids=filtered_ids,
+            concept=concept,
+            parent_cluster_snapshot_id=parent_cluster_snapshot_id,
+            embedding_spaces=embedding_spaces,
+        )
+    else:
+        base_draft = await free_drill_down(
+            source_cluster_id=None,
+            movie_ids=filtered_ids,
+            parent_cluster_snapshot_id=parent_cluster_snapshot_id,
+            embedding_spaces=embedding_spaces,
+        )
+    return base_draft.with_operation("cross_filter", extra_params)

@@ -14,6 +14,17 @@ services:
       retries: 10
       start_period: 10s
 
+  ingest:
+    image: ghcr.io/ai-design-2026-projects/cinepal-backend:${CINEPAL_VERSION:-latest}
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://cinepal:cinepal@db:5432/cinepal
+    depends_on:
+      db:
+        condition: service_healthy
+    entrypoint: ["sh", "-c", "python -m db.apply && python -m db.ingest"]
+    restart: "no"
+
   backend:
     image: ghcr.io/ai-design-2026-projects/cinepal-backend:${CINEPAL_VERSION:-latest}
     env_file: .env
@@ -24,6 +35,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      ingest:
+        condition: service_completed_successfully
     ports:
       - "8000:8000"
 
@@ -32,7 +45,20 @@ services:
     depends_on:
       - backend
     ports:
-      - "80:80"
+      - "8080:80"
+
+  mcp_server:
+    image: ghcr.io/ai-design-2026-projects/cinepal-mcp:${CINEPAL_VERSION:-latest}
+    build:
+      context: .
+      dockerfile: docker/mcp_server/Dockerfile
+    environment:
+      CINEPAL_MCP_BACKEND_URL: http://backend:8000
+    depends_on:
+      - backend
+    stdin_open: true
+    tty: true
+    profiles: ["mcp"]
 
 volumes:
   cinepal-pgdata:

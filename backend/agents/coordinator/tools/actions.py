@@ -2,7 +2,7 @@ import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 
-from backend.agents.clustering.agent import cross_filter, drill_down, focus, merge_clusters, partition_by
+from backend.agents.clustering.agent import concept_drill_down, cross_filter, free_drill_down, focus, merge_clusters, partition_by
 from backend.agents.clustering.types import NavigationMode, PartitionAttribute, PartitionSpec
 from backend.agents.coordinator.tools.clarification_state import mark_awaiting
 from backend.agents.coordinator.tools.labeling import label_unlabeled_clusters
@@ -176,12 +176,19 @@ async def handle_drill_down(ctx: ActionContext) -> tuple[str, uuid.UUID | None, 
         step_cost += concept.cost
 
     ctx.reporter.step("clustering")
-    draft = await drill_down(
-        source_cluster_id=target_id,
-        concept=concept,
-        parent_cluster_snapshot_id=ctx.current_cluster_snapshot_id,
-        embedding_spaces=ctx.action.embedding_spaces,
-    )
+    if concept is not None:
+        draft = await concept_drill_down(
+            source_cluster_id=target_id,
+            concept=concept,
+            parent_cluster_snapshot_id=ctx.current_cluster_snapshot_id,
+            embedding_spaces=ctx.action.embedding_spaces,
+        )
+    else:
+        draft = await free_drill_down(
+            source_cluster_id=target_id,
+            parent_cluster_snapshot_id=ctx.current_cluster_snapshot_id,
+            embedding_spaces=ctx.action.embedding_spaces,
+        )
     n_movies = len({mid for c in draft.clusters for mid, _ in c.memberships})
     new_cluster_snapshot_id, label_cost = await persist_and_label(
         draft, ctx.conversation_id, ctx.current_cluster_snapshot_id, ctx.accumulated_cost + step_cost
