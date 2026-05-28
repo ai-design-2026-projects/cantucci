@@ -3,7 +3,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 
 from backend.agents.clustering.operations.cross_filter import cross_filter
-from backend.agents.clustering.operations.drill_down import drill_down
+from backend.agents.clustering.operations.drill_down import concept_drill_down, free_drill_down
 from backend.agents.clustering.operations.exclude import exclude_cluster
 from backend.agents.clustering.operations.focus import focus
 from backend.agents.clustering.operations.merge import merge_clusters
@@ -265,12 +265,19 @@ async def handle_drill_down(ctx: ActionContext) -> tuple[str, uuid.UUID | None, 
         step_cost += concept.cost
 
     ctx.reporter.step("clustering")
-    draft = await drill_down(
-        source_cluster_id=ctx.action.target_cluster_id,
-        concept=concept,
-        parent_cluster_snapshot_id=ctx.current_cluster_snapshot_id,
-        embedding_spaces=ctx.action.embedding_spaces,
-    )
+    if concept is not None:
+        draft = await concept_drill_down(
+            source_cluster_id=ctx.action.target_cluster_id,
+            concept=concept,
+            parent_cluster_snapshot_id=ctx.current_cluster_snapshot_id,
+            embedding_spaces=ctx.action.embedding_spaces,
+        )
+    else:
+        draft = await free_drill_down(
+            source_cluster_id=ctx.action.target_cluster_id,
+            parent_cluster_snapshot_id=ctx.current_cluster_snapshot_id,
+            embedding_spaces=ctx.action.embedding_spaces,
+        )
     new_snapshot_id, persist_cost, n_movies, new_clusters = await _persist_draft(ctx, draft, step_cost)
     step_cost = persist_cost
     labels = [c.label for c in new_clusters]
@@ -402,11 +409,10 @@ async def handle_partition_by(ctx: ActionContext) -> tuple[str, uuid.UUID | None
     )
     new_snapshot_id, step_cost, n_movies, _ = await _persist_draft(ctx, draft)
     n_new = len(draft.clusters)
-    return (
-        replies.format_partition_reply(spec.attribute.value, n_new, n_movies),
-        new_snapshot_id,
-        step_cost,
-    )
+    reply = replies.format_partition_reply(spec.attribute.value, n_new, n_movies)
+    if draft.warning:
+        reply = f"{reply}\n\n⚠ {draft.warning}"
+    return reply, new_snapshot_id, step_cost
 
 
 def _propose_numeric_bins(
@@ -461,7 +467,8 @@ def _propose_numeric_bins(
             unspecified += 1
 
     proposal_text = replies.format_bin_proposal(spec.attribute.value, bins, bin_counts, unspecified)
-    mark_awaiting(ctx.conversation_id)
+    confirmed_spec = PartitionSpec(attribute=spec.attribute, bins=bins)
+    mark_awaiting(ctx.conversation_id, pending_spec=confirmed_spec)
     return proposal_text, ctx.current_cluster_snapshot_id, 0.0
 
 

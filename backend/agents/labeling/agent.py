@@ -1,7 +1,7 @@
 import logging
 from jinja2 import Environment, FileSystemLoader
 
-from backend.agents.labeling.types import BatchLabelLLMResponse, BatchLabelResult, ClusterLabelContext
+from backend.agents.labeling.types import BatchLabelLLMResponse, BatchLabelResult, ClusterLabelContext, LabelResult
 from backend.data_access.movies.queries import fetch_stubs
 from backend.llm import llm_harness
 from backend.settings import get_config_hash, get_settings, prompts_dir
@@ -54,15 +54,21 @@ async def label_clusters(
     """
     cfg = get_settings()
     top_n = cfg.labeling.top_exemplars
+    max_batch = cfg.labeling.max_batch_size
 
-    clusters_for_prompt = []
-    for i, group in enumerate(exemplar_groups):
+    def _build_entry(i: int, group: list[int]) -> dict:
         stubs = fetch_stubs(group[:top_n])
         titles = [f"{s.title} ({s.release_year or '?'})" for s in stubs]
         ctx = contexts[i] if contexts is not None else None
-        entry: dict = {"exemplar_titles": titles, "parent_label": None, "profile": None}
+        entry: dict = {
+            "exemplar_titles": titles,
+            "parent_label": None,
+            "profile": None,
+            "pre_set_label": None,
+        }
         if ctx is not None:
             entry["parent_label"] = ctx.parent_label
+            entry["pre_set_label"] = ctx.pre_set_label
             if ctx.profile is not None:
                 p = ctx.profile
                 entry["profile"] = {
@@ -71,37 +77,53 @@ async def label_clusters(
                     "mean_rating": round(p.mean_rating, 1) if p.mean_rating is not None else None,
                     "top_genres": p.top_genres,
                 }
-        clusters_for_prompt.append(entry)
+        return entry
 
+    all_entries = [_build_entry(i, group) for i, group in enumerate(exemplar_groups)]
     concept = contexts[0].concept if contexts else None
 
-    template = _ENV.get_template("label_v4.j2")
-    prompt = template.render(clusters=clusters_for_prompt, concept=concept)
-    log.debug("llm_prompt", extra={"template": "label_v4.j2", "prompt": prompt})
-    messages = [{"role": "user", "content": prompt}]
+    template = _ENV.get_template("label_v5.j2")
 
-    resp = await llm_harness.call(
-        run_id="offline" if conversation_id == "offline" else "online",
-        conversation_id=conversation_id,
-        message_id=message_id or _SENTINEL_MESSAGE_ID,
-        config_hash=get_config_hash(),
-        model_and_version=cfg.models.fast.name,
-        provider=cfg.models.fast.provider,
-        seed=cfg.models.fast.seed,
-        max_tokens=cfg.models.fast.max_tokens,
-        step_type="label_clusters",
-        messages=messages,
-        cost_limit_usd=cfg.conversation.cost_limit_usd,
-        accumulated_cost_usd=accumulated_cost,
-        dry_run=cfg.models.fast.dry_run,
-        response_schema=BatchLabelLLMResponse,
-    )
-    log.debug("llm_response", extra={"step_type": "label_clusters", "content": resp.content})
+    async def _call_batch(
+        entries: list[dict], batch_accumulated_cost: float
+    ) -> BatchLabelResult:
+        prompt = template.render(clusters=entries, concept=concept)
+        log.debug("llm_prompt", extra={"template": "label_v5.j2", "prompt": prompt})
+        messages = [{"role": "user", "content": prompt}]
+        resp = await llm_harness.call(
+            run_id="offline" if conversation_id == "offline" else "online",
+            conversation_id=conversation_id,
+            message_id=message_id or _SENTINEL_MESSAGE_ID,
+            config_hash=get_config_hash(),
+            model_and_version=cfg.models.fast.name,
+            provider=cfg.models.fast.provider,
+            seed=cfg.models.fast.seed,
+            max_tokens=cfg.models.fast.max_tokens,
+            step_type="label_clusters",
+            messages=messages,
+            cost_limit_usd=cfg.conversation.cost_limit_usd,
+            accumulated_cost_usd=batch_accumulated_cost,
+            dry_run=cfg.models.fast.dry_run,
+            response_schema=BatchLabelLLMResponse,
+        )
+        log.debug("llm_response", extra={"step_type": "label_clusters", "content": resp.content})
+        parsed: BatchLabelLLMResponse = resp.parsed  # type: ignore[assignment]
+        return BatchLabelResult.from_llm_response(parsed, n_expected=len(entries), total_cost=resp.cost_usd)
 
-    parsed: BatchLabelLLMResponse = resp.parsed  # type: ignore[assignment]
-    result = BatchLabelResult.from_llm_response(parsed, n_expected=len(exemplar_groups), total_cost=resp.cost_usd)
+    if len(all_entries) <= max_batch:
+        result = await _call_batch(all_entries, accumulated_cost)
+    else:
+        all_results: list[LabelResult] = []
+        total_cost = 0.0
+        for batch_start in range(0, len(all_entries), max_batch):
+            batch = all_entries[batch_start : batch_start + max_batch]
+            batch_result = await _call_batch(batch, accumulated_cost + total_cost)
+            all_results.extend(batch_result.results)
+            total_cost += batch_result.cost
+        result = BatchLabelResult(results=all_results, cost=total_cost)
+
     log.debug(
         "label_clusters_done",
-        extra={"n_clusters": len(exemplar_groups), "cost_usd": resp.cost_usd},
+        extra={"n_clusters": len(exemplar_groups), "cost_usd": result.cost},
     )
     return result

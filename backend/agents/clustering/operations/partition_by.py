@@ -66,6 +66,8 @@ async def partition_by(
     attribute = spec.attribute.value
     raw = fetch_partition_values(resolved_ids, attribute)
 
+    warning: str | None = None
+
     if spec.attribute in _CATEGORICAL:
         buckets: dict[str, list[int]] = {}
         unspecified: list[int] = []
@@ -80,7 +82,13 @@ async def partition_by(
 
         top_n_cat = cfg.clustering.partition_by.categorical_top_n
         sorted_items = sorted(buckets.items(), key=lambda x: len(x[1]), reverse=True)
-        if len(sorted_items) > top_n_cat:
+        truncated = len(sorted_items) > top_n_cat
+        if truncated:
+            attr_label_for_warning = attribute.replace("_", " ")
+            warning = (
+                f"Only the top {top_n_cat} of {len(sorted_items)} {attr_label_for_warning} "
+                f"groups are shown; the rest are combined into 'Other {attr_label_for_warning}'."
+            )
             other_mids = list(dict.fromkeys(mid for _, mids in sorted_items[top_n_cat:] for mid in mids))
             top_items = sorted(sorted_items[:top_n_cat], key=lambda x: x[0])
         else:
@@ -90,7 +98,7 @@ async def partition_by(
         clusters: list[ClusterDraft] = []
         for key, mids in top_items:
             clusters.append(ClusterDraft(
-                label=None,
+                label=key,
                 summary=None,
                 exemplar_movie_ids=exemplars(mids, [1.0] * len(mids), top_n),
                 parent_cluster_id=source_cluster_id,
@@ -143,7 +151,7 @@ async def partition_by(
             if not mids:
                 continue
             clusters.append(ClusterDraft(
-                label=None,
+                label=b.label,
                 summary=None,
                 exemplar_movie_ids=exemplars(mids, [1.0] * len(mids), top_n),
                 parent_cluster_id=source_cluster_id,
@@ -181,4 +189,4 @@ async def partition_by(
             "n_clusters": len(clusters),
         },
     )
-    return ClusterSnapshotDraft(operation="partition_by", params=params, clusters=clusters)
+    return ClusterSnapshotDraft(operation="partition_by", params=params, clusters=clusters, warning=warning)

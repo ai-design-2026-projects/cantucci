@@ -195,11 +195,17 @@ class LabelingConfig(BaseModel):
     """Labeling agent parameters.
 
     Attributes:
-        top_exemplars: Maximum number of exemplar movies to pass to the
-                       labeling LLM. Truncates the exemplar list in both
-                       the online labeler and the clustering helpers.
+        top_exemplars:  Maximum number of exemplar movies to pass to the
+                        labeling LLM. Truncates the exemplar list in both
+                        the online labeler and the clustering helpers.
+        max_batch_size: Maximum number of clusters to label in a single LLM
+                        call. Larger batches are split into sequential
+                        sub-batches and their results merged. Keeps GPT-4o
+                        structured-output requests small enough to succeed
+                        reliably.
     """
     top_exemplars: int = 15
+    max_batch_size: int = 8
 
 
 class IntentConfig(BaseModel):

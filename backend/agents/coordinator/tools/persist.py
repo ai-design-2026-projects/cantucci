@@ -60,7 +60,12 @@ def build_label_contexts(
         member_ids = [mid for mid, _ in cd.memberships]
         profile = fetch_cluster_profile(member_ids)
         parent_label = parent_label_map.get(cd.parent_cluster_id) if cd.parent_cluster_id else None
-        contexts.append(ClusterLabelContext(concept=concept, parent_label=parent_label, profile=profile))
+        contexts.append(ClusterLabelContext(
+            concept=concept,
+            parent_label=parent_label,
+            profile=profile,
+            pre_set_label=cd.label,
+        ))
 
     return contexts
 
@@ -134,7 +139,9 @@ async def persist_and_label(
     if batch_result is not None:
         for idx, i in enumerate(unlabeled_indices):
             lr = batch_result.results[idx]
-            label_map[i] = (lr.label, lr.summary)
+            cd = draft.clusters[i]
+            final_label = cd.label if cd.label is not None else lr.label
+            label_map[i] = (final_label, lr.summary)
 
     for i, cluster_draft in enumerate(draft.clusters):
         label, summary = label_map.get(i, (cluster_draft.label, cluster_draft.summary))

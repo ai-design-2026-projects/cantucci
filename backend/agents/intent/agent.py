@@ -42,14 +42,14 @@ async def classify(
 
     modes = [(m.value, m.description) for m in (*NavigationMode, *DialogueMode)]
 
-    template = _ENV.get_template("intent_v9.j2")
+    template = _ENV.get_template("intent_v10.j2")
     prompt = template.render(
         clusters=[{"id": str(c.id), "label": c.label} for c in clusters],
         user_message=user_message,
         modes=modes,
         clarification_question=clarification_question,
     )
-    log.debug("llm_prompt", extra={"template": "intent_v9.j2", "prompt": prompt})
+    log.debug("llm_prompt", extra={"template": "intent_v10.j2", "prompt": prompt})
     messages = [{"role": "user", "content": prompt}]
 
     resp = await llm_harness.call(
@@ -57,20 +57,21 @@ async def classify(
         conversation_id=str(conversation_id),
         message_id=str(message_id),
         config_hash=get_config_hash(),
-        model_and_version=cfg.models.fast.name,
-        provider=cfg.models.fast.provider,
-        seed=cfg.models.fast.seed,
-        max_tokens=cfg.models.fast.max_tokens,
+        model_and_version=cfg.models.strong.name,
+        provider=cfg.models.strong.provider,
+        seed=cfg.models.strong.seed,
+        max_tokens=cfg.models.strong.max_tokens,
         step_type="intent_agent",
         messages=messages,
         cost_limit_usd=cfg.conversation.cost_limit_usd,
         accumulated_cost_usd=accumulated_cost,
-        dry_run=cfg.models.fast.dry_run,
+        dry_run=cfg.models.strong.dry_run,
         response_schema=IntentLLMResponse,
     )
     log.debug("llm_response", extra={"step_type": "intent_agent", "content": resp.content})
 
     parsed: IntentLLMResponse = resp.parsed  # type: ignore[assignment]
+    log.debug("intent_reasoning", extra={"reasoning": parsed.reasoning})
     result = IntentResult.from_llm_response(parsed, raw_content=resp.content, cost=resp.cost_usd)
 
     log.info(

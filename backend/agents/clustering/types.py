@@ -158,8 +158,11 @@ class ClusterSnapshotDraft:
         operation: Operation name (e.g. ``"drill_down"``, ``"merge"``, ``"cross_filter"``).
         params:    Replayability parameters dict.
         clusters:  List of cluster drafts.
+        warning:   Optional human-readable notice about the operation result (e.g. truncation).
+                   Not included in ``params`` — does not affect the content-address cache hash.
     """
     operation: str
     params: dict
     clusters: list[ClusterDraft] = field(default_factory=list)
+    warning: str | None = None
 

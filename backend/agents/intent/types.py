@@ -91,10 +91,17 @@ class IntentActionLLM(BaseModel):
 class IntentLLMResponse(BaseModel):
     """Structured output expected from the intent classification LLM call.
 
-    Wraps an ordered list of actions so the model can express compound requests
-    (e.g. reset then drill-down) as a single turn.  Single-action requests are
-    represented as a one-element list, preserving backward-compatible behaviour.
+    ``reasoning`` is a chain-of-thought scratchpad filled before ``actions``.
+    It is generated first so the model can resolve ambiguities (pronoun
+    references, partition_by vs drill_down, compound requests) before committing
+    to a structured output.  It is used only for debugging and is not forwarded
+    to the coordinator.
+
+    ``actions`` wraps an ordered list of actions so the model can express
+    compound requests (e.g. reset then drill-down) as a single turn.
+    Single-action requests are represented as a one-element list.
     """
+    reasoning: str = ""
     actions: list[IntentActionLLM]
 
 

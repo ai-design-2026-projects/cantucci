@@ -13,26 +13,30 @@ from backend.exceptions import ConceptParseError
 def build_linear_axis(parsed: ConceptLLMResponse, concept_name: str, cost: float) -> LinearAxisRep:
     """Build a LinearAxisRep from a validated LLM response.
 
-    Embeds the positive and negative pole descriptions, computes
-    axis = normalize(pos - neg).
+    Embeds all positive-pole sentences and all negative-pole sentences, computes
+    a per-pole centroid, then axis = normalize(pos_centroid - neg_centroid).
+    Averaging multiple sentences per pole produces a more stable direction than
+    relying on a single description.
 
     Args:
-        parsed:       Validated wire response with ``positive_description`` and
-                      ``negative_description`` set (assumed type == "linear_axis").
+        parsed:       Validated wire response with ``positive_descriptions`` and
+                      ``negative_descriptions`` set (assumed type == "linear_axis").
         concept_name: Human-readable concept label for the result.
         cost:         LLM cost in USD to carry on the result.
 
     Raises:
-        ConceptParseError: If descriptions are missing, embeddings fail, or axis has zero norm.
+        ConceptParseError: If description lists are empty, embeddings fail, or axis has zero norm.
     """
     from core.text_encoder import embed_texts
 
-    if not parsed.positive_description or not parsed.negative_description:
+    if not parsed.positive_descriptions or not parsed.negative_descriptions:
         raise ConceptParseError(concept_name)
 
-    embs = embed_texts([parsed.positive_description, parsed.negative_description])
-    pos_emb, neg_emb = embs[0], embs[1]
-    axis = pos_emb - neg_emb
+    pos_embs = embed_texts(parsed.positive_descriptions)
+    neg_embs = embed_texts(parsed.negative_descriptions)
+    pos_centroid = pos_embs.mean(axis=0)
+    neg_centroid = neg_embs.mean(axis=0)
+    axis = pos_centroid - neg_centroid
     norm = np.linalg.norm(axis)
     if norm == 0:
         raise ConceptParseError(concept_name)

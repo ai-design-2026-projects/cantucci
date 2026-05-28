@@ -1,3 +1,4 @@
+import dataclasses
 import logging
 import uuid
 
@@ -89,7 +90,8 @@ class Coordinator:
         # user is responding to a clarifier question, pass that question to the intent agent
         # for better parsing of short/pronoun-heavy replies.
         clarification_question: str | None = None
-        if take_awaiting(conversation_id):
+        was_awaiting, pending_spec = take_awaiting(conversation_id)
+        if was_awaiting:
             recent = get_messages(conversation_id, limit=2)
             prior_assistant = next((m for m in reversed(recent) if m.role == "assistant"), None)
             if prior_assistant is not None:
@@ -106,6 +108,20 @@ class Coordinator:
             clarification_question=clarification_question,
         )
         accumulated_cost += intent.cost
+
+        # When the user confirmed a bin proposal, substitute the stored PartitionSpec
+        # directly so the intent agent does not need to re-extract bin boundaries from text.
+        actions_to_dispatch = list(intent.actions)
+        if was_awaiting and pending_spec is not None:
+            for i, a in enumerate(actions_to_dispatch):
+                if (
+                    a.mode == NavigationMode.PARTITION_BY
+                    and a.partition_spec is not None
+                    and a.partition_spec.attribute == pending_spec.attribute
+                    and a.partition_spec.bins is None
+                ):
+                    new_spec = dataclasses.replace(a.partition_spec, bins=pending_spec.bins)
+                    actions_to_dispatch[i] = dataclasses.replace(a, partition_spec=new_spec)
 
         trace_modes = [a.mode.value for a in intent.actions]
         trace_concepts = [a.concept for a in intent.actions]
@@ -155,7 +171,7 @@ class Coordinator:
 
         reply_fragments: list[str] = []
 
-        for action in intent.actions:
+        for action in actions_to_dispatch:
             step_snapshot = get_cluster_snapshot_with_clusters(current_cluster_snapshot_id) if current_cluster_snapshot_id else None
             step_clusters = step_snapshot.clusters if step_snapshot else []
 
