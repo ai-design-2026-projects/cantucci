@@ -1,7 +1,7 @@
 import logging
 import uuid
 
-from backend.agents.clustering.types import ClusterSnapshotDraft
+from backend.agents.coordinator.types import ClusterSnapshotDraft
 from backend.agents.labeling.agent import label_clusters
 from backend.agents.labeling.types import ClusterLabelContext
 from backend.data_access.cluster_snapshots.queries import (

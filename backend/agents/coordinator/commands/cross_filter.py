@@ -1,14 +1,58 @@
 import logging
 import uuid
+from dataclasses import dataclass
+from typing import ClassVar
 
-from backend.agents.clustering.operations.drill_down import concept_drill_down, free_drill_down
-from backend.agents.clustering.types import ClusterSnapshotDraft, MetadataFilter, Modality
-from backend.agents.concept.types import ConceptRep
+from backend.agents.coordinator.commands._helpers import _persist_draft
+from backend.agents.coordinator.commands.base import ActionResult, ExecutionContext
+from backend.agents.coordinator.types import ClusterDraft, ClusterSnapshotDraft
+from backend.agents.intent.types import MetadataFilter
+from backend.agents.responder import replies
 from backend.data_access.cluster_snapshots.queries import get_cluster_snapshot_with_clusters, get_memberships
 from backend.data_access.movies.queries import filter_movie_ids_by_metadata
 from backend.settings import get_settings
 
 log = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True, slots=True)
+class CrossFilterCommand:
+    """Filter the active movie set by metadata predicate, producing a single flat cluster.
+
+    No clustering is performed; a follow-up drill_down clusters the filtered set.
+
+    Attributes:
+        metadata_filter: Metadata predicate to apply.
+        confidence:      LLM confidence [0, 1].
+    """
+
+    REQUIRES_SNAPSHOT: ClassVar[bool] = True
+    CREATES_SNAPSHOT: ClassVar[bool] = True
+    READS_CLUSTERS: ClassVar[bool] = False
+
+    metadata_filter: MetadataFilter
+    confidence: float
+
+    async def execute(self, ctx: ExecutionContext) -> ActionResult:
+        """Filter movies by metadata and return a single-cluster snapshot.
+
+        Args:
+            ctx: Execution context with session state.
+
+        Returns:
+            ActionResult with reply, new snapshot id, and cost.
+        """
+        ctx.reporter.step("clustering")
+        draft = await cross_filter(
+            parent_cluster_snapshot_id=ctx.current_cluster_snapshot_id,
+            metadata_filter=self.metadata_filter,
+        )
+        new_snapshot_id, step_cost, n_movies, _ = await _persist_draft(ctx, draft)
+        return ActionResult(
+            reply_fragment=replies.format_cross_filter_reply(n_movies),
+            cluster_snapshot_id=new_snapshot_id,
+            step_cost=step_cost,
+        )
 
 
 async def cross_filter(
@@ -31,6 +75,8 @@ async def cross_filter(
     Raises:
         ValueError: If the parent snapshot is not found or no movies survive the filter.
     """
+    from backend.agents.coordinator.commands._clustering import exemplars
+
     cswc = get_cluster_snapshot_with_clusters(parent_cluster_snapshot_id)
     if cswc is None:
         raise ValueError(f"Cluster snapshot {parent_cluster_snapshot_id} not found")
@@ -80,20 +126,4 @@ async def cross_filter(
         "release_year_max": metadata_filter.release_year_max,
         "director": metadata_filter.director,
     }
-
-    if concept is not None:
-        base_draft = await concept_drill_down(
-            source_cluster_id=None,
-            movie_ids=filtered_ids,
-            concept=concept,
-            parent_cluster_snapshot_id=parent_cluster_snapshot_id,
-            embedding_spaces=embedding_spaces,
-        )
-    else:
-        base_draft = await free_drill_down(
-            source_cluster_id=None,
-            movie_ids=filtered_ids,
-            parent_cluster_snapshot_id=parent_cluster_snapshot_id,
-            embedding_spaces=embedding_spaces,
-        )
-    return base_draft.with_operation("cross_filter", extra_params)
+    return ClusterSnapshotDraft(operation="cross_filter", params=params, clusters=[cluster])

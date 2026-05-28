@@ -3,14 +3,15 @@ import logging
 import uuid
 
 from backend.agents.clarifier.agent import clarify
-from backend.agents.coordinator.tools.actions import ActionContext, execute_action
+from backend.agents.coordinator.commands.factory import build_command
+from backend.agents.coordinator.commands.base import ExecutionContext
 from backend.agents.coordinator.tools.clarification_state import mark_awaiting, take_awaiting
 from backend.agents.coordinator.tools.labeling import label_unlabeled_clusters
 from backend.agents.coordinator.tools.progress import ProgressReporter
 from backend.agents.responder.suggestions import maybe_suggest
 from backend.agents.coordinator.types import CoordinatorResult, TurnTrace, sentinel_cluster_snapshot_id
 from backend.agents.intent.agent import classify as classify_intent
-from backend.agents.clustering.types import NavigationMode
+from backend.agents.intent.types import NavigationMode
 from backend.agents.intent.types import DialogueMode, IntentAction, IntentResult
 from backend.data_access.cluster_snapshots.queries import get_cluster_snapshot_with_clusters
 from backend.data_access.cluster_snapshots.types import ClusterRow
@@ -19,17 +20,6 @@ from backend.data_access.conversations.types import ConversationRow
 from backend.settings import get_settings
 
 log = logging.getLogger(__name__)
-
-_STATE_CHANGING = {
-    NavigationMode.DRILL_DOWN,
-    NavigationMode.MERGE,
-    NavigationMode.FOCUS,
-    NavigationMode.EXCLUDE,
-    NavigationMode.CROSS_FILTER,
-    NavigationMode.PARTITION_BY,
-    DialogueMode.RESET,
-    DialogueMode.GO_TO_BASE,
-}
 
 
 class Coordinator:
@@ -68,16 +58,16 @@ class Coordinator:
         """
         # Create a progress reporter to send step events to the SSE stream
         reporter = ProgressReporter(str(conversation_id))
+
+        # Load current conversation state
         current_cluster_snapshot_id = conversation_row.current_cluster_snapshot_id
         accumulated_cost = conversation_row.accumulated_cost_usd
         turn_start_cost = accumulated_cost
-
-        # Load current clusters from the DB
         current_snapshot = get_cluster_snapshot_with_clusters(current_cluster_snapshot_id) if current_cluster_snapshot_id else None
         current_clusters = current_snapshot.clusters if current_snapshot else []
-
         message_id = uuid.uuid4()
 
+        # Lazy labelling all the unlabeled clusters
         clusters = current_clusters
         if any(cluster.label is None for cluster in current_clusters):
             reporter.step("labeling")
@@ -86,18 +76,17 @@ class Coordinator:
             )
             accumulated_cost += label_cost
 
-        # Check for a recent assistant message awaiting clarification — if the
-        # user is responding to a clarifier question, pass that question to the intent agent
-        # for better parsing of short/pronoun-heavy replies.
+        # Check if we're awaiting clarification on a previous message
         clarification_question: str | None = None
         was_awaiting, pending_spec = take_awaiting(conversation_id)
+        # If so, find the most recent assistant message to use as the clarification question for intent classification.
         if was_awaiting:
             recent = get_messages(conversation_id, limit=2)
             prior_assistant = next((m for m in reversed(recent) if m.role == "assistant"), None)
             if prior_assistant is not None:
                 clarification_question = prior_assistant.content
 
-        # Intent classification and dispatch
+        # Classify oracle intent and retrieve proposed actions
         reporter.step("intent")
         intent = await classify_intent(
             user_message=user_message,
@@ -108,10 +97,11 @@ class Coordinator:
             clarification_question=clarification_question,
         )
         accumulated_cost += intent.cost
-
-        # When the user responded to a clarification, substitute the stored PartitionSpec
-        # to correct for intent-agent drift on short replies like "yes" or cluster names.
         actions_to_dispatch = list(intent.actions)
+
+
+        # If we were awaiting clarification and the intent agent returned a partitioning action,
+        # override the returned partition spec with the one we stored from the clarification turn
         if was_awaiting and pending_spec is not None:
             for i, a in enumerate(actions_to_dispatch):
                 if a.mode == NavigationMode.PARTITION_BY and a.partition_spec is not None:
@@ -129,6 +119,7 @@ class Coordinator:
                             ),
                         )
 
+        
         trace_modes = [a.mode.value for a in intent.actions]
         trace_concepts = [a.concept for a in intent.actions]
         trace_targets = [a.target_cluster_id for a in intent.actions]
@@ -181,8 +172,8 @@ class Coordinator:
             step_snapshot = get_cluster_snapshot_with_clusters(current_cluster_snapshot_id) if current_cluster_snapshot_id else None
             step_clusters = step_snapshot.clusters if step_snapshot else []
 
-            ctx = ActionContext(
-                action=action,
+            command = build_command(action)
+            ctx = ExecutionContext(
                 current_cluster_snapshot_id=current_cluster_snapshot_id,
                 clusters=step_clusters,
                 conversation_id=conversation_id,
@@ -191,9 +182,10 @@ class Coordinator:
                 accumulated_cost=accumulated_cost,
                 reporter=reporter,
             )
-            fragment, current_cluster_snapshot_id, step_cost = await execute_action(ctx)
-            accumulated_cost += step_cost
-            reply_fragments.append(fragment)
+            result = await command.execute(ctx)
+            current_cluster_snapshot_id = result.cluster_snapshot_id
+            accumulated_cost += result.step_cost
+            reply_fragments.append(result.reply_fragment)
 
         final_snapshot_id = current_cluster_snapshot_id or sentinel_cluster_snapshot_id()
         final_cswc = get_cluster_snapshot_with_clusters(final_snapshot_id)
@@ -273,7 +265,7 @@ class Coordinator:
         low_confidence_action: IntentAction | None = next(
             (
                 a for a in intent.actions
-                if a.mode in _STATE_CHANGING
+                if build_command(a).CREATES_SNAPSHOT
                 and a.confidence < cfg.intent.confidence_threshold
             ),
             None,

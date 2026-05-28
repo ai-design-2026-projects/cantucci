@@ -1,21 +1,99 @@
+from __future__ import annotations
+
 import logging
 import uuid
 from dataclasses import dataclass
+from typing import TYPE_CHECKING, ClassVar
 
-import numpy as np
-
-from backend.agents.clustering.operations._helpers import exemplars, reduce_for_clustering, resolve_movie_ids, subcluster
-from backend.agents.clustering.types import ClusterDraft, ClusterSnapshotDraft, Modality
-from backend.agents.concept.scoring import score_movies
-from backend.agents.concept.types import ConceptRep
+from backend.agents.coordinator.commands._helpers import _persist_draft
+from backend.agents.coordinator.commands.base import ActionResult, ExecutionContext
+from backend.agents.coordinator.tools.clarification_state import mark_awaiting
+from backend.agents.coordinator.types import ClusterDraft, ClusterSnapshotDraft
+from backend.agents.intent.types import Modality
+from backend.agents.responder import replies
 from backend.data_access.movies.queries import fetch_modality_embeddings, fetch_text_embeddings
 from backend.settings import get_settings
-from core.clustering import SoftClusterResult
-from core.fusion import combined_distance_matrix
+
+if TYPE_CHECKING:
+    from backend.agents.concept.types import ConceptRep
+    from core.clustering import SoftClusterResult
 
 log = logging.getLogger(__name__)
 
 _LABEL_PLACEHOLDER = "Cluster"
+
+
+@dataclass(frozen=True, slots=True)
+class DrillDownCommand:
+    """Split a cluster (or the full catalogue) into sub-clusters.
+
+    Attributes:
+        target_cluster_id: Cluster to split; None = full set or unclustered state.
+        concept:           Optional semantic concept string to guide clustering.
+        embedding_spaces:  Modalities to fuse for embedding loading.
+        confidence:        LLM confidence [0, 1].
+    """
+
+    REQUIRES_SNAPSHOT: ClassVar[bool] = False
+    CREATES_SNAPSHOT: ClassVar[bool] = True
+    READS_CLUSTERS: ClassVar[bool] = True
+
+    target_cluster_id: uuid.UUID | None
+    concept: str | None
+    embedding_spaces: list[Modality]
+    confidence: float
+
+    async def execute(self, ctx: ExecutionContext) -> ActionResult:
+        """Split target cluster (or full catalogue) into sub-clusters.
+
+        Args:
+            ctx: Execution context with session state.
+
+        Returns:
+            ActionResult with reply, new snapshot id, and cost.
+        """
+        from backend.agents.concept.agent import build_concept
+
+        if self.target_cluster_id is None and ctx.clusters:
+            mark_awaiting(ctx.conversation_id)
+            return ActionResult(
+                reply_fragment=replies.format_drill_down_clarification([c.label for c in ctx.clusters]),
+                cluster_snapshot_id=ctx.current_cluster_snapshot_id,
+                step_cost=0.0,
+            )
+
+        step_cost = 0.0
+        concept_rep = None
+        if self.concept:
+            ctx.reporter.step("concept")
+            concept_rep = await build_concept(
+                self.concept, ctx.conversation_id, ctx.message_id,
+                ctx.accumulated_cost + step_cost,
+            )
+            step_cost += concept_rep.cost
+
+        ctx.reporter.step("clustering")
+        if concept_rep is not None:
+            draft = await concept_drill_down(
+                source_cluster_id=self.target_cluster_id,
+                concept=concept_rep,
+                parent_cluster_snapshot_id=ctx.current_cluster_snapshot_id,
+                embedding_spaces=self.embedding_spaces,
+            )
+        else:
+            draft = await free_drill_down(
+                source_cluster_id=self.target_cluster_id,
+                parent_cluster_snapshot_id=ctx.current_cluster_snapshot_id,
+                embedding_spaces=self.embedding_spaces,
+            )
+
+        new_snapshot_id, persist_cost, n_movies, new_clusters = await _persist_draft(ctx, draft, step_cost)
+        labels = [c.label for c in new_clusters]
+        return ActionResult(
+            reply_fragment=replies.format_drill_down_reply(labels, len(new_clusters), n_movies),
+            cluster_snapshot_id=new_snapshot_id,
+            step_cost=persist_cost,
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -94,6 +172,11 @@ def _cluster_group(group_ids: list[int], emb_ctx: _EmbeddingContext) -> SoftClus
     Returns:
         ``SoftClusterResult`` for the group.
     """
+    import numpy as np
+
+    from backend.agents.coordinator.commands._clustering import reduce_for_clustering, subcluster
+    from core.fusion import combined_distance_matrix
+
     cfg = get_settings()
     if emb_ctx.multi_modal:
         embs_by_modality = {
@@ -125,11 +208,11 @@ async def concept_drill_down(
     embedding_spaces: list[Modality] | None = None,
     movie_ids: list[int] | None = None,
 ) -> ClusterSnapshotDraft:
-    """Cluster a movie set guided by a semantic concept.
+    """Cluster a movie set guided by a semantic concept using 1D density clustering.
 
-    Scores all available movies against the concept, splits at the median into
-    a high-scoring and a low-scoring group, then clusters each group
-    independently with HDBSCAN.
+    Scores all available movies against the concept, then runs HDBSCAN on the
+    1D concept score axis to find natural density clusters. No forced binary
+    split is applied — cluster boundaries emerge from the distribution of scores.
 
     The input movie set is resolved in this order:
     1. ``source_cluster_id`` → members of that cluster.
@@ -137,17 +220,11 @@ async def concept_drill_down(
     3. ``parent_cluster_snapshot_id`` → union across that snapshot's clusters.
     4. Otherwise → full catalogue.
 
-    All paths go through UMAP dimensionality reduction before HDBSCAN so that every
-    modality (text, trailer, review, or any combination) benefits from the same
-    soft-clustering quality as the single-text path. For multi-modal requests the
-    combined distance matrix is embedded via UMAP with ``metric="precomputed"``; for
-    groups too small for UMAP the precomputed-distance path is used as a fallback.
-
     Args:
         source_cluster_id:          Cluster to split; ``None`` to operate on a broader set.
-        concept:                    Concept that guides the high/low split.
+        concept:                    Concept that guides the clustering axis.
         parent_cluster_snapshot_id: Snapshot the source cluster belongs to.
-        embedding_spaces:           Modalities to fuse. Defaults to ``[Modality.TEXT]``.
+        embedding_spaces:           Modalities to fuse for embedding loading. Defaults to ``[Modality.TEXT]``.
         movie_ids:                  Explicit movie ID list; used when ``source_cluster_id`` is ``None``.
 
     Returns:
@@ -156,6 +233,12 @@ async def concept_drill_down(
     Raises:
         ValueError: If no movies or embeddings are found.
     """
+    import numpy as np
+
+    from backend.agents.concept.scoring import score_movies
+    from backend.agents.coordinator.commands._clustering import exemplars, resolve_movie_ids
+    from core.clustering import hdbscan_soft
+
     if embedding_spaces is None:
         embedding_spaces = [Modality.TEXT]
 
@@ -173,30 +256,38 @@ async def concept_drill_down(
         raise ValueError(f"No embeddings found for {src}")
 
     concept_scores = score_movies(concept, emb_ctx.available_ids, emb_ctx.emb_map)
-    median_score = float(np.median(list(concept_scores.values())))
-    high_ids = [mid for mid in emb_ctx.available_ids if concept_scores.get(mid, 0) >= median_score]
-    low_ids = [mid for mid in emb_ctx.available_ids if concept_scores.get(mid, 0) < median_score]
+    score_values = np.array(
+        [concept_scores[mid] for mid in emb_ctx.available_ids], dtype=np.float64
+    ).reshape(-1, 1)
+
+    min_cs = max(2, min(cfg.clustering.online.drilldown_min_cluster_size, len(emb_ctx.available_ids) // 5))
+    min_samp = max(1, min_cs // 3)
+
+    # Cluster on the 1D concept score axis directly — no UMAP (meaningless on 1D)
+    result = hdbscan_soft(
+        score_values,
+        min_cluster_size=min_cs,
+        min_samples=min_samp,
+        cluster_selection_epsilon=cfg.clustering.online.cluster_selection_epsilon,
+        metric="euclidean",
+    )
 
     clusters: list[ClusterDraft] = []
-    for group_ids, label_suffix in [
-        (high_ids, f"High {concept.concept_name}"),
-        (low_ids, f"Low {concept.concept_name}"),
-    ]:
-        if len(group_ids) < 2:
-            continue
-        result = _cluster_group(group_ids, emb_ctx)
-        for ci in range(result.n_clusters):
-            col = result.probabilities[:, ci]
-            members = [(group_ids[i], float(col[i])) for i in range(len(group_ids)) if col[i] > 0]
-            mids = [m[0] for m in members]
-            prbs = [m[1] for m in members]
-            clusters.append(ClusterDraft(
-                label=f"{label_suffix} {ci + 1}",
-                summary=None,
-                exemplar_movie_ids=exemplars(mids, prbs, top_n),
-                parent_cluster_id=parent_cluster_ref,
-                memberships=members,
-            ))
+    for ci in range(result.n_clusters):
+        col = result.probabilities[:, ci]
+        members = [
+            (emb_ctx.available_ids[i], float(col[i]))
+            for i in range(len(emb_ctx.available_ids)) if col[i] > 0
+        ]
+        mids = [m[0] for m in members]
+        prbs = [m[1] for m in members]
+        clusters.append(ClusterDraft(
+            label=None,
+            summary=None,
+            exemplar_movie_ids=exemplars(mids, prbs, top_n),
+            parent_cluster_id=parent_cluster_ref,
+            memberships=members,
+        ))
 
     params: dict = {
         "operation": "drill_down",
@@ -247,6 +338,8 @@ async def free_drill_down(
     Raises:
         ValueError: If no movies or embeddings are found.
     """
+    from backend.agents.coordinator.commands._clustering import exemplars, resolve_movie_ids
+
     if embedding_spaces is None:
         embedding_spaces = [Modality.TEXT]
 
