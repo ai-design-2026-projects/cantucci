@@ -45,12 +45,14 @@ class MergeCommand:
                 step_cost=0.0,
             )
 
+        label_a = ctx.clusters[0].label or "Unlabeled"
+        label_b = ctx.clusters[1].label or "Unlabeled"
         ids_to_merge = [c.id for c in ctx.clusters[:2]]
         ctx.reporter.step("clustering")
         draft = await merge_clusters(
             cluster_ids=ids_to_merge,
             parent_cluster_snapshot_id=ctx.current_cluster_snapshot_id,
-            merged_label=self.merged_label or "Merged",
+            merged_label=f"{label_a} and {label_b}",
         )
         new_snapshot_id, step_cost, _, _ = await _persist_draft(ctx, draft)
         return ActionResult(
@@ -116,6 +118,7 @@ async def merge_clusters(
         "operation": "merge",
         "merged_cluster_ids": [str(cid) for cid in cluster_ids],
         "parent_cluster_snapshot_id": str(parent_cluster_snapshot_id),
+        "merged_label": merged_label,
     }
     log.info("merge_complete", extra={"n_merged": len(cluster_ids), "remaining_clusters": len(clusters)})
     return ClusterSnapshotDraft(operation="merge", params=params, clusters=clusters)
