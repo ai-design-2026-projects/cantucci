@@ -28,6 +28,10 @@ Decision rules — read carefully:
 2. drill_down: SEMANTIC sub-clustering by mood, tone, narrative style, era-feel, themes, aesthetic. Can target a cluster or the whole catalogue. Concept = the semantic axis ("gritty realism vs spectacle").
    - Add "trailer" to embedding_spaces for visual style, cinematography, colour palette.
    - Add "review" for critical reception, audience sentiment, or ending/resolution qualities.
+   - target_n_clusters: set when the user specifies how many groups they want.
+     * Explicit count ("give me 5 clusters", "split into 3 groups", "divide into 4") → set target_n_clusters to that integer (>= 2).
+     * Binary split implied — any of these with no number: "split", "divide", "cut in half", "in two", "bisect", "separate into two", "break into two" → set target_n_clusters = 2.
+     * No count mentioned ("re-cluster", "cluster everything by theme") → leave target_n_clusters null (HDBSCAN picks the count).
 
 3. cross_filter: NARROW the movie set by a metadata predicate (keep only Horror, keep only 90s films), then optionally re-cluster. Results in a single filtered cluster. Use for "show only X" requests.
 
@@ -50,8 +54,20 @@ Few-shot examples:
 
 User: "Split the Action cluster into gritty realistic films vs over-the-top blockbusters"
 → {
-    "reasoning": "User wants to subdivide the Action cluster along a semantic axis (gritty realism vs spectacle). This is drill_down with a concept, targeting the Action cluster.",
-    "actions": [{"mode": "drill_down", "concept": "gritty realism vs blockbuster spectacle", "merged_label": null, "target_cluster_id": "<action id>", "confidence": 0.88, "embedding_spaces": ["text"], "metadata_filter": null, "partition_spec": null}]
+    "reasoning": "User wants to subdivide the Action cluster along a semantic axis (gritty realism vs spectacle). This is drill_down with a concept, targeting the Action cluster. No count specified, so target_n_clusters is null.",
+    "actions": [{"mode": "drill_down", "concept": "gritty realism vs blockbuster spectacle", "merged_label": null, "target_cluster_id": "<action id>", "confidence": 0.88, "embedding_spaces": ["text"], "metadata_filter": null, "partition_spec": null, "target_n_clusters": null}]
+  }
+
+User: "Give me exactly 5 clusters"
+→ {
+    "reasoning": "User explicitly requests 5 clusters. This is a full-catalogue drill_down with no concept and target_n_clusters = 5.",
+    "actions": [{"mode": "drill_down", "concept": null, "merged_label": null, "target_cluster_id": null, "confidence": 0.92, "embedding_spaces": ["text"], "metadata_filter": null, "partition_spec": null, "target_n_clusters": 5}]
+  }
+
+User: "Split the Drama cluster in two"
+→ {
+    "reasoning": "User says split with no further qualification — binary split, so target_n_clusters = 2. No semantic concept specified.",
+    "actions": [{"mode": "drill_down", "concept": null, "merged_label": null, "target_cluster_id": "<drama id>", "confidence": 0.90, "embedding_spaces": ["text"], "metadata_filter": null, "partition_spec": null, "target_n_clusters": 2}]
   }
 
 User: "Cluster everything by genre"
@@ -119,8 +135,9 @@ Respond with exactly this JSON (no other text):
       "confidence": <0.0–1.0>,
       "embedding_spaces": ["text"],
       "metadata_filter": {"genres": null, "release_year_min": null, "release_year_max": null, "director": null} or null,
-      "partition_spec": {"attribute": "<attr>", "bins": [...] or null} or null
+      "partition_spec": {"attribute": "<attr>", "bins": [...] or null} or null,
+      "target_n_clusters": <integer >= 2 or null>
     }
   ]
 }
-Set metadata_filter to null except for cross_filter. Set partition_spec to null except for partition_by.
+Set metadata_filter to null except for cross_filter. Set partition_spec to null except for partition_by. Set target_n_clusters only for drill_down actions where the user requests a specific count; null otherwise.

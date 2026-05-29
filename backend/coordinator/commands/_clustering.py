@@ -154,6 +154,7 @@ def subcluster(
     min_cluster_size: int,
     distance_matrix: np.ndarray | None = None,
     cluster_selection_epsilon: float = 0.0,
+    target_n_clusters: int | None = None,
 ) -> SoftClusterResult:
     """Run HDBSCAN soft clustering on a subset (drill-down or recut).
 
@@ -175,6 +176,10 @@ def subcluster(
                                    matrix. Pass ``None`` when providing *embeddings*.
         cluster_selection_epsilon: Distance threshold for merging very close
                                    clusters in the HDBSCAN condensed tree.
+        target_n_clusters:         Optional target cluster count (>= 2).  When set,
+                                   ``hdbscan_soft`` will merge or expand to reach
+                                   exactly this many clusters.  ``None`` preserves
+                                   the emergent HDBSCAN count.
 
     Returns:
         ``SoftClusterResult`` for the subset.
@@ -198,6 +203,7 @@ def subcluster(
         min_samples=effective_samples,
         cluster_selection_epsilon=cluster_selection_epsilon,
         metric=metric,
+        target_n_clusters=target_n_clusters,
     )
 
 

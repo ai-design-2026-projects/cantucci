@@ -212,6 +212,7 @@ class IntentActionLLM(BaseModel):
     embedding_spaces: list[Modality] = [Modality.TEXT]
     metadata_filter: MetadataFilterLLM | None = None
     partition_spec: PartitionSpecLLM | None = None
+    target_n_clusters: int | None = None
 
 
 class IntentLLMResponse(BaseModel):
@@ -249,6 +250,9 @@ class IntentAction:
                            user references visual style or tone.
         metadata_filter:   Metadata predicate for cross_filter; ``None`` otherwise.
         partition_spec:    Attribute and bins for partition_by; ``None`` otherwise.
+        target_n_clusters: Exact cluster count requested by the Oracle for drill_down.
+                           ``None`` when no count was specified (emergent HDBSCAN count
+                           is used).  Values < 2 are discarded with a warning.
     """
     mode: NavigationMode | DialogueMode
     concept: str | None
@@ -258,6 +262,7 @@ class IntentAction:
     embedding_spaces: list[Modality]
     metadata_filter: MetadataFilter | None
     partition_spec: PartitionSpec | None
+    target_n_clusters: int | None
 
     @classmethod
     def from_llm_action(cls, parsed: IntentActionLLM) -> "IntentAction":
@@ -300,6 +305,16 @@ class IntentAction:
                 bins = [PartitionBin(label=b.label, min=b.min, max=b.max) for b in (ps.bins or [])]
                 partition_spec = PartitionSpec(attribute=attr, bins=bins or None)
 
+        target_n_clusters: int | None = None
+        if parsed.target_n_clusters is not None:
+            if parsed.target_n_clusters < 2:
+                log.warning(
+                    "intent_invalid_cluster_count",
+                    extra={"raw": parsed.target_n_clusters},
+                )
+            else:
+                target_n_clusters = parsed.target_n_clusters
+
         return cls(
             mode=parsed.mode,
             concept=parsed.concept,
@@ -309,6 +324,7 @@ class IntentAction:
             embedding_spaces=parsed.embedding_spaces,
             metadata_filter=metadata_filter,
             partition_spec=partition_spec,
+            target_n_clusters=target_n_clusters,
         )
 
 

@@ -30,6 +30,9 @@ class DrillDownCommand:
         concept:           Optional semantic concept string to guide clustering.
         embedding_spaces:  Modalities to fuse for embedding loading.
         confidence:        LLM confidence [0, 1].
+        target_n_clusters: Optional exact cluster count requested by the Oracle.
+                           When set, HDBSCAN output is merged or expanded to reach
+                           this count.  ``None`` preserves the emergent count.
     """
 
     REQUIRES_SNAPSHOT: ClassVar[bool] = False
@@ -40,6 +43,7 @@ class DrillDownCommand:
     concept: str | None
     embedding_spaces: list[Modality]
     confidence: float
+    target_n_clusters: int | None
 
     async def execute(self, ctx: ExecutionContext) -> ActionResult:
         """Split target cluster (or full catalogue) into sub-clusters.
@@ -80,12 +84,14 @@ class DrillDownCommand:
                 concept=concept_rep,
                 parent_cluster_snapshot_id=ctx.current_cluster_snapshot_id,
                 embedding_spaces=self.embedding_spaces,
+                target_n_clusters=self.target_n_clusters,
             )
         else:
             draft = await free_drill_down(
                 source_cluster_id=target_id,
                 parent_cluster_snapshot_id=ctx.current_cluster_snapshot_id,
                 embedding_spaces=self.embedding_spaces,
+                target_n_clusters=self.target_n_clusters,
             )
 
         new_snapshot_id, persist_cost, n_movies, new_clusters = await _persist_draft(ctx, draft, step_cost)
@@ -160,15 +166,21 @@ def _load_embeddings(resolved_movie_ids: list[int], embedding_spaces: list[Modal
     )
 
 
-def _cluster_group(group_ids: list[int], emb_ctx: _EmbeddingContext) -> SoftClusterResult:
+def _cluster_group(
+    group_ids: list[int],
+    emb_ctx: _EmbeddingContext,
+    target_n_clusters: int | None = None,
+) -> SoftClusterResult:
     """Cluster a group of movies using the given embedding context.
 
     Dispatches to multi-modal (precomputed distance matrix) or single-modal
     (UMAP + HDBSCAN) based on ``emb_ctx.multi_modal``.
 
     Args:
-        group_ids: Movie IDs to cluster (must be a subset of ``emb_ctx.available_ids``).
-        emb_ctx:   Embedding context produced by ``_load_embeddings``.
+        group_ids:         Movie IDs to cluster (must be a subset of ``emb_ctx.available_ids``).
+        emb_ctx:           Embedding context produced by ``_load_embeddings``.
+        target_n_clusters: Optional exact cluster count requested by the Oracle.
+                           Forwarded to ``subcluster`` / ``hdbscan_soft``.
 
     Returns:
         ``SoftClusterResult`` for the group.
@@ -192,6 +204,7 @@ def _cluster_group(group_ids: list[int], emb_ctx: _EmbeddingContext) -> SoftClus
             cfg.clustering.online.drilldown_min_cluster_size,
             distance_matrix=dist_mat,
             cluster_selection_epsilon=cfg.clustering.online.cluster_selection_epsilon,
+            target_n_clusters=target_n_clusters,
         )
     group_embs = np.array([emb_ctx.emb_map[mid] for mid in group_ids], dtype=np.float32)
     group_embs = reduce_for_clustering(group_embs, cfg.umap, cfg.split.seed)
@@ -199,6 +212,7 @@ def _cluster_group(group_ids: list[int], emb_ctx: _EmbeddingContext) -> SoftClus
         group_embs,
         cfg.clustering.online.drilldown_min_cluster_size,
         cluster_selection_epsilon=cfg.clustering.online.cluster_selection_epsilon,
+        target_n_clusters=target_n_clusters,
     )
 
 
@@ -208,6 +222,7 @@ async def concept_drill_down(
     parent_cluster_snapshot_id: uuid.UUID | None,
     embedding_spaces: list[Modality] | None = None,
     movie_ids: list[int] | None = None,
+    target_n_clusters: int | None = None,
 ) -> ClusterSnapshotDraft:
     """Cluster a movie set guided by a semantic concept using 1D density clustering.
 
@@ -227,6 +242,9 @@ async def concept_drill_down(
         parent_cluster_snapshot_id: Snapshot the source cluster belongs to.
         embedding_spaces:           Modalities to fuse for embedding loading. Defaults to ``[Modality.TEXT]``.
         movie_ids:                  Explicit movie ID list; used when ``source_cluster_id`` is ``None``.
+        target_n_clusters:          Optional exact cluster count requested by the Oracle.
+                                    When set, HDBSCAN output is merged or expanded to reach
+                                    this count.  ``None`` preserves the emergent count.
 
     Returns:
         ``ClusterSnapshotDraft`` ready to be persisted.
@@ -271,6 +289,7 @@ async def concept_drill_down(
         min_samples=min_samp,
         cluster_selection_epsilon=cfg.clustering.online.cluster_selection_epsilon,
         metric="euclidean",
+        target_n_clusters=target_n_clusters,
     )
 
     clusters: list[ClusterDraft] = []
@@ -296,6 +315,7 @@ async def concept_drill_down(
         "parent_cluster_snapshot_id": str(parent_cluster_snapshot_id) if parent_cluster_snapshot_id else None,
         "concept": concept.concept_name,
         "embedding_spaces": [s.value for s in embedding_spaces],
+        "target_n_clusters": target_n_clusters,
         "n_clusters": len(clusters),
     }
     log.info(
@@ -314,6 +334,7 @@ async def free_drill_down(
     parent_cluster_snapshot_id: uuid.UUID | None,
     embedding_spaces: list[Modality] | None = None,
     movie_ids: list[int] | None = None,
+    target_n_clusters: int | None = None,
 ) -> ClusterSnapshotDraft:
     """Cluster a movie set without concept guidance.
 
@@ -332,6 +353,9 @@ async def free_drill_down(
         parent_cluster_snapshot_id: Snapshot the source cluster belongs to.
         embedding_spaces:           Modalities to fuse. Defaults to ``[Modality.TEXT]``.
         movie_ids:                  Explicit movie ID list; used when ``source_cluster_id`` is ``None``.
+        target_n_clusters:          Optional exact cluster count requested by the Oracle.
+                                    When set, HDBSCAN output is merged or expanded to reach
+                                    this count.  ``None`` preserves the emergent count.
 
     Returns:
         ``ClusterSnapshotDraft`` ready to be persisted.
@@ -357,7 +381,7 @@ async def free_drill_down(
         src = str(source_cluster_id) if source_cluster_id else "full catalogue"
         raise ValueError(f"No embeddings found for {src}")
 
-    result = _cluster_group(emb_ctx.available_ids, emb_ctx)
+    result = _cluster_group(emb_ctx.available_ids, emb_ctx, target_n_clusters=target_n_clusters)
     clusters: list[ClusterDraft] = []
     for ci in range(result.n_clusters):
         col = result.probabilities[:, ci]
@@ -378,6 +402,7 @@ async def free_drill_down(
         "parent_cluster_snapshot_id": str(parent_cluster_snapshot_id) if parent_cluster_snapshot_id else None,
         "concept": None,
         "embedding_spaces": [s.value for s in embedding_spaces],
+        "target_n_clusters": target_n_clusters,
         "n_clusters": len(clusters),
     }
     log.info(
