@@ -23,7 +23,7 @@ class LabelingLLMAgent(LLMAgent[BatchLabelResult]):
     name = "labeling"
     step_type = "label_clusters"
     model_tier = "fast"
-    template_name = "label_v5.j2"
+    template_name = "label_v6.j2"
     response_schema = BatchLabelLLMResponse
 
     async def render_kwargs(self, **inputs: Any) -> dict[str, Any]:
@@ -75,18 +75,23 @@ def _build_entry(
     group: list[int],
     contexts: list[ClusterLabelContext] | None,
     top_n: int,
+    concept_rank: int | None = None,
+    concept_n: int | None = None,
 ) -> dict:
     """Build a single template entry dict for one cluster group.
 
     Args:
-        i:        Index into ``contexts`` (if provided).
-        group:    Ordered exemplar movie IDs for this cluster.
-        contexts: Optional per-cluster label contexts.
-        top_n:    Maximum exemplar titles to include.
+        i:            Index into ``contexts`` (if provided).
+        group:        Ordered exemplar movie IDs for this cluster.
+        contexts:     Optional per-cluster label contexts.
+        top_n:        Maximum exemplar titles to include.
+        concept_rank: 0-based rank of this cluster ordered low→high by mean concept score.
+                      Only set when all clusters in the batch have a concept_score.
+        concept_n:    Total number of clusters in the batch.
 
     Returns:
         Dict with keys ``exemplar_titles``, ``parent_label``, ``profile``,
-        ``pre_set_label``.
+        ``pre_set_label``, ``concept_score``, ``concept_rank``, ``concept_n``.
     """
     stubs = fetch_stubs(group[:top_n])
     titles = [f"{s.title} ({s.release_year or '?'})" for s in stubs]
@@ -96,10 +101,14 @@ def _build_entry(
         "parent_label": None,
         "profile": None,
         "pre_set_label": None,
+        "concept_score": None,
+        "concept_rank": concept_rank,
+        "concept_n": concept_n,
     }
     if ctx is not None:
         entry["parent_label"] = ctx.parent_label
         entry["pre_set_label"] = ctx.pre_set_label
+        entry["concept_score"] = ctx.concept_score
         if ctx.profile is not None:
             p = ctx.profile
             entry["profile"] = {
@@ -154,7 +163,19 @@ async def label_clusters(
     max_batch = cfg.labeling.max_batch_size
     mid = message_id or _SENTINEL_MESSAGE_ID
 
-    all_entries = [_build_entry(i, group, contexts, top_n) for i, group in enumerate(exemplar_groups)]
+    concept_ranks: list[int | None] = [None] * len(exemplar_groups)
+    concept_n: int | None = None
+    if contexts and all(c.concept_score is not None for c in contexts):
+        concept_n = len(contexts)
+        sorted_indices = sorted(range(len(contexts)), key=lambda k: contexts[k].concept_score)  # type: ignore[index]
+        concept_ranks = [0] * len(contexts)
+        for rank, original_index in enumerate(sorted_indices):
+            concept_ranks[original_index] = rank
+
+    all_entries = [
+        _build_entry(i, group, contexts, top_n, concept_ranks[i], concept_n)
+        for i, group in enumerate(exemplar_groups)
+    ]
     concept = contexts[0].concept if contexts else None
 
     if len(all_entries) <= max_batch:

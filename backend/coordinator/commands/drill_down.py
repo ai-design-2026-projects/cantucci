@@ -301,12 +301,18 @@ async def concept_drill_down(
         ]
         mids = [m[0] for m in members]
         prbs = [m[1] for m in members]
+        total_prob = sum(prbs)
+        weighted_score = (
+            sum(concept_scores[mid] * prob for mid, prob in zip(mids, prbs)) / total_prob
+            if total_prob > 0 else 0.0
+        )
         clusters.append(ClusterDraft(
             label=None,
             summary=None,
             exemplar_movie_ids=exemplars(mids, prbs, top_n),
             parent_cluster_id=parent_cluster_ref,
             memberships=members,
+            concept_score=round(weighted_score, 4),
         ))
 
     params: dict = {

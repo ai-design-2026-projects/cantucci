@@ -65,6 +65,7 @@ def build_label_contexts(
             parent_label=parent_label,
             profile=profile,
             pre_set_label=cd.label,
+            concept_score=cd.concept_score,
         ))
 
     return contexts

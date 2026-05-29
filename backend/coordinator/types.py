@@ -66,12 +66,16 @@ class ClusterDraft:
         exemplar_movie_ids: Top movie IDs by probability.
         parent_cluster_id:  Source cluster UUID for drill-down operations.
         memberships:        List of (movie_id, probability) pairs.
+        concept_score:      Probability-weighted mean concept score for this cluster, set only
+                            for concept-driven drill_down so the labeller can order clusters
+                            along the concept axis. None for all other operations.
     """
     label: str | None
     summary: str | None
     exemplar_movie_ids: list[int]
     parent_cluster_id: uuid.UUID | None
     memberships: list[tuple[int, float]] = field(default_factory=list)
+    concept_score: float | None = None
 
 
 @dataclass(frozen=True, slots=True)

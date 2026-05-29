@@ -21,11 +21,14 @@ class ClusterLabelContext:
         pre_set_label: When not None, the label is already determined (e.g. the genre
                        value "Action" or the bin label "Short (<60 min)"). The LLM
                        must echo this label exactly and generate only the summary.
+        concept_score: Probability-weighted mean concept score for this cluster (0–1).
+                       Only set for concept-driven drill_down; None otherwise.
     """
     concept: str | None
     parent_label: str | None
     profile: ClusterProfileRow | None
     pre_set_label: str | None = None
+    concept_score: float | None = None
 
 
 class ClusterLabelItem(BaseModel):
