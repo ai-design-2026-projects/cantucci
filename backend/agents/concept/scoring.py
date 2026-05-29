@@ -31,3 +31,26 @@ def score_movies(
         else:
             scores[mid] = float(np.dot(vec, concept.centroid))
     return scores
+
+
+def normalize_axis_scores(scores: dict[int, float]) -> dict[int, float]:
+    """Rescale raw concept scores to the [-1, 1] range via min-max normalization.
+
+    Maps the minimum score to -1 and the maximum to +1 linearly.  When all
+    scores are identical (max == min), every movie is mapped to 0.0.
+
+    Args:
+        scores: Dict mapping movie_id → raw axis score.
+
+    Returns:
+        New dict with the same keys and scores rescaled to [-1, 1].
+    """
+    if not scores:
+        return {}
+    values = list(scores.values())
+    lo = min(values)
+    hi = max(values)
+    if hi == lo:
+        return {mid: 0.0 for mid in scores}
+    span = hi - lo
+    return {mid: 2.0 * (v - lo) / span - 1.0 for mid, v in scores.items()}

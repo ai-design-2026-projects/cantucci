@@ -4,7 +4,7 @@ import uuid
 from typing import Any
 
 from backend.data_access.connection import transaction
-from backend.data_access.concepts.types import ConceptRow, ConceptScoreRow
+from backend.data_access.concepts.types import ConceptAxisPointRow, ConceptRow, ConceptScoreRow
 
 log = logging.getLogger(__name__)
 
@@ -26,7 +26,10 @@ def create_concept(name: str, concept_type: str, definition: dict[str, Any]) -> 
             (name, concept_type, json.dumps(definition)),
         ).fetchone()
     concept_id: uuid.UUID = row["id"]
-    log.debug("concept_created", extra={"concept_id": str(concept_id), "name": name, "type": concept_type})
+    log.debug(
+        "concept_created",
+        extra={"concept_id": str(concept_id), "concept_name": name, "concept_type": concept_type},
+    )
     return concept_id
 
 
@@ -51,6 +54,25 @@ def upsert_concept_scores(concept_id: uuid.UUID, scores: dict[int, float]) -> No
                 rows,
             )
     log.debug("concept_scores_upserted", extra={"concept_id": str(concept_id), "count": len(rows)})
+
+
+def get_concept(concept_id: uuid.UUID) -> ConceptRow | None:
+    """Fetch a concept row by its UUID.
+
+    Args:
+        concept_id: Concept UUID.
+
+    Returns:
+        ``ConceptRow`` if found, ``None`` otherwise.
+    """
+    with transaction() as conn:
+        row = conn.execute(
+            "SELECT id, name, type, definition, created_at FROM concepts WHERE id = %s",
+            (concept_id,),
+        ).fetchone()
+    if row is None:
+        return None
+    return ConceptRow.from_row(row)
 
 
 def get_concept_by_name(name: str) -> ConceptRow | None:
@@ -94,3 +116,30 @@ def get_concept_scores(concept_id: uuid.UUID, movie_ids: list[int] | None = None
                 (concept_id,),
             ).fetchall()
     return [ConceptScoreRow.from_row(r) for r in rows]
+
+
+def get_concept_axis_points(concept_id: uuid.UUID) -> list[ConceptAxisPointRow]:
+    """Return per-movie axis points enriched with movie titles, ordered by ascending score.
+
+    Joins ``concept_scores`` with the ``movies`` table to include the display title.
+    Scores are expected to be normalized to [-1, 1] (written by the cluster command
+    via ``upsert_concept_scores`` after ``normalize_axis_scores``).
+
+    Args:
+        concept_id: Concept UUID.
+
+    Returns:
+        List of ``ConceptAxisPointRow`` ordered by score ascending (most negative first).
+    """
+    with transaction() as conn:
+        rows = conn.execute(
+            """
+            SELECT cs.movie_id, m.title, cs.score
+            FROM concept_scores cs
+            JOIN movies m ON m.id = cs.movie_id
+            WHERE cs.concept_id = %s
+            ORDER BY cs.score ASC
+            """,
+            (concept_id,),
+        ).fetchall()
+    return [ConceptAxisPointRow.from_row(r) for r in rows]

@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 
 from backend.coordinator.agent import Coordinator
+from backend.coordinator.types import sentinel_cluster_snapshot_id
 from backend.auth.types import User
 from backend.data_access.conversations.queries import (
     add_conversation_cost,
@@ -68,7 +69,10 @@ def list_conversations_endpoint(
             current_cluster_snapshot_id=r.current_cluster_snapshot_id,
             created_at=r.created_at,
             messages=[
-                MessageDto(id=m.id, role=m.role, content=m.content, created_at=m.created_at)
+                MessageDto(
+                    id=m.id, role=m.role, content=m.content, created_at=m.created_at,
+                    suggestion=m.suggestion, axis_concept_id=m.axis_concept_id,
+                )
                 for m in get_messages(r.id)
             ],
         )
@@ -155,7 +159,10 @@ def get_conversation_endpoint(conversation_id: uuid.UUID) -> ConversationDto:
         id=row.id,
         current_cluster_snapshot_id=row.current_cluster_snapshot_id,
         messages=[
-            MessageDto(id=m.id, role=m.role, content=m.content, created_at=m.created_at)
+            MessageDto(
+                id=m.id, role=m.role, content=m.content, created_at=m.created_at,
+                suggestion=m.suggestion, axis_concept_id=m.axis_concept_id,
+            )
             for m in messages
         ],
         created_at=row.created_at,
@@ -204,7 +211,10 @@ def update_conversation_endpoint(
         id=conversation_id,
         current_cluster_snapshot_id=body.current_cluster_snapshot_id,
         messages=[
-            MessageDto(id=m.id, role=m.role, content=m.content, created_at=m.created_at)
+            MessageDto(
+                id=m.id, role=m.role, content=m.content, created_at=m.created_at,
+                suggestion=m.suggestion, axis_concept_id=m.axis_concept_id,
+            )
             for m in messages
         ],
         created_at=row.created_at,
@@ -248,8 +258,21 @@ async def send_message(
         conversation_row=row,
     )
 
-    msg_id = append_message(conversation_id, "assistant", result.reply_text, cost_usd=result.turn_cost_usd)
+    msg_id = append_message(
+        conversation_id,
+        "assistant",
+        result.reply_text,
+        cost_usd=result.turn_cost_usd,
+        suggestion=result.suggestion,
+        axis_concept_id=result.axis_concept_id,
+    )
     add_conversation_cost(conversation_id, result.turn_cost_usd)
+
+    response_cluster_snapshot_id = (
+        None
+        if result.cluster_snapshot_id == sentinel_cluster_snapshot_id()
+        else result.cluster_snapshot_id
+    )
     log.info("assistant_reply", extra={"conversation_id": str(conversation_id), "cluster_snapshot_id": str(result.cluster_snapshot_id), "turn_cost_usd": result.turn_cost_usd})
 
     response = SendMessageResponse(
@@ -259,13 +282,14 @@ async def send_message(
             content=result.reply_text,
             created_at=row.created_at,
             suggestion=result.suggestion,
+            axis_concept_id=result.axis_concept_id,
         ),
-        cluster_snapshot_id=result.cluster_snapshot_id,
+        cluster_snapshot_id=response_cluster_snapshot_id,
     )
 
-    if _demo_record.is_record_mode():
+    if _demo_record.is_record_mode() and response_cluster_snapshot_id is not None:
         from backend.routers.dto.cluster_snapshots.build_snapshot import build_snapshot_dto
-        snapshot_dto = build_snapshot_dto(result.cluster_snapshot_id)
+        snapshot_dto = build_snapshot_dto(response_cluster_snapshot_id)
         _demo_record.record_turn(str(conversation_id), body.content, response, snapshot_dto)
 
     return response

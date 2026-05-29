@@ -251,6 +251,10 @@ class IntentAction:
         target_n_clusters: Exact cluster count requested by the Oracle for drill_down.
                            ``None`` when no count was specified (emergent HDBSCAN count
                            is used).  Values < 2 are discarded with a warning.
+        reuse_concept_id:  UUID of a previously persisted concept whose normalized scores
+                           should be reused for clustering.  Set by the coordinator when
+                           the user is confirming a concept-axis proposal; never set by
+                           the LLM directly.  When non-None the concept agent is skipped.
     """
     mode: NavigationMode | DialogueMode
     concept: str | None
@@ -261,6 +265,7 @@ class IntentAction:
     metadata_filter: MetadataFilter | None
     partition_spec: PartitionSpec | None
     target_n_clusters: int | None
+    reuse_concept_id: uuid.UUID | None = None
 
     @classmethod
     def from_llm_action(cls, parsed: IntentActionLLM) -> "IntentAction":

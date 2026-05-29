@@ -79,6 +79,18 @@ class ConceptParseError(ParseError):
         super().__init__(f"Could not parse concept: {raw!r}")
 
 
+class ConceptNotFound(NotFoundError):
+    """Raised when a concept_id does not exist in the DB.
+
+    Attributes:
+        concept_id: The UUID that was looked up and not found.
+    """
+
+    def __init__(self, concept_id: UUID) -> None:
+        self.concept_id = concept_id
+        super().__init__(f"Concept {concept_id} not found")
+
+
 class ForbiddenError(DomainError):
     """Base for authorization failures (authenticated but not permitted). Maps to HTTP 403."""
     http_status: int = 403

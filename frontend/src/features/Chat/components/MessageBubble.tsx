@@ -1,6 +1,7 @@
 import { motion } from 'framer-motion'
 import { Mascot } from '@/components/mascot'
 import type { MessageDto } from '@/api/dto/conversations'
+import { ViewAxisDistributionButton } from '@/features/AxisDistribution/components/ViewAxisDistributionButton'
 
 /**
  * Renders a single chat message bubble.
@@ -32,6 +33,11 @@ export function MessageBubble({ message }: { message: MessageDto }) {
 					}`}
 			>
 				{message.content}
+				{!isUser && message.axis_concept_id && (
+					<div className="mt-2 pt-2 border-t border-[var(--color-border)]">
+						<ViewAxisDistributionButton conceptId={message.axis_concept_id} />
+					</div>
+				)}
 				{!isUser && message.suggestion && (
 					<p className="mt-2 pt-2 border-t border-[var(--color-border)] text-xs opacity-70 leading-relaxed">
 						{message.suggestion}

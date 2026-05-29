@@ -49,6 +49,7 @@ def build_command(action: IntentAction) -> AnyCommand:
             embedding_spaces=action.embedding_spaces,
             confidence=action.confidence,
             target_n_clusters=action.target_n_clusters,
+            reuse_concept_id=action.reuse_concept_id,
         )
     if mode == NavigationMode.MERGE:
         return MergeCommand(

@@ -12,7 +12,7 @@ from backend.coordinator.commands._helpers import (
     resolve_target_or_clarify,
 )
 from backend.coordinator.commands.base import ActionResult, ExecutionContext
-from backend.coordinator.tools.clarification_state import mark_awaiting
+from backend.coordinator.tools.clarification_state import PendingConcept, mark_awaiting
 from backend.coordinator.types import ClusterDraft, ClusterSnapshotDraft
 from backend.agents.intent.types import Modality, PartitionSpec
 from backend.agents.responder import replies
@@ -144,6 +144,102 @@ def _cluster_group(
     )
 
 
+def _build_concept_clusters(
+    concept_name: str,
+    scores: dict[int, float],
+    available_ids: list[int],
+    parent_cluster_ref: uuid.UUID | None,
+    source_cluster_id: uuid.UUID | None,
+    parent_cluster_snapshot_id: uuid.UUID | None,
+    embedding_spaces: list[Modality],
+    target_n_clusters: int | None,
+) -> ClusterSnapshotDraft:
+    """Build a ``ClusterSnapshotDraft`` by running 1-D HDBSCAN on pre-computed concept scores.
+
+    Separates the clustering logic from embedding/scoring so the reuse branch can
+    call this directly with scores already loaded from the database.
+
+    Args:
+        concept_name:               Human-readable concept name for params and logging.
+        scores:                     Dict mapping movie_id → concept score.
+        available_ids:              Ordered list of movie IDs (must be keys of ``scores``).
+        parent_cluster_ref:         ``parent_cluster_id`` for each ``ClusterDraft``.
+        source_cluster_id:          Original source cluster for params recording.
+        parent_cluster_snapshot_id: Parent snapshot UUID for params recording.
+        embedding_spaces:           Modalities used; recorded in params.
+        target_n_clusters:          Optional exact cluster count; ``None`` for emergent HDBSCAN.
+
+    Returns:
+        ``ClusterSnapshotDraft`` ready to be persisted.
+    """
+    import numpy as np
+
+    from backend.coordinator.commands._clustering import exemplars
+    from core.clustering import hdbscan_soft
+
+    cfg = get_settings()
+    top_n = cfg.labeling.top_exemplars
+
+    score_values = np.array(
+        [scores[mid] for mid in available_ids], dtype=np.float64
+    ).reshape(-1, 1)
+
+    min_cs = max(2, min(cfg.clustering.online.drilldown_min_cluster_size, len(available_ids) // 5))
+    min_samp = max(1, min_cs // 3)
+
+    # Cluster on the 1D concept score axis directly — no UMAP (meaningless on 1D)
+    result = hdbscan_soft(
+        score_values,
+        min_cluster_size=min_cs,
+        min_samples=min_samp,
+        cluster_selection_epsilon=cfg.clustering.online.cluster_selection_epsilon,
+        metric="euclidean",
+        target_n_clusters=target_n_clusters,
+    )
+
+    clusters: list[ClusterDraft] = []
+    for ci in range(result.n_clusters):
+        col = result.probabilities[:, ci]
+        members = [
+            (available_ids[i], float(col[i]))
+            for i in range(len(available_ids)) if col[i] > 0
+        ]
+        mids = [m[0] for m in members]
+        prbs = [m[1] for m in members]
+        total_prob = sum(prbs)
+        weighted_score = (
+            sum(scores[mid] * prob for mid, prob in zip(mids, prbs)) / total_prob
+            if total_prob > 0 else 0.0
+        )
+        clusters.append(ClusterDraft(
+            label=None,
+            summary=None,
+            exemplar_movie_ids=exemplars(mids, prbs, top_n),
+            parent_cluster_id=parent_cluster_ref,
+            memberships=members,
+            concept_score=round(weighted_score, 4),
+        ))
+
+    params: dict = {
+        "operation": "cluster",
+        "source_cluster_id": str(source_cluster_id) if source_cluster_id else None,
+        "parent_cluster_snapshot_id": str(parent_cluster_snapshot_id) if parent_cluster_snapshot_id else None,
+        "concept": concept_name,
+        "embedding_spaces": [s.value for s in embedding_spaces],
+        "target_n_clusters": target_n_clusters,
+        "n_clusters": len(clusters),
+    }
+    log.info(
+        "concept_cluster_complete",
+        extra={
+            "source_cluster_id": str(source_cluster_id) if source_cluster_id else None,
+            "concept": concept_name,
+            "n_clusters": len(clusters),
+        },
+    )
+    return ClusterSnapshotDraft(operation="cluster", params=params, clusters=clusters)
+
+
 async def _concept_cluster(
     source_cluster_id: uuid.UUID | None,
     concept: ConceptRep,
@@ -180,17 +276,11 @@ async def _concept_cluster(
     Raises:
         ValueError: If no movies or embeddings are found.
     """
-    import numpy as np
-
     from backend.agents.concept.scoring import score_movies
-    from backend.coordinator.commands._clustering import exemplars, resolve_movie_ids
-    from core.clustering import hdbscan_soft
+    from backend.coordinator.commands._clustering import resolve_movie_ids
 
     if embedding_spaces is None:
         embedding_spaces = [Modality.TEXT]
-
-    cfg = get_settings()
-    top_n = cfg.labeling.top_exemplars
 
     resolved_movie_ids = resolve_movie_ids(source_cluster_id, movie_ids, parent_cluster_snapshot_id)
     if not resolved_movie_ids:
@@ -198,69 +288,26 @@ async def _concept_cluster(
     parent_cluster_ref: uuid.UUID | None = source_cluster_id
 
     emb_ctx = _load_embeddings(resolved_movie_ids, embedding_spaces)
+    src = str(source_cluster_id) if source_cluster_id else "full catalogue"
     if not emb_ctx.available_ids:
-        src = str(source_cluster_id) if source_cluster_id else "full catalogue"
         raise ValueError(f"No embeddings found for {src}")
+    if not emb_ctx.emb_map:
+        raise ValueError(f"No text embeddings found for {src}")
 
     concept_scores = score_movies(concept, emb_ctx.available_ids, emb_ctx.emb_map)
-    score_values = np.array(
-        [concept_scores[mid] for mid in emb_ctx.available_ids], dtype=np.float64
-    ).reshape(-1, 1)
+    if not concept_scores:
+        raise ValueError(f"No embeddings found for {src}")
 
-    min_cs = max(2, min(cfg.clustering.online.drilldown_min_cluster_size, len(emb_ctx.available_ids) // 5))
-    min_samp = max(1, min_cs // 3)
-
-    # Cluster on the 1D concept score axis directly — no UMAP (meaningless on 1D)
-    result = hdbscan_soft(
-        score_values,
-        min_cluster_size=min_cs,
-        min_samples=min_samp,
-        cluster_selection_epsilon=cfg.clustering.online.cluster_selection_epsilon,
-        metric="euclidean",
+    return _build_concept_clusters(
+        concept_name=concept.concept_name,
+        scores=concept_scores,
+        available_ids=emb_ctx.available_ids,
+        parent_cluster_ref=parent_cluster_ref,
+        source_cluster_id=source_cluster_id,
+        parent_cluster_snapshot_id=parent_cluster_snapshot_id,
+        embedding_spaces=embedding_spaces,
         target_n_clusters=target_n_clusters,
     )
-
-    clusters: list[ClusterDraft] = []
-    for ci in range(result.n_clusters):
-        col = result.probabilities[:, ci]
-        members = [
-            (emb_ctx.available_ids[i], float(col[i]))
-            for i in range(len(emb_ctx.available_ids)) if col[i] > 0
-        ]
-        mids = [m[0] for m in members]
-        prbs = [m[1] for m in members]
-        total_prob = sum(prbs)
-        weighted_score = (
-            sum(concept_scores[mid] * prob for mid, prob in zip(mids, prbs)) / total_prob
-            if total_prob > 0 else 0.0
-        )
-        clusters.append(ClusterDraft(
-            label=None,
-            summary=None,
-            exemplar_movie_ids=exemplars(mids, prbs, top_n),
-            parent_cluster_id=parent_cluster_ref,
-            memberships=members,
-            concept_score=round(weighted_score, 4),
-        ))
-
-    params: dict = {
-        "operation": "cluster",
-        "source_cluster_id": str(source_cluster_id) if source_cluster_id else None,
-        "parent_cluster_snapshot_id": str(parent_cluster_snapshot_id) if parent_cluster_snapshot_id else None,
-        "concept": concept.concept_name,
-        "embedding_spaces": [s.value for s in embedding_spaces],
-        "target_n_clusters": target_n_clusters,
-        "n_clusters": len(clusters),
-    }
-    log.info(
-        "concept_cluster_complete",
-        extra={
-            "source_cluster_id": str(source_cluster_id) if source_cluster_id else None,
-            "concept": concept.concept_name,
-            "n_clusters": len(clusters),
-        },
-    )
-    return ClusterSnapshotDraft(operation="cluster", params=params, clusters=clusters)
 
 
 async def _free_cluster(
@@ -376,6 +423,10 @@ class ClusterCommand:
         confidence:        LLM confidence [0, 1].
         target_n_clusters: Exact cluster count requested by the oracle (semantic branch).
                            ``None`` preserves the emergent HDBSCAN count.
+        reuse_concept_id:  UUID of a persisted concept whose normalized scores should be
+                           reused for clustering.  Set by the coordinator when the user is
+                           confirming a concept-axis beeswarm proposal; never extracted from
+                           LLM output.  When non-None the concept agent call is skipped.
     """
 
     REQUIRES_SNAPSHOT: ClassVar[bool] = False
@@ -388,6 +439,7 @@ class ClusterCommand:
     embedding_spaces: list[Modality]
     confidence: float
     target_n_clusters: int | None
+    reuse_concept_id: uuid.UUID | None = None
 
     async def execute(self, ctx: ExecutionContext) -> ActionResult:
         """Split the target cluster (or full catalogue) into sub-groups.
@@ -521,6 +573,19 @@ class ClusterCommand:
     async def _execute_semantic(self, ctx: ExecutionContext) -> ActionResult:
         """Semantic branch: HDBSCAN clustering, optionally guided by a concept.
 
+        Handles three sub-paths:
+
+        1. **Reuse**: ``reuse_concept_id`` is set — the user is confirming a previously
+           proposed concept-axis beeswarm.  Scores are loaded from the DB; the concept
+           agent is not invoked.
+
+        2. **Proposal**: ``concept`` is set and ``target_n_clusters`` is None — score and
+           persist the concept axis, then return a proposal message with ``axis_concept_id``
+           instead of clustering.  The next turn will enter path 1.
+
+        3. **Direct**: ``concept`` is set with a specified count, or no concept — cluster
+           immediately as before.
+
         Args:
             ctx: Execution context with session state.
 
@@ -538,6 +603,9 @@ class ClusterCommand:
                 step_cost=0.0,
             )
 
+        if self.reuse_concept_id is not None:
+            return await self._execute_reuse_concept(ctx, target_id)
+
         step_cost = 0.0
         concept_rep = None
         if self.concept:
@@ -549,6 +617,9 @@ class ClusterCommand:
                 accumulated_cost=ctx.accumulated_cost + step_cost,
             )
             step_cost += concept_rep.cost
+
+        if concept_rep is not None and self.target_n_clusters is None:
+            return await self._propose_concept_axis(ctx, concept_rep, target_id, step_cost)
 
         ctx.reporter.step("clustering")
         if concept_rep is not None:
@@ -575,6 +646,160 @@ class ClusterCommand:
             )
 
         new_snapshot_id, persist_cost, n_movies, new_clusters = await _persist_draft(ctx, draft, step_cost)
+        labels = [c.label for c in new_clusters]
+        return ActionResult(
+            reply_fragment=replies.format_drill_down_reply(labels, len(new_clusters), n_movies),
+            cluster_snapshot_id=new_snapshot_id,
+            step_cost=persist_cost,
+        )
+
+    async def _propose_concept_axis(
+        self,
+        ctx: ExecutionContext,
+        concept_rep: ConceptRep,
+        target_id: uuid.UUID | None,
+        step_cost: float,
+    ) -> ActionResult:
+        """Score, normalize, and persist a concept axis; return a proposal without clustering.
+
+        Computes per-movie axis projections, normalizes them to [-1, 1] via min-max,
+        persists them to the concept_scores table, then sets the awaiting flag and
+        returns a reply that invites the user to inspect the beeswarm distribution.
+
+        Args:
+            ctx:         Execution context.
+            concept_rep: Concept representation produced by the concept agent.
+            target_id:   Resolved source cluster UUID, or None for the full catalogue.
+            step_cost:   Concept-agent cost already incurred this step.
+
+        Returns:
+            ActionResult with the proposal text, unchanged snapshot id, and
+            the persisted concept's UUID in ``axis_concept_id``.
+
+        Raises:
+            ValueError: If no movies or embeddings are found for scoring.
+        """
+        import numpy as np
+
+        from backend.agents.concept.scoring import normalize_axis_scores, score_movies
+        from backend.coordinator.commands._clustering import resolve_movie_ids
+        from backend.data_access.concepts.queries import create_concept, upsert_concept_scores
+
+        ctx.reporter.step("clustering")
+
+        resolved_ids = resolve_movie_ids(
+            source_cluster_id=target_id,
+            movie_ids=None,
+            parent_cluster_snapshot_id=ctx.current_cluster_snapshot_id,
+        )
+        if not resolved_ids:
+            raise ValueError("No movies found for concept axis scoring")
+
+        emb_ctx = _load_embeddings(resolved_ids, self.embedding_spaces)
+        src = str(target_id) if target_id else "full catalogue"
+        if not emb_ctx.available_ids:
+            raise ValueError(f"No embeddings found for {src}")
+        if not emb_ctx.emb_map:
+            raise ValueError(f"No text embeddings found for {src}")
+
+        raw_scores = score_movies(concept_rep, emb_ctx.available_ids, emb_ctx.emb_map)
+        if not raw_scores:
+            raise ValueError(f"No embeddings found for {src}")
+
+        normalized = normalize_axis_scores(raw_scores)
+        if not normalized:
+            raise ValueError(f"No embeddings found for {src}")
+
+        concept_id = create_concept(
+            name=concept_rep.concept_name,
+            concept_type="linear_axis",
+            definition={"concept_name": concept_rep.concept_name},
+        )
+        upsert_concept_scores(concept_id, normalized)
+
+        mark_awaiting(
+            ctx.conversation_id,
+            pending_concept=PendingConcept(
+                concept_id=concept_id,
+                concept_name=concept_rep.concept_name,
+                target_cluster_id=target_id,
+                embedding_spaces=self.embedding_spaces,
+            ),
+        )
+
+        log.info(
+            "concept_axis_proposed",
+            extra={
+                "concept_id": str(concept_id),
+                "concept": concept_rep.concept_name,
+                "n_movies": len(normalized),
+                "conversation_id": str(ctx.conversation_id),
+            },
+        )
+        return ActionResult(
+            reply_fragment=replies.format_axis_proposal(concept_rep.concept_name, len(normalized)),
+            cluster_snapshot_id=ctx.current_cluster_snapshot_id,
+            step_cost=step_cost,
+            axis_concept_id=concept_id,
+        )
+
+    async def _execute_reuse_concept(
+        self,
+        ctx: ExecutionContext,
+        target_id: uuid.UUID | None,
+    ) -> ActionResult:
+        """Cluster using previously persisted concept scores, skipping the concept agent.
+
+        Called when ``reuse_concept_id`` is set (user is confirming a concept-axis
+        beeswarm proposal). Loads the normalized scores from ``concept_scores``,
+        runs ``_build_concept_clusters``, merges siblings, persists, and replies.
+
+        Args:
+            ctx:       Execution context.
+            target_id: Resolved source cluster UUID (from the pending concept context).
+
+        Returns:
+            ActionResult with the drill-down reply and the new snapshot id.
+
+        Raises:
+            ValueError: If no concept scores are found for the given concept id.
+        """
+        from backend.data_access.concepts.queries import get_concept, get_concept_scores
+
+        assert self.reuse_concept_id is not None
+
+        ctx.reporter.step("clustering")
+
+        concept_row = get_concept(self.reuse_concept_id)
+        if concept_row is None:
+            raise ValueError(f"Concept {self.reuse_concept_id} not found for reuse clustering")
+
+        score_rows = get_concept_scores(self.reuse_concept_id)
+        if not score_rows:
+            raise ValueError(f"No concept scores found for concept {self.reuse_concept_id}")
+
+        scores = {r.movie_id: r.score for r in score_rows}
+        available_ids = list(scores)
+
+        draft = _build_concept_clusters(
+            concept_name=concept_row.name,
+            scores=scores,
+            available_ids=available_ids,
+            parent_cluster_ref=target_id,
+            source_cluster_id=target_id,
+            parent_cluster_snapshot_id=ctx.current_cluster_snapshot_id,
+            embedding_spaces=self.embedding_spaces,
+            target_n_clusters=self.target_n_clusters,
+        )
+
+        if target_id is not None and ctx.current_cluster_snapshot_id is not None:
+            draft = ClusterSnapshotDraft(
+                operation=draft.operation,
+                params=draft.params,
+                clusters=merge_in_siblings(ctx.current_cluster_snapshot_id, target_id, draft.clusters),
+            )
+
+        new_snapshot_id, persist_cost, n_movies, new_clusters = await _persist_draft(ctx, draft)
         labels = [c.label for c in new_clusters]
         return ActionResult(
             reply_fragment=replies.format_drill_down_reply(labels, len(new_clusters), n_movies),

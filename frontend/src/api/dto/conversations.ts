@@ -4,6 +4,7 @@ export interface MessageDto {
     content: string
     created_at: string
     suggestion?: string | null
+    axis_concept_id?: string | null
 }
 
 export interface ConversationDto {
@@ -15,5 +16,5 @@ export interface ConversationDto {
 
 export interface SendMessageResponse {
     message: MessageDto
-    cluster_snapshot_id: string
+    cluster_snapshot_id: string | null
 }

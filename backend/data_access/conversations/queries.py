@@ -92,6 +92,8 @@ def append_message(
     role: str,
     content: str,
     cost_usd: float = 0.0,
+    suggestion: str | None = None,
+    axis_concept_id: uuid.UUID | None = None,
 ) -> uuid.UUID:
     """Insert a message row and return its UUID.
 
@@ -100,14 +102,20 @@ def append_message(
         role:            ``"user"`` or ``"assistant"``.
         content:         Message text.
         cost_usd:        LLM cost for this turn in USD. Pass 0 for user messages.
+        suggestion:      Optional follow-up suggestion text from the suggester agent.
+        axis_concept_id: UUID of the concept backing a beeswarm axis-distribution proposal.
 
     Returns:
         UUID of the newly inserted message.
     """
     with transaction() as conn:
         row = conn.execute(
-            "INSERT INTO messages (conversation_id, role, content, cost_usd) VALUES (%s, %s, %s, %s) RETURNING id",
-            (conversation_id, role, content, cost_usd),
+            """
+            INSERT INTO messages (conversation_id, role, content, cost_usd, suggestion, axis_concept_id)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            RETURNING id
+            """,
+            (conversation_id, role, content, cost_usd, suggestion, axis_concept_id),
         ).fetchone()
     return row["id"]
 
@@ -182,7 +190,7 @@ def get_messages(conversation_id: uuid.UUID, limit: int = 20) -> list[MessageRow
     with transaction() as conn:
         rows = conn.execute(
             """
-            SELECT id, conversation_id, role, content, created_at, cost_usd
+            SELECT id, conversation_id, role, content, created_at, cost_usd, suggestion, axis_concept_id
             FROM messages
             WHERE conversation_id = %s
             ORDER BY created_at DESC

@@ -165,6 +165,26 @@ def format_undo_reply(operation: str, n_clusters: int) -> str:
     return f"Stepped back — undid '{op_label}'. Now showing {n_clusters} cluster{'s' if n_clusters != 1 else ''}."
 
 
+def format_axis_proposal(concept_name: str, n_movies: int) -> str:
+    """Format the concept-axis beeswarm proposal message shown before clustering.
+
+    Tells the user the scoring is done and invites them to inspect the distribution
+    before deciding on a cluster count.  No cluster state has changed at this point.
+
+    Args:
+        concept_name: Human-readable name of the scored concept (e.g. ``"open-ended ending"``).
+        n_movies:     Number of films scored along the axis.
+
+    Returns:
+        A conversational message directing the user to open the axis distribution view.
+    """
+    return (
+        f"I've scored {n_movies:,} film{'s' if n_movies != 1 else ''} along the "
+        f"\"{concept_name}\" axis. Open **View axis distribution** to see how they spread, "
+        f"then tell me how many groups you'd like."
+    )
+
+
 def format_bin_proposal(
     attribute: str,
     bins: list,
