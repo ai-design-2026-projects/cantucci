@@ -43,6 +43,7 @@ def build_snapshot_dto(cluster_snapshot_id: uuid.UUID) -> ClusterSnapshotDto:
             summary=c.summary,
             exemplar_movie_ids=c.exemplar_movie_ids,
             parent_cluster_id=c.parent_cluster_id,
+            color_slot=c.color_slot,
         )
         for c in result.clusters
     ]

@@ -147,6 +147,7 @@ def create_cluster(
     label: str | None,
     summary: str | None,
     exemplar_movie_ids: list[int],
+    color_slot: int,
     parent_cluster_id: uuid.UUID | None = None,
 ) -> uuid.UUID:
     """Insert a cluster row and return its UUID.
@@ -156,6 +157,7 @@ def create_cluster(
         label:               Human-readable label, or None for unlabeled root clusters.
         summary:             One-sentence summary, or None.
         exemplar_movie_ids:  Top movie IDs by probability.
+        color_slot:          Stable integer for golden-angle color assignment in the frontend.
         parent_cluster_id:   UUID of the source cluster for drill-down operations.
 
     Returns:
@@ -164,11 +166,11 @@ def create_cluster(
     with transaction() as conn:
         row = conn.execute(
             """
-            INSERT INTO clusters (cluster_snapshot_id, label, summary, exemplar_movie_ids, parent_cluster_id)
-            VALUES (%s, %s, %s, %s, %s)
+            INSERT INTO clusters (cluster_snapshot_id, label, summary, exemplar_movie_ids, color_slot, parent_cluster_id)
+            VALUES (%s, %s, %s, %s, %s, %s)
             RETURNING id
             """,
-            (cluster_snapshot_id, label, summary, json.dumps(exemplar_movie_ids), parent_cluster_id),
+            (cluster_snapshot_id, label, summary, json.dumps(exemplar_movie_ids), color_slot, parent_cluster_id),
         ).fetchone()
     return row["id"]
 
@@ -262,7 +264,7 @@ def get_cluster_snapshot_with_clusters(cluster_snapshot_id: uuid.UUID) -> Cluste
             return None
         cluster_rows = conn.execute(
             """
-            SELECT id, cluster_snapshot_id, label, summary, exemplar_movie_ids, parent_cluster_id
+            SELECT id, cluster_snapshot_id, label, summary, exemplar_movie_ids, color_slot, parent_cluster_id
             FROM clusters
             WHERE cluster_snapshot_id = %s
             """,
@@ -381,16 +383,16 @@ def create_root_snapshot_from_assignments(
         snapshot_id: uuid.UUID = row["id"]
 
         cluster_uuid_map: dict[int, uuid.UUID] = {}
-        for cid in sorted(buckets.keys()):
+        for slot, cid in enumerate(sorted(buckets.keys())):
             movies_in_cluster = sorted(buckets[cid], key=lambda x: x[1], reverse=True)
             exemplar_ids = [m[0] for m in movies_in_cluster[:n_exemplars]]
             cluster_row = conn.execute(
                 """
-                INSERT INTO clusters (cluster_snapshot_id, label, summary, exemplar_movie_ids, parent_cluster_id)
-                VALUES (%s, NULL, NULL, %s, NULL)
+                INSERT INTO clusters (cluster_snapshot_id, label, summary, exemplar_movie_ids, color_slot, parent_cluster_id)
+                VALUES (%s, NULL, NULL, %s, %s, NULL)
                 RETURNING id
                 """,
-                (snapshot_id, json.dumps(exemplar_ids)),
+                (snapshot_id, json.dumps(exemplar_ids), slot),
             ).fetchone()
             cluster_uuid_map[cid] = cluster_row["id"]
 

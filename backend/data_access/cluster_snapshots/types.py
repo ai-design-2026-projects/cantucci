@@ -69,6 +69,9 @@ class ClusterRow:
         summary:            One-sentence LLM-generated summary.
         exemplar_movie_ids: Top-N movie IDs with highest membership probability.
         parent_cluster_id:  UUID of the cluster this was split from, if any.
+        color_slot:         Stable integer inherited by carry-forward clusters and freshly
+                            assigned for new ones. Used by the frontend to derive
+                            maximally-distinguishable hues via the golden angle.
     """
     id: uuid.UUID
     cluster_snapshot_id: uuid.UUID
@@ -76,6 +79,7 @@ class ClusterRow:
     summary: str | None
     exemplar_movie_ids: list[int]
     parent_cluster_id: uuid.UUID | None
+    color_slot: int
 
     @classmethod
     def from_row(cls, r: dict) -> "ClusterRow":
@@ -87,6 +91,7 @@ class ClusterRow:
             summary=r["summary"],
             exemplar_movie_ids=list(r["exemplar_movie_ids"]) if r["exemplar_movie_ids"] else [],
             parent_cluster_id=r["parent_cluster_id"],
+            color_slot=r["color_slot"],
         )
 
 

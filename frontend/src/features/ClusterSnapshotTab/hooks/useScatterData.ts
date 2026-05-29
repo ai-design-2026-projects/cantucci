@@ -1,13 +1,12 @@
 import { useMemo } from 'react'
 import type { ClusterSnapshotDto } from '@/api/dto/snapshots'
-import { clusterColorKey } from '@/styles/theme'
 
 export interface ScatterPoint {
     movieId: number
     title: string
     clusterId: string | null
     clusterLabel: string | null
-    colorKey: string | null
+    colorSlot: number | null
     x: number
     y: number
     probability: number
@@ -20,13 +19,13 @@ export interface ScatterPoint {
  * is an exemplar of any cluster (always-on size boost).
  *
  * @param snapshot - Active ClusterSnapshotDto (includes members with coords).
- * @returns Array of ScatterPoint objects ready for Recharts rendering.
+ * @returns Array of ScatterPoint objects ready for canvas rendering.
  */
 export function useScatterData(snapshot: ClusterSnapshotDto | undefined): ScatterPoint[] {
     return useMemo(() => {
         if (!snapshot) return []
         const labelByClusterId = new Map(snapshot.clusters.map((c) => [c.id, c.label]))
-        const colorKeyByClusterId = new Map(snapshot.clusters.map((c) => [c.id, clusterColorKey(snapshot.operation, c)]))
+        const slotByClusterId = new Map(snapshot.clusters.map((c) => [c.id, c.color_slot]))
 
         const exemplarSet = new Set<number>()
         for (const cluster of snapshot.clusters) {
@@ -38,7 +37,7 @@ export function useScatterData(snapshot: ClusterSnapshotDto | undefined): Scatte
             title: m.title,
             clusterId: m.cluster_id,
             clusterLabel: labelByClusterId.get(m.cluster_id) ?? null,
-            colorKey: colorKeyByClusterId.get(m.cluster_id) ?? m.cluster_id,
+            colorSlot: slotByClusterId.get(m.cluster_id) ?? null,
             x: m.umap_x,
             y: m.umap_y,
             probability: m.probability,

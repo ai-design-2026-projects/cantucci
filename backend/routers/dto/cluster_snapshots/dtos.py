@@ -33,12 +33,15 @@ class ClusterDto(BaseModel):
         summary:            One-sentence description.
         exemplar_movie_ids: Top movie IDs by probability.
         parent_cluster_id:  UUID of the source cluster, if this was a drill-down.
+        color_slot:         Stable integer for golden-angle color assignment in the frontend.
+                            Inherited by carry-forward clusters; freshly assigned for new ones.
     """
     id: uuid.UUID
     label: str | None
     summary: str | None
     exemplar_movie_ids: list[int]
     parent_cluster_id: uuid.UUID | None
+    color_slot: int
 
 
 class ClusterSnapshotDto(BaseModel):
