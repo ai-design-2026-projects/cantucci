@@ -5,7 +5,8 @@ import uuid
 from backend.agents.clarifier.agent import agent as clarifier_agent
 from backend.coordinator.commands.factory import build_command
 from backend.coordinator.commands.base import ExecutionContext
-from backend.coordinator.tools.clarification_state import PendingConcept, mark_awaiting, take_awaiting
+from backend.coordinator.tools.clarification_state import mark_awaiting, take_awaiting
+from backend.agents.concept.types import PendingConcept
 from backend.coordinator.tools.labeling import label_unlabeled_clusters
 from backend.coordinator.tools.progress import ProgressReporter
 from backend.agents.responder.suggestions import maybe_suggest

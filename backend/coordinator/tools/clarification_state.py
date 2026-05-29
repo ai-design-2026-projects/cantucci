@@ -2,34 +2,7 @@ import uuid
 from dataclasses import dataclass
 
 from backend.agents.intent.types import Modality, PartitionSpec
-
-_awaiting: set[uuid.UUID] = set()
-_pending_specs: dict[uuid.UUID, PartitionSpec] = {}
-_pending_concepts: dict[uuid.UUID, "PendingConcept"] = {}
-
-
-@dataclass(frozen=True, slots=True)
-class PendingConcept:
-    """Stores the context of a concept-axis proposal that is awaiting user confirmation.
-
-    Created when the concept-cluster branch proposes the beeswarm distribution and
-    sets the awaiting flag.  Consumed on the next turn by the coordinator, which
-    patches the CLUSTER action to reuse the already-scored and persisted concept
-    instead of invoking the concept agent again.
-
-    Attributes:
-        concept_id:        UUID of the persisted concept whose normalized scores back
-                           the beeswarm.
-        concept_name:      Human-readable name (e.g. ``"open-ended ending"``).
-        target_cluster_id: The cluster the user originally asked to split, or None for
-                           the full catalogue / current snapshot.
-        embedding_spaces:  Modalities that were used for scoring; carried forward so
-                           the reuse branch loads the same embeddings.
-    """
-    concept_id: uuid.UUID
-    concept_name: str
-    target_cluster_id: uuid.UUID | None
-    embedding_spaces: list[Modality]
+from backend.agents.concept.types import PendingConcept
 
 
 def mark_awaiting(

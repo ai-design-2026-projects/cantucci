@@ -12,7 +12,8 @@ from backend.coordinator.commands._helpers import (
     resolve_target_or_clarify,
 )
 from backend.coordinator.commands.base import ActionResult, ExecutionContext
-from backend.coordinator.tools.clarification_state import PendingConcept, mark_awaiting
+from backend.coordinator.tools.clarification_state import mark_awaiting
+from backend.agents.concept.types import PendingConcept
 from backend.coordinator.types import ClusterDraft, ClusterSnapshotDraft
 from backend.agents.intent.types import Modality, PartitionSpec
 from backend.agents.responder import replies
