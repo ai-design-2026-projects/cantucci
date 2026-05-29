@@ -1,10 +1,8 @@
 from __future__ import annotations
-
 import logging
 import uuid
 from abc import ABC, abstractmethod
 from typing import Any, ClassVar, Generic, Literal, TypeVar
-
 from jinja2 import Environment, FileSystemLoader
 from pydantic import BaseModel
 
