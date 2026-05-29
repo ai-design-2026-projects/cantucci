@@ -3,11 +3,25 @@ from __future__ import annotations
 import logging
 import uuid
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, ClassVar
 
+from backend.coordinator.commands._helpers import (
+    _NUMERIC_ATTRIBUTES,
+    _persist_draft,
+    merge_in_siblings,
+    resolve_target_or_clarify,
+)
+from backend.coordinator.commands.base import ActionResult, ExecutionContext
+from backend.coordinator.tools.clarification_state import mark_awaiting
 from backend.coordinator.types import ClusterDraft, ClusterSnapshotDraft
-from backend.agents.intent.types import Modality
-from backend.data_access.movies.queries import fetch_modality_embeddings, fetch_text_embeddings
+from backend.agents.intent.types import Modality, PartitionSpec
+from backend.agents.responder import replies
+from backend.data_access.movies.queries import (
+    fetch_modality_embeddings,
+    fetch_numeric_stats,
+    fetch_partition_values,
+    fetch_text_embeddings,
+)
 from backend.settings import get_settings
 
 if TYPE_CHECKING:
@@ -130,7 +144,7 @@ def _cluster_group(
     )
 
 
-async def concept_drill_down(
+async def _concept_cluster(
     source_cluster_id: uuid.UUID | None,
     concept: ConceptRep,
     parent_cluster_snapshot_id: uuid.UUID | None,
@@ -239,7 +253,7 @@ async def concept_drill_down(
         "n_clusters": len(clusters),
     }
     log.info(
-        "concept_drill_down_complete",
+        "concept_cluster_complete",
         extra={
             "source_cluster_id": str(source_cluster_id) if source_cluster_id else None,
             "concept": concept.concept_name,
@@ -249,7 +263,7 @@ async def concept_drill_down(
     return ClusterSnapshotDraft(operation="cluster", params=params, clusters=clusters)
 
 
-async def free_drill_down(
+async def _free_cluster(
     source_cluster_id: uuid.UUID | None,
     parent_cluster_snapshot_id: uuid.UUID | None,
     embedding_spaces: list[Modality] | None = None,
@@ -326,10 +340,244 @@ async def free_drill_down(
         "n_clusters": len(clusters),
     }
     log.info(
-        "free_drill_down_complete",
+        "free_cluster_complete",
         extra={
             "source_cluster_id": str(source_cluster_id) if source_cluster_id else None,
             "n_clusters": len(clusters),
         },
     )
     return ClusterSnapshotDraft(operation="cluster", params=params, clusters=clusters)
+
+
+@dataclass(frozen=True, slots=True)
+class ClusterCommand:
+    """Split a cluster (or the full catalogue) into sub-groups.
+
+    Dispatches to one of two branches based on whether a ``partition_spec`` is
+    provided:
+
+    * **Deterministic branch** (``partition_spec`` is not ``None``): groups movies by
+      an exact metadata attribute (genre, runtime, release_year, director,
+      vote_average, original_language) with probability 1.0.  No embeddings or
+      HDBSCAN are used.
+
+    * **Semantic branch** (``partition_spec`` is ``None``): runs HDBSCAN soft
+      clustering on the movie embeddings, optionally guided by a concept string.
+
+    In both cases, if ``target_cluster_id`` resolves to a concrete cluster,
+    sibling clusters from the parent snapshot are carried forward unchanged
+    alongside the new sub-clusters (no FOCUS-like narrowing).
+
+    Attributes:
+        target_cluster_id: Cluster to split; ``None`` = full set or unclustered state.
+        concept:           Semantic concept to guide clustering (semantic branch only).
+        partition_spec:    Attribute and optional bins (deterministic branch only).
+        embedding_spaces:  Modalities to fuse for embedding loading (semantic branch).
+        confidence:        LLM confidence [0, 1].
+        target_n_clusters: Exact cluster count requested by the oracle (semantic branch).
+                           ``None`` preserves the emergent HDBSCAN count.
+    """
+
+    REQUIRES_SNAPSHOT: ClassVar[bool] = False
+    CREATES_SNAPSHOT: ClassVar[bool] = True
+    READS_CLUSTERS: ClassVar[bool] = True
+
+    target_cluster_id: uuid.UUID | None
+    concept: str | None
+    partition_spec: PartitionSpec | None
+    embedding_spaces: list[Modality]
+    confidence: float
+    target_n_clusters: int | None
+
+    async def execute(self, ctx: ExecutionContext) -> ActionResult:
+        """Split the target cluster (or full catalogue) into sub-groups.
+
+        Args:
+            ctx: Execution context with session state.
+
+        Returns:
+            ActionResult with reply, new snapshot id, and cost.
+        """
+        if self.partition_spec is not None:
+            return await self._execute_deterministic(ctx)
+        return await self._execute_semantic(ctx)
+
+    async def _execute_deterministic(self, ctx: ExecutionContext) -> ActionResult:
+        """Deterministic branch: group movies by exact metadata attribute.
+
+        Args:
+            ctx: Execution context with session state.
+
+        Returns:
+            ActionResult with reply, new snapshot id, and cost.
+        """
+        from backend.coordinator.commands._clustering import propose_bins
+        from backend.coordinator.commands.partition_by import partition_by
+
+        spec = self.partition_spec  # type: ignore[assignment]
+
+        if self.target_cluster_id is None and ctx.clusters:
+            mark_awaiting(
+                ctx.conversation_id,
+                pending_spec=PartitionSpec(attribute=spec.attribute, bins=None),
+            )
+            return ActionResult(
+                reply_fragment=replies.format_partition_clarification(
+                    spec.attribute.value, [c.label for c in ctx.clusters]
+                ),
+                cluster_snapshot_id=ctx.current_cluster_snapshot_id,
+                step_cost=0.0,
+            )
+
+        if spec.attribute in _NUMERIC_ATTRIBUTES and not spec.bins:
+            return self._propose_numeric_bins(ctx, spec, propose_bins)
+
+        target_id = resolve_target_or_clarify(ctx, self.target_cluster_id)
+
+        ctx.reporter.step("clustering")
+        draft = await partition_by(
+            spec=spec,
+            parent_cluster_snapshot_id=ctx.current_cluster_snapshot_id,
+            source_cluster_id=target_id,
+        )
+
+        if target_id is not None and ctx.current_cluster_snapshot_id is not None:
+            draft = ClusterSnapshotDraft(
+                operation=draft.operation,
+                params=draft.params,
+                clusters=merge_in_siblings(ctx.current_cluster_snapshot_id, target_id, draft.clusters),
+                warning=draft.warning,
+            )
+
+        new_snapshot_id, step_cost, n_movies, _ = await _persist_draft(ctx, draft)
+        n_new = len(draft.clusters)
+        reply = replies.format_partition_reply(spec.attribute.value, n_new, n_movies)
+        if draft.warning:
+            reply = f"{reply}\n\n⚠ {draft.warning}"
+        return ActionResult(
+            reply_fragment=reply,
+            cluster_snapshot_id=new_snapshot_id,
+            step_cost=step_cost,
+        )
+
+    def _propose_numeric_bins(self, ctx: ExecutionContext, spec: PartitionSpec, propose_bins_fn) -> ActionResult:
+        """Propose default bins to the user when a numeric split has no bins specified.
+
+        Args:
+            ctx:              Execution context.
+            spec:             Partition spec with numeric attribute and no bins.
+            propose_bins_fn:  The propose_bins function (injected to avoid circular import).
+
+        Returns:
+            ActionResult with proposal text and unchanged snapshot id.
+        """
+        from backend.coordinator.commands._clustering import resolve_movie_ids
+
+        ctx.reporter.step("clustering")
+
+        resolved_ids = resolve_movie_ids(
+            source_cluster_id=self.target_cluster_id,
+            movie_ids=None,
+            parent_cluster_snapshot_id=ctx.current_cluster_snapshot_id,
+        )
+        if not resolved_ids:
+            return ActionResult(
+                reply_fragment=replies.UNSUPPORTED_OPERATION,
+                cluster_snapshot_id=ctx.current_cluster_snapshot_id,
+                step_cost=0.0,
+            )
+
+        stats = fetch_numeric_stats(resolved_ids, spec.attribute.value)
+        bins = propose_bins_fn(attribute=spec.attribute.value, stats=stats)
+
+        raw_values = fetch_partition_values(resolved_ids, spec.attribute.value)
+        bin_counts: dict[str, int] = {b.label: 0 for b in bins}
+        unspecified = 0
+        for mid in resolved_ids:
+            value = raw_values.get(mid)
+            if value is None:
+                unspecified += 1
+                continue
+            matched = False
+            for b in bins:
+                lo_ok = b.min is None or float(value) >= b.min  # type: ignore[arg-type]
+                hi_ok = b.max is None or float(value) < b.max  # type: ignore[arg-type]
+                if lo_ok and hi_ok:
+                    bin_counts[b.label] += 1
+                    matched = True
+                    break
+            if not matched:
+                unspecified += 1
+
+        proposal_text = replies.format_bin_proposal(spec.attribute.value, bins, bin_counts, unspecified)
+        confirmed_spec = PartitionSpec(attribute=spec.attribute, bins=bins)
+        mark_awaiting(ctx.conversation_id, pending_spec=confirmed_spec)
+        return ActionResult(
+            reply_fragment=proposal_text,
+            cluster_snapshot_id=ctx.current_cluster_snapshot_id,
+            step_cost=0.0,
+        )
+
+    async def _execute_semantic(self, ctx: ExecutionContext) -> ActionResult:
+        """Semantic branch: HDBSCAN clustering, optionally guided by a concept.
+
+        Args:
+            ctx: Execution context with session state.
+
+        Returns:
+            ActionResult with reply, new snapshot id, and cost.
+        """
+        from backend.agents.concept.agent import agent as concept_agent
+
+        target_id = resolve_target_or_clarify(ctx, self.target_cluster_id)
+        if target_id is None and ctx.clusters:
+            mark_awaiting(ctx.conversation_id)
+            return ActionResult(
+                reply_fragment=replies.format_drill_down_clarification([c.label for c in ctx.clusters]),
+                cluster_snapshot_id=ctx.current_cluster_snapshot_id,
+                step_cost=0.0,
+            )
+
+        step_cost = 0.0
+        concept_rep = None
+        if self.concept:
+            ctx.reporter.step("concept")
+            concept_rep = await concept_agent.run(
+                concept_name=self.concept,
+                conversation_id=ctx.conversation_id,
+                message_id=ctx.message_id,
+                accumulated_cost=ctx.accumulated_cost + step_cost,
+            )
+            step_cost += concept_rep.cost
+
+        ctx.reporter.step("clustering")
+        if concept_rep is not None:
+            draft = await _concept_cluster(
+                source_cluster_id=target_id,
+                concept=concept_rep,
+                parent_cluster_snapshot_id=ctx.current_cluster_snapshot_id,
+                embedding_spaces=self.embedding_spaces,
+                target_n_clusters=self.target_n_clusters,
+            )
+        else:
+            draft = await _free_cluster(
+                source_cluster_id=target_id,
+                parent_cluster_snapshot_id=ctx.current_cluster_snapshot_id,
+                embedding_spaces=self.embedding_spaces,
+                target_n_clusters=self.target_n_clusters,
+            )
+
+        if target_id is not None and ctx.current_cluster_snapshot_id is not None:
+            draft = ClusterSnapshotDraft(
+                operation=draft.operation,
+                params=draft.params,
+                clusters=merge_in_siblings(ctx.current_cluster_snapshot_id, target_id, draft.clusters),
+            )
+
+        new_snapshot_id, persist_cost, n_movies, new_clusters = await _persist_draft(ctx, draft, step_cost)
+        labels = [c.label for c in new_clusters]
+        return ActionResult(
+            reply_fragment=replies.format_drill_down_reply(labels, len(new_clusters), n_movies),
+            cluster_snapshot_id=new_snapshot_id,
+            step_cost=persist_cost,
+        )

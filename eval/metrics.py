@@ -19,8 +19,8 @@ from eval.config import load_eval_harness_config
 
 log = logging.getLogger(__name__)
 
-_GT_OPERATION_VOCABULARY = {"drill_down", "merge", "focus", "cross_filter"}
-_NAVIGATION_MODES = {"drill_down", "merge", "focus", "cross_filter", "partition_by"}
+_GT_OPERATION_VOCABULARY = {"cluster", "merge", "focus", "cross_filter"}
+_NAVIGATION_MODES = {"cluster", "merge", "focus", "cross_filter"}
 
 
 @dataclass(frozen=True, slots=True)

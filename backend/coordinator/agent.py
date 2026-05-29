@@ -228,7 +228,7 @@ class Coordinator:
         actions: list[IntentAction],
         pending_spec: PartitionSpec,
     ) -> list[IntentAction]:
-        """Patch any PARTITION_BY action with the spec stored from the clarification turn.
+        """Patch any CLUSTER action with the spec stored from the clarification turn.
 
         On a "yes" or short-answer reply the intent agent may re-extract bins or
         attributes incorrectly.  The stored spec is authoritative for two cases:
@@ -243,11 +243,11 @@ class Coordinator:
             pending_spec: Stored partition spec from the prior clarification turn.
 
         Returns:
-            New list of actions with PARTITION_BY entries patched where needed.
+            New list of actions with CLUSTER entries patched where needed.
         """
         result = list(actions)
         for i, a in enumerate(result):
-            if a.mode == NavigationMode.PARTITION_BY and a.partition_spec is not None:
+            if a.mode == NavigationMode.CLUSTER and a.partition_spec is not None:
                 if pending_spec.bins is not None and a.partition_spec.bins is None:
                     # Bin-proposal confirmation: stored spec is authoritative regardless of
                     # which attribute the intent agent returned on the short "yes" reply.
