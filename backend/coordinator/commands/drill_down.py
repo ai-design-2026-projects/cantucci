@@ -20,8 +20,6 @@ if TYPE_CHECKING:
 
 log = logging.getLogger(__name__)
 
-_LABEL_PLACEHOLDER = "Cluster"
-
 
 @dataclass(frozen=True, slots=True)
 class DrillDownCommand:
@@ -367,7 +365,7 @@ async def free_drill_down(
         mids = [m[0] for m in members]
         prbs = [m[1] for m in members]
         clusters.append(ClusterDraft(
-            label=f"{_LABEL_PLACEHOLDER} {ci + 1}",
+            label=None,
             summary=None,
             exemplar_movie_ids=exemplars(mids, prbs, top_n),
             parent_cluster_id=parent_cluster_ref,
