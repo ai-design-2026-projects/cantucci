@@ -32,9 +32,12 @@ class NavigationMode(str, Enum):
         obj._description = description
         return obj
 
-    DRILL_DOWN = (
-        "drill_down",
-        "split one existing cluster further along a semantic concept, or re-cluster the full catalogue when no target cluster is specified",
+    CLUSTER = (
+        "cluster",
+        "split one cluster (or the full catalogue) into sub-groups; "
+        "supply partition_spec for a deterministic split by an exact metadata attribute "
+        "(genre, runtime, release_year, director, vote_average, original_language), "
+        "otherwise uses semantic embedding clustering optionally guided by concept",
     )
     MERGE = (
         "merge",
@@ -47,12 +50,7 @@ class NavigationMode(str, Enum):
     CROSS_FILTER = (
         "cross_filter",
         "keep only movies matching a metadata predicate (genre, year, director); "
-        "no clustering is performed — use drill_down afterwards to cluster the filtered set",
-    )
-    PARTITION_BY = (
-        "partition_by",
-        "split the working set into deterministic clusters by an exact metadata "
-        "attribute — genre, runtime, release year, or director",
+        "no clustering is performed — use cluster afterwards to cluster the filtered set",
     )
     EXCLUDE = (
         "exclude",
@@ -190,14 +188,14 @@ class MetadataFilterLLM(BaseModel):
 
 
 class PartitionBinLLM(BaseModel):
-    """A single labelled bucket emitted by the LLM for numeric PARTITION_BY actions."""
+    """A single labelled bucket emitted by the LLM for numeric cluster (deterministic branch) actions."""
     label: str
     min: float | None = None
     max: float | None = None
 
 
 class PartitionSpecLLM(BaseModel):
-    """Wire schema for the partition specification the LLM emits for PARTITION_BY actions."""
+    """Wire schema for the partition specification the LLM emits for cluster (deterministic branch) actions."""
     attribute: str
     bins: list[PartitionBinLLM] | None = None
 

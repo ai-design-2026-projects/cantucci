@@ -16,6 +16,13 @@ function circleLines(node: LayoutNode): string[] {
 			return ['Base']
 		case 'unclustered':
 			return ['Unclustered']
+		case 'cluster': {
+			if (typeof params.attribute === 'string') {
+				return ['By', trunc(params.attribute.replace(/_/g, ' '))]
+			}
+			const concept = typeof params.concept === 'string' ? params.concept : ''
+			return ['Cluster', trunc(concept)]
+		}
 		case 'drill_down': {
 			const concept = typeof params.concept === 'string' ? params.concept : ''
 			return ['Drill down', trunc(concept)]
@@ -63,6 +70,16 @@ function tooltipTitle(node: LayoutNode): string {
 		case 'base':
 		case 'unclustered':
 			return operation
+		case 'cluster': {
+			if (typeof params.attribute === 'string') {
+				const attr = params.attribute.replace(/_/g, ' ')
+				const bins = Array.isArray(params.bins) ? (params.bins as Array<{ label: string }>).map((b) => b.label) : []
+				const binStr = bins.length > 0 ? ` (${bins.join(', ')})` : ''
+				return `By: ${attr}${binStr}`
+			}
+			const concept = typeof params.concept === 'string' ? params.concept : ''
+			return `Cluster${concept ? ` ${concept}` : ''}`
+		}
 		case 'drill_down': {
 			const concept = typeof params.concept === 'string' ? params.concept : ''
 			return `Drill down ${concept}`

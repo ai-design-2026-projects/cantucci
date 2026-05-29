@@ -58,7 +58,7 @@ def format_drill_down_clarification(labels: list[str | None]) -> str:
 
 
 def format_drill_down_reply(labels: list[str | None], n_new: int, n_movies: int) -> str:
-    """Format the reply for a completed DRILL_DOWN operation.
+    """Format the reply for a completed CLUSTER (semantic branch) operation.
 
     Args:
         labels:   Label strings of the new sub-clusters (may contain None).
@@ -120,11 +120,11 @@ def format_cross_filter_reply(n_movies: int) -> str:
     Returns:
         A human-readable summary of the cross-filter result.
     """
-    return f"Applied metadata filter — {n_movies} movies matched. Use drill down to cluster them."
+    return f"Applied metadata filter — {n_movies} movies matched. Use cluster to sub-group them."
 
 
 def format_partition_reply(attribute: str, n_new: int, n_movies: int) -> str:
-    """Format the reply for a completed PARTITION_BY operation.
+    """Format the reply for a completed CLUSTER (deterministic branch) operation.
 
     Args:
         attribute: The metadata attribute used to partition (e.g. ``"genre"``).

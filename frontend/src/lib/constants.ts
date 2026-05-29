@@ -1,6 +1,7 @@
 /** Maps backend operation strings to human-readable node labels for the evolution map. */
 export const OPERATION_LABELS: Record<string, string> = {
 	base: 'Initial',
+	cluster: 'Cluster',
 	drill_down: 'Drill Down',
 	merge: 'Merge',
 	recut: 'Recut',

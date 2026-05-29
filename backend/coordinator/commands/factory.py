@@ -1,23 +1,21 @@
 from backend.agents.intent.types import DialogueMode, IntentAction, NavigationMode
+from backend.coordinator.commands.cluster import ClusterCommand
 from backend.coordinator.commands.cross_filter import CrossFilterCommand
-from backend.coordinator.commands.drill_down import DrillDownCommand
 from backend.coordinator.commands.exclude import ExcludeCommand
 from backend.coordinator.commands.explain import ExplainCommand
 from backend.coordinator.commands.focus import FocusCommand
 from backend.coordinator.commands.go_to_base import GoToBaseCommand
 from backend.coordinator.commands.merge import MergeCommand
-from backend.coordinator.commands.partition_by import PartitionByCommand
 from backend.coordinator.commands.reset import ResetCommand
 from backend.coordinator.commands.small_talk import SmallTalkCommand
 from backend.coordinator.commands.undo import UndoCommand
 
 AnyCommand = (
-    DrillDownCommand
+    ClusterCommand
     | MergeCommand
     | FocusCommand
     | ExcludeCommand
     | CrossFilterCommand
-    | PartitionByCommand
     | ResetCommand
     | GoToBaseCommand
     | UndoCommand
@@ -43,10 +41,11 @@ def build_command(action: IntentAction) -> AnyCommand:
     """
     mode = action.mode
 
-    if mode == NavigationMode.DRILL_DOWN:
-        return DrillDownCommand(
+    if mode == NavigationMode.CLUSTER:
+        return ClusterCommand(
             target_cluster_id=action.target_cluster_id,
             concept=action.concept,
+            partition_spec=action.partition_spec,
             embedding_spaces=action.embedding_spaces,
             confidence=action.confidence,
             target_n_clusters=action.target_n_clusters,
@@ -71,12 +70,6 @@ def build_command(action: IntentAction) -> AnyCommand:
             raise ValueError("CROSS_FILTER action missing metadata_filter")
         return CrossFilterCommand(
             metadata_filter=action.metadata_filter,
-            confidence=action.confidence,
-        )
-    if mode == NavigationMode.PARTITION_BY:
-        return PartitionByCommand(
-            target_cluster_id=action.target_cluster_id,
-            partition_spec=action.partition_spec,
             confidence=action.confidence,
         )
     if mode == DialogueMode.RESET:

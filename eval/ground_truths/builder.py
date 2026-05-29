@@ -28,7 +28,7 @@ log = logging.getLogger(__name__)
 _PROMPTS_DIR = Path(__file__).parent / "prompts"
 _ENV = Environment(loader=FileSystemLoader(str(_PROMPTS_DIR)), autoescape=False)
 
-_VALID_OPS = {"drill_down", "merge", "focus", "cross_filter"}
+_VALID_OPS = {"cluster", "merge", "focus", "cross_filter"}
 
 
 async def build_ground_truth(slug: str, hint: str | None = None) -> GroundTruthRow:
@@ -71,7 +71,7 @@ async def build_ground_truth(slug: str, hint: str | None = None) -> GroundTruthR
     ]
     seed_movie_ids = [m.id for m in movies]
 
-    trajectory_prompt = _ENV.get_template("trajectory_v1.j2").render(
+    trajectory_prompt = _ENV.get_template("trajectory_v2.j2").render(
         movies=movie_dicts,
         min_ops=gt_cfg.min_ops,
         max_ops=gt_cfg.max_ops,
@@ -109,7 +109,7 @@ async def build_ground_truth(slug: str, hint: str | None = None) -> GroundTruthR
             raw=f"no valid ops in trajectory response: {trajectory.operations!r}",
         )
 
-    intent_prompt = _ENV.get_template("intent_description_v1.j2").render(
+    intent_prompt = _ENV.get_template("intent_description_v2.j2").render(
         operations=operations,
     )
 

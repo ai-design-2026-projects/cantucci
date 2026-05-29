@@ -87,7 +87,7 @@ async def judge_conversation(
                     "exemplar_titles": exemplar_titles,
                 })
 
-    template = _ENV.get_template("judge_v1.j2")
+    template = _ENV.get_template("judge_v2.j2")
     prompt = template.render(
         intent_description=ground_truth_intent_description or "(not provided)",
         ground_truth_operations=ground_truth_operations or [],
