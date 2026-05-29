@@ -1,12 +1,65 @@
 import logging
 import uuid
+from dataclasses import dataclass
+from typing import ClassVar
 
-from backend.agents.clustering.operations._helpers import exemplars
-from backend.agents.clustering.types import ClusterDraft, ClusterSnapshotDraft
+from backend.coordinator.commands._helpers import _persist_draft
+from backend.coordinator.commands.base import ActionResult, ExecutionContext
+from backend.coordinator.types import ClusterDraft, ClusterSnapshotDraft
+from backend.agents.responder import replies
 from backend.data_access.cluster_snapshots.queries import get_cluster_snapshot_with_clusters, get_memberships
 from backend.settings import get_settings
 
 log = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True, slots=True)
+class MergeCommand:
+    """Combine the first two clusters in the current snapshot into one.
+
+    Attributes:
+        merged_label: Label to assign to the resulting merged cluster.
+        confidence:   LLM confidence [0, 1].
+    """
+
+    REQUIRES_SNAPSHOT: ClassVar[bool] = True
+    CREATES_SNAPSHOT: ClassVar[bool] = True
+    READS_CLUSTERS: ClassVar[bool] = True
+
+    merged_label: str | None
+    confidence: float
+
+    async def execute(self, ctx: ExecutionContext) -> ActionResult:
+        """Merge the first two clusters in the current snapshot.
+
+        Args:
+            ctx: Execution context with session state.
+
+        Returns:
+            ActionResult with reply, new snapshot id, and cost.
+        """
+        if len(ctx.clusters) < 2:
+            return ActionResult(
+                reply_fragment=replies.FEWER_THAN_TWO_TO_MERGE,
+                cluster_snapshot_id=ctx.current_cluster_snapshot_id,
+                step_cost=0.0,
+            )
+
+        label_a = ctx.clusters[0].label or "Unlabeled"
+        label_b = ctx.clusters[1].label or "Unlabeled"
+        ids_to_merge = [c.id for c in ctx.clusters[:2]]
+        ctx.reporter.step("clustering")
+        draft = await merge_clusters(
+            cluster_ids=ids_to_merge,
+            parent_cluster_snapshot_id=ctx.current_cluster_snapshot_id,
+            merged_label=f"{label_a} and {label_b}",
+        )
+        new_snapshot_id, step_cost, _, _ = await _persist_draft(ctx, draft)
+        return ActionResult(
+            reply_fragment=replies.MERGE_REPLY,
+            cluster_snapshot_id=new_snapshot_id,
+            step_cost=step_cost,
+        )
 
 
 async def merge_clusters(
@@ -24,6 +77,8 @@ async def merge_clusters(
     Returns:
         ``ClusterSnapshotDraft`` with the merged cluster and all unchanged clusters.
     """
+    from backend.coordinator.commands._clustering import exemplars
+
     cswc = get_cluster_snapshot_with_clusters(parent_cluster_snapshot_id)
     if cswc is None:
         raise ValueError(f"Cluster snapshot {parent_cluster_snapshot_id} not found")
@@ -63,6 +118,7 @@ async def merge_clusters(
         "operation": "merge",
         "merged_cluster_ids": [str(cid) for cid in cluster_ids],
         "parent_cluster_snapshot_id": str(parent_cluster_snapshot_id),
+        "merged_label": merged_label,
     }
     log.info("merge_complete", extra={"n_merged": len(cluster_ids), "remaining_clusters": len(clusters)})
     return ClusterSnapshotDraft(operation="merge", params=params, clusters=clusters)

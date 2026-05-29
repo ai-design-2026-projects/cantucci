@@ -1,7 +1,7 @@
 import uuid
 from dataclasses import dataclass, field
 
-from backend.agents.coordinator.types import TurnTrace
+from backend.coordinator.types import TurnTrace
 
 
 @dataclass(frozen=True, slots=True)

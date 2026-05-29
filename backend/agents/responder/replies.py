@@ -25,18 +25,23 @@ EXPLAIN_TARGET_UNCLEAR = (
     "I couldn't identify which movie or cluster to explain. Please be more specific."
 )
 
+NO_UNDO = "Nothing to undo — there is no previous clustering snapshot to return to."
 
-def format_partition_clarification(labels: list[str | None]) -> str:
+
+def format_partition_clarification(attribute: str, labels: list[str | None]) -> str:
     """Format a clarification question when no target cluster was specified for partition_by.
 
     Args:
-        labels: Labels of the current clusters (may contain None for unlabeled).
+        attribute: The partition attribute (e.g. ``"runtime"``).
+        labels:    Labels of the current clusters (may contain None for unlabeled).
 
     Returns:
-        A question asking the user which cluster to partition.
+        A question asking the user which cluster to partition, naming the attribute so
+        the intent agent can preserve it on the follow-up turn.
     """
+    attr_label = attribute.replace("_", " ")
     names = ", ".join(f"'{l}'" for l in labels if l) or "the available clusters"
-    return f"Which cluster would you like to partition? Current clusters: {names}."
+    return f"Which cluster would you like to partition by {attr_label}? Current clusters: {names}."
 
 
 def format_drill_down_clarification(labels: list[str | None]) -> str:
@@ -130,6 +135,34 @@ def format_partition_reply(attribute: str, n_new: int, n_movies: int) -> str:
         A human-readable summary of the partition result.
     """
     return f"Partitioned {n_movies} movies by {attribute} into {n_new} groups."
+
+
+def format_exclude_reply(label: str | None, n_remaining: int) -> str:
+    """Format the reply for a completed EXCLUDE operation.
+
+    Args:
+        label:       Label of the excluded cluster.
+        n_remaining: Number of clusters remaining after the exclusion.
+
+    Returns:
+        A human-readable summary of the exclude result.
+    """
+    name = label or "the selected cluster"
+    return f"Excluded '{name}' — {n_remaining} cluster{'s' if n_remaining != 1 else ''} remaining."
+
+
+def format_undo_reply(operation: str, n_clusters: int) -> str:
+    """Format the reply for a completed UNDO operation.
+
+    Args:
+        operation:  The operation name that was undone (e.g. ``"drill_down"``).
+        n_clusters: Number of clusters in the restored snapshot.
+
+    Returns:
+        A human-readable summary of the undo result.
+    """
+    op_label = operation.replace("_", " ")
+    return f"Stepped back — undid '{op_label}'. Now showing {n_clusters} cluster{'s' if n_clusters != 1 else ''}."
 
 
 def format_bin_proposal(

@@ -14,14 +14,21 @@ class ClusterLabelContext:
     members sit on the split dimension rather than by generic thematic identity.
 
     Attributes:
-        concept:      The dimension/concept the operation split on (e.g. "film length").
-        parent_label: Label of the cluster this one was split from — used as a
-                      breadcrumb so the child label can reference its parent context.
-        profile:      Aggregate metadata statistics for this cluster's full membership.
+        concept:       The dimension/concept the operation split on (e.g. "film length").
+        parent_label:  Label of the cluster this one was split from — used as a
+                       breadcrumb so the child label can reference its parent context.
+        profile:       Aggregate metadata statistics for this cluster's full membership.
+        pre_set_label: When not None, the label is already determined (e.g. the genre
+                       value "Action" or the bin label "Short (<60 min)"). The LLM
+                       must echo this label exactly and generate only the summary.
+        concept_score: Probability-weighted mean concept score for this cluster (0–1).
+                       Only set for concept-driven drill_down; None otherwise.
     """
     concept: str | None
     parent_label: str | None
     profile: ClusterProfileRow | None
+    pre_set_label: str | None = None
+    concept_score: float | None = None
 
 
 class ClusterLabelItem(BaseModel):

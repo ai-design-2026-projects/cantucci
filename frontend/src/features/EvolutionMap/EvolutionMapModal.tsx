@@ -1,7 +1,7 @@
 import { useRef, useState, useMemo, useEffect } from 'react'
 import { useQueries, useQueryClient } from '@tanstack/react-query'
 import { motion, AnimatePresence } from 'framer-motion'
-import { X, Crosshair, Trash2, History } from 'lucide-react'
+import { X, Crosshair, Trash2, History, Undo2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { useSnapshotStore } from '@/store/useSnapshotStore'
 import { useSnapshotGraph } from './hooks/useSnapshotGraph'
@@ -127,6 +127,23 @@ export function EvolutionMapModal({ open, onClose, conversationId }: EvolutionMa
 	const nonBaseCount = layout.filter((n) => n.operation !== 'base' && n.id !== UNCLUSTERED_NODE_ID).length
 	const hasAnySnapshot = nodes.length > 0
 
+	const activeParentId: string | null = activeLayoutNode?.parent_id ?? null
+	const canUndo = activeParentId !== null
+
+	function handleUndo() {
+		if (!canUndo || !activeParentId) return
+		const parentId = activeParentId === UNCLUSTERED_NODE_ID ? null : activeParentId
+		setActiveSnapshot(parentId, {
+			onSuccess: () => {
+				queryClient.invalidateQueries({ queryKey: ['snapshot-graph', conversationId] })
+				toast.success('Undone')
+			},
+			onError: (err) => {
+				toast.error((err as Error).message || 'Could not undo')
+			},
+		})
+	}
+
 	return (
 		<>
 			<AnimatePresence>
@@ -161,6 +178,18 @@ export function EvolutionMapModal({ open, onClose, conversationId }: EvolutionMa
 										>
 											<Trash2 className="h-3.5 w-3.5" />
 											<span className="text-xs hidden sm:inline">Remove</span>
+										</Button>
+									)}
+									{canUndo && (
+										<Button
+											variant="ghost"
+											size="sm"
+											onClick={handleUndo}
+											disabled={isSettingActive}
+											className="gap-1.5 text-[var(--color-muted)]"
+										>
+											<Undo2 className="h-3.5 w-3.5" />
+											<span className="text-xs hidden sm:inline">Undo</span>
 										</Button>
 									)}
 									{hasAnySnapshot && (

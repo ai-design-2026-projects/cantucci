@@ -19,7 +19,10 @@ backend/
   CLAUDE.md            Type-layering and exception conventions for backend contributors
   auth/                JWT encode/decode; bcrypt password hashing
   data_access/         ONLY layer that runs SQL — movies, conversations, cluster_snapshots, concepts, users
-  agents/              LLM-backed agents: intent, clustering, explanation, concept
+  agents/              LLM-backed agents: intent, clarifier, concept, explanation, responder, labeling
+                       base.py — LLMAgent abstract base class shared by all agents
+  coordinator/         Orchestrator + command layer (moved out of agents/ — it is not an agent)
+                       agent.py — Coordinator class; commands/ — 11 command classes; tools/ — shared helpers
   llm/                 LLM harness + types + exceptions (CostLimitExceeded, LLMParseError, ReplayDriftError)
   routers/             HTTP endpoints; dto/ holds Pydantic wire models
 configs/dev.yaml       Local/dev config (free OpenRouter models; no-CONFIG_PATH fallback)

@@ -6,8 +6,8 @@ proposes the full cluster partition directly; no intent/labeling/concept agents.
 import logging
 import uuid
 
-from backend.agents.clustering.types import ClusterDraft, ClusterSnapshotDraft
-from backend.agents.coordinator.types import TurnTrace, sentinel_cluster_snapshot_id
+from backend.coordinator.types import ClusterDraft, ClusterSnapshotDraft
+from backend.coordinator.types import TurnTrace, sentinel_cluster_snapshot_id
 from backend.baseline.monolithic.agent import monolithic_turn
 from backend.baseline.shared.types import SystemTurnResult
 from backend.data_access.cluster_snapshots.queries import (

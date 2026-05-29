@@ -54,3 +54,42 @@ class CoordinatorResult:
 def sentinel_cluster_snapshot_id() -> uuid.UUID:
     """Return a zero UUID as a sentinel when no cluster snapshot exists yet."""
     return uuid.UUID("00000000-0000-0000-0000-000000000000")
+
+
+@dataclass(frozen=True, slots=True)
+class ClusterDraft:
+    """A cluster to be written to the DB as part of a new cluster snapshot.
+
+    Attributes:
+        label:              Human-readable label, or None when the LLM labeler will generate it.
+        summary:            One-sentence description, or None to trigger LLM labeling.
+        exemplar_movie_ids: Top movie IDs by probability.
+        parent_cluster_id:  Source cluster UUID for drill-down operations.
+        memberships:        List of (movie_id, probability) pairs.
+        concept_score:      Probability-weighted mean concept score for this cluster, set only
+                            for concept-driven drill_down so the labeller can order clusters
+                            along the concept axis. None for all other operations.
+    """
+    label: str | None
+    summary: str | None
+    exemplar_movie_ids: list[int]
+    parent_cluster_id: uuid.UUID | None
+    memberships: list[tuple[int, float]] = field(default_factory=list)
+    concept_score: float | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ClusterSnapshotDraft:
+    """A complete cluster snapshot ready to be persisted.
+
+    Attributes:
+        operation: Operation name (e.g. ``"drill_down"``, ``"merge"``, ``"cross_filter"``).
+        params:    Replayability parameters dict.
+        clusters:  List of cluster drafts.
+        warning:   Optional human-readable notice about the operation result (e.g. truncation).
+                   Not included in ``params`` — does not affect the content-address cache hash.
+    """
+    operation: str
+    params: dict
+    clusters: list[ClusterDraft] = field(default_factory=list)
+    warning: str | None = None

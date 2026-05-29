@@ -58,6 +58,7 @@ umap:
 
 labeling:
   top_exemplars: 8
+  max_batch_size: 4
 
 intent:
   confidence_threshold: 0.6

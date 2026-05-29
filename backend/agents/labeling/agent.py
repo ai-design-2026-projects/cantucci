@@ -1,17 +1,123 @@
 import logging
-from jinja2 import Environment, FileSystemLoader
+from typing import Any
 
-from backend.agents.labeling.types import BatchLabelLLMResponse, BatchLabelResult, ClusterLabelContext
+from backend.agents.base import LLMAgent
+from backend.agents.labeling.types import (
+    BatchLabelLLMResponse,
+    BatchLabelResult,
+    ClusterLabelContext,
+    LabelResult,
+)
 from backend.data_access.movies.queries import fetch_stubs
-from backend.llm import llm_harness
-from backend.settings import get_config_hash, get_settings, prompts_dir
+from backend.llm.types import LLMResponse
+from backend.settings import get_settings
 
 log = logging.getLogger(__name__)
 
-_PROMPTS_DIR = prompts_dir("labeling")
-_ENV = Environment(loader=FileSystemLoader(str(_PROMPTS_DIR)), autoescape=False)
-
 _SENTINEL_MESSAGE_ID = "00000000-0000-0000-0000-000000000000"
+
+
+class LabelingLLMAgent(LLMAgent[BatchLabelResult]):
+    """Labels a batch of clusters in a single LLM call."""
+
+    name = "labeling"
+    step_type = "label_clusters"
+    model_tier = "fast"
+    template_name = "label_v6.j2"
+    response_schema = BatchLabelLLMResponse
+
+    async def render_kwargs(self, **inputs: Any) -> dict[str, Any]:
+        return {"clusters": inputs["entries"], "concept": inputs.get("concept")}
+
+    def build_result(self, resp: LLMResponse, **inputs: Any) -> BatchLabelResult:
+        parsed: BatchLabelLLMResponse = resp.parsed  # type: ignore[assignment]
+        return BatchLabelResult.from_llm_response(
+            parsed, n_expected=inputs["n_expected"], total_cost=resp.cost_usd
+        )
+
+    async def call_batch(
+        self,
+        entries: list[dict],
+        concept: str | None,
+        conversation_id: str,
+        message_id: str,
+        accumulated_cost: float,
+    ) -> BatchLabelResult:
+        """Call the LLM for a single batch of clusters.
+
+        Args:
+            entries:          Rendered cluster entry dicts for the template.
+            concept:          Optional split concept for context-aware labeling.
+            conversation_id:  Conversation UUID string (or ``"offline"``).
+            message_id:       Message UUID string for logging.
+            accumulated_cost: Running LLM cost to check against limit.
+
+        Returns:
+            ``BatchLabelResult`` for the batch.
+        """
+        run_id = "offline" if conversation_id == "offline" else "online"
+        return await self.run(
+            conversation_id=conversation_id,
+            message_id=message_id,
+            accumulated_cost=accumulated_cost,
+            run_id=run_id,
+            entries=entries,
+            concept=concept,
+            n_expected=len(entries),
+        )
+
+
+agent = LabelingLLMAgent()
+
+
+def _build_entry(
+    i: int,
+    group: list[int],
+    contexts: list[ClusterLabelContext] | None,
+    top_n: int,
+    concept_rank: int | None = None,
+    concept_n: int | None = None,
+) -> dict:
+    """Build a single template entry dict for one cluster group.
+
+    Args:
+        i:            Index into ``contexts`` (if provided).
+        group:        Ordered exemplar movie IDs for this cluster.
+        contexts:     Optional per-cluster label contexts.
+        top_n:        Maximum exemplar titles to include.
+        concept_rank: 0-based rank of this cluster ordered low→high by mean concept score.
+                      Only set when all clusters in the batch have a concept_score.
+        concept_n:    Total number of clusters in the batch.
+
+    Returns:
+        Dict with keys ``exemplar_titles``, ``parent_label``, ``profile``,
+        ``pre_set_label``, ``concept_score``, ``concept_rank``, ``concept_n``.
+    """
+    stubs = fetch_stubs(group[:top_n])
+    titles = [f"{s.title} ({s.release_year or '?'})" for s in stubs]
+    ctx = contexts[i] if contexts is not None else None
+    entry: dict = {
+        "exemplar_titles": titles,
+        "parent_label": None,
+        "profile": None,
+        "pre_set_label": None,
+        "concept_score": None,
+        "concept_rank": concept_rank,
+        "concept_n": concept_n,
+    }
+    if ctx is not None:
+        entry["parent_label"] = ctx.parent_label
+        entry["pre_set_label"] = ctx.pre_set_label
+        entry["concept_score"] = ctx.concept_score
+        if ctx.profile is not None:
+            p = ctx.profile
+            entry["profile"] = {
+                "mean_runtime": round(p.mean_runtime) if p.mean_runtime is not None else None,
+                "year_range": f"{p.min_year}–{p.max_year}" if p.min_year is not None else None,
+                "mean_rating": round(p.mean_rating, 1) if p.mean_rating is not None else None,
+                "top_genres": p.top_genres,
+            }
+    return entry
 
 
 async def label_clusters(
@@ -54,54 +160,38 @@ async def label_clusters(
     """
     cfg = get_settings()
     top_n = cfg.labeling.top_exemplars
+    max_batch = cfg.labeling.max_batch_size
+    mid = message_id or _SENTINEL_MESSAGE_ID
 
-    clusters_for_prompt = []
-    for i, group in enumerate(exemplar_groups):
-        stubs = fetch_stubs(group[:top_n])
-        titles = [f"{s.title} ({s.release_year or '?'})" for s in stubs]
-        ctx = contexts[i] if contexts is not None else None
-        entry: dict = {"exemplar_titles": titles, "parent_label": None, "profile": None}
-        if ctx is not None:
-            entry["parent_label"] = ctx.parent_label
-            if ctx.profile is not None:
-                p = ctx.profile
-                entry["profile"] = {
-                    "mean_runtime": round(p.mean_runtime) if p.mean_runtime is not None else None,
-                    "year_range": f"{p.min_year}–{p.max_year}" if p.min_year is not None else None,
-                    "mean_rating": round(p.mean_rating, 1) if p.mean_rating is not None else None,
-                    "top_genres": p.top_genres,
-                }
-        clusters_for_prompt.append(entry)
+    concept_ranks: list[int | None] = [None] * len(exemplar_groups)
+    concept_n: int | None = None
+    if contexts and all(c.concept_score is not None for c in contexts):
+        concept_n = len(contexts)
+        sorted_indices = sorted(range(len(contexts)), key=lambda k: contexts[k].concept_score)  # type: ignore[index]
+        concept_ranks = [0] * len(contexts)
+        for rank, original_index in enumerate(sorted_indices):
+            concept_ranks[original_index] = rank
 
+    all_entries = [
+        _build_entry(i, group, contexts, top_n, concept_ranks[i], concept_n)
+        for i, group in enumerate(exemplar_groups)
+    ]
     concept = contexts[0].concept if contexts else None
 
-    template = _ENV.get_template("label_v4.j2")
-    prompt = template.render(clusters=clusters_for_prompt, concept=concept)
-    log.debug("llm_prompt", extra={"template": "label_v4.j2", "prompt": prompt})
-    messages = [{"role": "user", "content": prompt}]
+    if len(all_entries) <= max_batch:
+        result = await agent.call_batch(all_entries, concept, conversation_id, mid, accumulated_cost)
+    else:
+        all_results: list[LabelResult] = []
+        total_cost = 0.0
+        for batch_start in range(0, len(all_entries), max_batch):
+            batch = all_entries[batch_start : batch_start + max_batch]
+            batch_result = await agent.call_batch(batch, concept, conversation_id, mid, accumulated_cost + total_cost)
+            all_results.extend(batch_result.results)
+            total_cost += batch_result.cost
+        result = BatchLabelResult(results=all_results, cost=total_cost)
 
-    resp = await llm_harness.call(
-        run_id="offline" if conversation_id == "offline" else "online",
-        conversation_id=conversation_id,
-        message_id=message_id or _SENTINEL_MESSAGE_ID,
-        config_hash=get_config_hash(),
-        model_and_version=cfg.models.fast.name,
-        provider=cfg.models.fast.provider,
-        seed=cfg.models.fast.seed,
-        max_tokens=cfg.models.fast.max_tokens,
-        step_type="label_clusters",
-        messages=messages,
-        cost_limit_usd=cfg.conversation.cost_limit_usd,
-        accumulated_cost_usd=accumulated_cost,
-        dry_run=cfg.models.fast.dry_run,
-        response_schema=BatchLabelLLMResponse,
-    )
-    log.debug("llm_response", extra={"step_type": "label_clusters", "content": resp.content})
-
-    parsed: BatchLabelLLMResponse = resp.parsed  # type: ignore[assignment]
-    result = BatchLabelResult.from_llm_response(parsed, n_expected=len(exemplar_groups), total_cost=resp.cost_usd)
     log.debug(
         "label_clusters_done",
-        extra={"n_clusters": len(exemplar_groups), "cost_usd": resp.cost_usd},
+        extra={"n_clusters": len(exemplar_groups), "cost_usd": result.cost},
     )
     return result

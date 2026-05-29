@@ -10,14 +10,16 @@ class ConceptLLMResponse(BaseModel):
 
     The ``type`` discriminator determines which representation to build:
 
-    - ``"linear_axis"``: requires non-null ``positive_description`` and
-      ``negative_description``; ``exemplar_titles`` is ignored.
+    - ``"linear_axis"``: requires non-empty ``positive_descriptions`` and
+      ``negative_descriptions`` (each a list of 3 distinct sentences describing
+      the respective pole). Multiple sentences per pole produce a more stable
+      axis direction via centroid averaging.
     - ``"prototype"``: requires at least one entry in ``exemplar_titles``;
       the description fields are ignored.
     """
     type: Literal["linear_axis", "prototype"]
-    positive_description: str | None = None
-    negative_description: str | None = None
+    positive_descriptions: list[str] = []
+    negative_descriptions: list[str] = []
     exemplar_titles: list[str] = []
 
 

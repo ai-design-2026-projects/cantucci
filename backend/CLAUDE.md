@@ -98,7 +98,7 @@ Every agent under `backend/agents/<name>/` must follow this layout:
 
 ```
 backend/agents/<name>/
-  agent.py        # Thin orchestrator: render prompt → harness call → parse → log → return
+  agent.py        # XLLMAgent subclass + module-level wrapper function
   types.py        # XLLMResponse(BaseModel) wire schema + XResult(@dataclass frozen/slots)
   parser.py       # (Optional) Pure functions for parsing when side effects are needed
   scoring.py      # (Optional) Pure scoring/utility functions unrelated to the LLM call
@@ -110,6 +110,10 @@ backend/agents/<name>/
 
 **Canonical agent shape** (`intent` agent is the reference implementation):
 
+All functional agents subclass `LLMAgent` from `backend.agents.base` and are accessed
+through a module-level wrapper function whose signature matches the public API. Call
+sites never reference the class directly.
+
 1. `types.py` defines exactly two types:
    - `XLLMResponse(BaseModel)` — Pydantic wire schema matching the JSON the LLM returns.
    - `XResult(@dataclass(frozen=True, slots=True))` — internal result. Must include a
@@ -117,30 +121,42 @@ backend/agents/<name>/
      `from_llm_response(cls, parsed, cost, ...)` classmethod for all normalization logic
      (UUID coercion, enum mapping, fallbacks). No I/O in `from_llm_response`.
 
-2. `agent.py` is a thin async function:
+2. `agent.py` defines a subclass and a module-level singleton + wrapper:
    ```python
-   template = _ENV.get_template("intent_v2.j2")
-   prompt = template.render(...)
-   resp = await llm_harness.call(..., response_schema=XLLMResponse)
-   parsed: XLLMResponse = resp.parsed
-   result = XResult.from_llm_response(parsed, cost=resp.cost_usd, ...)
-   log.info(...)
-   return result
+   class XLLMAgent(LLMAgent[XResult]):
+       name = "x"                       # resolves prompts_dir("x")
+       step_type = "x_agent"
+       model_tier = "strong"            # or "fast"
+       template_name = "x_v1.j2"
+       response_schema = XLLMResponse   # None for plain-text agents
+
+       async def render_kwargs(self, **inputs): ...   # build template vars
+       def build_result(self, resp, **inputs): ...    # from_llm_response + log.info
+
+   _agent = XLLMAgent()
+
+   async def do_x(...) -> XResult:
+       """Public API docstring."""
+       return await _agent.run(...)
    ```
-   No branching on `parsed` fields, no numpy math, no DB calls.
+   `render_kwargs` and `build_result` receive the same merged inputs (including the
+   standard trio: `conversation_id`, `message_id`, `accumulated_cost`).
 
-3. When parsing requires side effects (embedding lookups, vector search), move that
+3. When pre-LLM I/O is needed (e.g. DB fetches), override `run` and delegate to
+   `super().run(...)` after enriching inputs (see the explanation agent).
+
+4. When parsing requires side effects (embedding lookups, vector search), move that
    logic into `parser.py` as plain functions (`parse_concept`, `build_linear_axis`, …).
-   `agent.py` calls into `parser.py`; the dataclass classmethod stays pure.
+   `build_result` calls into `parser.py`; the dataclass classmethod stays pure.
 
-4. **No fallback returns on parse failure.** Raise `LLMParseError` or a `DomainError`
+5. **No fallback returns on parse failure.** Raise `LLMParseError` or a `DomainError`
    subclass and let the global handler translate. The harness already retries transient
    errors; silent fallbacks hide real bugs.
 
-5. **Prompt versioning:** every prompt change = new `_vN.j2` file. Old files stay for
-   replay. Update the `get_template("..._vN.j2")` call in `agent.py`.
+6. **Prompt versioning:** every prompt change = new `_vN.j2` file. Old files stay for
+   replay. Update `template_name` on the subclass.
 
-6. **Cost aggregation:** the coordinator accumulates cost via `result.cost` on each
+7. **Cost aggregation:** the coordinator accumulates cost via `result.cost` on each
    agent's return value. Never re-inspect `LLMResponse.cost_usd` outside the agent.
 
 ---
@@ -211,7 +227,7 @@ The root cluster snapshot is built at ingest time (via `db/ingest.py` calling
 `data_access.cluster_snapshots.queries.create_root_snapshot_from_assignments`)
 from the offline pipeline columns in the parquet artifact. Clusters are created
 without labels (`label=NULL`). The labeling agent fires lazily the first time a
-cluster is surfaced in a conversation — `agents/coordinator/labeling.py:label_unlabeled_clusters`
+cluster is surfaced in a conversation — `coordinator/tools/labeling.py:label_unlabeled_clusters`
 calls `agents/labeling/agent.py:label_clusters` (single batched call) and
 persists each result via `update_cluster_label`.
 
@@ -233,5 +249,5 @@ params, config_hash)` is computed once and reused across conversations:
   join table records which conversations have touched which snapshots, so
   shared snapshots are not nuked by a single conversation's deletion.
 
-`backend/agents/clustering/agent.py:_persist_and_label` does the cache lookup
+`backend/coordinator/tools/persist.py:persist_and_label` does the cache lookup
 before computing; on a hit it skips both clustering and LLM labeling.

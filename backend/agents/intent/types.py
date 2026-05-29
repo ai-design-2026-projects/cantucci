@@ -5,9 +5,135 @@ from enum import Enum
 
 from pydantic import BaseModel
 
-from backend.agents.clustering.types import MetadataFilter, Modality, NavigationMode, PartitionAttribute, PartitionBin, PartitionSpec
-
 log = logging.getLogger(__name__)
+
+
+class Modality(str, Enum):
+    """
+    Embedding spaces available for runtime distance computation.
+    Values correspond to keys in ``fusion.runtime_weights`` config and to the
+    embedding columns stored for each movie.
+
+    Attributes:
+        TEXT:    Fused text + review BGE embedding (always available).
+        TRAILER: Trailer frame CLIP embedding (available when trailers were fetched).
+        REVIEW:  Review-only BGE embedding.
+    """
+    TEXT = "text"
+    TRAILER = "trailer"
+    REVIEW = "review"
+
+
+class NavigationMode(str, Enum):
+    """Clustering operations a user can request via natural language."""
+    def __new__(cls, value: str, description: str = "") -> "NavigationMode":
+        obj = str.__new__(cls, value)
+        obj._value_ = value
+        obj._description = description
+        return obj
+
+    DRILL_DOWN = (
+        "drill_down",
+        "split one existing cluster further along a semantic concept, or re-cluster the full catalogue when no target cluster is specified",
+    )
+    MERGE = (
+        "merge",
+        "combine the two most-related clusters in the current view into one",
+    )
+    FOCUS = (
+        "focus",
+        "discard all clusters except the selected one, narrowing the working set to its members",
+    )
+    CROSS_FILTER = (
+        "cross_filter",
+        "keep only movies matching a metadata predicate (genre, year, director); "
+        "no clustering is performed — use drill_down afterwards to cluster the filtered set",
+    )
+    PARTITION_BY = (
+        "partition_by",
+        "split the working set into deterministic clusters by an exact metadata "
+        "attribute — genre, runtime, release year, or director",
+    )
+    EXCLUDE = (
+        "exclude",
+        "discard one selected cluster, keeping all other clusters in the working set (inverse of focus)",
+    )
+
+    @property
+    def description(self) -> str:
+        """One-line description of this mode for use in the intent prompt."""
+        return self._description  # type: ignore[attr-defined]
+
+
+class PartitionAttribute(str, Enum):
+    """Metadata attributes supported by the ``partition_by`` operation.
+
+    Attributes:
+        GENRE:             Group by movie genre (multi-valued; a movie may appear in
+                           multiple clusters).
+        RUNTIME:           Bucket by runtime in minutes using LLM-specified numeric bins.
+        RELEASE_YEAR:      Bucket by release year using LLM-specified numeric bins.
+        DIRECTOR:          Group by director name (multi-valued when a movie has co-directors).
+        VOTE_AVERAGE:      Bucket by audience rating (0–10 scale) using LLM-specified bins.
+        ORIGINAL_LANGUAGE: Group by original production language (categorical).
+    """
+    GENRE = "genre"
+    RUNTIME = "runtime"
+    RELEASE_YEAR = "release_year"
+    DIRECTOR = "director"
+    VOTE_AVERAGE = "vote_average"
+    ORIGINAL_LANGUAGE = "original_language"
+
+
+@dataclass(frozen=True, slots=True)
+class PartitionBin:
+    """A single labelled bucket for numeric ``partition_by`` operations.
+
+    ``min`` and ``max`` are both inclusive-lower / exclusive-upper edges.
+    Either may be ``None`` to represent an open-ended range.
+
+    Attributes:
+        label: Human-readable bucket name (e.g. ``"Short (<1h)"``).
+        min:   Lower bound in attribute units, inclusive; ``None`` = no lower bound.
+        max:   Upper bound in attribute units, exclusive; ``None`` = no upper bound.
+    """
+
+    label: str
+    min: float | None
+    max: float | None
+
+
+@dataclass(frozen=True, slots=True)
+class PartitionSpec:
+    """Full specification for a ``partition_by`` operation.
+
+    Attributes:
+        attribute: Which metadata field to group by.
+        bins:      Required for numeric attributes (``RUNTIME``, ``RELEASE_YEAR``);
+                   ``None`` for categorical attributes (``GENRE``, ``DIRECTOR``).
+    """
+
+    attribute: PartitionAttribute
+    bins: list[PartitionBin] | None
+
+
+@dataclass(frozen=True, slots=True)
+class MetadataFilter:
+    """Metadata predicate for the CROSS_FILTER operation.
+
+    All populated fields are combined with AND logic; values within ``genres``
+    are combined with OR.
+
+    Attributes:
+        genres:           Genre names to keep (OR across genres).
+        release_year_min: Earliest release year, inclusive.
+        release_year_max: Latest release year, inclusive.
+        director:         Director name to match (case-insensitive substring).
+    """
+    genres: list[str] | None = None
+    release_year_min: int | None = None
+    release_year_max: int | None = None
+    director: str | None = None
 
 
 class DialogueMode(str, Enum):
@@ -43,6 +169,10 @@ class DialogueMode(str, Enum):
     SMALL_TALK = (
         "small_talk",
         "casual message with no clustering operation needed",
+    )
+    UNDO = (
+        "undo",
+        "step back to the previous clustering snapshot, undoing the last operation",
     )
 
     @property
@@ -82,15 +212,23 @@ class IntentActionLLM(BaseModel):
     embedding_spaces: list[Modality] = [Modality.TEXT]
     metadata_filter: MetadataFilterLLM | None = None
     partition_spec: PartitionSpecLLM | None = None
+    target_n_clusters: int | None = None
 
 
 class IntentLLMResponse(BaseModel):
     """Structured output expected from the intent classification LLM call.
 
-    Wraps an ordered list of actions so the model can express compound requests
-    (e.g. reset then drill-down) as a single turn.  Single-action requests are
-    represented as a one-element list, preserving backward-compatible behaviour.
+    ``reasoning`` is a chain-of-thought scratchpad filled before ``actions``.
+    It is generated first so the model can resolve ambiguities (pronoun
+    references, partition_by vs drill_down, compound requests) before committing
+    to a structured output.  It is used only for debugging and is not forwarded
+    to the coordinator.
+
+    ``actions`` wraps an ordered list of actions so the model can express
+    compound requests (e.g. reset then drill-down) as a single turn.
+    Single-action requests are represented as a one-element list.
     """
+    reasoning: str = ""
     actions: list[IntentActionLLM]
 
 
@@ -112,6 +250,9 @@ class IntentAction:
                            user references visual style or tone.
         metadata_filter:   Metadata predicate for cross_filter; ``None`` otherwise.
         partition_spec:    Attribute and bins for partition_by; ``None`` otherwise.
+        target_n_clusters: Exact cluster count requested by the Oracle for drill_down.
+                           ``None`` when no count was specified (emergent HDBSCAN count
+                           is used).  Values < 2 are discarded with a warning.
     """
     mode: NavigationMode | DialogueMode
     concept: str | None
@@ -121,6 +262,7 @@ class IntentAction:
     embedding_spaces: list[Modality]
     metadata_filter: MetadataFilter | None
     partition_spec: PartitionSpec | None
+    target_n_clusters: int | None
 
     @classmethod
     def from_llm_action(cls, parsed: IntentActionLLM) -> "IntentAction":
@@ -163,6 +305,16 @@ class IntentAction:
                 bins = [PartitionBin(label=b.label, min=b.min, max=b.max) for b in (ps.bins or [])]
                 partition_spec = PartitionSpec(attribute=attr, bins=bins or None)
 
+        target_n_clusters: int | None = None
+        if parsed.target_n_clusters is not None:
+            if parsed.target_n_clusters < 2:
+                log.warning(
+                    "intent_invalid_cluster_count",
+                    extra={"raw": parsed.target_n_clusters},
+                )
+            else:
+                target_n_clusters = parsed.target_n_clusters
+
         return cls(
             mode=parsed.mode,
             concept=parsed.concept,
@@ -172,6 +324,7 @@ class IntentAction:
             embedding_spaces=parsed.embedding_spaces,
             metadata_filter=metadata_filter,
             partition_spec=partition_spec,
+            target_n_clusters=target_n_clusters,
         )
 
 
