@@ -309,7 +309,7 @@ wheels = [
 [[package]]
 name = "cinepal"
 version = "0.1.0"
-source = { virtual = "." }
+source = { editable = "." }
 dependencies = [
     { name = "bcrypt" },
     { name = "fastapi" },

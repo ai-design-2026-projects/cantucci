@@ -186,23 +186,41 @@ All eval routes require an admin-scoped JWT and are not intended for frontend co
 wraps the HTTP API one-to-one via an async `CinePalClient`. It holds no state of its own. The
 backend URL is configured with `CINEPAL_MCP_BACKEND_URL` (default `http://localhost:8000`).
 
-### Tools (state-changing)
+All capabilities are exposed as **tools** (no MCP Resources). All tools work in anonymous mode.
+
+### Conversation tools
 
 | Tool | Args | Backend call | Notes |
 |---|---|---|---|
-| `create_conversation()` | — | `POST /conversations/create` | Start an anonymous conversation. |
-| `send_message(conversation_id, content)` | 2 | `POST /conversations/send_message/{id}` | Submit a message; returns the assistant reply + new snapshot id. |
-| `delete_conversation(conversation_id)` | 1 | `DELETE /conversations/delete/{id}` | Requires backend auth — anonymous callers get 401. |
-| `navigate_to_snapshot(conversation_id, snapshot_id)` | 2 | `PATCH /conversations/update_snapshot/{id}` | Undo / branch to a past snapshot. Requires backend auth — anonymous callers get 401. |
+| `create_conversation()` | — | `POST /conversations/create` | Start an anonymous conversation. Returns the conversation ID needed for all subsequent calls. |
+| `send_message(conversation_id, content)` | 2 | `POST /conversations/send_message/{id}` | Submit an oracle message; returns the assistant reply + updated snapshot id. |
+| `get_conversation(conversation_id)` | 1 | `GET /conversations/get/{id}` | Fetch a conversation with up to 20 recent messages and the current active snapshot ID. |
+| `navigate_to_snapshot(conversation_id, snapshot_id)` | 2 | `PATCH /conversations/update_snapshot/{id}` | Undo / branch to a past snapshot. |
+| `get_snapshot_graph(conversation_id)` | 1 | `GET /conversations/get_cluster_snapshot/{id}` | Fetch the full DAG of all snapshots touched by a conversation. |
 
-### Resources (read-only, URI-addressable)
+### Cluster snapshot tools
 
-| Resource URI | Backend call |
-|---|---|
-| `conversation://{conversation_id}` | `GET /conversations/get/{id}` |
-| `snapshot://{snapshot_id}` | `GET /cluster-snapshots/get/{id}` |
-| `snapshot-graph://{conversation_id}` | `GET /conversations/get_cluster_snapshot/{id}` |
-| `cluster-members://{snapshot_id}/{cluster_id}` | `GET /cluster-snapshots/cluster_members/{snapshot_id}/{cluster_id}` |
+| Tool | Args | Backend call | Notes |
+|---|---|---|---|
+| `get_root_snapshot()` | — | `GET /cluster-snapshots/get_root` | The corpus-level starting snapshot. `members` (per-movie UMAP data) is stripped before returning — too large for the protocol and only needed by the frontend. |
+| `get_snapshot(snapshot_id)` | 1 | `GET /cluster-snapshots/get/{id}` | A snapshot with its cluster list. `members` is stripped for the same reason. |
+| `get_cluster_members(snapshot_id, cluster_id)` | 2 | `GET /cluster-snapshots/cluster_members/{sid}/{cid}` | All movies in a cluster with soft membership probabilities, ordered descending. |
 
-In anonymous mode all resources and the `create_conversation` / `send_message` tools work;
-`delete_conversation` and `navigate_to_snapshot` require the backend to be authenticated.
+### Movie tools
+
+| Tool | Args | Backend call |
+|---|---|---|
+| `get_movie(movie_id)` | 1 | `GET /movies/get/{id}` |
+| `get_movies_batch(movie_ids)` | 1 | `POST /movies/get_batch` |
+
+### Concept tools
+
+| Tool | Args | Backend call | Notes |
+|---|---|---|---|
+| `get_concept_axis(concept_id)` | 1 | `GET /concepts/get_axis/{id}` | Returns `concept_id`, `concept_name`, `positive_label`, `negative_label`, and `points` (list of `{movie_id, title, score, vote_count}` ordered by ascending score). |
+
+### Excluded endpoints
+
+Hard deletes (`DELETE /conversations/{id}`, `DELETE /cluster-snapshots/{id}`), the SSE progress
+stream (`GET /conversations/progress_stream/{id}`), auth endpoints, per-user history, and all
+`/eval/*` routes are intentionally not exposed.

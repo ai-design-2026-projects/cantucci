@@ -271,7 +271,7 @@ async def send_message(
         conversation_row=row,
     )
 
-    msg_id = append_message(
+    msg_id, msg_created_at = append_message(
         conversation_id,
         "assistant",
         result.reply_text,
@@ -293,7 +293,7 @@ async def send_message(
             id=msg_id,
             role="assistant",
             content=result.reply_text,
-            created_at=row.created_at,
+            created_at=msg_created_at,
             suggestion=result.suggestion,
             axis_concept_id=result.axis_concept_id,
         ),

@@ -4,29 +4,52 @@ An [MCP (Model Context Protocol)](https://modelcontextprotocol.io) server that e
 
 The server wraps the CinePal FastAPI backend over HTTP — all requests flow through the existing REST API, keeping layer boundaries intact.
 
+All capabilities are exposed as **tools** (callable by the model autonomously), split by domain.
+
 ---
 
 ## Tools
 
-State-changing operations callable by the MCP host.
+### Conversations
 
 | Tool | Description |
 |---|---|
 | `create_conversation` | Start a new anonymous clustering session. Returns the conversation ID needed for all subsequent calls. |
 | `send_message` | Submit an oracle message and receive the AI reply + updated cluster snapshot ID. |
-| `delete_conversation` | Delete a conversation. **Requires auth** — returns 401 in anonymous mode. |
-| `navigate_to_snapshot` | Set the active cluster snapshot (undo / branch). **Requires auth** — returns 401 in anonymous mode. |
+| `navigate_to_snapshot` | Set the active cluster snapshot (undo / branch navigation). Use `get_snapshot_graph` to discover past snapshot IDs. |
+| `get_conversation` | Fetch a conversation with up to 20 recent messages and the current active snapshot ID. |
+| `get_snapshot_graph` | Fetch the full DAG of all snapshots touched by a conversation — use to find past snapshot IDs for `navigate_to_snapshot`. |
 
-## Resources
+### Cluster Snapshots
 
-Read-only, URI-addressable data sources.
-
-| URI | Description |
+| Tool | Description |
 |---|---|
-| `conversation://{conversation_id}` | Conversation with up to 20 recent messages and current snapshot ID. |
-| `snapshot://{snapshot_id}` | Cluster snapshot with full cluster list (labels, summaries, exemplar movie IDs, member count). |
-| `snapshot-graph://{conversation_id}` | Full DAG of all snapshots touched by a conversation — use to find past snapshot IDs for `navigate_to_snapshot`. |
-| `cluster-members://{snapshot_id}/{cluster_id}` | All movies in a cluster with their soft membership probabilities, ordered descending. |
+| `get_root_snapshot` | Fetch the corpus-level starting snapshot — the full catalogue clustered without any oracle guidance. Per-movie UMAP assignments are excluded; use `get_cluster_members` for memberships. |
+| `get_snapshot` | Fetch a snapshot with its full cluster list (labels, summaries, exemplar movie IDs). Per-movie UMAP assignments are excluded; use `get_cluster_members` for memberships. |
+| `get_cluster_members` | All movies in a cluster with their soft membership probabilities, ordered descending. |
+
+### Movies
+
+| Tool | Description |
+|---|---|
+| `get_movie` | Full metadata for a single movie by TMDB ID (title, overview, genres, release year, rating…). |
+| `get_movies_batch` | Full metadata for up to 200 movies in one call — efficient when inspecting cluster contents. |
+
+### Concepts
+
+| Tool | Description |
+|---|---|
+| `get_concept_axis` | Distribution of movies along a concept's linear axis [-1, +1]. Returns `concept_id`, `concept_name`, `positive_label`, `negative_label`, and `points` (list of `{movie_id, title, score, vote_count}` ordered by ascending score). |
+
+---
+
+## What is not exposed
+
+- **Hard deletes** — the MCP never destroys data; `DELETE /conversations/{id}` and `DELETE /cluster-snapshots/{id}` are excluded.
+- **SSE progress stream** — `GET /conversations/progress_stream/{id}` doesn't fit the tool request/response model; `send_message` returns the final result directly.
+- **Auth endpoints** — login, register, logout, me. The MCP runs anonymously or with a pre-configured token; auth lifecycle is not an LLM capability.
+- **Per-user history** — `GET /conversations/get_history` requires user authentication, which is meaningless in anonymous mode.
+- **Eval / research endpoints** — all `GET /eval/*` routes are admin-only experiment introspection, out of scope for the conversational oracle.
 
 ---
 
@@ -44,13 +67,19 @@ Read-only, URI-addressable data sources.
 Make sure the CinePal backend is running first:
 
 ```bash
-uv run uvicorn backend.app:app --reload
+python -m uvicorn backend.app:app --reload
 ```
 
 Then run the MCP server:
 
 ```bash
-uv run cinepal-mcp
+python -m mcp_server.server
+```
+
+Or via the console script:
+
+```bash
+cinepal-mcp
 ```
 
 The server communicates over stdio (standard for MCP hosts).
@@ -63,8 +92,8 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS)
 {
   "mcpServers": {
     "cinepal": {
-      "command": "uv",
-      "args": ["run", "cinepal-mcp"],
+      "command": "python",
+      "args": ["-m", "mcp_server.server"],
       "cwd": "/absolute/path/to/cantucci"
     }
   }
@@ -75,11 +104,21 @@ Restart Claude Desktop after saving.
 
 ---
 
-## Anonymous mode limitations
+## Module layout
 
-The server operates anonymously by default (no JWT). Two tools require auth on the backend:
-
-- `delete_conversation` — calls `DELETE /conversations/{id}`, which requires a logged-in user.
-- `navigate_to_snapshot` — calls `PATCH /conversations/{id}`, which requires a logged-in user.
-
-Both will return a descriptive error if called without auth. The remaining two tools and all four resources work fully in anonymous mode.
+```
+mcp_server/
+  server.py                    # composition root — one shared httpx client wired into domain clients
+  settings.py                  # McpSettings (CINEPAL_MCP_* env vars)
+  http_client.py               # BackendError + BaseClient (shared httpx.AsyncClient, _check())
+  capabilities/                # MCP surface — @tool registrations, one module per domain
+    conversations.py
+    cluster_snapshots.py
+    movies.py
+    concepts.py
+  clients/                     # HTTP transport — typed client classes, one per domain
+    conversations.py
+    cluster_snapshots.py
+    movies.py
+    concepts.py
+```
