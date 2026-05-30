@@ -179,7 +179,7 @@ async def execute_reuse_concept(
     new_snapshot_id, persist_cost, n_movies, new_clusters = await persist_draft(ctx, draft)
     labels = [c.label for c in new_clusters]
     return ActionResult(
-        reply_fragment=replies.format_drill_down_reply(labels, len(new_clusters), n_movies),
+        reply_fragment=replies.format_cluster_reply(labels, len(new_clusters), n_movies),
         cluster_snapshot_id=new_snapshot_id,
         step_cost=persist_cost,
     )

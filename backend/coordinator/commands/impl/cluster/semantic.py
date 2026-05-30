@@ -50,7 +50,7 @@ async def execute_semantic(cmd: ClusterCommand, ctx: ExecutionContext) -> Action
     if target_id is None and ctx.clusters:
         mark_awaiting(ctx.conversation_id)
         return ActionResult(
-            reply_fragment=replies.format_drill_down_clarification([c.label for c in ctx.clusters]),
+            reply_fragment=replies.format_cluster_clarification([c.label for c in ctx.clusters]),
             cluster_snapshot_id=ctx.current_cluster_snapshot_id,
             step_cost=0.0,
         )
@@ -100,7 +100,7 @@ async def execute_semantic(cmd: ClusterCommand, ctx: ExecutionContext) -> Action
     new_snapshot_id, persist_cost, n_movies, new_clusters = await persist_draft(ctx, draft, step_cost)
     labels = [c.label for c in new_clusters]
     return ActionResult(
-        reply_fragment=replies.format_drill_down_reply(labels, len(new_clusters), n_movies),
+        reply_fragment=replies.format_cluster_reply(labels, len(new_clusters), n_movies),
         cluster_snapshot_id=new_snapshot_id,
         step_cost=persist_cost,
     )

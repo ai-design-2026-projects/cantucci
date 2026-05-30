@@ -46,7 +46,7 @@ class ExcludeCommand:
         if target_id is None and ctx.clusters:
             mark_awaiting(ctx.conversation_id)
             return ActionResult(
-                reply_fragment=replies.format_drill_down_clarification([c.label for c in ctx.clusters]),
+                reply_fragment=replies.format_cluster_clarification([c.label for c in ctx.clusters]),
                 cluster_snapshot_id=ctx.current_cluster_snapshot_id,
                 step_cost=0.0,
             )
