@@ -2,6 +2,7 @@ export interface AxisPointDto {
     movie_id: number
     title: string
     score: number
+    vote_count: number
 }
 
 export interface AxisDistributionDto {

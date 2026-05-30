@@ -7,13 +7,15 @@ class AxisPointDto(BaseModel):
     """A single movie's position on the concept linear axis.
 
     Attributes:
-        movie_id: TMDB integer ID.
-        title:    Movie display title.
-        score:    Normalized axis score in [-1, 1].
+        movie_id:   TMDB integer ID.
+        title:      Movie display title.
+        score:      Normalized axis score in [-1, 1].
+        vote_count: Number of TMDB votes; used client-side to highlight pole-representative movies.
     """
     movie_id: int
     title: str
     score: float
+    vote_count: int
 
 
 class AxisDistributionDto(BaseModel):

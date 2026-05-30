@@ -134,7 +134,7 @@ def get_concept_axis_points(concept_id: uuid.UUID) -> list[ConceptAxisPointRow]:
     with transaction() as conn:
         rows = conn.execute(
             """
-            SELECT cs.movie_id, m.title, cs.score
+            SELECT cs.movie_id, m.title, cs.score, COALESCE(m.vote_count, 0) AS vote_count
             FROM concept_scores cs
             JOIN movies m ON m.id = cs.movie_id
             WHERE cs.concept_id = %s
