@@ -15,6 +15,7 @@ import type { ConversationDto, MessageDto } from '@/api/dto/conversations'
 export function useSendMessage(conversationId: string) {
 	const queryClient = useQueryClient()
 	const queryKey = ['conversation', conversationId]
+	const zeroSnapshotId = '00000000-0000-0000-0000-000000000000'
 
 	return useMutation({
 		mutationFn: (content: string) => sendMessageFetcher(conversationId, content),
@@ -34,26 +35,24 @@ export function useSendMessage(conversationId: string) {
 		},
 		onSuccess: (data) => {
 			const oldSnapshotId = queryClient.getQueryData<ConversationDto>(queryKey)?.current_cluster_snapshot_id
+			const newSnapshotId = data.cluster_snapshot_id
+			const normalizedSnapshotId = newSnapshotId && newSnapshotId !== zeroSnapshotId ? newSnapshotId : null
 			queryClient.setQueryData<ConversationDto>(queryKey, (old) =>
 				old
 					? {
 						...old,
-						current_cluster_snapshot_id: data.cluster_snapshot_id,
+						current_cluster_snapshot_id: normalizedSnapshotId ?? old.current_cluster_snapshot_id,
 						messages: [...old.messages, data.message],
 					}
 					: old
 			)
 
-			const newSnapshotId = data.cluster_snapshot_id
-			const isNewSnapshot =
-				newSnapshotId &&
-				newSnapshotId !== '00000000-0000-0000-0000-000000000000' &&
-				newSnapshotId !== oldSnapshotId
+			const isNewSnapshot = !!normalizedSnapshotId && normalizedSnapshotId !== oldSnapshotId
 
 			if (isNewSnapshot) {
-				queryClient.invalidateQueries({ queryKey: ['snapshot', newSnapshotId] })
+				queryClient.invalidateQueries({ queryKey: ['snapshot', normalizedSnapshotId] })
 				queryClient.invalidateQueries({ queryKey: ['snapshot-graph', conversationId] })
-				const snapshotData = queryClient.getQueryData<{ operation?: string }>(['snapshot', newSnapshotId])
+				const snapshotData = queryClient.getQueryData<{ operation?: string }>(['snapshot', normalizedSnapshotId])
 				const opLabel = snapshotData?.operation ? OPERATION_LABELS[snapshotData.operation] ?? snapshotData.operation : 'New snapshot'
 				toast.success(`Snapshot updated: ${opLabel}`)
 			}

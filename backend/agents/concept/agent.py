@@ -15,7 +15,7 @@ class ConceptLLMAgent(LLMAgent[ConceptRep]):
     name = "concept"
     step_type = "concept_agent"
     model_tier = "strong"
-    template_name = "parse_v4.j2"
+    template_name = "parse_v5.j2"
     response_schema = ConceptLLMResponse
 
     async def render_kwargs(self, **inputs: Any) -> dict[str, Any]:

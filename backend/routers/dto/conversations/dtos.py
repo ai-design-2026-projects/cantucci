@@ -35,19 +35,22 @@ class MessageDto(BaseModel):
     """A single conversation message.
 
     Attributes:
-        id:         Message UUID.
-        role:       ``"user"`` or ``"assistant"``.
-        content:    Message text.
-        created_at: UTC timestamp.
-        suggestion: Optional follow-up suggestion from the suggester agent.
-                    Present only on assistant messages produced after a state-changing
-                    operation; None for clarification replies, small_talk, and explain.
+        id:              Message UUID.
+        role:            ``"user"`` or ``"assistant"``.
+        content:         Message text.
+        created_at:      UTC timestamp.
+        suggestion:      Optional follow-up suggestion from the suggester agent.
+                         Present only on assistant messages produced after a state-changing
+                         operation; None for clarification replies, small_talk, and explain.
+        axis_concept_id: UUID of the concept backing a beeswarm axis-distribution proposal.
+                         Non-None only on concept-clustering proposal turns; None otherwise.
     """
     id: uuid.UUID
     role: str
     content: str
     created_at: datetime
     suggestion: str | None = None
+    axis_concept_id: uuid.UUID | None = None
 
 
 class ConversationDto(BaseModel):
@@ -70,7 +73,8 @@ class SendMessageResponse(BaseModel):
 
     Attributes:
         message:             The assistant reply message.
-        cluster_snapshot_id: UUID of the new or updated cluster snapshot.
+        cluster_snapshot_id: UUID of the new or updated cluster snapshot, or None
+                             when no snapshot was created this turn.
     """
     message: MessageDto
-    cluster_snapshot_id: uuid.UUID
+    cluster_snapshot_id: uuid.UUID | None

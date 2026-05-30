@@ -14,10 +14,14 @@ class ActionResult:
         cluster_snapshot_id: The ID of the updated cluster snapshot after this action.
         reply_fragment:      Text to append to the turn reply.
         step_cost:           LLM cost incurred during this action in USD.
+        axis_concept_id:     UUID of the concept whose normalized scores back a beeswarm
+                             axis-distribution proposal.  Non-None only when this action
+                             ended with a concept-axis proposal (no snapshot created).
     """
     cluster_snapshot_id: uuid.UUID | None
     reply_fragment: str
     step_cost: float
+    axis_concept_id: uuid.UUID | None = None
 
 
 @dataclass(frozen=True, slots=True)

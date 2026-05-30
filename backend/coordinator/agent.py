@@ -6,6 +6,7 @@ from backend.agents.clarifier.agent import agent as clarifier_agent
 from backend.coordinator.commands.factory import build_command
 from backend.coordinator.commands.base import ExecutionContext
 from backend.coordinator.tools.clarification_state import is_awaiting, mark_awaiting, take_awaiting
+from backend.agents.concept.types import PendingConcept
 from backend.coordinator.tools.labeling import label_unlabeled_clusters
 from backend.coordinator.tools.progress import ProgressReporter
 from backend.agents.responder.suggestions import maybe_suggest
@@ -66,7 +67,7 @@ class Coordinator:
         )
 
         # Check if we're awaiting clarification on a previous message
-        was_awaiting, clarification_question, pending_spec, pending_target_id = self._resolve_clarification_context(conversation_id)
+        was_awaiting, clarification_question, pending_spec, pending_target_id, pending_concept = self._resolve_clarification_context(conversation_id)
 
         # Classify oracle intent and retrieve proposed actions
         reporter.step("intent")
@@ -85,6 +86,11 @@ class Coordinator:
         # override the returned partition spec with the one we stored from the clarification turn
         if was_awaiting and pending_spec is not None:
             actions = self._apply_pending_spec_override(actions, pending_spec, pending_target_id)
+
+        # If we were awaiting a concept-axis confirmation, patch the CLUSTER action to reuse
+        # the persisted concept scores instead of invoking the concept agent again
+        if was_awaiting and pending_concept is not None:
+            actions = self._apply_pending_concept_override(actions, pending_concept)
 
         trace_modes, trace_concepts, trace_targets, trace_confidence, trace_raw = self._extract_trace_fields(intent)
 
@@ -122,7 +128,7 @@ class Coordinator:
         )
 
         # Execute actions in sequence, threading the snapshot id forward
-        snapshot_id, accumulated_cost, reply_fragments = await self._dispatch_actions(
+        snapshot_id, accumulated_cost, reply_fragments, axis_concept_id = await self._dispatch_actions(
             actions=actions,
             conversation_id=conversation_id,
             conversation_row=conversation_row,
@@ -153,6 +159,7 @@ class Coordinator:
             cluster_snapshot_id=final_snapshot_id,
             turn_cost_usd=accumulated_cost - turn_start_cost,
             suggestion=suggestion.text if suggestion else None,
+            axis_concept_id=axis_concept_id,
             turn_trace=self._build_trace(
                 trace_modes, trace_concepts, trace_targets, trace_confidence, trace_raw,
                 clarifier_fired=False, suggestion=suggestion, reply_fragments=reply_fragments,
@@ -202,7 +209,7 @@ class Coordinator:
     def _resolve_clarification_context(
         self,
         conversation_id: uuid.UUID,
-    ) -> tuple[bool, str | None, PartitionSpec | None, uuid.UUID | None]:
+    ) -> tuple[bool, str | None, PartitionSpec | None, uuid.UUID | None, PendingConcept | None]:
         """Check for a pending clarification and fetch the prior question text if set.
 
         Consumes the in-memory awaiting flag via ``take_awaiting``; subsequent
@@ -212,14 +219,14 @@ class Coordinator:
             conversation_id: Conversation UUID to check.
 
         Returns:
-            Tuple of (was_awaiting, clarification_question, pending_spec, pending_target_id).
+            Tuple of (was_awaiting, clarification_question, pending_spec, pending_target_id, pending_concept).
             ``clarification_question`` is the prior assistant message text when
             ``was_awaiting`` is True, else ``None``.
             ``pending_target_id`` is the cluster UUID stored from the prior turn when
             a bin proposal was made for a specific cluster, else ``None``.
         """
         # Check if we're awaiting clarification on a previous message
-        was_awaiting, pending_spec, pending_target_id = take_awaiting(conversation_id)
+        was_awaiting, pending_spec, pending_target_id, pending_concept = take_awaiting(conversation_id)
         clarification_question: str | None = None
         # If so, find the most recent assistant message to use as the clarification question for intent classification.
         if was_awaiting:
@@ -227,7 +234,7 @@ class Coordinator:
             prior_assistant = next((m for m in reversed(recent) if m.role == "assistant"), None)
             if prior_assistant is not None:
                 clarification_question = prior_assistant.content
-        return was_awaiting, clarification_question, pending_spec, pending_target_id
+        return was_awaiting, clarification_question, pending_spec, pending_target_id, pending_concept
 
     def _apply_pending_spec_override(
         self,
@@ -282,6 +289,41 @@ class Coordinator:
                 result[i] = patched
         return result
 
+    def _apply_pending_concept_override(
+        self,
+        actions: list[IntentAction],
+        pending_concept: PendingConcept,
+    ) -> list[IntentAction]:
+        """Patch the CLUSTER action to reuse the persisted concept scores from the proposal turn.
+
+        When the user is confirming a concept-axis beeswarm proposal (by stating the
+        desired cluster count), the intent agent may re-extract the concept name but
+        we want to reuse the already-computed and persisted scores rather than calling
+        the concept agent again.  If the user redirected to a *different* concept (i.e.
+        the returned action has a concept string and it differs from the pending name),
+        we skip the override and let the new concept flow through normally.
+
+        Args:
+            actions:         Classified actions from the intent agent.
+            pending_concept: Stored concept context from the prior proposal turn.
+
+        Returns:
+            New list of actions with the CLUSTER entry patched to carry ``reuse_concept_id``
+            and the original ``target_cluster_id``.
+        """
+        result = list(actions)
+        for i, a in enumerate(result):
+            if a.mode == NavigationMode.CLUSTER:
+                if a.concept is not None and a.concept != pending_concept.concept_name:
+                    break
+                result[i] = dataclasses.replace(
+                    a,
+                    reuse_concept_id=pending_concept.concept_id,
+                    target_cluster_id=pending_concept.target_cluster_id,
+                )
+                break
+        return result
+
     def _extract_trace_fields(
         self, intent: IntentResult
     ) -> tuple[list[str], list[str | None], list[uuid.UUID | None], float, str]:
@@ -310,7 +352,7 @@ class Coordinator:
         accumulated_cost: float,
         message_id: uuid.UUID,
         reporter: ProgressReporter,
-    ) -> tuple[uuid.UUID | None, float, list[str]]:
+    ) -> tuple[uuid.UUID | None, float, list[str], uuid.UUID | None]:
         """Execute each action in sequence, threading the cluster snapshot forward.
 
         Clusters are re-read from the DB at the start of each action so later
@@ -326,9 +368,12 @@ class Coordinator:
             reporter:                     SSE progress reporter.
 
         Returns:
-            Tuple of (final_cluster_snapshot_id, accumulated_cost, reply_fragments).
+            Tuple of (final_cluster_snapshot_id, accumulated_cost, reply_fragments,
+            axis_concept_id).  ``axis_concept_id`` is the last non-None value produced
+            by any action in this batch; None when no action proposed a concept axis.
         """
         reply_fragments: list[str] = []
+        axis_concept_id: uuid.UUID | None = None
         for action in actions:
             step_snapshot = (
                 get_cluster_snapshot_with_clusters(current_cluster_snapshot_id)
@@ -350,7 +395,9 @@ class Coordinator:
             current_cluster_snapshot_id = result.cluster_snapshot_id
             accumulated_cost += result.step_cost
             reply_fragments.append(result.reply_fragment)
-        return current_cluster_snapshot_id, accumulated_cost, reply_fragments
+            if result.axis_concept_id is not None:
+                axis_concept_id = result.axis_concept_id
+        return current_cluster_snapshot_id, accumulated_cost, reply_fragments, axis_concept_id
 
     async def _finalize(
         self,
