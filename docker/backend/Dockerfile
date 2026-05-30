@@ -11,7 +11,7 @@ ENV PATH="$VIRTUAL_ENV/bin:$PATH"
 
 WORKDIR /app
 COPY pyproject.toml uv.lock ./
-RUN uv sync --frozen --no-dev
+RUN uv sync --frozen --no-dev --extra dataset
 
 FROM python:3.11-slim
 
@@ -33,6 +33,13 @@ COPY db/ ./db/
 COPY demo/ ./demo/
 COPY dataset/ ./dataset/
 COPY core/ ./core/
+
+ENV HF_HOME=/opt/models/hf
+
+RUN CONFIG_PATH=configs/dev.yaml python -c "\
+from core.text_encoder import preload_model; \
+from core.image_encoder import preload_clip_model; \
+preload_model(); preload_clip_model()"
 
 COPY docker/backend/entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh

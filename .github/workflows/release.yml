@@ -30,8 +30,15 @@ jobs:
             .env.example
 
   build-backend:
-    name: build backend image
-    runs-on: ubuntu-latest
+    name: build backend image (${{ matrix.platform }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      matrix:
+        include:
+          - platform: linux/amd64
+            runner: ubuntu-latest
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@v4
 
@@ -57,6 +64,61 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ghcr.io/ai-design-2026-projects/cinepal-backend
+
+      - uses: docker/build-push-action@v6
+        id: build
+        with:
+          context: .
+          file: docker/backend/Dockerfile
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          platforms: ${{ matrix.platform }}
+          outputs: type=image,name=ghcr.io/ai-design-2026-projects/cinepal-backend,push-by-digest=true,name-canonical=true,push=true
+
+      - name: export digest
+        run: |
+          mkdir -p /tmp/digests
+          digest="${{ steps.build.outputs.digest }}"
+          touch "/tmp/digests/${digest#sha256:}"
+
+      - name: upload digest artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: digest-backend-${{ matrix.platform == 'linux/amd64' && 'amd64' || 'arm64' }}
+          path: /tmp/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  merge-backend:
+    name: merge backend multi-arch manifest
+    needs: build-backend
+    runs-on: ubuntu-latest
+    steps:
+      - name: download amd64 digest
+        uses: actions/download-artifact@v4
+        with:
+          name: digest-backend-amd64
+          path: /tmp/digests
+
+      - name: download arm64 digest
+        uses: actions/download-artifact@v4
+        with:
+          name: digest-backend-arm64
+          path: /tmp/digests
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/ai-design-2026-projects/cinepal-backend
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
@@ -64,16 +126,12 @@ jobs:
             type=raw,value=latest
             type=raw,value=${{ inputs.version }},enable=${{ github.event_name == 'workflow_dispatch' }}
 
-      - uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: docker/backend/Dockerfile
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          platforms: linux/amd64,linux/arm64
+      - name: create and push multi-arch manifest
+        working-directory: /tmp/digests
+        run: |
+          docker buildx imagetools create \
+            $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
+            $(printf 'ghcr.io/ai-design-2026-projects/cinepal-backend@sha256:%s ' *)
 
   build-mcp-server:
     name: build mcp server image
@@ -122,20 +180,72 @@ jobs:
           platforms: linux/amd64,linux/arm64
 
   build-frontend:
-    name: build frontend image
-    runs-on: ubuntu-latest
+    name: build frontend image (${{ matrix.platform }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      matrix:
+        include:
+          - platform: linux/amd64
+            runner: ubuntu-latest
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@v4
 
-      - name: free disk space
-        uses: jlumbroso/free-disk-space@main
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
         with:
-          tool-cache: true
-          android: true
-          dotnet: true
-          haskell: true
-          large-packages: true
-          swap-storage: true
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/ai-design-2026-projects/cinepal-frontend
+
+      - uses: docker/build-push-action@v6
+        id: build
+        with:
+          context: frontend
+          file: docker/frontend/Dockerfile
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          platforms: ${{ matrix.platform }}
+          outputs: type=image,name=ghcr.io/ai-design-2026-projects/cinepal-frontend,push-by-digest=true,name-canonical=true,push=true
+
+      - name: export digest
+        run: |
+          mkdir -p /tmp/digests
+          digest="${{ steps.build.outputs.digest }}"
+          touch "/tmp/digests/${digest#sha256:}"
+
+      - name: upload digest artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: digest-frontend-${{ matrix.platform == 'linux/amd64' && 'amd64' || 'arm64' }}
+          path: /tmp/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  merge-frontend:
+    name: merge frontend multi-arch manifest
+    needs: build-frontend
+    runs-on: ubuntu-latest
+    steps:
+      - name: download amd64 digest
+        uses: actions/download-artifact@v4
+        with:
+          name: digest-frontend-amd64
+          path: /tmp/digests
+
+      - name: download arm64 digest
+        uses: actions/download-artifact@v4
+        with:
+          name: digest-frontend-arm64
+          path: /tmp/digests
 
       - uses: docker/setup-buildx-action@v3
 
@@ -156,13 +266,9 @@ jobs:
             type=raw,value=latest
             type=raw,value=${{ inputs.version }},enable=${{ github.event_name == 'workflow_dispatch' }}
 
-      - uses: docker/build-push-action@v6
-        with:
-          context: frontend
-          file: docker/frontend/Dockerfile
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          platforms: linux/amd64,linux/arm64
+      - name: create and push multi-arch manifest
+        working-directory: /tmp/digests
+        run: |
+          docker buildx imagetools create \
+            $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
+            $(printf 'ghcr.io/ai-design-2026-projects/cinepal-frontend@sha256:%s ' *)
