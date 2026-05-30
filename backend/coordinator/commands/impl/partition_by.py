@@ -55,7 +55,8 @@ async def partition_by(
     Raises:
         ValueError: If the resolved movie set is empty or produces no clusters.
     """
-    from backend.coordinator.commands._clustering import exemplars, resolve_movie_ids
+    from backend.coordinator.commands.helpers.clustering import exemplars
+    from backend.coordinator.commands.helpers.movies import resolve_movie_ids
 
     cfg = get_settings()
     top_n = cfg.labeling.top_exemplars

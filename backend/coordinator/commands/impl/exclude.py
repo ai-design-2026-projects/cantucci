@@ -3,7 +3,8 @@ import uuid
 from dataclasses import dataclass
 from typing import ClassVar
 
-from backend.coordinator.commands._helpers import _persist_draft, resolve_target_or_clarify
+from backend.coordinator.commands.helpers.drafts import persist_draft
+from backend.coordinator.commands.helpers.targets import resolve_target_or_clarify
 from backend.coordinator.commands.base import ActionResult, ExecutionContext
 from backend.coordinator.tools.clarification_state import mark_awaiting
 from backend.coordinator.types import ClusterDraft, ClusterSnapshotDraft
@@ -64,7 +65,7 @@ class ExcludeCommand:
             source_cluster_id=target_id,
             parent_cluster_snapshot_id=ctx.current_cluster_snapshot_id,
         )
-        new_snapshot_id, step_cost, _, _ = await _persist_draft(ctx, draft)
+        new_snapshot_id, step_cost, _, _ = await persist_draft(ctx, draft)
         n_remaining = len(draft.clusters)
         return ActionResult(
             reply_fragment=replies.format_exclude_reply(label, n_remaining),
@@ -94,7 +95,7 @@ async def exclude_cluster(
         ValueError: If the source cluster is not found, if the snapshot is not found,
                     or if the source is the only cluster (nothing would remain).
     """
-    from backend.coordinator.commands._clustering import exemplars
+    from backend.coordinator.commands.helpers.clustering import exemplars
 
     cswc = get_cluster_snapshot_with_clusters(parent_cluster_snapshot_id)
     if cswc is None:

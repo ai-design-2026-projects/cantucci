@@ -4,10 +4,10 @@ from typing import Any
 from backend.agents.base import LLMAgent
 from backend.agents.intent.types import (
     DialogueMode,
-    IntentLLMResponse,
     IntentResult,
     NavigationMode,
 )
+from backend.agents.intent.wire import IntentLLMResponse
 from backend.llm.types import LLMResponse
 
 log = logging.getLogger(__name__)

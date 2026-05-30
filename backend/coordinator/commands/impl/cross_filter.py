@@ -3,7 +3,7 @@ import uuid
 from dataclasses import dataclass
 from typing import ClassVar
 
-from backend.coordinator.commands._helpers import _persist_draft
+from backend.coordinator.commands.helpers.drafts import persist_draft
 from backend.coordinator.commands.base import ActionResult, ExecutionContext
 from backend.coordinator.types import ClusterDraft, ClusterSnapshotDraft
 from backend.agents.intent.types import MetadataFilter
@@ -44,7 +44,7 @@ class CrossFilterCommand:
             parent_cluster_snapshot_id=ctx.current_cluster_snapshot_id,
             metadata_filter=self.metadata_filter,
         )
-        new_snapshot_id, step_cost, n_movies, _ = await _persist_draft(ctx, draft)
+        new_snapshot_id, step_cost, n_movies, _ = await persist_draft(ctx, draft)
         return ActionResult(
             reply_fragment=replies.format_cross_filter_reply(n_movies),
             cluster_snapshot_id=new_snapshot_id,
@@ -70,7 +70,7 @@ async def cross_filter(
     Raises:
         ValueError: If the parent snapshot is not found or no movies survive the filter.
     """
-    from backend.coordinator.commands._clustering import exemplars
+    from backend.coordinator.commands.helpers.clustering import exemplars
 
     cswc = get_cluster_snapshot_with_clusters(parent_cluster_snapshot_id)
     if cswc is None:

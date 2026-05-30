@@ -1,5 +1,5 @@
 from backend.agents.intent.types import DialogueMode, IntentAction, NavigationMode
-from backend.coordinator.commands.impl.cluster import ClusterCommand
+from backend.coordinator.commands.impl.cluster.command import ClusterCommand
 from backend.coordinator.commands.impl.cross_filter import CrossFilterCommand
 from backend.coordinator.commands.impl.exclude import ExcludeCommand
 from backend.coordinator.commands.impl.explain import ExplainCommand
