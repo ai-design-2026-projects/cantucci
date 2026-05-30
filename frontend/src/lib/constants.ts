@@ -2,11 +2,10 @@
 export const OPERATION_LABELS: Record<string, string> = {
 	base: 'Initial',
 	cluster: 'Cluster',
+	// kept for backward compatibility with snapshots recorded before the unification
 	drill_down: 'Drill Down',
-	merge: 'Merge',
-	recut: 'Recut',
-	subcluster: 'Subcluster',
 	partition_by: 'Partition',
+	merge: 'Merge',
 }
 
 /** Rotating status messages shown in the loading bubble during a turn. */

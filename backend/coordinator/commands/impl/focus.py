@@ -3,7 +3,7 @@ import uuid
 from dataclasses import dataclass
 from typing import ClassVar
 
-from backend.coordinator.commands._helpers import _persist_draft
+from backend.coordinator.commands.helpers.drafts import persist_draft
 from backend.coordinator.commands.base import ActionResult, ExecutionContext
 from backend.coordinator.types import ClusterDraft, ClusterSnapshotDraft
 from backend.agents.responder import replies
@@ -52,7 +52,7 @@ class FocusCommand:
             source_cluster_id=target_id,
             parent_cluster_snapshot_id=ctx.current_cluster_snapshot_id,
         )
-        new_snapshot_id, step_cost, _, _ = await _persist_draft(ctx, draft)
+        new_snapshot_id, step_cost, _, _ = await persist_draft(ctx, draft)
         n_members = len({mid for mid, _ in draft.clusters[0].memberships}) if draft.clusters else 0
         label = target_cluster.label if target_cluster else None
         return ActionResult(
@@ -85,7 +85,7 @@ async def focus(
     Raises:
         ValueError: If the source cluster has no members or is not found in the snapshot.
     """
-    from backend.coordinator.commands._clustering import exemplars
+    from backend.coordinator.commands.helpers.clustering import exemplars
 
     cswc = get_cluster_snapshot_with_clusters(parent_cluster_snapshot_id)
     if cswc is None:

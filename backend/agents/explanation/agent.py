@@ -18,7 +18,7 @@ class ExplanationLLMAgent(LLMAgent[ExplanationResult]):
     step_type = "explanation_agent"
     model_tier = "strong"
     template_name = "explain_v2.j2"
-    response_schema = None
+    response_schema = None              # No response schema since the explanation is free-form text
 
     async def run(
         self,
@@ -29,7 +29,8 @@ class ExplanationLLMAgent(LLMAgent[ExplanationResult]):
         run_id: str = "online",
         **inputs: Any,
     ) -> ExplanationResult:
-        """Fetch movie and cluster data before calling the LLM, with early return if not found.
+        """
+        Fetch movie and cluster data before calling the LLM, with early return if not found.
 
         Args:
             conversation_id:  Conversation UUID for logging.

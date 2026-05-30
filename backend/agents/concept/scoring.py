@@ -11,7 +11,7 @@ def score_movies(
     """Score a set of movies against a concept axis.
 
     Score = dot(movie_embedding, axis_vector). Both vectors are L2-normalized,
-    so the result is the cosine similarity (signed position along the axis).
+    so the result is the cosine similarity.
 
     The caller is responsible for supplying embeddings from the same space as
     the concept axis: ``text_embedding`` for ``space="semantic"`` concepts and
@@ -27,15 +27,18 @@ def score_movies(
     """
     scores: dict[int, float] = {}
     for mid in movie_ids:
+        # Skip movies with missing embeddings; they simply won't appear in the result
         if mid not in embeddings:
             continue
         vec = np.array(embeddings[mid], dtype=np.float32)
+        # Dot product of two unit vectors is the cosine similarity, which is our score
         scores[mid] = float(np.dot(vec, concept.axis_vector))
     return scores
 
 
 def normalize_axis_scores(scores: dict[int, float]) -> dict[int, float]:
-    """Rescale raw concept scores to the [-1, 1] range via min-max normalization.
+    """
+    Rescale raw concept scores to the [-1, 1] range via min-max normalization.
 
     Maps the minimum score to -1 and the maximum to +1 linearly.  When all
     scores are identical (max == min), every movie is mapped to 0.0.
@@ -48,10 +51,17 @@ def normalize_axis_scores(scores: dict[int, float]) -> dict[int, float]:
     """
     if not scores:
         return {}
+    # Get the min and max scores to compute the span
     values = list(scores.values())
-    lo = min(values)
-    hi = max(values)
-    if hi == lo:
+    lowest = min(values)
+    highest = max(values)
+
+    # If all scores are the same, we can't do min-max scaling (division by zero), so return 0 for all
+    if highest == lowest:
         return {mid: 0.0 for mid in scores}
-    span = hi - lo
-    return {mid: 2.0 * (v - lo) / span - 1.0 for mid, v in scores.items()}
+    
+    # Compute the difference between the highest and lowest scores to get the span
+    span = highest - lowest
+    # Rescale each score to the [-1, 1] range using the formula:
+    # normalized_score = 2 * (score - lowest) / span - 1
+    return {mid: 2.0 * (v - lowest) / span - 1.0 for mid, v in scores.items()}

@@ -9,6 +9,7 @@ from fastapi.responses import JSONResponse
 
 from backend.exceptions import DomainError
 from backend.logging_setup import configure_logging
+from core.image_encoder import preload_clip_model
 from core.text_encoder import preload_model
 import demo.utils.replay as _demo
 from backend.routers.auth import router as auth_router
@@ -35,6 +36,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """
     configure_logging()
     preload_model()
+    preload_clip_model()
 
     if _demo.is_replay_mode():
         _demo.load_recording()

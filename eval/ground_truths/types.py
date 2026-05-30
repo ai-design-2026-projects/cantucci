@@ -8,7 +8,7 @@ class OpSpec:
     """A single operation in a ground truth trajectory.
 
     Attributes:
-        op:      Operation type string (drill_down | merge | focus | cross_filter).
+        op:      Operation type string (cluster | merge | focus | cross_filter).
         concept: Semantic concept string describing what to operate on.
     """
     op: str

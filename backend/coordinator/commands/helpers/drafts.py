@@ -2,46 +2,22 @@ import uuid
 
 from backend.coordinator.commands.base import ExecutionContext
 from backend.coordinator.tools.persist import persist_and_label
-from backend.agents.intent.types import PartitionAttribute
 from backend.coordinator.types import ClusterDraft
 from backend.data_access.cluster_snapshots.queries import get_cluster_snapshot_with_clusters
-
-_NUMERIC_ATTRIBUTES = {
-    PartitionAttribute.RUNTIME,
-    PartitionAttribute.RELEASE_YEAR,
-    PartitionAttribute.VOTE_AVERAGE,
-}
+from backend.data_access.cluster_snapshots.types import ClusterRow
 
 
-def resolve_target_or_clarify(
-    ctx: ExecutionContext, target_cluster_id: uuid.UUID | None
-) -> uuid.UUID | None:
-    """Resolve a target cluster ID, auto-selecting when exactly one cluster is active.
-
-    Returns a concrete cluster UUID when the target can be determined without user
-    input:
-      - If ``target_cluster_id`` is already set, return it directly.
-      - If exactly one cluster is active, return that cluster's ID (deterministic
-        shortcut — no clarification needed when there is no ambiguity).
-      - Otherwise return ``None``: the caller should request clarification (2+ clusters)
-        or fall back to the whole-catalogue path (0 clusters).
+async def persist_draft(ctx: ExecutionContext, draft, base_cost: float = 0.0):
+    """Persist a cluster snapshot draft and return (new_snapshot_id, total_cost, n_movies, new_clusters).
 
     Args:
-        ctx:               Execution context carrying the current cluster list.
-        target_cluster_id: Cluster UUID from the intent agent, or ``None`` if not named.
+        ctx:       Execution context carrying conversation and cost state.
+        draft:     ``ClusterSnapshotDraft`` to persist.
+        base_cost: Additional cost to add to the labeling cost (e.g. from a prior agent call).
 
     Returns:
-        Resolved cluster UUID, or ``None`` when ambiguous or no clusters exist.
+        Tuple of (new_snapshot_id, total_cost, n_movies, new_clusters).
     """
-    if target_cluster_id is not None:
-        return target_cluster_id
-    if len(ctx.clusters) == 1:
-        return ctx.clusters[0].id
-    return None
-
-
-async def _persist_draft(ctx: ExecutionContext, draft, base_cost: float = 0.0):
-    """Persist a cluster snapshot draft and return (new_snapshot_id, total_cost, n_movies, new_clusters)."""
     new_snapshot_id, label_cost = await persist_and_label(
         draft, ctx.conversation_id, ctx.current_cluster_snapshot_id, ctx.accumulated_cost + base_cost
     )
@@ -50,6 +26,47 @@ async def _persist_draft(ctx: ExecutionContext, draft, base_cost: float = 0.0):
     new_clusters = new_cswc.clusters if new_cswc else []
     n_movies = len({mid for c in draft.clusters for mid, _ in c.memberships})
     return new_snapshot_id, total_cost, n_movies, new_clusters
+
+
+def draft_from_cluster(
+    cluster: ClusterRow,
+    memberships: list[tuple[int, float]],
+    top_n: int,
+    parent_cluster_id: uuid.UUID | None,
+    label: str | None = None,
+) -> ClusterDraft:
+    """Build a ``ClusterDraft`` from an existing cluster row and its pre-loaded memberships.
+
+    Centralises the recurring pattern of rebuilding a ``ClusterDraft`` from a row
+    fetched from the DB (used by merge, exclude, focus, and sibling carry-forward).
+    The caller is responsible for loading the correct memberships for the cluster;
+    this function only handles exemplar selection and ``ClusterDraft`` construction.
+
+    Args:
+        cluster:          Source ``ClusterRow`` supplying label, summary, and color_slot.
+        memberships:      ``[(movie_id, probability), ...]`` for this cluster.
+        top_n:            Maximum number of exemplar IDs (from ``cfg.labeling.top_exemplars``).
+        parent_cluster_id: Value to set on ``ClusterDraft.parent_cluster_id``; varies by
+                           operation (e.g. ``cluster.id`` for split siblings, ``cluster.parent_cluster_id``
+                           for merge unchanged clusters, ``source_cluster_id`` for focus).
+        label:            Override the cluster's existing label; pass ``None`` to use
+                          ``cluster.label`` unchanged.
+
+    Returns:
+        ``ClusterDraft`` ready for inclusion in a ``ClusterSnapshotDraft``.
+    """
+    from backend.coordinator.commands.helpers.clustering import exemplars
+
+    mids = [m[0] for m in memberships]
+    prbs = [m[1] for m in memberships]
+    return ClusterDraft(
+        label=label if label is not None else cluster.label,
+        summary=cluster.summary,
+        exemplar_movie_ids=exemplars(mids, prbs, top_n),
+        parent_cluster_id=parent_cluster_id,
+        memberships=memberships,
+        color_slot=cluster.color_slot,
+    )
 
 
 def merge_in_siblings(
@@ -77,7 +94,6 @@ def merge_in_siblings(
         List of ``ClusterDraft`` objects: siblings first, then ``new_clusters``.
     """
     from backend.data_access.cluster_snapshots.queries import get_snapshot_members
-    from backend.coordinator.commands._clustering import exemplars
     from backend.settings import get_settings
 
     if parent_cluster_snapshot_id is None:
@@ -96,14 +112,5 @@ def merge_in_siblings(
     result: list[ClusterDraft] = []
     for cluster in siblings:
         memberships_rows = [(m.movie_id, m.probability) for m in all_members if m.cluster_id == cluster.id]
-        mids = [m[0] for m in memberships_rows]
-        prbs = [m[1] for m in memberships_rows]
-        result.append(ClusterDraft(
-            label=cluster.label,
-            summary=cluster.summary,
-            exemplar_movie_ids=exemplars(mids, prbs, cfg.labeling.top_exemplars),
-            parent_cluster_id=cluster.id,
-            memberships=memberships_rows,
-            color_slot=cluster.color_slot,
-        ))
+        result.append(draft_from_cluster(cluster, memberships_rows, cfg.labeling.top_exemplars, cluster.id))
     return result + new_clusters

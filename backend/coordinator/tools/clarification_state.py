@@ -1,5 +1,4 @@
 import uuid
-from dataclasses import dataclass
 
 from backend.agents.intent.types import PartitionSpec
 from backend.agents.concept.types import PendingConcept

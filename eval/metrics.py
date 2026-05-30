@@ -158,8 +158,7 @@ def compute_cost(conversation_id: uuid.UUID) -> float:
 def compute_num_operations(conversation_id: uuid.UUID) -> int:
     """Count turn_intents rows whose mode is a NavigationMode value.
 
-    Counts all five NavigationMode values (drill_down, merge, focus,
-    cross_filter, partition_by).
+    Counts all four NavigationMode values (cluster, merge, focus, cross_filter).
 
     Args:
         conversation_id: UUID of the conversation.
@@ -197,7 +196,7 @@ def compute_operation_recall(
 
     Matches executed (op, concept) pairs against the GT operations list.
     Op-type match is exact; concept match is case-insensitive after stripping
-    whitespace. Only the four GT-vocabulary ops are counted (drill_down, merge,
+    whitespace. Only the four GT-vocabulary ops are counted (cluster, merge,
     focus, cross_filter).
 
     Args:
