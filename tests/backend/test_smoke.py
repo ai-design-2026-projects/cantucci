@@ -14,7 +14,7 @@ def test_movies_batch_empty(db_url: str) -> None:
         db_url: Connection URL from the ``db_url`` session fixture (wires the pool).
     """
     with TestClient(app) as client:
-        response = client.post("/movies/batch", json={"ids": [999999999]})
+        response = client.post("/movies/get_batch", json={"ids": [999999999]})
     assert response.status_code == 200
     assert response.json() == []
 
