@@ -1,8 +1,12 @@
 import uuid
 from dataclasses import dataclass
 
-from backend.agents.intent.types import Modality, PartitionSpec
+from backend.agents.intent.types import PartitionSpec
 from backend.agents.concept.types import PendingConcept
+
+_awaiting: set[uuid.UUID] = set()
+_pending_specs: dict[uuid.UUID, PartitionSpec] = {}
+_pending_concepts: dict[uuid.UUID, PendingConcept] = {}
 
 
 def mark_awaiting(

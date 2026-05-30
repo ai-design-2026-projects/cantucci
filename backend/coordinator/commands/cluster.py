@@ -25,6 +25,8 @@ from backend.data_access.movies.queries import (
 )
 from backend.settings import get_settings
 
+from backend.agents.concept.types import LinearAxisRep
+
 if TYPE_CHECKING:
     from backend.agents.concept.types import ConceptRep
     from core.clustering import SoftClusterResult
@@ -696,12 +698,13 @@ class ClusterCommand:
         if not resolved_ids:
             raise ValueError("No movies found for concept axis scoring")
 
-        emb_ctx = _load_embeddings(resolved_ids, self.embedding_spaces)
+        axis_modality = Modality(concept_rep.embedding_space) if isinstance(concept_rep, LinearAxisRep) else Modality.TEXT
+        emb_ctx = _load_embeddings(resolved_ids, [axis_modality])
         src = str(target_id) if target_id else "full catalogue"
         if not emb_ctx.available_ids:
             raise ValueError(f"No embeddings found for {src}")
         if not emb_ctx.emb_map:
-            raise ValueError(f"No text embeddings found for {src}")
+            raise ValueError(f"No {axis_modality.value} embeddings found for {src}")
 
         raw_scores = score_movies(concept_rep, emb_ctx.available_ids, emb_ctx.emb_map)
         if not raw_scores:
@@ -714,7 +717,11 @@ class ClusterCommand:
         concept_id = create_concept(
             name=concept_rep.concept_name,
             concept_type="linear_axis",
-            definition={"concept_name": concept_rep.concept_name},
+            definition={
+                "concept_name": concept_rep.concept_name,
+                "positive_label": getattr(concept_rep, "positive_label", ""),
+                "negative_label": getattr(concept_rep, "negative_label", ""),
+            },
         )
         upsert_concept_scores(concept_id, normalized)
 

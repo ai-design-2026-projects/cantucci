@@ -20,10 +20,14 @@ class AxisDistributionDto(BaseModel):
     """Distribution of movies along a concept's linear axis.
 
     Attributes:
-        concept_id:   UUID of the concept.
-        concept_name: Human-readable concept name (e.g. ``"open-ended ending"``).
-        points:       Per-movie axis points ordered by ascending score.
+        concept_id:     UUID of the concept.
+        concept_name:   Human-readable concept name (e.g. ``"open-ended ending"``).
+        positive_label: Short label for the HIGH (positive) end of the axis, e.g. ``"hopeful"``.
+        negative_label: Short label for the LOW (negative) end of the axis, e.g. ``"bleak"``.
+        points:         Per-movie axis points ordered by ascending score.
     """
     concept_id: uuid.UUID
     concept_name: str
+    positive_label: str
+    negative_label: str
     points: list[AxisPointDto]

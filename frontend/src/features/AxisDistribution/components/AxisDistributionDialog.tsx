@@ -1,7 +1,7 @@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/dialog'
 
 import { useAxisDistribution } from '../hooks/useAxisDistribution'
-import { Beeswarm } from './Beeswarm'
+import { DensityRidge } from './DensityRidge'
 
 interface AxisDistributionDialogProps {
     open: boolean
@@ -24,16 +24,11 @@ export function AxisDistributionDialog({ open, onClose, conceptId }: AxisDistrib
 
     return (
         <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-            <DialogContent className="max-w-2xl w-[90vw] max-h-[80vh] p-0 flex flex-col">
+            <DialogContent className="max-w-4xl w-[92vw] max-h-[80vh] p-0 flex flex-col">
                 <DialogHeader className="px-6 pt-5 pb-3 border-b border-[var(--color-border)]">
                     <DialogTitle>
-                        {data ? `"${data.concept_name}" axis distribution` : 'Axis distribution'}
+                        How your films spread out
                     </DialogTitle>
-                    {data && (
-                        <p className="text-xs text-[var(--color-muted)] mt-0.5">
-                            {data.points.length.toLocaleString()} film{data.points.length !== 1 ? 's' : ''} scored · scores normalized to [−1, 1]
-                        </p>
-                    )}
                 </DialogHeader>
 
                 <div className="flex-1 overflow-y-auto scrollbar-styled px-4 py-5">
@@ -47,7 +42,7 @@ export function AxisDistributionDialog({ open, onClose, conceptId }: AxisDistrib
                             Failed to load axis data.
                         </div>
                     )}
-                    {data && <Beeswarm data={data} />}
+                    {data && <DensityRidge data={data} />}
                 </div>
             </DialogContent>
         </Dialog>

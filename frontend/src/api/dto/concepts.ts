@@ -7,5 +7,7 @@ export interface AxisPointDto {
 export interface AxisDistributionDto {
     concept_id: string
     concept_name: string
+    positive_label: string
+    negative_label: string
     points: AxisPointDto[]
 }

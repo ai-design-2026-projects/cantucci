@@ -33,5 +33,7 @@ def get_concept_axis_endpoint(concept_id: uuid.UUID) -> AxisDistributionDto:
     return AxisDistributionDto(
         concept_id=concept.id,
         concept_name=concept.name,
+        positive_label=concept.definition.get("positive_label", ""),
+        negative_label=concept.definition.get("negative_label", ""),
         points=[AxisPointDto(movie_id=p.movie_id, title=p.title, score=p.score) for p in points],
     )

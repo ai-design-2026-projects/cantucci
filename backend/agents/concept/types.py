@@ -16,14 +16,17 @@ class ConceptLLMResponse(BaseModel):
     - ``"linear_axis"``: requires non-empty ``positive_descriptions`` and
       ``negative_descriptions`` (each a list of 3 distinct sentences describing
       the respective pole). Multiple sentences per pole produce a more stable
-      axis direction via centroid averaging.
+      axis direction via centroid averaging. ``positive_label`` and
+      ``negative_label`` are concise 1–3 word pole names surfaced in the UI.
     - ``"prototype"``: requires at least one entry in ``exemplar_titles``;
-      the description fields are ignored.
+      the description and label fields are ignored.
     """
     type: Literal["linear_axis", "prototype"]
     positive_descriptions: list[str] = []
     negative_descriptions: list[str] = []
     exemplar_titles: list[str] = []
+    positive_label: str = ""
+    negative_label: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -34,13 +37,20 @@ class LinearAxisRep:
     the centroid of positive exemplars, then L2-normalizing.
 
     Attributes:
-        concept_name: Human-readable concept name.
-        axis_vector:  1024-d unit vector; dot with a movie embedding gives the score.
-        cost:         LLM cost in USD for the concept parsing call.
+        concept_name:    Human-readable concept name.
+        axis_vector:     Unit vector; dot with a movie embedding gives the score.
+        embedding_space: Modality the axis lives in (``"text"`` by default).
+                         Determines which movie embeddings must be loaded for scoring.
+        cost:            LLM cost in USD for the concept parsing call.
+        positive_label:  Short label for the HIGH (positive) end of the axis, e.g. "hopeful".
+        negative_label:  Short label for the LOW (negative) end of the axis, e.g. "bleak".
     """
     concept_name: str
     axis_vector: np.ndarray
+    embedding_space: str
     cost: float
+    positive_label: str = ""
+    negative_label: str = ""
 
 
 @dataclass(frozen=True, slots=True)
