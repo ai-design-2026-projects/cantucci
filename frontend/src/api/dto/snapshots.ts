@@ -4,6 +4,7 @@ export interface ClusterDto {
     summary: string | null
     exemplar_movie_ids: number[]
     parent_cluster_id: string | null
+    color_slot: number
 }
 
 export interface ClusterMembershipDto {

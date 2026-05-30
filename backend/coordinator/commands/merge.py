@@ -100,6 +100,7 @@ async def merge_clusters(
                 exemplar_movie_ids=cluster.exemplar_movie_ids,
                 parent_cluster_id=cluster.parent_cluster_id,
                 memberships=members,
+                color_slot=cluster.color_slot,
             ))
 
     cfg = get_settings()

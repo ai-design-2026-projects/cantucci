@@ -1,6 +1,6 @@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/dialog'
 import { TooltipProvider } from '@/components/tooltip'
-import { clusterColorFromUuid, clusterColorKey } from '@/styles/theme'
+import { clusterColorFromSlot } from '@/styles/theme'
 import { useThemeStore } from '@/store/useThemeStore'
 import type { ClusterSnapshotDto } from '@/api/dto/snapshots'
 import type { MovieDto } from '@/api/dto/movies'
@@ -52,7 +52,7 @@ export function ClusterInspectModal({
 								<ClusterInspectCard
 									key={cluster.id}
 									cluster={cluster}
-									color={clusterColorFromUuid(clusterColorKey(snapshot.operation, cluster), isDark)}
+									color={clusterColorFromSlot(cluster.color_slot, isDark)}
 									movieMap={movieMap}
 									onMovieClick={onMovieClick}
 								/>

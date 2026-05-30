@@ -144,6 +144,17 @@ async def persist_and_label(
             final_label = cd.label if cd.label is not None else lr.label
             label_map[i] = (final_label, lr.summary)
 
+    used_slots = {cd.color_slot for cd in draft.clusters if cd.color_slot is not None}
+    next_slot = max(used_slots) + 1 if used_slots else 0
+
+    resolved_slots: list[int] = []
+    for cluster_draft in draft.clusters:
+        if cluster_draft.color_slot is not None:
+            resolved_slots.append(cluster_draft.color_slot)
+        else:
+            resolved_slots.append(next_slot)
+            next_slot += 1
+
     for i, cluster_draft in enumerate(draft.clusters):
         label, summary = label_map.get(i, (cluster_draft.label, cluster_draft.summary))
 
@@ -152,6 +163,7 @@ async def persist_and_label(
             label=label,
             summary=summary,
             exemplar_movie_ids=cluster_draft.exemplar_movie_ids,
+            color_slot=resolved_slots[i],
             parent_cluster_id=cluster_draft.parent_cluster_id,
         )
 

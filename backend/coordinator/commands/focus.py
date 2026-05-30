@@ -115,6 +115,7 @@ async def focus(
         exemplar_movie_ids=exemplars(mids, prbs, cfg.labeling.top_exemplars),
         parent_cluster_id=source_cluster_id,
         memberships=members,
+        color_slot=source.color_slot,
     )
 
     params: dict = {
