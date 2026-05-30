@@ -23,7 +23,7 @@ class LabelingLLMAgent(LLMAgent[BatchLabelResult]):
     name = "labeling"
     step_type = "label_clusters"
     model_tier = "fast"
-    template_name = "label_v6.j2"
+    template_name = "label_v7.j2"
     response_schema = BatchLabelLLMResponse
 
     async def render_kwargs(self, **inputs: Any) -> dict[str, Any]:
