@@ -566,7 +566,7 @@ class ClusterCommand:
 
         proposal_text = replies.format_bin_proposal(spec.attribute.value, bins, bin_counts, unspecified)
         confirmed_spec = PartitionSpec(attribute=spec.attribute, bins=bins)
-        mark_awaiting(ctx.conversation_id, pending_spec=confirmed_spec)
+        mark_awaiting(ctx.conversation_id, pending_spec=confirmed_spec, target_cluster_id=self.target_cluster_id)
         return ActionResult(
             reply_fragment=proposal_text,
             cluster_snapshot_id=ctx.current_cluster_snapshot_id,

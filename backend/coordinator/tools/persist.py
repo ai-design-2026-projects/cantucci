@@ -23,36 +23,27 @@ log = logging.getLogger(__name__)
 def build_label_contexts(
     draft: ClusterSnapshotDraft,
     cluster_indices: list[int],
-) -> list[ClusterLabelContext] | None:
+    parent_label_map: dict,
+) -> list[ClusterLabelContext]:
     """Build per-cluster labelling context for operation-produced clusters.
 
-    When the draft carries a concept (e.g. ``drill_down`` by "film length"),
-    each context includes that concept, the parent cluster's label as a
-    breadcrumb, and aggregate metadata statistics over the cluster's full
-    membership so the LLM can name clusters by dimension rather than theme.
-
-    When no concept is present (e.g. a ``merge`` or full-catalogue ``drill_down`` without
-    a concept), returns ``None`` so the labeller falls back to title-only behaviour.
+    Always resolves the parent cluster's label and aggregate statistics for
+    every cluster, regardless of whether a concept is present. This ensures
+    provenance is always available: concept drill-downs receive concept + parent
+    context so the LLM names clusters by axis position; free drill-downs receive
+    parent context so the code-side prefix can attach the parent name after labelling.
 
     Args:
-        draft:           Snapshot draft produced by the most recent operation.
-        cluster_indices: Indices into ``draft.clusters`` of the unlabeled entries
-                         that need labels.
+        draft:            Snapshot draft produced by the most recent operation.
+        cluster_indices:  Indices into ``draft.clusters`` of the unlabeled entries
+                          that need labels.
+        parent_label_map: Pre-resolved mapping from parent cluster UUID to label
+                          string (as returned by ``get_cluster_labels``).
 
     Returns:
-        List of ``ClusterLabelContext`` in the same order as *cluster_indices*,
-        or ``None`` if no concept is available.
+        List of ``ClusterLabelContext`` in the same order as *cluster_indices*.
     """
     concept: str | None = draft.params.get("concept")
-    if not concept:
-        return None
-
-    parent_ids = [
-        draft.clusters[i].parent_cluster_id
-        for i in cluster_indices
-        if draft.clusters[i].parent_cluster_id is not None
-    ]
-    parent_label_map = get_cluster_labels(parent_ids) if parent_ids else {}
 
     contexts: list[ClusterLabelContext] = []
     for i in cluster_indices:
@@ -125,10 +116,19 @@ async def persist_and_label(
         if cd.summary is None
     ]
 
+    parent_label_map: dict = {}
+    if unlabeled_indices:
+        parent_ids = [
+            draft.clusters[i].parent_cluster_id
+            for i in unlabeled_indices
+            if draft.clusters[i].parent_cluster_id is not None
+        ]
+        parent_label_map = get_cluster_labels(parent_ids) if parent_ids else {}
+
     batch_result = None
     if unlabeled_indices:
         exemplar_groups = [draft.clusters[i].exemplar_movie_ids for i in unlabeled_indices]
-        contexts = build_label_contexts(draft, unlabeled_indices)
+        contexts = build_label_contexts(draft, unlabeled_indices, parent_label_map)
         batch_result = await label_clusters(
             exemplar_groups=exemplar_groups,
             conversation_id=str(conversation_id),
@@ -141,8 +141,21 @@ async def persist_and_label(
         for idx, i in enumerate(unlabeled_indices):
             lr = batch_result.results[idx]
             cd = draft.clusters[i]
-            final_label = cd.label if cd.label is not None else lr.label
+            child_label = cd.label if cd.label is not None else lr.label
+            parent_label = parent_label_map.get(cd.parent_cluster_id) if cd.parent_cluster_id else None
+            final_label = f"{child_label} {parent_label}" if parent_label else child_label
             label_map[i] = (final_label, lr.summary)
+
+    used_slots = {cd.color_slot for cd in draft.clusters if cd.color_slot is not None}
+    next_slot = max(used_slots) + 1 if used_slots else 0
+
+    resolved_slots: list[int] = []
+    for cluster_draft in draft.clusters:
+        if cluster_draft.color_slot is not None:
+            resolved_slots.append(cluster_draft.color_slot)
+        else:
+            resolved_slots.append(next_slot)
+            next_slot += 1
 
     for i, cluster_draft in enumerate(draft.clusters):
         label, summary = label_map.get(i, (cluster_draft.label, cluster_draft.summary))
@@ -152,6 +165,7 @@ async def persist_and_label(
             label=label,
             summary=summary,
             exemplar_movie_ids=cluster_draft.exemplar_movie_ids,
+            color_slot=resolved_slots[i],
             parent_cluster_id=cluster_draft.parent_cluster_id,
         )
 

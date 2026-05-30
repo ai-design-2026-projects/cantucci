@@ -123,6 +123,7 @@ async def exclude_cluster(
                 exemplar_movie_ids=exemplars(mids, prbs, cfg.labeling.top_exemplars),
                 parent_cluster_id=cluster.id,
                 memberships=memberships_rows,
+                color_slot=cluster.color_slot,
             )
         )
 

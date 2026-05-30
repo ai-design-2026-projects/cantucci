@@ -67,7 +67,7 @@ class Coordinator:
         )
 
         # Check if we're awaiting clarification on a previous message
-        was_awaiting, clarification_question, pending_spec, pending_concept = self._resolve_clarification_context(conversation_id)
+        was_awaiting, clarification_question, pending_spec, pending_target_id, pending_concept = self._resolve_clarification_context(conversation_id)
 
         # Classify oracle intent and retrieve proposed actions
         reporter.step("intent")
@@ -85,7 +85,7 @@ class Coordinator:
         # If we were awaiting clarification and the intent agent returned a partitioning action,
         # override the returned partition spec with the one we stored from the clarification turn
         if was_awaiting and pending_spec is not None:
-            actions = self._apply_pending_spec_override(actions, pending_spec)
+            actions = self._apply_pending_spec_override(actions, pending_spec, pending_target_id)
 
         # If we were awaiting a concept-axis confirmation, patch the CLUSTER action to reuse
         # the persisted concept scores instead of invoking the concept agent again
@@ -138,8 +138,11 @@ class Coordinator:
             reporter=reporter,
         )
 
-        # Join replies and run the suggester on the final snapshot
+        # Join replies and run the suggester on the final snapshot, but skip it
+        # when dispatch ended with a clarification question — there is nothing to suggest
+        # until the oracle answers and the operation actually executes.
         final_snapshot_id = snapshot_id or sentinel_cluster_snapshot_id()
+        awaiting_after_dispatch = is_awaiting(conversation_id)
         combined_reply, suggestion = await self._finalize(
             reply_fragments=reply_fragments,
             final_snapshot_id=final_snapshot_id,
@@ -147,6 +150,7 @@ class Coordinator:
             message_id=message_id,
             accumulated_cost=accumulated_cost,
             reporter=reporter,
+            skip_suggester=awaiting_after_dispatch,
         )
 
         reporter.done()
@@ -205,7 +209,7 @@ class Coordinator:
     def _resolve_clarification_context(
         self,
         conversation_id: uuid.UUID,
-    ) -> tuple[bool, str | None, PartitionSpec | None, PendingConcept | None]:
+    ) -> tuple[bool, str | None, PartitionSpec | None, uuid.UUID | None, PendingConcept | None]:
         """Check for a pending clarification and fetch the prior question text if set.
 
         Consumes the in-memory awaiting flag via ``take_awaiting``; subsequent
@@ -215,12 +219,14 @@ class Coordinator:
             conversation_id: Conversation UUID to check.
 
         Returns:
-            Tuple of (was_awaiting, clarification_question, pending_spec, pending_concept).
+            Tuple of (was_awaiting, clarification_question, pending_spec, pending_target_id, pending_concept).
             ``clarification_question`` is the prior assistant message text when
             ``was_awaiting`` is True, else ``None``.
+            ``pending_target_id`` is the cluster UUID stored from the prior turn when
+            a bin proposal was made for a specific cluster, else ``None``.
         """
         # Check if we're awaiting clarification on a previous message
-        was_awaiting, pending_spec, pending_concept = take_awaiting(conversation_id)
+        was_awaiting, pending_spec, pending_target_id, pending_concept = take_awaiting(conversation_id)
         clarification_question: str | None = None
         # If so, find the most recent assistant message to use as the clarification question for intent classification.
         if was_awaiting:
@@ -228,26 +234,33 @@ class Coordinator:
             prior_assistant = next((m for m in reversed(recent) if m.role == "assistant"), None)
             if prior_assistant is not None:
                 clarification_question = prior_assistant.content
-        return was_awaiting, clarification_question, pending_spec, pending_concept
+        return was_awaiting, clarification_question, pending_spec, pending_target_id, pending_concept
 
     def _apply_pending_spec_override(
         self,
         actions: list[IntentAction],
         pending_spec: PartitionSpec,
+        pending_target_id: uuid.UUID | None = None,
     ) -> list[IntentAction]:
         """Patch any CLUSTER action with the spec stored from the clarification turn.
 
-        On a "yes" or short-answer reply the intent agent may re-extract bins or
-        attributes incorrectly.  The stored spec is authoritative for two cases:
+        On a "yes" or short-answer reply the intent agent may re-extract bins,
+        attributes, or target cluster incorrectly.  The stored spec and target are
+        authoritative for three cases:
 
         - Bin-proposal confirmation: ``pending_spec.bins is not None`` and the
           returned action has no bins → restore the stored spec wholesale.
         - Target-clarification confirmation: the stored spec has no bins but the
           returned attribute differs → restore just the attribute.
+        - Target restoration: ``pending_target_id`` was stored (the original cluster
+          the operation targeted) and the intent agent returned ``None`` for
+          ``target_cluster_id`` (cannot resolve from a bare "Ok") → restore the ID.
 
         Args:
-            actions:      Classified actions from the intent agent (may be mutated copy).
-            pending_spec: Stored partition spec from the prior clarification turn.
+            actions:           Classified actions from the intent agent (may be mutated copy).
+            pending_spec:      Stored partition spec from the prior clarification turn.
+            pending_target_id: Cluster UUID stored when the bin proposal was made for a
+                               specific cluster; ``None`` when the target was not known.
 
         Returns:
             New list of actions with CLUSTER entries patched where needed.
@@ -255,19 +268,25 @@ class Coordinator:
         result = list(actions)
         for i, a in enumerate(result):
             if a.mode == NavigationMode.CLUSTER and a.partition_spec is not None:
+                patched = a
                 if pending_spec.bins is not None and a.partition_spec.bins is None:
                     # Bin-proposal confirmation: stored spec is authoritative regardless of
                     # which attribute the intent agent returned on the short "yes" reply.
-                    result[i] = dataclasses.replace(a, partition_spec=pending_spec)
+                    patched = dataclasses.replace(patched, partition_spec=pending_spec)
                 elif pending_spec.bins is None and a.partition_spec.attribute != pending_spec.attribute:
                     # Target-clarification confirmation: intent returned the wrong attribute;
                     # restore the one from the stored spec.
-                    result[i] = dataclasses.replace(
-                        a,
+                    patched = dataclasses.replace(
+                        patched,
                         partition_spec=dataclasses.replace(
-                            a.partition_spec, attribute=pending_spec.attribute
+                            patched.partition_spec, attribute=pending_spec.attribute
                         ),
                     )
+                if pending_target_id is not None and patched.target_cluster_id is None:
+                    # The intent agent could not resolve the target cluster from a short reply;
+                    # restore the ID that was known at the time the proposal was made.
+                    patched = dataclasses.replace(patched, target_cluster_id=pending_target_id)
+                result[i] = patched
         return result
 
     def _apply_pending_concept_override(
@@ -388,6 +407,7 @@ class Coordinator:
         message_id: uuid.UUID,
         accumulated_cost: float,
         reporter: ProgressReporter,
+        skip_suggester: bool = False,
     ) -> tuple[str, SuggestionResult | None]:
         """Join reply fragments and run the suggester on the final snapshot.
 
@@ -398,6 +418,10 @@ class Coordinator:
             message_id:       Current message UUID for logging.
             accumulated_cost: Running LLM cost after all actions.
             reporter:         SSE progress reporter.
+            skip_suggester:   When ``True``, the suggester is skipped entirely and
+                              ``None`` is returned for the suggestion. Set when the
+                              turn ended with a clarification question so that no
+                              suggestion is shown before the oracle has answered.
 
         Returns:
             Tuple of (combined_reply_text, suggestion_or_none).
@@ -410,6 +434,9 @@ class Coordinator:
             if len(reply_fragments) > 1
             else (reply_fragments[0] if reply_fragments else "")
         )
+
+        if skip_suggester:
+            return combined_reply, None
 
         reporter.step("suggester")
         suggestion = await maybe_suggest(

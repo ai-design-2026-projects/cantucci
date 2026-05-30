@@ -73,6 +73,9 @@ class ClusterDraft:
         concept_score:      Probability-weighted mean concept score for this cluster, set only
                             for concept-driven drill_down so the labeller can order clusters
                             along the concept axis. None for all other operations.
+        color_slot:         Stable integer inherited from the predecessor cluster for
+                            carry-forward cases. None for genuinely new clusters — persist.py
+                            assigns a fresh slot (max(existing) + 1) at write time.
     """
     label: str | None
     summary: str | None
@@ -80,6 +83,7 @@ class ClusterDraft:
     parent_cluster_id: uuid.UUID | None
     memberships: list[tuple[int, float]] = field(default_factory=list)
     concept_score: float | None = None
+    color_slot: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
