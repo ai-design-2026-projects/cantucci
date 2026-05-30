@@ -1,11 +1,9 @@
 import logging
-from typing import Union
 
 import numpy as np
 
 from backend.data_access.connection import transaction
-from backend.data_access.movies.types import ClusterProfileRow, MovieDetailsRow, MovieRow, MovieSearchHitRow, MovieStubRow, NumericStats
-from backend.settings import get_settings
+from backend.data_access.movies.types import ClusterProfileRow, MovieDetailsRow, MovieRow, MovieStubRow, NumericStats
 
 _MODALITY_COLUMN: dict[str, str] = {
     "text": "text_embedding",
@@ -26,63 +24,6 @@ def list_movie_ids() -> list[int]:
         rows = conn.execute("SELECT id FROM movies ORDER BY id").fetchall()
     return [r["id"] for r in rows]
 
-
-def vector_search(
-    embedding: Union[list[float], "np.ndarray"],
-    k: int,
-    exclude_ids: list[int] | None = None,
-) -> list[MovieSearchHitRow]:
-    """Return top-k movies ordered by cosine similarity to *embedding* using text_embedding.
-
-    Searches the BGE text embedding space. Use this for text-driven queries
-    such as title resolution or semantic similarity by description.
-
-    Args:
-        embedding:   BGE query vector of dimension 1024.
-        k:           Maximum number of results to return.
-        exclude_ids: Movie IDs to omit from results.
-
-    Returns:
-        List of ``MovieSearchHitRow`` ordered by descending similarity.
-
-    Raises:
-        ValueError: If *k* is not a positive integer.
-    """
-    if k <= 0:
-        raise ValueError(f"k must be positive, got {k}")
-
-    vec = embedding.tolist() if isinstance(embedding, np.ndarray) else list(embedding)
-    probes = get_settings().retrieval.ivfflat_probes
-
-    with transaction() as conn:
-        conn.execute(f"SET LOCAL ivfflat.probes = {int(probes)}")
-        if exclude_ids:
-            rows = conn.execute(
-                """
-                SELECT id, title, 1 - (text_embedding <=> %s::vector) AS score
-                FROM movies
-                WHERE text_embedding IS NOT NULL
-                  AND id <> ALL(%s)
-                ORDER BY text_embedding <=> %s::vector
-                LIMIT %s
-                """,
-                (vec, exclude_ids, vec, k),
-            ).fetchall()
-        else:
-            rows = conn.execute(
-                """
-                SELECT id, title, 1 - (text_embedding <=> %s::vector) AS score
-                FROM movies
-                WHERE text_embedding IS NOT NULL
-                ORDER BY text_embedding <=> %s::vector
-                LIMIT %s
-                """,
-                (vec, vec, k),
-            ).fetchall()
-
-    hits = [MovieSearchHitRow.from_row(r) for r in rows]
-    log.debug("vector_search", extra={"k": k, "returned": len(hits), "n_excluded": len(exclude_ids) if exclude_ids else 0})
-    return hits
 
 
 def fetch_text_embeddings(movie_ids: list[int]) -> dict[int, list[float]]:

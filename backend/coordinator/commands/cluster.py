@@ -25,10 +25,8 @@ from backend.data_access.movies.queries import (
 )
 from backend.settings import get_settings
 
-from backend.agents.concept.types import LinearAxisRep
-
 if TYPE_CHECKING:
-    from backend.agents.concept.types import ConceptRep
+    from backend.agents.concept.types import LinearAxisRep
     from core.clustering import SoftClusterResult
 
 log = logging.getLogger(__name__)
@@ -149,6 +147,7 @@ def _cluster_group(
 
 def _build_concept_clusters(
     concept_name: str,
+    concept_space: str | None,
     scores: dict[int, float],
     available_ids: list[int],
     parent_cluster_ref: uuid.UUID | None,
@@ -164,6 +163,7 @@ def _build_concept_clusters(
 
     Args:
         concept_name:               Human-readable concept name for params and logging.
+        concept_space:              ``"semantic"`` or ``"visual"``; recorded in params. Pass ``None`` when reusing persisted scores.
         scores:                     Dict mapping movie_id → concept score.
         available_ids:              Ordered list of movie IDs (must be keys of ``scores``).
         parent_cluster_ref:         ``parent_cluster_id`` for each ``ClusterDraft``.
@@ -228,6 +228,7 @@ def _build_concept_clusters(
         "source_cluster_id": str(source_cluster_id) if source_cluster_id else None,
         "parent_cluster_snapshot_id": str(parent_cluster_snapshot_id) if parent_cluster_snapshot_id else None,
         "concept": concept_name,
+        "concept_space": concept_space,
         "embedding_spaces": [s.value for s in embedding_spaces],
         "target_n_clusters": target_n_clusters,
         "n_clusters": len(clusters),
@@ -245,7 +246,7 @@ def _build_concept_clusters(
 
 async def _concept_cluster(
     source_cluster_id: uuid.UUID | None,
-    concept: ConceptRep,
+    concept: "LinearAxisRep",
     parent_cluster_snapshot_id: uuid.UUID | None,
     embedding_spaces: list[Modality] | None = None,
     movie_ids: list[int] | None = None,
@@ -257,6 +258,11 @@ async def _concept_cluster(
     1D concept score axis to find natural density clusters. No forced binary
     split is applied — cluster boundaries emerge from the distribution of scores.
 
+    The embedding column used for scoring is determined by ``concept.space``:
+    - ``"semantic"`` → ``text_embedding`` (BGE space).
+    - ``"visual"`` → ``trailer_embedding`` (CLIP space); movies lacking a CLIP
+      embedding are excluded from this clustering.
+
     The input movie set is resolved in this order:
     1. ``source_cluster_id`` → members of that cluster.
     2. ``movie_ids`` → explicit list (used by cross_filter for pre-filtered sets).
@@ -265,9 +271,10 @@ async def _concept_cluster(
 
     Args:
         source_cluster_id:          Cluster to split; ``None`` to operate on a broader set.
-        concept:                    Concept that guides the clustering axis.
+        concept:                    Concept axis that guides the clustering.
         parent_cluster_snapshot_id: Snapshot the source cluster belongs to.
-        embedding_spaces:           Modalities to fuse for embedding loading. Defaults to ``[Modality.TEXT]``.
+        embedding_spaces:           Modalities for free clustering; unused by the concept
+                                    path (embedding space is derived from ``concept.space``).
         movie_ids:                  Explicit movie ID list; used when ``source_cluster_id`` is ``None``.
         target_n_clusters:          Optional exact cluster count requested by the Oracle.
                                     When set, HDBSCAN output is merged or expanded to reach
@@ -290,28 +297,32 @@ async def _concept_cluster(
         raise ValueError("No movies found for clustering")
     parent_cluster_ref: uuid.UUID | None = source_cluster_id
 
-    emb_ctx = _load_embeddings(resolved_movie_ids, embedding_spaces)
-    src = str(source_cluster_id) if source_cluster_id else "full catalogue"
-    if not emb_ctx.available_ids:
-        raise ValueError(f"No embeddings found for {src}")
-    if not emb_ctx.emb_map:
-        raise ValueError(f"No text embeddings found for {src}")
+    if concept.space == "visual":
+        modal_data = fetch_modality_embeddings(resolved_movie_ids, ["trailer"])
+        emb_map: dict = {mid: v.tolist() for mid, v in modal_data["trailer"].items()}
+    else:
+        emb_map = fetch_text_embeddings(resolved_movie_ids)
 
-    concept_scores = score_movies(concept, emb_ctx.available_ids, emb_ctx.emb_map)
+    available_ids = [mid for mid in resolved_movie_ids if mid in emb_map]
+    if not available_ids:
+        src = str(source_cluster_id) if source_cluster_id else "full catalogue"
+        raise ValueError(f"No embeddings found for {src}")
+
+    concept_scores = score_movies(concept, available_ids, emb_map)
     if not concept_scores:
         raise ValueError(f"No embeddings found for {src}")
 
     return _build_concept_clusters(
         concept_name=concept.concept_name,
+        concept_space=concept.space,
         scores=concept_scores,
-        available_ids=emb_ctx.available_ids,
+        available_ids=available_ids,
         parent_cluster_ref=parent_cluster_ref,
         source_cluster_id=source_cluster_id,
         parent_cluster_snapshot_id=parent_cluster_snapshot_id,
         embedding_spaces=embedding_spaces,
         target_n_clusters=target_n_clusters,
     )
-
 
 async def _free_cluster(
     source_cluster_id: uuid.UUID | None,
@@ -659,7 +670,7 @@ class ClusterCommand:
     async def _propose_concept_axis(
         self,
         ctx: ExecutionContext,
-        concept_rep: ConceptRep,
+        concept_rep: "LinearAxisRep",
         target_id: uuid.UUID | None,
         step_cost: float,
     ) -> ActionResult:
@@ -698,15 +709,17 @@ class ClusterCommand:
         if not resolved_ids:
             raise ValueError("No movies found for concept axis scoring")
 
-        axis_modality = Modality(concept_rep.embedding_space) if isinstance(concept_rep, LinearAxisRep) else Modality.TEXT
-        emb_ctx = _load_embeddings(resolved_ids, [axis_modality])
         src = str(target_id) if target_id else "full catalogue"
-        if not emb_ctx.available_ids:
+        if concept_rep.space == "visual":
+            modal_data = fetch_modality_embeddings(resolved_ids, ["trailer"])
+            emb_map: dict = {mid: v.tolist() for mid, v in modal_data["trailer"].items()}
+        else:
+            emb_map = fetch_text_embeddings(resolved_ids)
+        available_ids = [mid for mid in resolved_ids if mid in emb_map]
+        if not available_ids:
             raise ValueError(f"No embeddings found for {src}")
-        if not emb_ctx.emb_map:
-            raise ValueError(f"No {axis_modality.value} embeddings found for {src}")
 
-        raw_scores = score_movies(concept_rep, emb_ctx.available_ids, emb_ctx.emb_map)
+        raw_scores = score_movies(concept_rep, available_ids, emb_map)
         if not raw_scores:
             raise ValueError(f"No embeddings found for {src}")
 
@@ -791,6 +804,7 @@ class ClusterCommand:
 
         draft = _build_concept_clusters(
             concept_name=concept_row.name,
+            concept_space=None,
             scores=scores,
             available_ids=available_ids,
             parent_cluster_ref=target_id,
