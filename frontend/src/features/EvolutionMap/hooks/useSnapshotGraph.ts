@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
-import { getSnapshotGraphFetcher } from '@/api/services/snapshots'
+import { getSnapshotGraphFetcher } from '@/api/services/conversations'
 import type { ClusterSnapshotGraphDto } from '@/api/dto/snapshots'
 
 /**

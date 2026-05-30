@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "cinepal": {
+      "command": "/home/blushi/cantucci/.venv/bin/cinepal-mcp",
+      "env": {
+        "CINEPAL_MCP_BACKEND_URL": "http://localhost:8000"
+      }
+    }
+  },
+  "enableAllProjectMcpServers": true
+}

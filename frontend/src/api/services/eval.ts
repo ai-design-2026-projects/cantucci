@@ -15,7 +15,7 @@ import type {
  * @returns Array of RunDto.
  */
 export async function listRunsFetcher(limit = 50, offset = 0): Promise<RunDto[]> {
-    return apiClient<RunDto[]>(`/eval/runs?limit=${limit}&offset=${offset}`)
+    return apiClient<RunDto[]>(`/eval/list_runs?limit=${limit}&offset=${offset}`)
 }
 
 /**
@@ -25,7 +25,7 @@ export async function listRunsFetcher(limit = 50, offset = 0): Promise<RunDto[]>
  * @returns RunAggregateDto.
  */
 export async function getRunAggregateFetcher(runId: string): Promise<RunAggregateDto> {
-    return apiClient<RunAggregateDto>(`/eval/runs/${runId}/aggregate`)
+    return apiClient<RunAggregateDto>(`/eval/get_run_aggregate/${runId}`)
 }
 
 /**
@@ -35,7 +35,7 @@ export async function getRunAggregateFetcher(runId: string): Promise<RunAggregat
  * @returns EvalSessionDetailDto.
  */
 export async function getSessionDetailFetcher(sessionId: string): Promise<EvalSessionDetailDto> {
-    return apiClient<EvalSessionDetailDto>(`/eval/sessions/${sessionId}`)
+    return apiClient<EvalSessionDetailDto>(`/eval/get_session/${sessionId}`)
 }
 
 /**
@@ -44,7 +44,7 @@ export async function getSessionDetailFetcher(sessionId: string): Promise<EvalSe
  * @returns Array of PersonaDto.
  */
 export async function listPersonasFetcher(): Promise<PersonaDto[]> {
-    return apiClient<PersonaDto[]>('/eval/personas')
+    return apiClient<PersonaDto[]>('/eval/list_personas')
 }
 
 /**
@@ -53,5 +53,5 @@ export async function listPersonasFetcher(): Promise<PersonaDto[]> {
  * @returns Array of GroundTruthDto.
  */
 export async function listGroundTruthsFetcher(): Promise<GroundTruthDto[]> {
-    return apiClient<GroundTruthDto[]>('/eval/ground-truths')
+    return apiClient<GroundTruthDto[]>('/eval/list_ground_truths')
 }

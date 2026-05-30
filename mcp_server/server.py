@@ -1,14 +1,25 @@
+import httpx
 from mcp.server.fastmcp import FastMCP
 
-from mcp_server.client import CinePalClient
-from mcp_server.resources import register_resources
-from mcp_server.tools import register_tools
+import mcp_server.capabilities.cluster_snapshots as cap_cluster_snapshots
+import mcp_server.capabilities.concepts as cap_concepts
+import mcp_server.capabilities.conversations as cap_conversations
+import mcp_server.capabilities.movies as cap_movies
+from mcp_server.clients.cluster_snapshots import ClusterSnapshotsClient
+from mcp_server.clients.concepts import ConceptsClient
+from mcp_server.clients.conversations import ConversationsClient
+from mcp_server.clients.movies import MoviesClient
+from mcp_server.settings import get_settings
 
 mcp = FastMCP("CinePal")
 
-_client = CinePalClient()
-register_tools(mcp, _client)
-register_resources(mcp, _client)
+_settings = get_settings()
+_http = httpx.AsyncClient(base_url=_settings.backend_url, timeout=_settings.timeout)
+
+cap_conversations.register(mcp, ConversationsClient(_http))
+cap_cluster_snapshots.register(mcp, ClusterSnapshotsClient(_http))
+cap_movies.register(mcp, MoviesClient(_http))
+cap_concepts.register(mcp, ConceptsClient(_http))
 
 
 def main() -> None:

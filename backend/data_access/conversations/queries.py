@@ -1,5 +1,6 @@
 import logging
 import uuid
+from datetime import datetime
 from typing import Any
 
 from backend.data_access.connection import transaction
@@ -94,8 +95,8 @@ def append_message(
     cost_usd: float = 0.0,
     suggestion: str | None = None,
     axis_concept_id: uuid.UUID | None = None,
-) -> uuid.UUID:
-    """Insert a message row and return its UUID.
+) -> tuple[uuid.UUID, datetime]:
+    """Insert a message row and return its UUID and server-set creation timestamp.
 
     Args:
         conversation_id: Parent conversation.
@@ -106,18 +107,18 @@ def append_message(
         axis_concept_id: UUID of the concept backing a beeswarm axis-distribution proposal.
 
     Returns:
-        UUID of the newly inserted message.
+        Tuple of (message UUID, UTC created_at timestamp).
     """
     with transaction() as conn:
         row = conn.execute(
             """
             INSERT INTO messages (conversation_id, role, content, cost_usd, suggestion, axis_concept_id)
             VALUES (%s, %s, %s, %s, %s, %s)
-            RETURNING id
+            RETURNING id, created_at
             """,
             (conversation_id, role, content, cost_usd, suggestion, axis_concept_id),
         ).fetchone()
-    return row["id"]
+    return row["id"], row["created_at"]
 
 
 def add_conversation_cost(conversation_id: uuid.UUID, delta_usd: float) -> None:

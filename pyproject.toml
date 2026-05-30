@@ -47,6 +47,12 @@ dev = [
     "ipykernel>=7",
 ]
 
+[tool.uv]
+package = true
+
+[tool.setuptools.packages.find]
+include = ["mcp_server*"]
+
 [tool.pytest.ini_options]
 pythonpath = ["."]
 filterwarnings = ["error"]

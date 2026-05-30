@@ -1,5 +1,7 @@
 from pydantic import BaseModel, Field
 
+from backend.data_access.movies.types import MovieDetailsRow
+
 
 class MovieDto(BaseModel):
     """Full movie metadata as exposed to the frontend.
@@ -43,9 +45,38 @@ class MovieDto(BaseModel):
 
 
 class MovieBatchRequest(BaseModel):
-    """Body for ``POST /movies/batch``.
+    """Body for ``POST /movies/get_batch``.
 
     Attributes:
         ids: Up to 200 TMDB movie IDs to retrieve in one request.
     """
     ids: list[int] = Field(..., max_length=200)
+
+
+def movie_row_to_dto(r: MovieDetailsRow) -> MovieDto:
+    """Convert a ``MovieDetailsRow`` to its wire ``MovieDto``.
+
+    Args:
+        r: A ``MovieDetailsRow`` from the data-access layer.
+
+    Returns:
+        ``MovieDto`` ready for serialization.
+    """
+    return MovieDto(
+        id=r.id,
+        title=r.title,
+        release_year=r.release_year,
+        runtime=r.runtime,
+        vote_average=r.vote_average,
+        vote_count=r.vote_count,
+        bayesian_rating=r.bayesian_rating,
+        overview=r.overview,
+        poster_url=r.poster_url,
+        genres=r.genres,
+        director=r.director,
+        top_cast=r.top_cast,
+        original_language=r.original_language,
+        trailer_youtube_key=r.trailer_youtube_key,
+        umap_x=r.umap_x,
+        umap_y=r.umap_y,
+    )
