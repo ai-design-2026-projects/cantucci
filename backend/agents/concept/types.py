@@ -1,4 +1,4 @@
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Literal
 import uuid
 
@@ -11,20 +11,23 @@ from backend.agents.intent.types import Modality
 class ConceptLLMResponse(BaseModel):
     """Structured output expected from the concept parsing LLM call.
 
-    The ``type`` discriminator determines which representation to build:
+    The ``space`` discriminator determines which encoder and which movie
+    embedding column the resulting axis lives in:
 
-    - ``"linear_axis"``: requires non-empty ``positive_descriptions`` and
-      ``negative_descriptions`` (each a list of 3 distinct sentences describing
-      the respective pole). Multiple sentences per pole produce a more stable
-      axis direction via centroid averaging. ``positive_label`` and
-      ``negative_label`` are concise 1–3 word pole names surfaced in the UI.
-    - ``"prototype"``: requires at least one entry in ``exemplar_titles``;
-      the description and label fields are ignored.
+    - ``"semantic"``: requires non-empty ``positive_descriptions`` and
+      ``negative_descriptions`` (each a list of 3 distinct full sentences
+      describing the respective pole). Encoded with the BGE text encoder;
+      scored against ``text_embedding``.
+    - ``"visual"``: same list structure but descriptions must be short visual
+      phrases (≈3–8 words) to stay within CLIP's 77-token context limit.
+      Encoded with the CLIP text tower; scored against ``trailer_embedding``.
+
+    ``positive_label`` and ``negative_label`` are concise 1–3 word pole names
+    surfaced in the UI (e.g. ``"hopeful"`` / ``"bleak"``).
     """
-    type: Literal["linear_axis", "prototype"]
+    space: Literal["semantic", "visual"]
     positive_descriptions: list[str] = []
     negative_descriptions: list[str] = []
-    exemplar_titles: list[str] = []
     positive_label: str = ""
     negative_label: str = ""
 
@@ -37,39 +40,24 @@ class LinearAxisRep:
     the centroid of positive exemplars, then L2-normalizing.
 
     Attributes:
-        concept_name:    Human-readable concept name.
-        axis_vector:     Unit vector; dot with a movie embedding gives the score.
-        embedding_space: Modality the axis lives in (``"text"`` by default).
-                         Determines which movie embeddings must be loaded for scoring.
-        cost:            LLM cost in USD for the concept parsing call.
-        positive_label:  Short label for the HIGH (positive) end of the axis, e.g. "hopeful".
-        negative_label:  Short label for the LOW (negative) end of the axis, e.g. "bleak".
+        concept_name:   Human-readable concept name.
+        space:          ``"semantic"`` → BGE text space; ``"visual"`` → CLIP visual space.
+                        Determines which movie embeddings must be loaded for scoring.
+        axis_vector:    1024-d unit vector; dot with a matching-space movie embedding
+                        gives the concept score.
+        cost:           LLM cost in USD for the concept parsing call.
+        positive_label: Short label for the HIGH (positive) end of the axis, e.g. ``"hopeful"``.
+        negative_label: Short label for the LOW (negative) end of the axis, e.g. ``"bleak"``.
     """
     concept_name: str
+    space: Literal["semantic", "visual"]
     axis_vector: np.ndarray
-    embedding_space: str
     cost: float
     positive_label: str = ""
     negative_label: str = ""
 
 
-@dataclass(frozen=True, slots=True)
-class PrototypeRep:
-    """A concept represented as the centroid of exemplar movie embeddings.
-
-    Attributes:
-        concept_name:       Human-readable concept name.
-        centroid:           1024-d mean of exemplar embeddings (L2-normalized).
-        exemplar_movie_ids: TMDB IDs of the exemplar movies used to build the centroid.
-        cost:               LLM cost in USD for the concept parsing call.
-    """
-    concept_name: str
-    centroid: np.ndarray
-    exemplar_movie_ids: list[int] = field(default_factory=list)
-    cost: float = 0.0
-
-
-ConceptRep = LinearAxisRep | PrototypeRep
+ConceptRep = LinearAxisRep
 
 
 @dataclass(frozen=True, slots=True)

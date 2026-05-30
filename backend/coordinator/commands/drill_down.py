@@ -11,7 +11,7 @@ from backend.data_access.movies.queries import fetch_modality_embeddings, fetch_
 from backend.settings import get_settings
 
 if TYPE_CHECKING:
-    from backend.agents.concept.types import ConceptRep
+    from backend.agents.concept.types import LinearAxisRep
     from core.clustering import SoftClusterResult
 
 log = logging.getLogger(__name__)
@@ -132,7 +132,7 @@ def _cluster_group(
 
 async def concept_drill_down(
     source_cluster_id: uuid.UUID | None,
-    concept: ConceptRep,
+    concept: "LinearAxisRep",
     parent_cluster_snapshot_id: uuid.UUID | None,
     embedding_spaces: list[Modality] | None = None,
     movie_ids: list[int] | None = None,
@@ -144,6 +144,11 @@ async def concept_drill_down(
     1D concept score axis to find natural density clusters. No forced binary
     split is applied — cluster boundaries emerge from the distribution of scores.
 
+    The embedding column used for scoring is determined by ``concept.space``:
+    - ``"semantic"`` → ``text_embedding`` (BGE space).
+    - ``"visual"`` → ``trailer_embedding`` (CLIP space); movies lacking a CLIP
+      embedding are excluded from this clustering.
+
     The input movie set is resolved in this order:
     1. ``source_cluster_id`` → members of that cluster.
     2. ``movie_ids`` → explicit list (used by cross_filter for pre-filtered sets).
@@ -152,9 +157,10 @@ async def concept_drill_down(
 
     Args:
         source_cluster_id:          Cluster to split; ``None`` to operate on a broader set.
-        concept:                    Concept that guides the clustering axis.
+        concept:                    Concept axis that guides the clustering.
         parent_cluster_snapshot_id: Snapshot the source cluster belongs to.
-        embedding_spaces:           Modalities to fuse for embedding loading. Defaults to ``[Modality.TEXT]``.
+        embedding_spaces:           Modalities for free clustering; unused by the concept
+                                    path (embedding space is derived from ``concept.space``).
         movie_ids:                  Explicit movie ID list; used when ``source_cluster_id`` is ``None``.
         target_n_clusters:          Optional exact cluster count requested by the Oracle.
                                     When set, HDBSCAN output is merged or expanded to reach
@@ -183,17 +189,23 @@ async def concept_drill_down(
         raise ValueError("No movies found for clustering")
     parent_cluster_ref: uuid.UUID | None = source_cluster_id
 
-    emb_ctx = _load_embeddings(resolved_movie_ids, embedding_spaces)
-    if not emb_ctx.available_ids:
+    if concept.space == "visual":
+        modal_data = fetch_modality_embeddings(resolved_movie_ids, ["trailer"])
+        emb_map: dict = {mid: v.tolist() for mid, v in modal_data["trailer"].items()}
+    else:
+        emb_map = fetch_text_embeddings(resolved_movie_ids)
+
+    available_ids = [mid for mid in resolved_movie_ids if mid in emb_map]
+    if not available_ids:
         src = str(source_cluster_id) if source_cluster_id else "full catalogue"
         raise ValueError(f"No embeddings found for {src}")
 
-    concept_scores = score_movies(concept, emb_ctx.available_ids, emb_ctx.emb_map)
+    concept_scores = score_movies(concept, available_ids, emb_map)
     score_values = np.array(
-        [concept_scores[mid] for mid in emb_ctx.available_ids], dtype=np.float64
+        [concept_scores[mid] for mid in available_ids], dtype=np.float64
     ).reshape(-1, 1)
 
-    min_cs = max(2, min(cfg.clustering.online.drilldown_min_cluster_size, len(emb_ctx.available_ids) // 5))
+    min_cs = max(2, min(cfg.clustering.online.drilldown_min_cluster_size, len(available_ids) // 5))
     min_samp = max(1, min_cs // 3)
 
     # Cluster on the 1D concept score axis directly — no UMAP (meaningless on 1D)
@@ -210,8 +222,8 @@ async def concept_drill_down(
     for ci in range(result.n_clusters):
         col = result.probabilities[:, ci]
         members = [
-            (emb_ctx.available_ids[i], float(col[i]))
-            for i in range(len(emb_ctx.available_ids)) if col[i] > 0
+            (available_ids[i], float(col[i]))
+            for i in range(len(available_ids)) if col[i] > 0
         ]
         mids = [m[0] for m in members]
         prbs = [m[1] for m in members]
@@ -234,6 +246,7 @@ async def concept_drill_down(
         "source_cluster_id": str(source_cluster_id) if source_cluster_id else None,
         "parent_cluster_snapshot_id": str(parent_cluster_snapshot_id) if parent_cluster_snapshot_id else None,
         "concept": concept.concept_name,
+        "concept_space": concept.space,
         "embedding_spaces": [s.value for s in embedding_spaces],
         "target_n_clusters": target_n_clusters,
         "n_clusters": len(clusters),

@@ -1,20 +1,24 @@
 import numpy as np
 
-from backend.agents.concept.types import ConceptRep, LinearAxisRep
+from backend.agents.concept.types import LinearAxisRep
 
 
 def score_movies(
-    concept: ConceptRep,
+    concept: LinearAxisRep,
     movie_ids: list[int],
     embeddings: dict[int, list[float]],
 ) -> dict[int, float]:
-    """Score a set of movies against a concept representation.
+    """Score a set of movies against a concept axis.
 
-    For ``LinearAxisRep``: score = dot(movie_embedding, axis_vector).
-    For ``PrototypeRep``: score = cosine_similarity(movie_embedding, centroid).
+    Score = dot(movie_embedding, axis_vector). Both vectors are L2-normalized,
+    so the result is the cosine similarity (signed position along the axis).
+
+    The caller is responsible for supplying embeddings from the same space as
+    the concept axis: ``text_embedding`` for ``space="semantic"`` concepts and
+    ``trailer_embedding`` for ``space="visual"`` concepts.
 
     Args:
-        concept:    The concept representation to score against.
+        concept:    The concept axis to score against.
         movie_ids:  List of TMDB IDs to score.
         embeddings: Pre-fetched embedding dict {movie_id: [float, ...]}.
 
@@ -26,10 +30,7 @@ def score_movies(
         if mid not in embeddings:
             continue
         vec = np.array(embeddings[mid], dtype=np.float32)
-        if isinstance(concept, LinearAxisRep):
-            scores[mid] = float(np.dot(vec, concept.axis_vector))
-        else:
-            scores[mid] = float(np.dot(vec, concept.centroid))
+        scores[mid] = float(np.dot(vec, concept.axis_vector))
     return scores
 
 
