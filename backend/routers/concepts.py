@@ -6,21 +6,24 @@ from backend.data_access.concepts.queries import get_concept, get_concept_axis_p
 from backend.exceptions import ConceptNotFound
 from backend.routers.dto.concepts.dtos import AxisDistributionDto, AxisPointDto
 
-router = APIRouter(tags=["concepts"])
+router = APIRouter(prefix="/concepts", tags=["concepts"])
 
 
-@router.get("/concepts/{concept_id}/axis", response_model=AxisDistributionDto)
+@router.get("/get_axis/{concept_id}", response_model=AxisDistributionDto)
 def get_concept_axis_endpoint(concept_id: uuid.UUID) -> AxisDistributionDto:
     """Return the distribution of movies along a concept's linear axis.
 
-    Scores are normalized to [-1, 1] (min-max over the scored set).  The endpoint
-    is public — no auth required — consistent with the cluster-snapshot endpoints.
+    Scores are normalised to [-1, 1] via min-max over the full scored set.
+    The positive and negative pole labels (e.g. "action-packed" / "meditative")
+    are included so the frontend can annotate the axis ends without a second call.
+    The endpoint is public — no auth required, consistent with cluster-snapshot endpoints.
 
     Args:
         concept_id: UUID of the concept.
 
     Returns:
-        ``AxisDistributionDto`` with per-movie scores ordered by ascending score.
+        ``AxisDistributionDto`` with per-movie scores ordered by ascending score,
+        plus the concept name and pole labels.
 
     Raises:
         ConceptNotFound: If the concept_id does not exist.

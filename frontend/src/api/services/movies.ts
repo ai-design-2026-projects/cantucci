@@ -8,7 +8,7 @@ import type { MovieDto } from '../dto/movies'
  * @returns MovieDto on success.
  */
 export async function getMovieFetcher(movieId: number): Promise<MovieDto> {
-    return apiClient<MovieDto>(`/movies/${movieId}`)
+    return apiClient<MovieDto>(`/movies/get/${movieId}`)
 }
 
 /**
@@ -20,7 +20,7 @@ export async function getMovieFetcher(movieId: number): Promise<MovieDto> {
  */
 export async function getMoviesBatchFetcher(ids: number[]): Promise<MovieDto[]> {
     if (ids.length === 0) return []
-    return apiClient<MovieDto[]>('/movies/batch', {
+    return apiClient<MovieDto[]>('/movies/get_batch', {
         method: 'POST',
         body: JSON.stringify({ ids }),
     })

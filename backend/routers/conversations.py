@@ -21,6 +21,7 @@ from backend.data_access.conversations.queries import (
 )
 from backend.data_access.cluster_snapshots.queries import (
     get_cluster_snapshot,
+    get_conversation_cluster_snapshots,
     record_conversation_snapshot_ref,
 )
 from backend.exceptions import ClusterSnapshotNotFound, ConversationNotFound, NotConversationOwner
@@ -33,6 +34,8 @@ from backend.routers.dto.conversations.dtos import (
     SendMessageResponse,
     UpdateConversationRequest,
 )
+from backend.routers.dto.cluster_snapshots.dtos import ClusterSnapshotGraphDto
+from backend.routers.dto.cluster_snapshots.build_snapshot import build_snapshot_graph_dto
 from backend.settings import get_config_snapshot
 import demo.utils.replay as _demo
 import demo.utils.record as _demo_record
@@ -42,23 +45,23 @@ log = logging.getLogger(__name__)
 router = APIRouter(prefix="/conversations", tags=["conversations"])
 
 
-@router.get("", response_model=list[ConversationDto])
+@router.get("/get_history", response_model=list[ConversationDto])
 def list_conversations_endpoint(
     user: Annotated[User | None, Depends(get_current_user)],
 ) -> list[ConversationDto]:
-    """Return all conversations owned by the authenticated user, newest first.
+    """Return all conversations owned by the authenticated user, ordered newest first.
 
-    Each entry includes the first user message in ``messages`` so callers can
-    derive a preview snippet without a separate fetch.
+    Each entry includes all messages so callers can render a preview snippet
+    without issuing a second request.
 
     Args:
-        user: Authenticated user. Anonymous callers receive 401.
+        user: Authenticated user injected by the auth dependency.
 
     Returns:
         List of ``ConversationDto`` ordered by creation time descending.
 
     Raises:
-        HTTPException(401): If the request is anonymous.
+        HTTPException(401): If the caller is not authenticated.
     """
     if user is None:
         raise HTTPException(status_code=401, detail="Authentication required.")
@@ -80,47 +83,21 @@ def list_conversations_endpoint(
     ]
 
 
-@router.delete("/{conversation_id}", status_code=204)
-def delete_conversation_endpoint(
-    conversation_id: uuid.UUID,
-    user: Annotated[User | None, Depends(get_current_user)],
-) -> None:
-    """Delete a conversation owned by the authenticated user.
-
-    Args:
-        conversation_id: Conversation UUID to delete.
-        user:            Authenticated user. Anonymous callers receive 401.
-
-    Raises:
-        HTTPException(401):      If the request is anonymous.
-        ConversationNotFound:    If the conversation does not exist.
-        NotConversationOwner:    If the authenticated user does not own the conversation.
-    """
-    if user is None:
-        raise HTTPException(status_code=401, detail="Authentication required.")
-    row = get_conversation(conversation_id)
-    if row is None:
-        raise ConversationNotFound(conversation_id)
-    if row.user_id != user.id:
-        raise NotConversationOwner(conversation_id)
-    delete_conversation(conversation_id)
-    log.info("conversation_deleted_by_user", extra={"conversation_id": str(conversation_id), "user_id": str(user.id)})
-
-
-@router.post("", response_model=ConversationDto, status_code=201)
+@router.post("/create", response_model=ConversationDto, status_code=201)
 async def create_new_conversation(
     user: Annotated[User | None, Depends(get_current_user)],
 ) -> ConversationDto:
-    """Create a new conversation and return it.
+    """Create a new conversation and return it with an empty messages list.
 
-    The conversation starts pointing at no cluster snapshot; the first message
-    will produce the root cluster snapshot from the base clustering.
+    The conversation starts with no active cluster snapshot; the first assistant
+    reply will produce the root cluster snapshot from the base HDBSCAN clustering.
+    Both authenticated and anonymous users may create conversations.
 
     Args:
-        user: Authenticated user, or None for anonymous.
+        user: Authenticated user, or None for anonymous callers.
 
     Returns:
-        ``ConversationDto`` with empty messages list.
+        ``ConversationDto`` with an empty messages list and no cluster snapshot.
     """
     config = get_config_snapshot()
     conversation_id = create_conversation(
@@ -138,18 +115,19 @@ async def create_new_conversation(
     )
 
 
-@router.get("/{conversation_id}", response_model=ConversationDto)
+@router.get("/get/{conversation_id}", response_model=ConversationDto)
 def get_conversation_endpoint(conversation_id: uuid.UUID) -> ConversationDto:
-    """Return a conversation with its recent messages.
+    """Return a conversation with its 20 most recent messages.
 
     Args:
         conversation_id: Conversation UUID.
 
     Returns:
-        ``ConversationDto`` with up to 20 most recent messages.
+        ``ConversationDto`` with up to 20 most recent messages and the active
+        cluster snapshot ID.
 
     Raises:
-        HTTPException(404): If the conversation does not exist.
+        ConversationNotFound: If no conversation with this ID exists.
     """
     row = get_conversation(conversation_id)
     if row is None:
@@ -169,26 +147,57 @@ def get_conversation_endpoint(conversation_id: uuid.UUID) -> ConversationDto:
     )
 
 
-@router.patch("/{conversation_id}", response_model=ConversationDto)
+@router.delete("/delete/{conversation_id}", status_code=204)
+def delete_conversation_endpoint(
+    conversation_id: uuid.UUID,
+    user: Annotated[User | None, Depends(get_current_user)],
+) -> None:
+    """Delete a conversation owned by the authenticated user.
+
+    Only the owning user may delete their conversation. The operation is
+    permanent and cascades to all associated messages.
+
+    Args:
+        conversation_id: Conversation UUID to delete.
+        user:            Authenticated user injected by the auth dependency.
+
+    Raises:
+        HTTPException(401):   If the caller is not authenticated.
+        ConversationNotFound: If no conversation with this ID exists.
+        NotConversationOwner: If the caller does not own this conversation.
+    """
+    if user is None:
+        raise HTTPException(status_code=401, detail="Authentication required.")
+    row = get_conversation(conversation_id)
+    if row is None:
+        raise ConversationNotFound(conversation_id)
+    if row.user_id != user.id:
+        raise NotConversationOwner(conversation_id)
+    delete_conversation(conversation_id)
+    log.info("conversation_deleted_by_user", extra={"conversation_id": str(conversation_id), "user_id": str(user.id)})
+
+
+@router.patch("/update_snapshot/{conversation_id}", response_model=ConversationDto)
 def update_conversation_endpoint(
     conversation_id: uuid.UUID,
     body: UpdateConversationRequest,
 ) -> ConversationDto:
     """Set the active cluster snapshot for a conversation.
 
-    Updates ``current_cluster_snapshot_id`` and records a snapshot ref so the
-    conversation_snapshot_refs join table stays consistent.
+    Updates ``current_cluster_snapshot_id`` and records a row in
+    ``conversation_snapshot_refs`` so the join table stays consistent.
+    Pass ``null`` to detach the conversation from any snapshot.
 
     Args:
         conversation_id: Conversation UUID.
-        body:            Body with the new ``current_cluster_snapshot_id``.
+        body:            ``UpdateConversationRequest`` with the new snapshot ID (or null).
 
     Returns:
-        Updated ``ConversationDto``.
+        Updated ``ConversationDto`` with the new active snapshot and recent messages.
 
     Raises:
-        ConversationNotFound:     If the conversation does not exist.
-        ClusterSnapshotNotFound:  If the requested snapshot does not exist.
+        ConversationNotFound:    If no conversation with this ID exists.
+        ClusterSnapshotNotFound: If the requested snapshot does not exist.
     """
     row = get_conversation(conversation_id)
     if row is None:
@@ -221,25 +230,29 @@ def update_conversation_endpoint(
     )
 
 
-@router.post("/{conversation_id}/messages", response_model=SendMessageResponse)
+@router.post("/send_message/{conversation_id}", response_model=SendMessageResponse)
 async def send_message(
     conversation_id: uuid.UUID,
     body: SendMessageRequest,
     user: Annotated[User | None, Depends(get_current_user)],
 ) -> SendMessageResponse:
-    """Process a user message and return the assistant reply with updated cluster snapshot.
+    """Submit a user message and receive the assistant reply with an updated cluster snapshot.
+
+    The coordinator runs intent detection, clustering, clarification, and reply
+    generation. On success the assistant message and the new cluster snapshot ID
+    are returned together so the frontend can update both panels atomically.
 
     Args:
         conversation_id: Conversation UUID.
-        body:            Request body with user message content.
-        user:            Authenticated user, or None for anonymous.
+        body:            ``SendMessageRequest`` containing the user message text.
+        user:            Authenticated user, or None for anonymous callers.
 
     Returns:
-        ``SendMessageResponse`` with assistant reply and new cluster snapshot ID.
+        ``SendMessageResponse`` with the assistant ``MessageDto`` and the new
+        cluster snapshot ID (null if the snapshot was not updated this turn).
 
     Raises:
-        HTTPException(404): If the conversation does not exist.
-        HTTPException(422): If the coordinator cannot process the message.
+        ConversationNotFound: If no conversation with this ID exists.
     """
     row = get_conversation(conversation_id)
     if row is None:
@@ -295,18 +308,20 @@ async def send_message(
     return response
 
 
-@router.get("/{conversation_id}/events")
+@router.get("/progress_stream/{conversation_id}")
 async def conversation_events(conversation_id: uuid.UUID) -> StreamingResponse:
-    """Open a Server-Sent Events stream for real-time turn progress.
+    """Open a Server-Sent Events stream for real-time turn progress updates.
 
-    One stream per conversation. The client opens this once on conversation
-    load and receives step events for every subsequent turn.
+    One stream per conversation. The client opens this connection once on page
+    load and receives step events (intent, clustering, clarification, reply) for
+    every subsequent turn. A heartbeat comment is emitted every 15 seconds to
+    keep the connection alive through proxies.
 
     Args:
         conversation_id: Conversation UUID.
 
     Returns:
-        StreamingResponse of text/event-stream.
+        ``StreamingResponse`` of ``text/event-stream``.
     """
     conv_id = str(conversation_id)
     queue = register_queue(conv_id)
@@ -327,3 +342,28 @@ async def conversation_events(conversation_id: uuid.UUID) -> StreamingResponse:
             unregister_queue(conv_id)
 
     return StreamingResponse(_stream(), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+@router.get("/get_cluster_snapshot/{conversation_id}", response_model=ClusterSnapshotGraphDto)
+def get_cluster_snapshot_graph(conversation_id: uuid.UUID) -> ClusterSnapshotGraphDto:
+    """Return all cluster snapshot nodes for a conversation as a directed acyclic graph.
+
+    Each node carries id, parent_id, operation, and created_at — enough to render
+    an evolution-map force graph without loading full cluster membership data.
+    The root snapshot (no parent) is always present if any clustering has occurred.
+
+    Args:
+        conversation_id: Conversation UUID.
+
+    Returns:
+        ``ClusterSnapshotGraphDto`` with all snapshot nodes for this conversation.
+    """
+    if _demo.is_replay_mode():
+        recorded = _demo.get_recorded_snapshot_graph(str(conversation_id))
+        if recorded is not None:
+            return recorded
+
+    snapshots = get_conversation_cluster_snapshots(conversation_id)
+    dto = build_snapshot_graph_dto(snapshots)
+    log.debug("cluster_snapshot_graph", extra={"conversation_id": str(conversation_id), "n_nodes": len(dto.cluster_snapshots)})
+    return dto

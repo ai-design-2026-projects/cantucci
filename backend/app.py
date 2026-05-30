@@ -51,8 +51,12 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
 
 app = FastAPI(
-    title="CinePal",
-    description="Conversational multi-view clustering for movie exploration.",
+    title="CinePal API",
+    description=(
+        "**CinePal** is a conversational clustering system for movie exploration. "
+        "An AI coordinator refines a cluster view of the catalogue turn-by-turn "
+        "based on oracle (human) feedback — no ground truth labels required.\n\n"
+    ),
     docs_url=DOCS_PATH,
     lifespan=lifespan,
 )

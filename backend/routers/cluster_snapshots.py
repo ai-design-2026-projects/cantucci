@@ -7,32 +7,32 @@ from backend.data_access.cluster_snapshots.queries import (
     count_snapshot_children,
     delete_cluster_snapshot,
     get_cluster_snapshot_with_clusters,
-    get_conversation_cluster_snapshots,
     get_memberships,
     get_root_cluster_snapshot,
 )
 from backend.exceptions import ClusterSnapshotNotFound, NotFoundError, SnapshotHasChildren
-from backend.routers.dto.cluster_snapshots.dtos import ClusterMembershipDto, ClusterSnapshotDto, ClusterSnapshotGraphDto, SnapshotMemberDto
-from backend.routers.dto.cluster_snapshots.build_snapshot import build_snapshot_dto, build_snapshot_graph_dto
+from backend.routers.dto.cluster_snapshots.dtos import ClusterMembershipDto, ClusterSnapshotDto
+from backend.routers.dto.cluster_snapshots.build_snapshot import build_snapshot_dto
 import demo.utils.replay as _demo
 
 log = logging.getLogger(__name__)
 
-router = APIRouter(tags=["cluster-snapshots"])
+router = APIRouter(prefix="/cluster-snapshots", tags=["cluster-snapshots"])
 
 
-@router.get("/cluster-snapshots/root", response_model=ClusterSnapshotDto)
+@router.get("/get_root", response_model=ClusterSnapshotDto)
 def get_root_cluster_snapshot_endpoint() -> ClusterSnapshotDto:
     """Return the most recent root cluster snapshot.
 
-    Used to show the full corpus silhouette before any conversation is active.
-    No authentication required — the base corpus is public.
+    The root snapshot is produced at ingest time from the full HDBSCAN clustering
+    of the corpus. It is public and used to populate the corpus-level scatter plot
+    before any conversation is active.
 
     Returns:
-        ``ClusterSnapshotDto`` for the root snapshot.
+        ``ClusterSnapshotDto`` for the root snapshot with all base clusters.
 
     Raises:
-        ClusterSnapshotNotFound: If no root snapshot has been ingested yet.
+        NotFoundError: If no root snapshot has been ingested yet.
     """
     root = get_root_cluster_snapshot()
     if root is None:
@@ -40,15 +40,18 @@ def get_root_cluster_snapshot_endpoint() -> ClusterSnapshotDto:
     return build_snapshot_dto(root.id)
 
 
-@router.get("/cluster-snapshots/{cluster_snapshot_id}", response_model=ClusterSnapshotDto)
+@router.get("/get/{cluster_snapshot_id}", response_model=ClusterSnapshotDto)
 def get_cluster_snapshot_endpoint(cluster_snapshot_id: uuid.UUID) -> ClusterSnapshotDto:
-    """Return a cluster snapshot with its full cluster list.
+    """Return a cluster snapshot with its full cluster list and argmax member counts.
+
+    In demo replay mode, recorded snapshots are served from the manifest and no
+    database query is issued.
 
     Args:
         cluster_snapshot_id: Cluster snapshot UUID.
 
     Returns:
-        ``ClusterSnapshotDto`` with clusters and argmax member list.
+        ``ClusterSnapshotDto`` with clusters, labels, and per-cluster argmax members.
 
     Raises:
         ClusterSnapshotNotFound: If the cluster snapshot does not exist.
@@ -60,22 +63,22 @@ def get_cluster_snapshot_endpoint(cluster_snapshot_id: uuid.UUID) -> ClusterSnap
     return build_snapshot_dto(cluster_snapshot_id)
 
 
-@router.delete("/cluster-snapshots/{cluster_snapshot_id}", status_code=204)
+@router.delete("/delete/{cluster_snapshot_id}", status_code=204)
 def delete_cluster_snapshot_endpoint(
     cluster_snapshot_id: uuid.UUID,
 ) -> None:
     """Delete a leaf cluster snapshot.
 
     The snapshot must have no child snapshots referencing it as a parent.
-    Conversations currently pointing to the deleted snapshot are updated to
-    point at its parent (or NULL for root snapshots).
+    Any conversations currently pointing to the deleted snapshot will have their
+    ``current_cluster_snapshot_id`` set to its parent (or NULL for root-level snapshots).
 
     Args:
         cluster_snapshot_id: Cluster snapshot UUID to delete.
 
     Raises:
-        ClusterSnapshotNotFound:  If the snapshot does not exist.
-        SnapshotHasChildren:      If the snapshot still has child snapshots.
+        ClusterSnapshotNotFound: If the snapshot does not exist.
+        SnapshotHasChildren:     If the snapshot still has child snapshots referencing it.
     """
     result = get_cluster_snapshot_with_clusters(cluster_snapshot_id)
     if result is None:
@@ -88,20 +91,20 @@ def delete_cluster_snapshot_endpoint(
 
 
 @router.get(
-    "/cluster-snapshots/{cluster_snapshot_id}/clusters/{cluster_id}/members",
+    "/cluster_members/{cluster_snapshot_id}/{cluster_id}",
     response_model=list[ClusterMembershipDto],
 )
 def get_cluster_members_endpoint(
     cluster_snapshot_id: uuid.UUID,
     cluster_id: uuid.UUID,
 ) -> list[ClusterMembershipDto]:
-    """Return all movie memberships for a cluster, ordered by descending probability.
+    """Return all movie memberships for a cluster, ordered by descending soft-assignment probability.
 
-    Validates that ``cluster_id`` belongs to ``cluster_snapshot_id`` before
-    fetching memberships so callers cannot enumerate members of arbitrary clusters.
+    Validates that ``cluster_id`` belongs to ``cluster_snapshot_id`` before fetching
+    memberships, preventing enumeration of arbitrary clusters across snapshots.
 
     Args:
-        cluster_snapshot_id: Cluster snapshot UUID.
+        cluster_snapshot_id: Cluster snapshot UUID that owns the cluster.
         cluster_id:          Cluster UUID within that snapshot.
 
     Returns:
@@ -123,27 +126,3 @@ def get_cluster_members_endpoint(
         extra={"cluster_id": str(cluster_id), "snapshot_id": str(cluster_snapshot_id), "count": len(memberships)},
     )
     return [ClusterMembershipDto(movie_id=m.movie_id, probability=m.probability) for m in memberships]
-
-
-@router.get("/conversations/{conversation_id}/cluster-snapshots", response_model=ClusterSnapshotGraphDto)
-def get_cluster_snapshot_graph(conversation_id: uuid.UUID) -> ClusterSnapshotGraphDto:
-    """Return all cluster snapshot nodes for a conversation as a DAG for visualization.
-
-    Each node includes id, parent_id, operation, and created_at — enough for
-    an Obsidian-style force graph without loading full cluster membership data.
-
-    Args:
-        conversation_id: Conversation UUID.
-
-    Returns:
-        ``ClusterSnapshotGraphDto`` with all cluster snapshot nodes.
-    """
-    if _demo.is_replay_mode():
-        recorded = _demo.get_recorded_snapshot_graph(str(conversation_id))
-        if recorded is not None:
-            return recorded
-
-    snapshots = get_conversation_cluster_snapshots(conversation_id)
-    dto = build_snapshot_graph_dto(snapshots)
-    log.debug("cluster_snapshot_graph", extra={"conversation_id": str(conversation_id), "n_nodes": len(dto.cluster_snapshots)})
-    return dto
