@@ -46,7 +46,7 @@ export function DeleteSnapshotDialog({
 				<div className="space-y-3 text-sm text-[var(--color-text)]">
 					<p>
 						<span className="font-medium capitalize">{label}</span>
-						<span className="text-[var(--color-muted)]"> — created {createdAt}</span>
+						<span className="text-[var(--color-muted)]">, created {createdAt}</span>
 					</p>
 					{hasChildren ? (
 						<p className="text-[var(--color-muted)]">

@@ -1,17 +1,18 @@
 import { motion, AnimatePresence } from 'framer-motion'
 import { cn } from '@/lib/utils'
 
-export type MascotExpression = 'happy' | 'excited' | 'sleepy'
+export type MascotExpression = 'happy' | 'excited' | 'sleepy' | 'standing'
 export type MascotSize = 'sm' | 'md' | 'lg'
 
 const SIZES: Record<MascotSize, number> = { sm: 32, md: 56, lg: 120 }
 
-type Pose = 'idle' | 'celebrate' | 'slumped'
+type Pose = 'idle' | 'celebrate' | 'slumped' | 'standing'
 
 const EXPRESSION_TO_POSE: Record<MascotExpression, Pose> = {
     happy: 'idle',
     excited: 'celebrate',
     sleepy: 'slumped',
+    standing: 'standing',
 }
 
 // ─── SVG sub-components ───────────────────────────────────────────────────────
@@ -211,6 +212,20 @@ function CelebrateSvg() {
 }
 
 /**
+ * STANDING — static happy pose with no animation. Used for finished chat messages.
+ */
+function StandingSvg() {
+    return (
+        <svg {...BASE_SVG_PROPS}>
+            <Popcorn />
+            <BucketBody clipId="bc-standing" />
+            <EyesNormal />
+            <MouthSmile />
+        </svg>
+    )
+}
+
+/**
  * SLEEPY — slow whole-body droop, Zzz float upward and fade, mouth pulses gently.
  */
 function SlumpedSvg() {
@@ -303,6 +318,7 @@ export function Mascot({
                     {pose === 'idle'      && <IdleSvg />}
                     {pose === 'celebrate' && <CelebrateSvg />}
                     {pose === 'slumped'   && <SlumpedSvg />}
+                    {pose === 'standing'  && <StandingSvg />}
                 </motion.div>
             </AnimatePresence>
         </motion.div>

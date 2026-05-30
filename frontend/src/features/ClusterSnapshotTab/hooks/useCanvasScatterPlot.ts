@@ -345,11 +345,12 @@ export function useCanvasScatterPlot({
 
     const [hoveredItem, setHoveredItem] = useState<HoveredItem | null>(null)
 
-    function findNearest(mx: number, my: number): HoveredItem | null {
-        const { points: pts, xDomain: xd, yDomain: yd, margin: m, containerSize: cs, centroids: cents } = vRef.current
+    function findNearest(mx: number, my: number, suppressDimmedPoints = false): HoveredItem | null {
+        const { points: pts, xDomain: xd, yDomain: yd, margin: m, containerSize: cs, centroids: cents, selectedClusterId: sel } = vRef.current
         let nearest: HoveredItem | null = null
         let minDist = HIT_RADIUS
         for (const p of pts) {
+            if (suppressDimmedPoints && sel !== null && p.clusterId !== sel) continue
             const { px, py } = dataToPixel(p.x, p.y, m, cs.width, cs.height, xd, yd)
             const d = Math.hypot(mx - px, my - py)
             if (d < minDist) { minDist = d; nearest = { kind: 'point', point: p } }
@@ -368,7 +369,7 @@ export function useCanvasScatterPlot({
     const onMouseMove = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
         if (animRef.current.phase !== 'idle') { setHoveredItem(null); return }
         const rect = (e.currentTarget as HTMLCanvasElement).getBoundingClientRect()
-        setHoveredItem(findNearest(e.clientX - rect.left, e.clientY - rect.top))
+        setHoveredItem(findNearest(e.clientX - rect.left, e.clientY - rect.top, true))
     }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
     const onMouseLeave = useCallback(() => setHoveredItem(null), [])

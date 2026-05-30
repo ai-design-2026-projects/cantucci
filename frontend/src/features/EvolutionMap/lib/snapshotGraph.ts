@@ -18,14 +18,10 @@ function circleLines(node: LayoutNode): string[] {
 			return ['Unclustered']
 		case 'cluster': {
 			if (typeof params.attribute === 'string') {
-				return ['By', trunc(params.attribute.replace(/_/g, ' '))]
+				return ['Cluster by', trunc(params.attribute.replace(/_/g, ' '))]
 			}
 			const concept = typeof params.concept === 'string' ? params.concept : ''
-			return ['Cluster', trunc(concept)]
-		}
-		case 'drill_down': {
-			const concept = typeof params.concept === 'string' ? params.concept : ''
-			return ['Drill down', trunc(concept)]
+			return ['Cluster by', trunc(concept) || 'Default']
 		}
 		case 'merge': {
 			const labels = Object.values(resolved_cluster_labels)
@@ -55,10 +51,6 @@ function circleLines(node: LayoutNode): string[] {
 			const label = Object.values(resolved_cluster_labels)[0] ?? ''
 			return ['Exclude', trunc(label)]
 		}
-		case 'partition_by': {
-			const attr = typeof params.attribute === 'string' ? params.attribute.replace(/_/g, ' ') : ''
-			return ['By', trunc(attr)]
-		}
 		default:
 			return [operation.replace(/_/g, ' ')]
 	}
@@ -75,14 +67,14 @@ function tooltipTitle(node: LayoutNode): string {
 				const attr = params.attribute.replace(/_/g, ' ')
 				const bins = Array.isArray(params.bins) ? (params.bins as Array<{ label: string }>).map((b) => b.label) : []
 				const binStr = bins.length > 0 ? ` (${bins.join(', ')})` : ''
-				return `By: ${attr}${binStr}`
+				return `Cluster: ${attr}${binStr}`
 			}
+			const isDrillDown = typeof params.source_cluster_id === 'string' && params.source_cluster_id !== null
 			const concept = typeof params.concept === 'string' ? params.concept : ''
-			return `Cluster${concept ? ` ${concept}` : ''}`
-		}
-		case 'drill_down': {
-			const concept = typeof params.concept === 'string' ? params.concept : ''
-			return `Drill down ${concept}`
+			if (isDrillDown) {
+				return concept ? `Drill down: ${concept}` : 'Drill down'
+			}
+			return `Cluster ${concept || 'Default'}`
 		}
 		case 'merge': {
 			const labels = Object.values(resolved_cluster_labels)
@@ -109,12 +101,6 @@ function tooltipTitle(node: LayoutNode): string {
 		case 'exclude': {
 			const label = Object.values(resolved_cluster_labels)[0] ?? '—'
 			return `Excluded: ${label}`
-		}
-		case 'partition_by': {
-			const attr = typeof params.attribute === 'string' ? params.attribute.replace(/_/g, ' ') : ''
-			const bins = Array.isArray(params.bins) ? (params.bins as Array<{ label: string }>).map((b) => b.label) : []
-			const binStr = bins.length > 0 ? ` (${bins.join(', ')})` : ''
-			return `By: ${attr}${binStr}`
 		}
 		default:
 			return operation.replace(/_/g, ' ')

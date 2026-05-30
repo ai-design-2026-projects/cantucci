@@ -31,7 +31,7 @@ export function WelcomePage() {
 					Meet Poppy
 				</h1>
 				<p className="text-lg text-[var(--color-muted)] text-center max-w-md leading-relaxed">
-					CinePal&apos;s AI clustering engine. Chat with Poppy to reorganize your movie catalogue — merge, split, and refine clusters through conversation.
+					CinePal&apos;s AI clustering engine. Chat with Poppy to reorganize your movie catalogue: merge, split, and refine clusters through conversation.
 				</p>
 			</motion.div>
 

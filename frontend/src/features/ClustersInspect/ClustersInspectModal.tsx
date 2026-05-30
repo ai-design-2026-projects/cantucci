@@ -61,7 +61,7 @@ export function ClusterInspectModal({
 					</TooltipProvider>
 				) : (
 					<div className="flex-1 flex items-center justify-center text-sm text-[var(--color-muted)] px-6 py-8">
-						No clustering performed yet — start a conversation to build clusters.
+						No clustering performed yet. Start a conversation to build clusters.
 					</div>
 				)}
 			</DialogContent>
