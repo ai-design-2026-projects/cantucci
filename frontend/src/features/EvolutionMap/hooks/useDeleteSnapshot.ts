@@ -21,7 +21,7 @@ export function useDeleteSnapshot(conversationId: string) {
 		},
 		onError: (err: Error) => {
 			if (err.message.includes('child')) {
-				toast.error('This snapshot has children — delete those first 🥺')
+				toast.error('This snapshot has children. Delete those first 🥺')
 			} else {
 				toast.error(err.message || 'Could not delete snapshot')
 			}

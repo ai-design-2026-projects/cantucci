@@ -180,7 +180,7 @@ def format_axis_proposal(concept_name: str, n_movies: int) -> str:
     """
     return (
         f"I've scored {n_movies:,} film{'s' if n_movies != 1 else ''} along the "
-        f"\"{concept_name}\" axis. Open **View axis distribution** to see how they spread, "
+        f"\"{concept_name}\" axis. Open the axis distribution to see how they spread, "
         f"then tell me how many groups you'd like."
     )
 

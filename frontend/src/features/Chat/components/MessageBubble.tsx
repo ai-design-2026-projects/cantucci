@@ -23,7 +23,7 @@ export function MessageBubble({ message }: { message: MessageDto }) {
 		>
 			{!isUser && (
 				<div className="flex-shrink-0 self-end">
-					<Mascot expression="happy" size="sm" />
+					<Mascot expression="standing" size="sm" />
 				</div>
 			)}
 			<div

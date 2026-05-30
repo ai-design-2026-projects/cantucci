@@ -21,14 +21,14 @@ export interface SnapshotGraphHandle {
 /**
  * SVG-based tree graph of cluster snapshot history. Root sits at the top,
  * descendants flow downward in levels. The active snapshot is filled with
- * --color-primary; others are outlined. Supports zoom (wheel) and exposes a
- * `reset()` imperative handle that restores the fit-to-view framing.
+ * --color-primary; others are outlined. Supports wheel zoom (up to 4×),
+ * drag-to-pan, and exposes a `reset()` imperative handle that restores
+ * the capped fit-to-view framing.
  *
  * @param layout           - Tree layout nodes.
  * @param activeSnapshotId - Currently active snapshot UUID.
  * @param clusterCounts    - Map from node ID to number of clusters.
  * @param onNodeClick      - Called with node ID when clicked.
- * @param onDeleteRequest  - Called with LayoutNode when trash icon is clicked.
  * @param width            - Container width.
  * @param height           - Container height.
  */
@@ -37,8 +37,22 @@ export const SnapshotGraph = forwardRef<SnapshotGraphHandle, SnapshotGraphProps>
     { layout, activeSnapshotId, clusterCounts, onNodeClick, width, height },
     ref,
   ) {
-    const { fitScale, transform } = useSnapshotGraphData(layout, width, height)
-    const { scale, hoveredId, hoveredNode, setHoveredId, handleWheel, resetScale } = useSnapshotGraphHandlers(layout, fitScale)
+    const { fitScale, transform, graphWidth, graphHeight } = useSnapshotGraphData(layout, width, height)
+    const {
+      scale,
+      pan,
+      isDragging,
+      dragRef,
+      hoveredId,
+      hoveredNode,
+      setHoveredId,
+      handleWheel,
+      handleMouseDown,
+      handleMouseMove,
+      handleMouseUp,
+      handleMouseLeave,
+      resetScale,
+    } = useSnapshotGraphHandlers(layout, fitScale, graphWidth, graphHeight, width, height)
 
     useImperativeHandle(ref, () => ({
       reset: resetScale,
@@ -49,10 +63,14 @@ export const SnapshotGraph = forwardRef<SnapshotGraphHandle, SnapshotGraphProps>
         <svg
           width={width}
           height={height}
-          style={{ cursor: 'default' }}
+          style={{ cursor: isDragging ? 'grabbing' : 'grab' }}
           onWheel={handleWheel}
+          onMouseDown={handleMouseDown}
+          onMouseMove={handleMouseMove}
+          onMouseUp={handleMouseUp}
+          onMouseLeave={handleMouseLeave}
         >
-          <g transform={`translate(${transform.x}, ${transform.y}) scale(${scale})`}>
+          <g transform={`translate(${transform.x + pan.x}, ${transform.y + pan.y}) scale(${scale})`}>
             <defs>
               {layout.map((n) => (
                 <clipPath key={`clip-${n.id}`} id={`clip-${n.id}`}>
@@ -93,6 +111,7 @@ export const SnapshotGraph = forwardRef<SnapshotGraphHandle, SnapshotGraphProps>
               const circleFill = isActive ? 'var(--color-primary)' : 'var(--color-surface)'
               const circleStroke = isActive ? 'var(--color-primary)' : 'var(--color-border)'
               const textFill = isActive ? 'var(--color-surface)' : (isUnclustered ? 'var(--color-muted)' : 'var(--color-text)')
+              const paramFill = isActive ? 'rgba(255,255,255,0.65)' : 'var(--color-muted)'
 
               return (
                 <g
@@ -101,7 +120,7 @@ export const SnapshotGraph = forwardRef<SnapshotGraphHandle, SnapshotGraphProps>
                   data-operation={n.operation}
                   data-snapshot-id={n.id}
                   style={{ cursor: 'pointer' }}
-                  onClick={() => onNodeClick(n.id)}
+                  onClick={() => { if (!dragRef.current.moved) onNodeClick(n.id) }}
                   onMouseEnter={() => setHoveredId(n.id)}
                   onMouseLeave={() => setHoveredId(null)}
                 >
@@ -119,14 +138,20 @@ export const SnapshotGraph = forwardRef<SnapshotGraphHandle, SnapshotGraphProps>
                   />
                   <text
                     textAnchor="middle"
-                    fontSize={9}
                     fontFamily="Inter, system-ui, sans-serif"
-                    fill={textFill}
                     clipPath={`url(#clip-${n.id})`}
                     style={{ pointerEvents: 'none', userSelect: 'none' }}
                   >
                     {opLines.map((line, i) => (
-                      <tspan key={i} x={n.x} y={firstLineY + i * LABEL_LINE_HEIGHT} dominantBaseline="middle">
+                      <tspan
+                        key={i}
+                        x={n.x}
+                        y={firstLineY + i * LABEL_LINE_HEIGHT}
+                        dominantBaseline="middle"
+                        fontSize={i === 0 ? 10 : 8}
+                        fontWeight={i === 0 ? 700 : 400}
+                        fill={i === 0 ? textFill : paramFill}
+                      >
                         {line}
                       </tspan>
                     ))}
@@ -153,8 +178,8 @@ export const SnapshotGraph = forwardRef<SnapshotGraphHandle, SnapshotGraphProps>
 
         {/* Hover tooltip card — positioned in screen space */}
         {hoveredNode && (() => {
-          const svgX = (hoveredNode.x * scale) + transform.x
-          const svgY = (hoveredNode.y * scale) + transform.y
+          const svgX = (hoveredNode.x * scale) + transform.x + pan.x
+          const svgY = (hoveredNode.y * scale) + transform.y + pan.y
           return (
             <div
               className="absolute z-10 pointer-events-auto"
