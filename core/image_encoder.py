@@ -54,6 +54,24 @@ def _load_clip_tokenizer():
     return _tokenizer_cache[key]
 
 
+def preload_clip_model() -> None:
+    """Preload the CLIP model and tokenizer into cache at startup.
+
+    ``open_clip.create_model_and_transforms`` always loads both the image and
+    text towers together — there is no API to load the text encoder alone.
+    Since ``encode_texts`` requires the full model object for ``model.encode_text()``,
+    preloading here eliminates first-call latency for concept-axis scoring.
+
+    If the model is already cached, this is a no-op.
+    """
+    _load_clip()
+    _load_clip_tokenizer()
+    log.info(
+        "clip model preloaded",
+        extra={"model": f"{_CLIP_MODEL_NAME}/{_CLIP_PRETRAINED}"},
+    )
+
+
 def encode_texts(
     texts: list[str],
     *,
