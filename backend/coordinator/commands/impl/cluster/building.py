@@ -60,7 +60,7 @@ def build_concept_clusters(
         [scores[mid] for mid in available_ids], dtype=np.float64
     ).reshape(-1, 1)
 
-    min_cs = max(2, min(cfg.clustering.online.drilldown_min_cluster_size, len(available_ids) // 5))
+    min_cs = max(2, min(cfg.clustering.online.min_cluster_size, len(available_ids) // 5))
     min_samp = max(1, min_cs // 3)
 
     # Cluster on the 1D concept score axis directly — no UMAP (meaningless on 1D)

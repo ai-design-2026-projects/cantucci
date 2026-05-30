@@ -114,7 +114,7 @@ def cluster_group(
         dist_mat = combined_distance_matrix(embs_by_modality, cfg.fusion.runtime_weights)
         return subcluster(
             None,
-            cfg.clustering.online.drilldown_min_cluster_size,
+            cfg.clustering.online.min_cluster_size,
             distance_matrix=dist_mat,
             cluster_selection_epsilon=cfg.clustering.online.cluster_selection_epsilon,
             target_n_clusters=target_n_clusters,
@@ -123,7 +123,7 @@ def cluster_group(
     group_embs = reduce_for_clustering(group_embs, cfg.umap, cfg.split.seed)
     return subcluster(
         group_embs,
-        cfg.clustering.online.drilldown_min_cluster_size,
+        cfg.clustering.online.min_cluster_size,
         cluster_selection_epsilon=cfg.clustering.online.cluster_selection_epsilon,
         target_n_clusters=target_n_clusters,
     )
