@@ -269,11 +269,8 @@ class IntentAction:
 
     @classmethod
     def from_llm_action(cls, parsed: IntentActionLLM) -> "IntentAction":
-        """Construct from a single Pydantic-validated LLM action object.
-
-        Parses ``target_cluster_id`` to a ``uuid.UUID`` (discards malformed
-        values with a warning). Converts ``MetadataFilterLLM`` to the internal
-        ``MetadataFilter`` dataclass.
+        """
+        Construct from a single Pydantic-validated LLM action object.
 
         Args:
             parsed: Pydantic-validated single action from the LLM payload.

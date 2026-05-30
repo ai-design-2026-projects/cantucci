@@ -2,7 +2,7 @@ import logging
 from typing import Any
 
 from backend.agents.base import LLMAgent
-from backend.agents.concept.parser import build_linear_axis
+from backend.agents.concept.axe_builder import build_linear_axis
 from backend.agents.concept.types import ConceptLLMResponse, LinearAxisRep
 from backend.llm.types import LLMResponse
 

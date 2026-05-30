@@ -34,8 +34,7 @@ clustering:
     cluster_selection_epsilon: 0.0
     prob_threshold: 0.01
   online:
-    drilldown_min_cluster_size: 10
-    recut_min_cluster_size: 30
+    min_cluster_size: 10
   partition_by:
     categorical_top_n: 20
 

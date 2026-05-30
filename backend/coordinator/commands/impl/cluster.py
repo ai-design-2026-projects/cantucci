@@ -1,9 +1,8 @@
 from __future__ import annotations
-
 import logging
 import uuid
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, ClassVar
+from typing import ClassVar
 
 from backend.coordinator.commands._helpers import (
     _NUMERIC_ATTRIBUTES,
@@ -24,10 +23,8 @@ from backend.data_access.movies.queries import (
     fetch_text_embeddings,
 )
 from backend.settings import get_settings
-
-if TYPE_CHECKING:
-    from backend.agents.concept.types import LinearAxisRep
-    from core.clustering import SoftClusterResult
+from backend.agents.concept.types import LinearAxisRep
+from core.clustering import SoftClusterResult
 
 log = logging.getLogger(__name__)
 
@@ -478,7 +475,7 @@ class ClusterCommand:
             ActionResult with reply, new snapshot id, and cost.
         """
         from backend.coordinator.commands._clustering import propose_bins
-        from backend.coordinator.commands.partition_by import partition_by
+        from backend.coordinator.commands.impl.partition_by import partition_by
 
         spec = self.partition_spec  # type: ignore[assignment]
 

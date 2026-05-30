@@ -15,7 +15,7 @@ class ClusterSnapshotRow:
     Attributes:
         id:          Cluster snapshot UUID.
         parent_id:   Parent cluster snapshot UUID, or None for the root.
-        operation:   Operation that produced this snapshot (e.g. ``"base"``, ``"drill_down"``).
+        operation:   Operation that produced this snapshot (e.g. ``"base"``, ``"cluster"``, ``"merge"``).
         params:      JSONB dict capturing algorithm + inputs for replayability.
         config_hash: SHA-256 prefix of the YAML config active when this snapshot
                      was produced (matches ``backend.settings.get_config_hash``).
@@ -43,14 +43,16 @@ class ClusterSnapshotRow:
     def referenced_cluster_ids(self) -> list[uuid.UUID]:
         """Return cluster UUIDs stored in params that require label resolution for display.
 
-        ``drill_down``, ``focus``, and ``exclude`` reference one cluster via
+        ``cluster``, ``focus``, and ``exclude`` reference one cluster via
         ``source_cluster_id``.  ``merge`` references one or more via
-        ``merged_cluster_ids``.  All other operations return an empty list.
+        ``merged_cluster_ids``.  ``drill_down`` is kept for backward compatibility
+        with historical snapshots recorded before the operation was unified into ``cluster``.
+        All other operations return an empty list.
 
         Returns:
             List of cluster UUIDs whose labels should be fetched for the Evolution Map.
         """
-        if self.operation in ("drill_down", "focus", "exclude"):
+        if self.operation in ("cluster", "drill_down", "focus", "exclude"):
             cid = self.params.get("source_cluster_id")
             return [uuid.UUID(str(cid))] if cid is not None else []
         if self.operation == "merge":

@@ -103,23 +103,21 @@ class BaseClusteringConfig(BaseModel):
 
 
 class OnlineClusteringConfig(BaseModel):
-    """HDBSCAN parameters for online drill-down and recut operations.
+    """HDBSCAN parameters for online interactive clustering operations.
 
     Attributes:
-        drilldown_min_cluster_size: min_cluster_size for sub-clustering a cluster.
-        recut_min_cluster_size:     min_cluster_size for full re-clustering.
-        cluster_selection_epsilon:  Distance threshold for merging very close clusters
-                                    in the HDBSCAN condensed tree.  A non-zero value
-                                    reduces fragmentation on dense subsets.  Passed
-                                    directly to ``hdbscan.HDBSCAN``.
+        min_cluster_size:          min_cluster_size for sub-clustering a cluster subset.
+        cluster_selection_epsilon: Distance threshold for merging very close clusters
+                                   in the HDBSCAN condensed tree.  A non-zero value
+                                   reduces fragmentation on dense subsets.  Passed
+                                   directly to ``hdbscan.HDBSCAN``.
     """
-    drilldown_min_cluster_size: int = 10
-    recut_min_cluster_size: int = 30
+    min_cluster_size: int = 10
     cluster_selection_epsilon: float = 0.0
 
 
 class PartitionByConfig(BaseModel):
-    """Parameters for the ``partition_by`` clustering operation.
+    """Parameters for the deterministic (metadata) branch of the CLUSTER operation.
 
     Attributes:
         categorical_top_n: Maximum number of clusters to produce for categorical
@@ -137,8 +135,8 @@ class ClusteringConfig(BaseModel):
 
     Attributes:
         base:         Parameters for the offline root cluster snapshot.
-        online:       Parameters for interactive drill-down and recut.
-        partition_by: Parameters for the deterministic partition_by operation.
+        online:       Parameters for interactive sub-clustering.
+        partition_by: Parameters for the deterministic (metadata) branch of CLUSTER.
     """
     base: BaseClusteringConfig = BaseClusteringConfig()
     online: OnlineClusteringConfig = OnlineClusteringConfig()
@@ -229,9 +227,9 @@ class SuggestionsConfig(BaseModel):
                                    two cluster centroids are considered similar enough
                                    to suggest a merge.
         dominance_fraction:        Fraction of total members a single cluster must hold
-                                   to trigger a drill-down suggestion.
+                                   to trigger a sub-cluster suggestion.
         noise_fraction_floor:      Fraction of low-probability memberships above which a
-                                   recut suggestion is emitted (noise proxy).
+                                   re-cluster suggestion is emitted (noise proxy).
         top_n_signals:             Maximum number of deterministic signals forwarded to
                                    the responder LLM.
     """

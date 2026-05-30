@@ -17,19 +17,16 @@ log = logging.getLogger(__name__)
 
 @dataclass(frozen=True, slots=True)
 class CrossFilterCommand:
-    """Filter the active movie set by metadata predicate, producing a single flat cluster.
-
-    No clustering is performed; a follow-up drill_down clusters the filtered set.
-
+    """
+    Filter the active movie set by metadata predicate, producing a single flat cluster.
     Attributes:
         metadata_filter: Metadata predicate to apply.
         confidence:      LLM confidence [0, 1].
     """
-
     REQUIRES_SNAPSHOT: ClassVar[bool] = True
     CREATES_SNAPSHOT: ClassVar[bool] = True
     READS_CLUSTERS: ClassVar[bool] = False
-
+    
     metadata_filter: MetadataFilter
     confidence: float
 
@@ -61,11 +58,9 @@ async def cross_filter(
 ) -> ClusterSnapshotDraft:
     """
     Filter the current snapshot's movies by metadata.
-
     Collects all movie IDs across every cluster in the parent snapshot, applies the
     metadata predicate via SQL (genres / year range / director), and returns a snapshot
-    containing the surviving movies as a single flat cluster. No clustering is performed;
-    use a follow-up ``drill_down`` to cluster the filtered set.
+    containing the surviving movies as a single flat cluster.
 
     Args:
         parent_cluster_snapshot_id: Snapshot whose member movies form the input universe.

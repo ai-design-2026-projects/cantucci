@@ -259,7 +259,7 @@ async def run_simulated_session(
                     target_cluster_id=target_id,
                     clarifier_fired=trace.clarifier_fired,
                 )
-                if mode in {"drill_down", "merge", "focus", "cross_filter"} and concept:
+                if mode in {"cluster", "merge", "focus", "cross_filter"} and concept:
                     executed_operations.append({"op": mode, "concept": concept})
     else:
         hit_budget = True

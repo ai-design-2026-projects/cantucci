@@ -1,14 +1,14 @@
 from backend.agents.intent.types import DialogueMode, IntentAction, NavigationMode
-from backend.coordinator.commands.cluster import ClusterCommand
-from backend.coordinator.commands.cross_filter import CrossFilterCommand
-from backend.coordinator.commands.exclude import ExcludeCommand
-from backend.coordinator.commands.explain import ExplainCommand
-from backend.coordinator.commands.focus import FocusCommand
-from backend.coordinator.commands.go_to_base import GoToBaseCommand
-from backend.coordinator.commands.merge import MergeCommand
-from backend.coordinator.commands.reset import ResetCommand
-from backend.coordinator.commands.small_talk import SmallTalkCommand
-from backend.coordinator.commands.undo import UndoCommand
+from backend.coordinator.commands.impl.cluster import ClusterCommand
+from backend.coordinator.commands.impl.cross_filter import CrossFilterCommand
+from backend.coordinator.commands.impl.exclude import ExcludeCommand
+from backend.coordinator.commands.impl.explain import ExplainCommand
+from backend.coordinator.commands.impl.focus import FocusCommand
+from backend.coordinator.commands.impl.go_to_base import GoToBaseCommand
+from backend.coordinator.commands.impl.merge import MergeCommand
+from backend.coordinator.commands.impl.reset import ResetCommand
+from backend.coordinator.commands.impl.small_talk import SmallTalkCommand
+from backend.coordinator.commands.impl.undo import UndoCommand
 
 AnyCommand = (
     ClusterCommand

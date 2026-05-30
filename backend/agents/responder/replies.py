@@ -29,7 +29,7 @@ NO_UNDO = "Nothing to undo — there is no previous clustering snapshot to retur
 
 
 def format_partition_clarification(attribute: str, labels: list[str | None]) -> str:
-    """Format a clarification question when no target cluster was specified for partition_by.
+    """Format a clarification question when no target cluster was specified for a deterministic partition.
 
     Args:
         attribute: The partition attribute (e.g. ``"runtime"``).
@@ -44,20 +44,20 @@ def format_partition_clarification(attribute: str, labels: list[str | None]) -> 
     return f"Which cluster would you like to partition by {attr_label}? Current clusters: {names}."
 
 
-def format_drill_down_clarification(labels: list[str | None]) -> str:
-    """Format a clarification question when no target cluster was specified for drill-down.
+def format_cluster_clarification(labels: list[str | None]) -> str:
+    """Format a clarification question when no target cluster was specified for a cluster operation.
 
     Args:
         labels: Labels of the current clusters (may contain None for unlabeled).
 
     Returns:
-        A question asking the user to specify which cluster to drill into.
+        A question asking the user to specify which cluster to sub-cluster.
     """
     names = ", ".join(f"'{l}'" for l in labels if l) or "the available clusters"
-    return f"Which cluster would you like to drill into? Current clusters: {names}."
+    return f"Which cluster would you like to split? Current clusters: {names}."
 
 
-def format_drill_down_reply(labels: list[str | None], n_new: int, n_movies: int) -> str:
+def format_cluster_reply(labels: list[str | None], n_new: int, n_movies: int) -> str:
     """Format the reply for a completed CLUSTER (semantic branch) operation.
 
     Args:
@@ -71,18 +71,6 @@ def format_drill_down_reply(labels: list[str | None], n_new: int, n_movies: int)
     display = [lbl for lbl in labels[:5]]
     ellipsis = "…" if n_new > 5 else ""
     return f"Split into {n_new} sub-clusters ({n_movies} movies): {', '.join(str(l) for l in display)}{ellipsis}."
-
-
-def format_recut_reply(n_new: int) -> str:
-    """Format the reply for a completed RECUT operation.
-
-    Args:
-        n_new: Total number of new clusters produced.
-
-    Returns:
-        A human-readable summary of the re-clustering result.
-    """
-    return f"Re-clustered the catalogue into {n_new} new clusters."
 
 
 def format_reset_reply(n: int) -> str:
@@ -155,7 +143,7 @@ def format_undo_reply(operation: str, n_clusters: int) -> str:
     """Format the reply for a completed UNDO operation.
 
     Args:
-        operation:  The operation name that was undone (e.g. ``"drill_down"``).
+        operation:  The operation name that was undone (e.g. ``"cluster"``).
         n_clusters: Number of clusters in the restored snapshot.
 
     Returns:
