@@ -164,10 +164,12 @@ class EvalSessionDetailDto(EvalSessionDto):
         metrics:      Conversation-level metrics (None if not yet computed).
         judge_scores: All judge dimension scores for this session.
         turn_intents: Ordered per-turn intent records.
+        persona:      Persona used for this session (None for old sessions).
     """
     metrics: ConversationMetricsDto | None
     judge_scores: list[JudgeScoreDto]
     turn_intents: list[TurnIntentDto]
+    persona: PersonaDto | None
 
 
 class SessionMetricsDto(BaseModel):

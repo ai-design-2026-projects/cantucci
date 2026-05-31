@@ -74,6 +74,7 @@ export interface EvalSessionDetailDto extends EvalSessionDto {
     metrics: ConversationMetricsDto | null
     judge_scores: JudgeScoreDto[]
     turn_intents: TurnIntentDto[]
+    persona: PersonaDto | null
 }
 
 export interface SessionMetricsDto {

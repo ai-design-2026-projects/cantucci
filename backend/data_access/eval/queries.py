@@ -184,6 +184,23 @@ def create_persona(
     return persona_id
 
 
+def get_persona_by_id(persona_id: uuid.UUID) -> PersonaRow | None:
+    """Fetch a persona by its UUID.
+
+    Args:
+        persona_id: Persona UUID.
+
+    Returns:
+        ``PersonaRow`` if found, ``None`` otherwise.
+    """
+    with transaction() as conn:
+        row = conn.execute(
+            "SELECT id, slug, verbosity, patience, definition, created_at FROM personas WHERE id = %s",
+            (persona_id,),
+        ).fetchone()
+    return PersonaRow.from_row(row) if row else None
+
+
 def get_persona_by_slug(slug: str) -> PersonaRow | None:
     """Fetch a persona by its slug.
 
