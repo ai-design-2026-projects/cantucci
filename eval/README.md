@@ -11,7 +11,7 @@ build bundles  →  run sessions (parallel)  →  metrics + judge scores written
 python -m eval.build     python -m eval.run
 ```
 
-Bundles (`eval/personas/<slug>.yaml`) are the canonical source of truth for personas and ground truths. DB rows are created lazily at simulation time. Sessions are run in parallel with a Rich progress bar.
+Bundles (`eval/personas/conf/<slug>.yaml`) are the canonical source of truth for personas and ground truths. DB rows are created lazily at simulation time. Sessions are run in parallel with a Rich progress bar.
 
 ---
 
@@ -38,7 +38,7 @@ Bundles (`eval/personas/<slug>.yaml`) are the canonical source of truth for pers
 
 ## Step 1 — Build bundles
 
-A bundle combines persona dials (verbosity, patience) with a ground truth trajectory in one YAML file under `eval/personas/`.
+A bundle combines persona dials (verbosity, patience) with a ground truth trajectory in one YAML file under `eval/personas/conf/`.
 
 **Random batch** (randomised themes and dials):
 ```bash
@@ -51,7 +51,7 @@ python -m eval.build --slug exploration_v1 --verbosity medium --patience 0.7 --h
 python -m eval.build --slug action_v1 --hint "action films, exclude superhero"
 ```
 
-Each command prints the slug, operation count, and the file path written. Bundles are `eval/personas/<slug>.yaml` — open them directly to inspect or hand-edit.
+Each command prints the slug, operation count, and the file path written. Bundles are `eval/personas/conf/<slug>.yaml` — open them directly to inspect or hand-edit.
 
 Re-running the same slug raises an error (slugs are unique per file).
 
@@ -69,7 +69,7 @@ python -m eval.run --persona exploration_v1 --run-name baseline-v1 --seeds 42
 python -m eval.run --personas exploration_v1 action_v1 --run-name baseline-v1 --seeds 1 2 3
 ```
 
-**All bundles in eval/personas/**:
+**All bundles in eval/personas/conf/**:
 ```bash
 python -m eval.run --all --run-name baseline-v1 --seeds 1 2 3 --condition conversational
 ```
@@ -172,7 +172,8 @@ eval/
     types.py            GroundTruthProposal, OpProposal (pydantic wire)
     prompts/
       ground_truth_v1.j2  Single-pass merged intent+trajectory prompt
-  personas/             Bundle YAML files (generated artifacts — gitignored)
+  personas/             Bundle store
+    conf/               Bundle YAML files (generated artifacts — gitignored)
     store.py            File I/O + idempotent DB upsert
     types.py            PersonaBundle dataclass
   runtime/              Session driver internals
@@ -191,8 +192,8 @@ eval/
     types.py            JudgeLLMResponse, JudgeResult
     prompts/judge_v4.j2   Single template with conditional axes block
   metrics/
-    types.py            ClusteringMetrics
-    clustering.py  cost.py  turns.py  operations.py  clarifier.py  recall.py
+    conversation.py     cost, num_turns, num_operations, clarifier_trigger_rate, operation_recall
+    snapshot.py         num_clusters
 ```
 
 SQL schema lives in `db/migrations/012_evaluation.sql`. Data access is in `backend/data_access/eval/queries.py`.

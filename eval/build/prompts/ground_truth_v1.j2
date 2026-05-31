@@ -1,0 +1,115 @@
+You are writing an evaluation scenario for CinePal — a conversational system that lets a user organise a film catalogue into named groups by chatting naturally. The user never manipulates clusters directly; they describe what they want in plain language, and the system interprets intent and reshapes the catalogue accordingly.
+
+---
+## Operations
+
+Each step in the trajectory is one of five operations. Understand exactly what each one does to the working set before using it.
+
+**cluster** — split the current working set into sub-groups.
+Two modes exist:
+- *Semantic / concept-guided*: HDBSCAN soft-clustering driven by a concept. The concept can be a thematic axis (e.g. "bleak vs hopeful tone"), a visual axis (e.g. "warm vs cold palette"), an open-ended theme (e.g. "films about grief and loss"), or left unspecified for fully emergent grouping.
+- *Metadata partition*: group by an exact attribute — genre, decade, director, language, vote average, or runtime. No concept needed; supply a descriptive label instead.
+When applied to a specific existing cluster, sibling clusters are carried forward unchanged alongside the new sub-groups.
+
+**focus** — narrow the working set to ONE cluster, dropping all others. The selected cluster's members become the entire new working set. No re-clustering is performed. Always requires a prior `cluster` step to have created the cluster being focused on. Use when the user wants to drill deeper into one subset.
+
+**exclude** — drop ONE cluster, keeping all others. The inverse of focus. Use when the user wants to remove an unwanted sub-group (e.g. "get rid of the horror films") while keeping the rest.
+
+**merge** — combine two clusters into one. No concept needed; the concept field should describe the logical grouping that results (e.g. "slow and contemplative films"). Use when two related sub-groups should be consolidated.
+
+**cross_filter** — narrow the working set to films matching a metadata predicate: genre(s), release year range, or director. Collapses the entire working set into a single flat group. **Must be followed by a `cluster` step** to subdivide the filtered set; a `cross_filter` in isolation leaves the working set as one unlabelled blob. The concept field describes the filter being applied (e.g. "French films from the 1970s", "horror and thriller genre", "directed by Kubrick").
+
+---
+## Concept fields
+
+`concept` is a human-readable label for what the operation does. It is always present.
+
+`kind` and `space` are only relevant for `cluster` operations that use a concept axis:
+
+| kind | space | meaning |
+|------|-------|---------|
+| `axis` | `semantic` | A thematic spectrum scored along a bipolar axis: tone, pacing, emotion, narrative type. E.g. "bleak vs hopeful tone", "slow-burn vs kinetic pacing". |
+| `axis` | `visual` | A visual / cinematographic spectrum scored using image embeddings: colour palette, lighting style, saturation. E.g. "warm vs cold palette", "high-contrast vs muted look". |
+| `open_ended` | *(omit)* | A thematic cluster with no clear opposing pole. E.g. "films about memory and loss", "stories of quiet resilience". Uses semantic embeddings. |
+| *(omit)* | *(omit)* | Plain metadata concept: genre, director, decade, country, language, runtime. No embedding scoring. |
+
+For `focus`, `exclude`, `merge`, and `cross_filter`, always omit `kind` and `space`.
+
+---
+## Trajectory rules
+
+- A `focus` step must be preceded by a `cluster` step on a related concept — the focus target must plausibly be one of the clusters that `cluster` produced.
+- A `cross_filter` step must be followed by a `cluster` step — otherwise the working set is a single unlabelled blob.
+- `merge` requires at least two clusters to exist; do not place it as the very first step.
+- `exclude` and `focus` each act on a single cluster; their concept should name which cluster is targeted (not a new semantic concept).
+- Avoid redundant steps: don't cluster on the same concept twice in a row, or focus immediately after another focus.
+
+---
+## Examples
+
+Example 1 — semantic axis, then focus on one pole, then exclude noise:
+```json
+{
+  "intent_description": "Split the catalogue by emotional tone, then zoom into the darker films and remove the action-heavy ones.",
+  "operations": [
+    {"op": "cluster", "concept": "bleak vs hopeful tone",       "kind": "axis", "space": "semantic"},
+    {"op": "focus",   "concept": "bleak, nihilistic films"},
+    {"op": "exclude", "concept": "action-heavy films"}
+  ]
+}
+```
+
+Example 2 — metadata filter, then cluster semantically, then merge two related groups:
+```json
+{
+  "intent_description": "Start from horror and thriller films, cluster them by visual atmosphere, then consolidate the two most similar groups.",
+  "operations": [
+    {"op": "cross_filter", "concept": "horror and thriller genre"},
+    {"op": "cluster",      "concept": "oppressive vs dreamlike visual atmosphere", "kind": "axis", "space": "visual"},
+    {"op": "merge",        "concept": "unsettling atmospheric films"}
+  ]
+}
+```
+
+Example 3 — open-ended theme, then partition metadata, then focus:
+```json
+{
+  "intent_description": "Surface films about grief and memory, break them down by decade, then zoom into the most recent ones.",
+  "operations": [
+    {"op": "cluster", "concept": "films about grief and memory", "kind": "open_ended"},
+    {"op": "cluster", "concept": "decade"},
+    {"op": "focus",   "concept": "films from the 2010s and 2020s"}
+  ]
+}
+```
+
+Example 4 — visual axis, then cross-filter, then recluster:
+```json
+{
+  "intent_description": "Organise by colour palette warmth, then keep only European films and re-cluster them thematically.",
+  "operations": [
+    {"op": "cluster",      "concept": "warm vs cold colour palette", "kind": "axis", "space": "visual"},
+    {"op": "cross_filter", "concept": "European films (French, Italian, German, Spanish)"},
+    {"op": "cluster",      "concept": "narrative intimacy vs epic scope", "kind": "axis", "space": "semantic"}
+  ]
+}
+```
+
+---
+{% if hint %}
+THEME HINT: {{ hint }}
+
+{% endif %}
+Write a ground truth trajectory for a simulated user session. The trajectory must have between {{ min_ops }} and {{ max_ops }} steps. Apply the trajectory rules above. Include at least one non-trivial concept (kind = axis or open_ended). The intent_description should read as a natural user goal, not a list of operations.
+
+Output valid JSON only:
+```json
+{
+  "intent_description": "...",
+  "operations": [
+    {"op": "...", "concept": "...", "kind": "...", "space": "..."},
+    ...
+  ]
+}
+```
+Omit `kind` and `space` when not applicable.
