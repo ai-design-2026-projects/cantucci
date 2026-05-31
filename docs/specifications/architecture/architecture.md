@@ -42,7 +42,6 @@ We can distinguish two families:
 | `cross_filter` | navigation | Keep only movies matching a metadata predicate (genres, year range, director) | "only 90s movies directed by Spielberg, then regroup" |
 | `partition_by` | navigation | Group a cluster (or the whole catalogue) into contiguous buckets of a numeric attribute (`runtime`, `release_year`, `vote_average`). When no bins are supplied the Coordinator proposes round-number defaults and asks the oracle to confirm before clustering. | "split by decade", "group by runtime" |
 | `reset` | dialogue | Return to the unclustered state (no active snapshot). | "start over" |
-| `go_to_base` | dialogue | Jump back to the pre-computed ingest-time base clustering. | "go back to the original groups" |
 | `explain` | dialogue | Explain why a given movie sits in a given cluster. | "why is Blade Runner in this group?" |
 | `small_talk` | dialogue | Casual, non-operational message; answered with a static help reply. | "what can you do?" |
 
@@ -125,8 +124,7 @@ forward. Two structures (defined in `data_schema.md`) make this work:
 
 **Going back** is just re-pointing `conversations.current_cluster_snapshot_id` at an earlier node — no
 recomputation. `PATCH /conversations/{id}` (and the MCP `navigate_to_snapshot` tool) sets the active
-snapshot to any prior snapshot id; the `go_to_base` operation is the special case of jumping to the
-root, and `reset` clears the pointer to the unclustered state. `GET /conversations/{id}/cluster-snapshots`
+snapshot to any prior snapshot id; `reset` clears the pointer to the unclustered state. `GET /conversations/{id}/cluster-snapshots`
 returns the whole node set (id, parent_id, operation, created_at) so a client can render the tree and
 let the oracle click a past state to return to it.
 
@@ -163,8 +161,7 @@ Compound requests (e.g. *reset then drill-down*) come back as a multi-element li
 
 ### Phase 3 — Confidence gate (routing gate)
 
-If **any** state-changing action (`DRILL_DOWN`, `MERGE`, `FOCUS`, `CROSS_FILTER`, `RESET`,
-`GO_TO_BASE`) has confidence below `intent.confidence_threshold`, the Coordinator emits a
+If **any** state-changing action (`DRILL_DOWN`, `MERGE`, `FOCUS`, `CROSS_FILTER`, `RESET`) has confidence below `intent.confidence_threshold`, the Coordinator emits a
 `clarifier` step, returns a clarification question, and **exits early without mutating state**.
 Otherwise it proceeds to dispatch.
 
@@ -178,7 +175,6 @@ dispatches to the matching handler. Each handler returns `(reply_fragment, new_s
 |---|---|---|---|
 | `DialogueMode.SMALL_TALK` | `handle_small_talk` | Static help reply | none |
 | `DialogueMode.RESET` | `handle_reset` | Clear active snapshot (unclustered state) | `set_current_cluster_snapshot(None)` |
-| `DialogueMode.GO_TO_BASE` | `handle_go_to_base` | Navigate to the ingest-time root snapshot | set current snapshot + record snapshot ref |
 | `DialogueMode.EXPLAIN` | `handle_explain` | Explain a movie's placement (`explain` step) | none (read-only) |
 | `NavigationMode.DRILL_DOWN` | `handle_drill_down` | Optional `concept` step → `clustering` step → `persist_and_label` | via `persist_and_label` |
 | `NavigationMode.MERGE` | `handle_merge` | Merge first two clusters → `clustering` step → `persist_and_label` | via `persist_and_label` |

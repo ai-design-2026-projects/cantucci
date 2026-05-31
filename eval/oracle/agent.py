@@ -29,6 +29,7 @@ async def oracle_turn(
     turn_number: int,
     conversation_id: uuid.UUID,
     accumulated_cost: float,
+    pending_axis: dict | None = None,
 ) -> OracleTurnResult:
     """Generate a single oracle reply driven by intent and observed cluster state.
 
@@ -47,6 +48,10 @@ async def oracle_turn(
         turn_number:      Current 1-based oracle turn index.
         conversation_id:  Parent conversation UUID (for logging).
         accumulated_cost: Running oracle LLM cost to check against the oracle cost limit.
+        pending_axis:     When the system has proposed a concept axis and is awaiting a
+                          group-count reply, a dict with ``concept_name``, ``top_titles``
+                          (most positive films), and ``bottom_titles`` (most negative).
+                          ``None`` when no axis is pending.
 
     Returns:
         ``OracleTurnResult`` with oracle message, decision, rationale, session_rating,
@@ -63,7 +68,7 @@ async def oracle_turn(
     tail_size = harness_cfg.runner.transcript_tail
     transcript_tail = transcript[-tail_size:] if len(transcript) > tail_size else transcript
 
-    template = _ENV.get_template("oracle_v2.j2")
+    template = _ENV.get_template("oracle_v3.j2")
     prompt = template.render(
         intent_description=ground_truth.intent_description,
         verbosity=persona.verbosity,
@@ -74,6 +79,7 @@ async def oracle_turn(
         transcript_tail=transcript_tail,
         turn_number=turn_number,
         max_turns=harness_cfg.runner.max_turns,
+        pending_axis=pending_axis,
     )
 
     resp = await llm_harness.call(
@@ -103,6 +109,7 @@ async def oracle_turn(
             "turn_number": turn_number,
             "decision": result.decision,
             "evolution_steps": len(evolution_trace),
+            "pending_axis": pending_axis is not None,
         },
     )
     return result

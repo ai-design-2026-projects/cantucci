@@ -70,6 +70,7 @@ docker compose run --rm backend python -m db.ingest --set main  # full productio
 python -m db.apply              # apply migrations (idempotent)
 python -m db.ingest             # ingest mini (dev default)
 python -m db.ingest --set main  # ingest full production set
+python -m db.ingest --set eval   # ingest eval-holdout
 python -m db.ingest --set all   # ingest main + mini
 ```
 
@@ -80,7 +81,8 @@ python -m db.ingest --set all   # ingest main + mini
 
 **For dev/CI use the default `mini` set.** Mini is a strict subset of main, so
 ingesting main later with `--set main` is safe (upsert) and won't duplicate
-data.
+data. The `eval` / `eval_holdout` split is available when you want to load the
+held-out evaluation artifact explicitly.
 
 ### Producing a new snapshot
 

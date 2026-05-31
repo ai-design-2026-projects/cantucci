@@ -143,7 +143,6 @@ class DialogueMode(str, Enum):
 
     Attributes:
         RESET:       Clear all clustering — return to the unclustered state.
-        GO_TO_BASE:  Navigate to the pre-computed ingest-time base clustering.
         EXPLAIN:     Explain why a movie belongs in a cluster.
         SMALL_TALK:  Casual, non-operational message.
     """
@@ -157,10 +156,6 @@ class DialogueMode(str, Enum):
     RESET = (
         "reset",
         "return to unclustered state (before any clustering)",
-    )
-    GO_TO_BASE = (
-        "go_to_base",
-        "return to the pre-computed ingest-time clustering",
     )
     EXPLAIN = (
         "explain",

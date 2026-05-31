@@ -35,7 +35,7 @@ export function SnapshotPlot({
     baseDomain,
 }: {
     points: ScatterPoint[]
-    snapshot: ClusterSnapshotDto
+    snapshot: ClusterSnapshotDto | undefined
     selectedClusterId: string | null
     onClusterClick: (clusterId: string | null) => void
     dimmedAll?: boolean

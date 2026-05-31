@@ -127,6 +127,33 @@ class MovieRow:
 
 
 @dataclass(frozen=True, slots=True)
+class UmapPointRow:
+    """Minimal UMAP projection row for scatter-plot silhouette rendering.
+
+    Attributes:
+        movie_id: TMDB integer ID.
+        title:    Movie title.
+        umap_x:   UMAP 2D x-coordinate.
+        umap_y:   UMAP 2D y-coordinate.
+    """
+
+    movie_id: int
+    title: str
+    umap_x: float
+    umap_y: float
+
+    @classmethod
+    def from_row(cls, r: dict) -> "UmapPointRow":
+        """Construct from a psycopg dict_row result of the list_umap_points query."""
+        return cls(
+            movie_id=r["id"],
+            title=r["title"],
+            umap_x=float(r["umap_x"]),
+            umap_y=float(r["umap_y"]),
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class MovieStubRow:
     """Lightweight movie projection for cluster snapshots and exemplar lists.
 

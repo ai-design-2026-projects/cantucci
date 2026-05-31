@@ -1,3 +1,10 @@
+export interface UmapPointDto {
+    movie_id: number
+    title: string
+    umap_x: number
+    umap_y: number
+}
+
 export interface ClusterDto {
     id: string
     label: string | null

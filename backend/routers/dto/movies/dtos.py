@@ -1,6 +1,27 @@
 from pydantic import BaseModel, Field
 
-from backend.data_access.movies.types import MovieDetailsRow
+from backend.data_access.movies.types import MovieDetailsRow, UmapPointRow
+
+
+class UmapPointDto(BaseModel):
+    """Minimal UMAP projection for scatter-plot silhouette rendering.
+
+    Attributes:
+        movie_id: TMDB integer ID.
+        title:    Movie title.
+        umap_x:   UMAP 2D x-coordinate.
+        umap_y:   UMAP 2D y-coordinate.
+    """
+
+    movie_id: int
+    title: str
+    umap_x: float
+    umap_y: float
+
+    @classmethod
+    def from_row(cls, r: UmapPointRow) -> "UmapPointDto":
+        """Convert a ``UmapPointRow`` to its wire DTO."""
+        return cls(movie_id=r.movie_id, title=r.title, umap_x=r.umap_x, umap_y=r.umap_y)
 
 
 class MovieDto(BaseModel):

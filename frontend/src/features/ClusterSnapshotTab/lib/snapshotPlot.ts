@@ -35,7 +35,8 @@ export function computeScatterDomains(points: ScatterPoint[]) {
  * @param points - Scatter points rendered in the chart.
  * @returns Map-like record keyed by cluster ID.
  */
-export function groupScatterPointsByCluster(snapshot: ClusterSnapshotDto, points: ScatterPoint[]) {
+export function groupScatterPointsByCluster(snapshot: ClusterSnapshotDto | undefined, points: ScatterPoint[]) {
+    if (!snapshot) return {}
     return snapshot.clusters.reduce<Record<string, ScatterPoint[]>>((accumulator, cluster) => {
         accumulator[cluster.id] = points.filter((point) => point.clusterId === cluster.id)
         return accumulator

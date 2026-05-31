@@ -4,18 +4,17 @@ CinePal catalogue ingestion — load pre-built parquet artifacts from HuggingFac
 Usage:
     python -m db.ingest                # ingest the mini set (dev default)
     python -m db.ingest --set main     # ingest the full production set
+    python -m db.ingest --set eval     # ingest the eval-holdout set
     python -m db.ingest --set all      # ingest main + mini
 
 The repo and per-split filenames are pinned in ``configs/dev.yaml`` under
 the ``ingestion:`` block. Producing a new snapshot is a two-stage workflow:
 ``python -m dataset.scraper --upload`` (local TMDB scrape) followed by
-``notebooks/embed_in_colab.ipynb`` (GPU embed + upload). The ``eval_holdout``
-slice is intentionally never written to the DB.
+``notebooks/embed_in_colab.ipynb`` (GPU embed + upload).
 
-After all rows are loaded, the script computes fused embeddings, UMAP coordinates,
-and the base HDBSCAN cluster snapshot directly from the in-memory embeddings. No
-GPU is required. Root cluster labels are generated lazily on first access by the
-labeling agent.
+After all rows are loaded, the script computes fused embeddings and UMAP coordinates
+directly from the in-memory embeddings and writes them to the movies table. No GPU
+is required.
 """
 import argparse
 import json
@@ -26,7 +25,6 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from backend.data_access.cluster_snapshots.queries import create_root_snapshot_from_assignments
 from backend.logging_setup import configure_logging
 from backend.settings import get_settings
 from db.utils import load
@@ -102,58 +100,25 @@ def _load_artifact(
     return df, text_embeddings, review_embeddings, trailer_embeddings
 
 
-def _build_snapshot_params(n_movies: int, n_clusters: int) -> dict[str, Any]:
-    """Build the replayability params dict for a base cluster snapshot.
-
-    Args:
-        n_movies:   Number of movies in the snapshot.
-        n_clusters: Number of clusters produced by the offline pipeline.
-
-    Returns:
-        Dict of HDBSCAN + UMAP settings from the current config, augmented with
-        the actual movie and cluster counts for reference.
-    """
-    cfg = get_settings()
-    base = cfg.clustering.base
-    umap = cfg.umap
-    return {
-        "algorithm": base.algorithm,
-        "min_cluster_size": base.min_cluster_size,
-        "min_samples": base.min_samples,
-        "cluster_selection_method": base.cluster_selection_method,
-        "cluster_selection_epsilon": base.cluster_selection_epsilon,
-        "umap_n_neighbors": umap.n_neighbors,
-        "umap_min_dist": umap.min_dist,
-        "seed": cfg.split.seed,
-        "n_movies": n_movies,
-        "n_clusters": n_clusters,
-    }
-
-
 def run_from_artifact(name: str) -> None:
     """Fetch the pinned HF artifact(s) and ingest into the DB.
 
-    After loading all rows, computes fused embeddings, UMAP coordinates, and the
-    base HDBSCAN cluster snapshot from the in-memory embeddings. Movies from
+    After loading all rows, computes fused embeddings and UMAP coordinates from
+    the in-memory embeddings and writes them to the movies table. Movies from
     multiple sets are deduplicated by ID before the offline computation runs.
 
     Args:
-        name: Which artifact(s) to ingest — ``"main"``, ``"mini"``, or ``"all"``
-              (main + mini).
-
-    Raises:
-        ValueError: If *name* is ``"eval"`` — eval_holdout is never ingested.
+        name: Which artifact(s) to ingest — ``"main"``, ``"mini"``, ``"eval"``,
+              ``"eval_holdout"``, or ``"all"`` (main + mini).
     """
-    if name == "eval":
-        raise ValueError(
-            "eval_holdout is intentionally kept out of the DB — "
-            "use it only for offline evaluation."
-        )
     cfg = get_settings()
     filenames = {
         "main": cfg.ingestion.artifacts.main,
         "mini": cfg.ingestion.artifacts.mini,
+        "eval_holdout": cfg.ingestion.artifacts.eval_holdout,
     }
+    if name == "eval":
+        name = "eval_holdout"
     names = ["main", "mini"] if name == "all" else [name]
 
     all_movie_ids: list[int] = []
@@ -187,12 +152,7 @@ def run_from_artifact(name: str) -> None:
     result = compute_offline_columns(all_movie_ids, text_arr, review_arr)
 
     load.upsert_offline_columns(all_movie_ids, result.umap_coords)
-
-    params = _build_snapshot_params(len(all_movie_ids), result.n_clusters)
-    snapshot_id = create_root_snapshot_from_assignments(
-        all_movie_ids, result.cluster_ids, result.cluster_probs, params
-    )
-    log.info("ingest_complete", extra={"snapshot_id": str(snapshot_id)})
+    log.info("ingest_complete", extra={"n_movies": len(all_movie_ids)})
 
 
 def _parse_args() -> argparse.Namespace:
@@ -202,10 +162,11 @@ def _parse_args() -> argparse.Namespace:
         epilog=__doc__,
     )
     p.add_argument(
-        "--set", choices=["mini", "main", "all"], default="mini",
+           "--set", choices=["mini", "main", "eval", "eval_holdout", "all"], default="mini",
         dest="set",
         help="Which set(s) to write to the DB (default: mini). "
-             "mini is a strict subset of main — ingesting main later won't duplicate rows.",
+               "mini is a strict subset of main — ingesting main later won't duplicate rows. "
+               "eval and eval_holdout point at the held-out evaluation split.",
     )
     return p.parse_args()
 

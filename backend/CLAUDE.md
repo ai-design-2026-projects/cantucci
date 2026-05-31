@@ -221,16 +221,6 @@ Routers raise the domain exception directly — `raise ConversationNotFound(conv
 
 ## Known gaps
 
-### Root snapshot is built at ingest; root labels are generated lazily
-
-The root cluster snapshot is built at ingest time (via `db/ingest.py` calling
-`data_access.cluster_snapshots.queries.create_root_snapshot_from_assignments`)
-from the offline pipeline columns in the parquet artifact. Clusters are created
-without labels (`label=NULL`). The labeling agent fires lazily the first time a
-cluster is surfaced in a conversation — `coordinator/tools/labeling.py:label_unlabeled_clusters`
-calls `agents/labeling/agent.py:label_clusters` (single batched call) and
-persists each result via `update_cluster_label`.
-
 ### Content-addressed snapshot cache (wired)
 
 Any clustering operation deterministic given `(parent_snapshot_id, operation,
@@ -242,9 +232,9 @@ params, config_hash)` is computed once and reused across conversations:
   `(parent_id, operation, params, config_hash)`.
 - `canonicalize_params(...)` normalises dict ordering and float precision so
   equal-meaning params hash to identical JSONB bytes.
-- `create_conversation` seeds `current_cluster_snapshot_id` from
-  `get_root_cluster_snapshot()` and records a `conversation_snapshot_refs`
-  row. `_handle_reset` does the same.
+- `create_conversation` leaves `current_cluster_snapshot_id` as NULL; the first
+  clustering operation creates the first snapshot and records a
+  `conversation_snapshot_refs` row.
 - `cluster_snapshots.conversation_id` is gone; the `conversation_snapshot_refs`
   join table records which conversations have touched which snapshots, so
   shared snapshots are not nuked by a single conversation's deletion.

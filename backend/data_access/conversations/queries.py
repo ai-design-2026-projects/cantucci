@@ -16,8 +16,7 @@ def create_conversation(
     """Insert a new conversation row and return its UUID.
 
     New conversations start in the unclustered state (``current_cluster_snapshot_id``
-    is NULL). The first ``go_to_base`` action by the user activates the pre-computed
-    root snapshot and records the snapshot ref.
+    is NULL). The first clustering operation creates the first snapshot.
 
     Args:
         user_id:         Owner user UUID, or None for anonymous.

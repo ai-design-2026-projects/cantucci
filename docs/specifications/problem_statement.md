@@ -111,7 +111,7 @@ The oracle never picks an operation from a menu. They type free-form text; the *
   - `partition_by` — bucket a numeric attribute into contiguous ranges (*"split by decade"*, *"group by runtime"*)
 
 - **Dialogue operations** — navigate or query without producing new clusters:
-  - `reset` / `go_to_base` — return to unclustered state or the ingest-time root
+  - `reset` — return to the unclustered state
   - `explain` — ask why a specific movie sits in a given cluster (*"why is Blade Runner in this group?"*)
   - `small_talk` — casual, non-operational message
 
@@ -166,7 +166,7 @@ This is intentionally minimal — the system does not evaluate whether to show o
 
 ### How to handle evolving preferences?
 
-People change their minds. What looks like a contradiction is usually **preference evolution** — the oracle has seen more options and is refining their taste. The system handles this naturally: every navigation operation produces a new snapshot node in the content-addressed tree, and the oracle can always navigate backward (`go_to_base`, `reset`) or issue a new operation from any prior node. The Coordinator executes the latest instruction without conflict detection; the full snapshot lineage is queryable if the oracle wants to retrace their path.
+People change their minds. What looks like a contradiction is usually **preference evolution** — the oracle has seen more options and is refining their taste. The system handles this naturally: every navigation operation produces a new snapshot node in the content-addressed tree, and the oracle can always navigate backward (`reset`) or issue a new operation from any prior node. The Coordinator executes the latest instruction without conflict detection; the full snapshot lineage is queryable if the oracle wants to retrace their path.
 
 ---
 

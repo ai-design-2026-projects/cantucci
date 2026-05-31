@@ -33,7 +33,7 @@ interface CanvasParams {
     canvasRef: RefObject<HTMLCanvasElement | null>
     containerSize: { width: number; height: number }
     points: ScatterPoint[]
-    snapshot: ClusterSnapshotDto
+    snapshot: ClusterSnapshotDto | undefined
     dimmedAll: boolean
     selectedClusterId: string | null
     isDark: boolean
@@ -83,7 +83,7 @@ export function useCanvasScatterPlot({
     margin,
     onClusterClick,
 }: CanvasParams) {
-    const centroids = computeCentroidsFromSnapshot(snapshot)
+    const centroids = snapshot ? computeCentroidsFromSnapshot(snapshot) : []
 
     const vRef = useRef({
         points, selectedClusterId, isDark, xDomain, yDomain,
@@ -311,11 +311,12 @@ export function useCanvasScatterPlot({
         const dimmedChanged = dimmedAll !== prevDimmedAllRef.current
         prevDimmedAllRef.current = dimmedAll
 
-        if (snapshot.id === prevSnapshotIdRef.current && !dimmedChanged) return
+        const snapshotId = snapshot?.id ?? undefined
+        if (snapshotId === prevSnapshotIdRef.current && !dimmedChanged) return
 
         const prev = prevPointsRef.current
         const prevCentroids = prevCentroidsRef.current
-        prevSnapshotIdRef.current = snapshot.id
+        prevSnapshotIdRef.current = snapshotId
         prevPointsRef.current = points
         prevCentroidsRef.current = vRef.current.centroids
 
@@ -334,7 +335,7 @@ export function useCanvasScatterPlot({
             }
             drawFrame(points)
         }
-    }, [snapshot.id, dimmedAll]) // eslint-disable-line react-hooks/exhaustive-deps
+    }, [snapshot?.id, dimmedAll]) // eslint-disable-line react-hooks/exhaustive-deps
 
     useEffect(() => {
         if (animRef.current.phase !== 'idle') return

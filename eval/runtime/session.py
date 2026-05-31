@@ -7,16 +7,12 @@ so simulated sessions are indistinguishable from human sessions in the database.
 import logging
 import uuid
 
-from backend.data_access.cluster_snapshots.queries import (
-    get_root_cluster_snapshot,
-    record_conversation_snapshot_ref,
-)
+from backend.data_access.concepts.queries import get_concept, get_concept_axis_points
 from backend.data_access.conversations.queries import (
     add_conversation_cost,
     append_message,
     create_conversation,
     get_conversation,
-    set_current_cluster_snapshot,
 )
 from backend.data_access.eval.queries import (
     create_eval_session,
@@ -47,7 +43,7 @@ async def run_simulated_session(
 ) -> uuid.UUID:
     """Drive a full simulated oracle session and evaluate it at the end.
 
-    Creates a conversation, wires it to the root cluster snapshot, links it to the
+    Creates a conversation in the unclustered state (NULL snapshot), links it to the
     eval run, then drives oracle turns until the oracle stops or the turn budget is
     exhausted.  Calls ``evaluate_conversation`` automatically after the session ends.
 
@@ -63,8 +59,7 @@ async def run_simulated_session(
         UUID of the created conversation.
 
     Raises:
-        ValueError:   If the persona or ground truth slug is not found.
-        RuntimeError: If no root cluster snapshot exists in the database.
+        ValueError: If the persona or ground truth slug is not found.
     """
     harness_cfg = load_eval_harness_config()
 
@@ -78,12 +73,6 @@ async def run_simulated_session(
 
     config_snapshot = get_config_snapshot()
     conversation_id = create_conversation(user_id=user_id, config_snapshot=config_snapshot)
-
-    root = get_root_cluster_snapshot()
-    if root is None:
-        raise RuntimeError("no root cluster snapshot found — run db.ingest first")
-    set_current_cluster_snapshot(conversation_id, root.id)
-    record_conversation_snapshot_ref(conversation_id, root.id)
 
     eval_session_id = create_eval_session(
         run_id=run_id,
@@ -130,6 +119,19 @@ async def run_simulated_session(
                 exemplar_k=exemplar_k,
             )
 
+        pending_axis: dict | None = None
+        if conversation_row.axis_concept_id is not None:
+            concept = get_concept(conversation_row.axis_concept_id)
+            if concept is not None:
+                pole_k = harness_cfg.scorer.pole_sample_k
+                points = get_concept_axis_points(concept.id)
+                points_sorted = sorted(points, key=lambda p: p.score, reverse=True)
+                pending_axis = {
+                    "concept_name": concept.name,
+                    "top_titles": [p.title for p in points_sorted[:pole_k]],
+                    "bottom_titles": [p.title for p in reversed(points_sorted[-pole_k:])],
+                }
+
         oracle_result = await oracle_turn(
             persona=persona,
             ground_truth=ground_truth,
@@ -139,6 +141,7 @@ async def run_simulated_session(
             turn_number=turn_number,
             conversation_id=conversation_id,
             accumulated_cost=accumulated_cost,
+            pending_axis=pending_axis,
         )
         accumulated_cost += oracle_result.cost
         last_oracle_decision = oracle_result.decision

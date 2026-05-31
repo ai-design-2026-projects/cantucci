@@ -4,7 +4,6 @@ from backend.coordinator.commands.impl.cross_filter import CrossFilterCommand
 from backend.coordinator.commands.impl.exclude import ExcludeCommand
 from backend.coordinator.commands.impl.explain import ExplainCommand
 from backend.coordinator.commands.impl.focus import FocusCommand
-from backend.coordinator.commands.impl.go_to_base import GoToBaseCommand
 from backend.coordinator.commands.impl.merge import MergeCommand
 from backend.coordinator.commands.impl.reset import ResetCommand
 from backend.coordinator.commands.impl.small_talk import SmallTalkCommand
@@ -17,7 +16,6 @@ AnyCommand = (
     | ExcludeCommand
     | CrossFilterCommand
     | ResetCommand
-    | GoToBaseCommand
     | UndoCommand
     | SmallTalkCommand
     | ExplainCommand
@@ -75,8 +73,6 @@ def build_command(action: IntentAction) -> AnyCommand:
         )
     if mode == DialogueMode.RESET:
         return ResetCommand(confidence=action.confidence)
-    if mode == DialogueMode.GO_TO_BASE:
-        return GoToBaseCommand(confidence=action.confidence)
     if mode == DialogueMode.UNDO:
         return UndoCommand(confidence=action.confidence)
     if mode == DialogueMode.SMALL_TALK:

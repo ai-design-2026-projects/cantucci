@@ -3,7 +3,7 @@ import logging
 import numpy as np
 
 from backend.data_access.connection import transaction
-from backend.data_access.movies.types import ClusterProfileRow, MovieDetailsRow, MovieRow, MovieStubRow, NumericStats
+from backend.data_access.movies.types import ClusterProfileRow, MovieDetailsRow, MovieRow, MovieStubRow, NumericStats, UmapPointRow
 
 _MODALITY_COLUMN: dict[str, str] = {
     "text": "text_embedding",
@@ -23,6 +23,28 @@ def list_movie_ids() -> list[int]:
     with transaction() as conn:
         rows = conn.execute("SELECT id FROM movies ORDER BY id").fetchall()
     return [r["id"] for r in rows]
+
+
+def list_umap_points() -> list[UmapPointRow]:
+    """Return UMAP 2D coordinates for every movie that has been projected.
+
+    Used to render the uncoloured scatter plot silhouette before any clustering
+    operation has been performed.
+
+    Returns:
+        List of ``UmapPointRow`` ordered by movie ID, limited to rows where
+        both ``umap_x`` and ``umap_y`` are non-null.
+    """
+    with transaction() as conn:
+        rows = conn.execute(
+            """
+            SELECT id, title, umap_x, umap_y
+            FROM movies
+            WHERE umap_x IS NOT NULL AND umap_y IS NOT NULL
+            ORDER BY id
+            """,
+        ).fetchall()
+    return [UmapPointRow.from_row(r) for r in rows]
 
 
 
