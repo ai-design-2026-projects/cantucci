@@ -4,11 +4,11 @@ from dataclasses import dataclass
 from typing import ClassVar
 
 from backend.coordinator.commands.helpers.drafts import persist_draft
+from backend.coordinator.commands.helpers.movies import resolve_movie_ids
 from backend.coordinator.commands.base import ActionResult, ExecutionContext
 from backend.coordinator.types import ClusterDraft, ClusterSnapshotDraft
 from backend.agents.intent.types import MetadataFilter
 from backend.agents.responder import replies
-from backend.data_access.cluster_snapshots.queries import get_cluster_snapshot_with_clusters, get_memberships
 from backend.data_access.movies.queries import filter_movie_ids_by_metadata
 from backend.settings import get_settings
 
@@ -23,7 +23,7 @@ class CrossFilterCommand:
         metadata_filter: Metadata predicate to apply.
         confidence:      LLM confidence [0, 1].
     """
-    REQUIRES_SNAPSHOT: ClassVar[bool] = True
+    REQUIRES_SNAPSHOT: ClassVar[bool] = False
     CREATES_SNAPSHOT: ClassVar[bool] = True
     READS_CLUSTERS: ClassVar[bool] = False
     
@@ -72,18 +72,11 @@ async def cross_filter(
     """
     from backend.coordinator.commands.helpers.clustering import exemplars
 
-    cswc = get_cluster_snapshot_with_clusters(parent_cluster_snapshot_id)
-    if cswc is None:
-        raise ValueError(f"Cluster snapshot {parent_cluster_snapshot_id} not found")
-
-    # Aggregate all movie IDs across every cluster in the parent snapshot, deduplicating as we go
-    seen: set[int] = set()
-    all_movie_ids: list[int] = []
-    for cluster in cswc.clusters:
-        for m in get_memberships(cluster.id):
-            if m.movie_id not in seen:
-                seen.add(m.movie_id)
-                all_movie_ids.append(m.movie_id)
+    all_movie_ids = resolve_movie_ids(
+        source_cluster_id=None,
+        movie_ids=None,
+        parent_cluster_snapshot_id=parent_cluster_snapshot_id,
+    )
 
     # Apply the metadata filter via SQL to get the surviving movie IDs
     filtered_ids = filter_movie_ids_by_metadata(

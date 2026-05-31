@@ -186,6 +186,7 @@ async def run_simulated_session(
             "assistant",
             system_result.reply_text,
             cost_usd=system_result.turn_cost_usd,
+            suggestion=system_result.suggestion,
         )
         add_conversation_cost(conversation_id, system_result.turn_cost_usd)
         transcript.append({"role": "assistant", "content": system_result.reply_text})
@@ -221,8 +222,7 @@ async def run_simulated_session(
 
     termination_status = infer_termination_status(
         oracle_decision=last_oracle_decision,
-        evolution_trace=evolution_trace,
-        ground_truth_operations=ground_truth.operations,
+        oracle_rating=last_oracle_rating,
         hit_budget=hit_budget,
     )
 

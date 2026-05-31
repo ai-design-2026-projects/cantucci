@@ -42,13 +42,13 @@ A bundle combines persona dials (verbosity, patience) with a ground truth trajec
 
 **Random batch** (randomised themes and dials):
 ```bash
-python -m eval.build --count 5
+python -m eval.builder --count 5
 ```
 
 **Single explicit bundle** (you control the theme and dials):
 ```bash
-python -m eval.build --slug exploration_v1 --verbosity medium --patience 0.7 --hint "psychological thrillers and visual style"
-python -m eval.build --slug action_v1 --hint "action films, exclude superhero"
+python -m eval.builder --slug exploration_v1 --verbosity medium --patience 0.7 --hint "psychological thrillers and visual style"
+python -m eval.builder --slug action_v1 --hint "action films, exclude superhero"
 ```
 
 Each command prints the slug, operation count, and the file path written. Bundles are `eval/personas/conf/<slug>.yaml` — open them directly to inspect or hand-edit.
@@ -96,7 +96,7 @@ python -m eval.run --evaluate-only <conversation_id>
 python -m eval.run --evaluate-only <conversation_id> --ground-truth exploration_v1
 ```
 
-`--ground-truth` enables `operation_recall` computation and passes GT context to the judge. The call is idempotent (upserts metrics; appends judge scores under a unique prompt hash).
+`--ground-truth` passes GT context to the judge. The call is idempotent (upserts metrics; appends judge scores under a unique prompt hash).
 
 ---
 
@@ -118,7 +118,6 @@ python -m eval.run --evaluate-only <conversation_id> --ground-truth exploration_
 |---|---|
 | `num_turns` | Oracle turns in the conversation |
 | `num_operations` | Navigation operations executed (`cluster`, `merge`, `focus`, `cross_filter`, `exclude`) |
-| `operation_recall` | Fraction of GT `(op, concept)` pairs found in turn intents (requires GT) |
 | `clarifier_trigger_rate` | Fraction of turns where the clarifier gate fired |
 | `final_num_clusters` | Clusters in the final snapshot |
 | `total_cost_usd` | Accumulated LLM cost for the conversation |
@@ -130,8 +129,9 @@ python -m eval.run --evaluate-only <conversation_id> --ground-truth exploration_
 |---|---|
 | `operation_appropriateness` | Whether applied operations match the oracle's expressed intent |
 | `label_accuracy` | Accuracy and clarity of cluster labels |
-| `suggestion_meaningfulness` | Relevance of system-generated suggestions |
-| `explanation_quality` | Quality of cluster explanations |
+| `clustering_coherence` | Internal cohesion of each cluster — do members genuinely belong together |
+| `suggestion_meaningfulness` | Relevance of system-generated suggestions (emitted only when suggestions were offered) |
+| `explanation_quality` | Quality of cluster explanations (emitted only when an explain turn occurred) |
 | `intent_alignment` | Alignment between oracle intent and final clustering state |
 | `concept_axis_quality` | Coherence of concept axes (emitted only when ≥1 axis was built) |
 
@@ -191,7 +191,7 @@ eval/
     types.py            JudgeLLMResponse, JudgeResult
     prompts/judge_v4.j2   Single template with conditional axes block
   metrics/
-    conversation.py     cost, num_turns, num_operations, clarifier_trigger_rate, operation_recall
+    conversation.py     cost, num_turns, num_operations, clarifier_trigger_rate
     snapshot.py         num_clusters
 ```
 

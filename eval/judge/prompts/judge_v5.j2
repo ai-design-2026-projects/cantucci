@@ -1,0 +1,100 @@
+You are an expert evaluator of conversational clustering systems. You will read a completed conversation between a simulated oracle and a clustering system, then score the session on the dimensions listed below.
+
+---
+GROUND TRUTH
+Intent description: {{ intent_description }}
+
+Intended operations (ordered):
+{% for op in ground_truth_operations %}
+{{ loop.index }}. {{ op.op }}{% if op.kind %} [{{ op.kind }}{% if op.space %}, {{ op.space }}{% endif %}]{% endif %} — "{{ op.concept }}"
+{% endfor %}
+
+---
+CONVERSATION TRANSCRIPT
+{% for msg in transcript %}
+{{ msg.role | upper }}: {{ msg.content }}
+{% endfor %}
+
+---
+PER-TURN ACTION LOG
+{% for turn in turn_action_log %}
+Turn {{ loop.index }}:
+  Modes: {{ turn.modes | join(", ") }}
+  Concepts: {{ turn.concepts | join(", ") }}
+  Confidence: {{ "%.2f" | format(turn.confidence) }}
+  Clarifier fired: {{ turn.clarifier_fired }}
+{% if turn.suggestion %}
+  Suggestion offered: {{ turn.suggestion }}
+{% endif %}
+{% if turn.explanation %}
+  [Explanation mode triggered — see transcript]
+{% endif %}
+{% endfor %}
+
+---
+FINAL CLUSTERING STATE
+{% if final_clusters %}
+{% for cluster in final_clusters %}
+Cluster {{ loop.index }}: {{ cluster.label or "(unlabelled)" }}
+  Summary: {{ cluster.summary or "(none)" }}
+  Exemplars: {{ cluster.exemplar_titles | join(", ") }}
+{% endfor %}
+{% else %}
+(no final clusters recorded)
+{% endif %}
+
+{% if axis_contexts %}
+---
+CONCEPT AXES BUILT DURING THIS SESSION
+{% for ax in axis_contexts %}
+Axis {{ loop.index }}: "{{ ax.concept_name }}"
+  Embedding space: {{ ax.space }}
+  High pole label: {{ ax.positive_label or "(none)" }}
+  Low pole label:  {{ ax.negative_label or "(none)" }}
+  Films near the HIGH pole: {{ ax.high_pole_films | join(", ") or "(none)" }}
+  Films near the LOW pole:  {{ ax.low_pole_films | join(", ") or "(none)" }}
+{% endfor %}
+{% endif %}
+
+---
+SCORING DIMENSIONS
+
+Score each applicable dimension on a 1–5 scale (1 = very poor, 5 = excellent).
+
+operation_appropriateness — Did the system execute the correct clustering operations in response to each oracle message? A score of 5 means the system correctly interpreted and executed the intended operation type each turn; a score of 1 means operations were wrong, ignored, or repeatedly incorrect.
+
+label_accuracy — Do the cluster labels and summaries accurately describe the intended cluster result? A score of 5 means labels are precise and reflect the desired characteristics; a score of 1 means labels are misleading, generic, or contradicting.
+
+clustering_coherence — Do the films within each cluster genuinely belong together? For each cluster, consider whether the exemplar films share a common characteristic consistent with the cluster's label, and whether the grouping is tight or overly broad. A score of 5 means every cluster has internally consistent, clearly distinguishable members; a score of 1 means clusters are incoherent, mixing unrelated films, or so broad as to be meaningless.
+{% if has_suggestion %}
+
+suggestion_meaningfulness — Were the system's proactive suggestions (when offered) relevant and actionable given the current clustering state? A score of 5 means every suggestion was insightful and appropriate; a score of 1 means suggestions were irrelevant or repetitive.
+{% endif %}
+{% if has_explanation %}
+
+explanation_quality — The system explained its reasoning during this session (see transcript). Were those explanations clear, accurate, and helpful? A score of 5 means explanations were precise and added real value; a score of 1 means they were vague, incorrect, or unhelpful.
+{% endif %}
+
+intent_alignment — Does the final clustering state reflect the oracle's overall intent description, considering the full trajectory? A score of 5 means the final clusters closely realise the intended exploration; a score of 1 means the final state ignores or contradicts the intent.
+{% if axis_contexts %}
+
+concept_axis_quality — For each concept axis the system built (listed above), rate the quality of its construction. Consider: (a) Bipolar coherence — do the two poles form a genuine, sensible opposing spectrum? (b) Discriminativeness — would these poles meaningfully separate films? (c) Naming — are the axis name and pole labels concise, accurate, and non-generic? (d) Space appropriateness — was semantic (text) or visual (trailer) embedding the right choice? Give one overall score across all axes. A score of 5 means every axis has coherent, discriminative, well-named poles in the right space; a score of 1 means poles are not genuine opposites, are generic/mislabeled, or the wrong space was used.
+{% endif %}
+
+---
+OUTPUT FORMAT
+
+Respond with valid JSON only. The JSON must contain a "scores" array with exactly one element per dimension listed above, in the order listed. Each element must have:
+- "dimension": the dimension name string
+- "score": an integer from 1 to 5
+- "rationale": one sentence explaining the score
+
+Example (showing the always-present dimensions; include optional ones only when listed above):
+{
+  "scores": [
+    {"dimension": "operation_appropriateness", "score": 4, "rationale": "Operations were correct on most turns; one merge was interpreted as a focus."},
+    {"dimension": "label_accuracy", "score": 5, "rationale": "Labels precisely matched the exemplar films shown."},
+    {"dimension": "clustering_coherence", "score": 4, "rationale": "Most clusters were internally consistent; one group mixed unrelated films."},
+    {"dimension": "intent_alignment", "score": 4, "rationale": "Final clusters closely matched the oracle's stated intent."}
+  ]
+}

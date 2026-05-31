@@ -68,7 +68,7 @@ async def oracle_turn(
     tail_size = harness_cfg.runner.transcript_tail
     transcript_tail = transcript[-tail_size:] if len(transcript) > tail_size else transcript
 
-    template = _ENV.get_template("oracle_v4.j2")
+    template = _ENV.get_template("oracle_v5.j2")
     prompt = template.render(
         intent_description=ground_truth.intent_description,
         verbosity=persona.verbosity,
@@ -108,6 +108,9 @@ async def oracle_turn(
             "conversation_id": str(conversation_id),
             "turn_number": turn_number,
             "decision": result.decision,
+            "rationale": result.rationale,
+            "session_rating": result.session_rating,
+            "oracle_message": result.message,
             "evolution_steps": len(evolution_trace),
             "pending_axis": pending_axis is not None,
         },

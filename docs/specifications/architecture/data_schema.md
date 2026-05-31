@@ -250,7 +250,7 @@ CREATE INDEX ON eval_sessions (run_id);
 
 ### `turn_intents`
 
-Per-turn intent classification records written by the coordinator (or baseline runner) on every oracle turn. Enables `operation_recall` and `clarifier_trigger_rate` computation. Compound turns (multiple modes in one turn) produce multiple rows with the same `turn_number`.
+Per-turn intent classification records written by the coordinator (or baseline runner) on every oracle turn. Enables `clarifier_trigger_rate` computation. Compound turns (multiple modes in one turn) produce multiple rows with the same `turn_number`.
 
 ```sql
 CREATE TABLE turn_intents (
@@ -278,7 +278,6 @@ Deterministic eval metrics, 1:1 per conversation. Safe to recompute (PK = `conve
 CREATE TABLE conversation_metrics (
     conversation_id       UUID          PRIMARY KEY REFERENCES conversations (id) ON DELETE CASCADE,
     final_num_clusters    SMALLINT,
-    operation_recall      FLOAT,                                       -- NULL for human oracle / no GT
     clarifier_trigger_rate FLOAT,
     num_turns             SMALLINT      NOT NULL DEFAULT 0,
     num_operations        SMALLINT      NOT NULL DEFAULT 0,
@@ -289,13 +288,13 @@ CREATE TABLE conversation_metrics (
 
 ### `judge_scores`
 
-LLM-judge dimension scores. Append-only; `judge_prompt_hash` lets multiple judge versions coexist. Dimension values: `operation_appropriateness`, `label_accuracy`, `suggestion_meaningfulness`, `explanation_quality`, `intent_alignment`, `concept_axis_quality` (only when the session built ≥1 concept axis).
+LLM-judge dimension scores. Append-only; `judge_prompt_hash` lets multiple judge versions coexist. Dimension values: `operation_appropriateness`, `label_accuracy`, `clustering_coherence`, `suggestion_meaningfulness` (conditional), `explanation_quality` (conditional), `intent_alignment`, `concept_axis_quality` (conditional — only when the session built ≥1 concept axis).
 
 ```sql
 CREATE TABLE judge_scores (
     id                UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
     conversation_id   UUID        NOT NULL REFERENCES conversations (id) ON DELETE CASCADE,
-    dimension         VARCHAR(40) NOT NULL,  -- operation_appropriateness | label_accuracy | suggestion_meaningfulness | explanation_quality | intent_alignment | concept_axis_quality
+    dimension         VARCHAR(40) NOT NULL,  -- operation_appropriateness | label_accuracy | clustering_coherence | suggestion_meaningfulness | explanation_quality | intent_alignment | concept_axis_quality
     score             SMALLINT    NOT NULL CHECK (score BETWEEN 1 AND 5),
     rationale         TEXT,
     judge_model       TEXT        NOT NULL,
