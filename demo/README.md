@@ -41,7 +41,7 @@ cd frontend && npm run dev
 google-chrome \
   --remote-debugging-port=9222 \
   --user-data-dir=/tmp/cinepal-demo-chrome \
-  --new-window http://127.0.0.1:5173
+  --new-window http://localhost:5173
 
 # Terminal 4 — run the Playwright demo script
 cd demo/playwright
@@ -84,7 +84,7 @@ demo/
 | `CINEPAL_DEMO_MODE` | backend | `record` or `replay`; unset for live mode |
 | `CINEPAL_DEMO_RECORDING` | backend | Path to the recording JSON file |
 | `DEMO_RECORDING` | Playwright | Path to the recording JSON file (relative to `demo/playwright/` or absolute) |
-| `APP_URL` | Playwright | Frontend URL (default `http://127.0.0.1:5173`) |
+| `APP_URL` | Playwright | Frontend URL (default `http://localhost:5173`) |
 | `CDP_ENDPOINT` | Playwright | Chrome DevTools endpoint for the browser used in the screen recording (default `http://localhost:9222`) |
 
 ---
