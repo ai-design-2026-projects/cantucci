@@ -274,6 +274,26 @@ def create_ground_truth(
     return gt_id
 
 
+def get_ground_truth_by_id(ground_truth_id: uuid.UUID) -> GroundTruthRow | None:
+    """Fetch a ground truth by its UUID.
+
+    Args:
+        ground_truth_id: Ground truth UUID.
+
+    Returns:
+        ``GroundTruthRow`` if found, ``None`` otherwise.
+    """
+    with transaction() as conn:
+        row = conn.execute(
+            """
+            SELECT id, slug, version, intent_description, operations, seed_movie_ids, prompt_hash, created_at
+            FROM ground_truths WHERE id = %s
+            """,
+            (ground_truth_id,),
+        ).fetchone()
+    return GroundTruthRow.from_row(row) if row else None
+
+
 def get_ground_truth_by_slug(slug: str) -> GroundTruthRow | None:
     """Fetch a ground truth by its slug.
 
@@ -677,6 +697,14 @@ def get_run_aggregate(run_id: uuid.UUID) -> tuple[RunRow | None, list[RunAggrega
                     )) AS judge_scores
                 FROM latest_judge
                 GROUP BY conversation_id
+            ),
+            session_confidence AS (
+                SELECT conversation_id, AVG(confidence) AS mean_confidence
+                FROM turn_intents
+                WHERE conversation_id IN (
+                    SELECT conversation_id FROM eval_sessions WHERE run_id = %s
+                )
+                GROUP BY conversation_id
             )
             SELECT
                 es.id, es.run_id, es.conversation_id, es.persona_id, es.ground_truth_id,
@@ -685,14 +713,20 @@ def get_run_aggregate(run_id: uuid.UUID) -> tuple[RunRow | None, list[RunAggrega
                 cm.final_num_clusters, cm.operation_recall, cm.clarifier_trigger_rate,
                 cm.num_turns, cm.num_operations, cm.total_cost_usd,
                 cm.computed_at AS metrics_computed_at,
-                COALESCE(sj.judge_scores, '[]'::jsonb) AS judge_scores
+                COALESCE(sj.judge_scores, '[]'::jsonb) AS judge_scores,
+                p.slug AS persona_slug,
+                p.verbosity AS persona_verbosity,
+                p.patience AS persona_patience,
+                sc.mean_confidence
             FROM eval_sessions es
             LEFT JOIN conversation_metrics cm ON cm.conversation_id = es.conversation_id
             LEFT JOIN session_judge sj ON sj.conversation_id = es.conversation_id
+            LEFT JOIN personas p ON p.id = es.persona_id
+            LEFT JOIN session_confidence sc ON sc.conversation_id = es.conversation_id
             WHERE es.run_id = %s
             ORDER BY es.created_at ASC
             """,
-            (run_id, run_id),
+            (run_id, run_id, run_id),
         ).fetchall()
 
     return run, [RunAggregateSessionRow.from_row(r) for r in rows]

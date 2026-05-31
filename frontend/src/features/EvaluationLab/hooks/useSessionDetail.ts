@@ -13,6 +13,6 @@ export function useSessionDetail(sessionId: string | null | undefined) {
         queryKey: ['eval', 'session', sessionId],
         queryFn: () => getSessionDetailFetcher(sessionId!),
         enabled: !!sessionId,
-        staleTime: Infinity,
+        staleTime: 30_000,
     })
 }

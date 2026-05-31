@@ -161,15 +161,18 @@ class EvalSessionDetailDto(EvalSessionDto):
     Extends EvalSessionDto with per-session detail fields.
 
     Attributes:
-        metrics:      Conversation-level metrics (None if not yet computed).
-        judge_scores: All judge dimension scores for this session.
-        turn_intents: Ordered per-turn intent records.
-        persona:      Persona used for this session (None for old sessions).
+        metrics:       Conversation-level metrics (None if not yet computed).
+        judge_scores:  All judge dimension scores for this session.
+        turn_intents:  Ordered per-turn intent records.
+        persona:       Persona used for this session (None for old sessions).
+        ground_truth:  Ground truth trajectory for this session (None for human or
+                       sessions created before this field was added).
     """
     metrics: ConversationMetricsDto | None
     judge_scores: list[JudgeScoreDto]
     turn_intents: list[TurnIntentDto]
     persona: PersonaDto | None
+    ground_truth: GroundTruthDto | None
 
 
 class SessionMetricsDto(BaseModel):
@@ -207,6 +210,10 @@ class SessionAggregateRowDto(BaseModel):
         created_at:            Session creation timestamp.
         metrics:               Conversation-level metrics (None if not computed).
         judge_scores:          Latest judge score per dimension.
+        persona_slug:          Persona slug used for this session, or None.
+        persona_verbosity:     Persona verbosity level, or None.
+        persona_patience:      Persona patience float [0, 1], or None.
+        mean_confidence:       Mean turn-intent confidence for this session, or None.
     """
     eval_session_id: uuid.UUID
     conversation_id: uuid.UUID
@@ -218,6 +225,10 @@ class SessionAggregateRowDto(BaseModel):
     created_at: datetime
     metrics: SessionMetricsDto | None
     judge_scores: list[JudgeScoreDto]
+    persona_slug: str | None
+    persona_verbosity: str | None
+    persona_patience: float | None
+    mean_confidence: float | None
 
 
 class RunAggregateSummaryDto(BaseModel):

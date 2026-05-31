@@ -8,6 +8,11 @@ const STATUS_COLORS: Record<string, string> = {
     aborted: 'bg-red-400/20 text-red-600',
 }
 
+const CONDITION_COLORS: Record<string, string> = {
+    conversational: 'bg-sky-400/20 text-sky-600',
+    baseline: 'bg-orange-400/20 text-orange-600',
+}
+
 interface RunListItemProps {
     run: RunDto
     isSelected: boolean
@@ -64,7 +69,10 @@ export function RunListItem({
 
                 <div className="flex items-center gap-1 flex-wrap">
                     {run.condition && (
-                        <span className="text-[10px] px-1.5 py-0 rounded-full bg-[var(--color-border)] text-[var(--color-muted)]">
+                        <span className={cn(
+                            'text-[10px] px-1.5 py-0 rounded-full',
+                            CONDITION_COLORS[run.condition] ?? 'bg-[var(--color-border)] text-[var(--color-muted)]',
+                        )}>
                             {run.condition}
                         </span>
                     )}

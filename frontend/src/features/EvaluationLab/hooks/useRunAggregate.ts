@@ -4,16 +4,22 @@ import type { RunAggregateDto } from '@/api/dto/eval'
 
 /**
  * Fetch the full aggregate for a single run (per-session metrics + judge scores + summary).
+ * Polls every 5 s when the run is still running so the dashboard auto-updates.
  *
  * @param runId Run UUID string, or null/undefined when nothing is selected.
+ * @param isRunning Whether the run is currently active (enables polling).
  * @returns TanStack Query result wrapping RunAggregateDto.
  */
-export function useRunAggregate(runId: string | null | undefined) {
+export function useRunAggregate(
+    runId: string | null | undefined,
+    isRunning = false,
+) {
     return useQuery<RunAggregateDto>({
         queryKey: ['eval', 'run', runId, 'aggregate'],
         queryFn: () => getRunAggregateFetcher(runId!),
         enabled: !!runId,
-        staleTime: 30_000,
+        staleTime: isRunning ? 0 : 30_000,
+        refetchInterval: isRunning ? 5_000 : false,
     })
 }
 

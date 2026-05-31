@@ -8,8 +8,18 @@ interface JudgeScoreListProps {
 const STAR = '★'
 const EMPTY_STAR = '☆'
 
+const DIMENSION_LABELS: Record<string, string> = {
+    operation_appropriateness: 'Operation Appropriateness',
+    label_accuracy: 'Label Accuracy',
+    suggestion_meaningfulness: 'Suggestion Meaningfulness',
+    explanation_quality: 'Explanation Quality',
+    intent_alignment: 'Intent Alignment',
+    concept_axis_quality: 'Concept Axis Quality',
+}
+
 /**
- * List of 5 judge dimension scores with star rating and rationale text.
+ * List of judge dimension scores with a human-readable label, star rating,
+ * and rationale text.
  */
 export function JudgeScoreList({ scores }: JudgeScoreListProps) {
     if (scores.length === 0) {
@@ -20,12 +30,12 @@ export function JudgeScoreList({ scores }: JudgeScoreListProps) {
         <div className="flex flex-col gap-3">
             {scores.map((s, i) => (
                 <div key={s.dimension} className="flex flex-col gap-0.5">
-                    <div className="flex items-center justify-between">
+                    <div className="flex items-center justify-between gap-2">
                         <span className="text-xs font-medium text-[var(--color-text)]">
-                            {s.dimension.replace(/_/g, ' ')}
+                            {DIMENSION_LABELS[s.dimension] ?? s.dimension.replace(/_/g, ' ')}
                         </span>
-                        <span className="text-sm tracking-tight" style={{ color: paletteAt(i) }}>
-                            {STAR.repeat(s.score)}{EMPTY_STAR.repeat(5 - s.score)}
+                        <span className="text-sm tracking-tight shrink-0" style={{ color: paletteAt(i) }}>
+                            {STAR.repeat(s.score)}{EMPTY_STAR.repeat(Math.max(0, 5 - s.score))}
                         </span>
                     </div>
                     {s.rationale && (

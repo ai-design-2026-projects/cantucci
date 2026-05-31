@@ -19,7 +19,7 @@ class IntentLLMAgent(LLMAgent[IntentResult]):
     name = "intent"
     step_type = "intent_agent"
     model_tier = "strong"
-    template_name = "intent_v12.j2"
+    template_name = "intent_v13.j2"
     response_schema = IntentLLMResponse
 
     async def render_kwargs(self, **inputs: Any) -> dict[str, Any]:

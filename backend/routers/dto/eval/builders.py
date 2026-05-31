@@ -197,6 +197,10 @@ def build_session_aggregate_row_dto(row: RunAggregateSessionRow) -> SessionAggre
         created_at=row.created_at,
         metrics=metrics,
         judge_scores=[judge_score_to_dto(js) for js in row.judge_scores],
+        persona_slug=row.persona_slug,
+        persona_verbosity=row.persona_verbosity,
+        persona_patience=row.persona_patience,
+        mean_confidence=row.mean_confidence,
     )
 
 
@@ -241,6 +245,7 @@ def eval_session_to_detail_dto(
     judge_scores: list[JudgeScoreRow],
     turn_intents: list[TurnIntentRow],
     persona: PersonaRow | None,
+    ground_truth: GroundTruthRow | None = None,
 ) -> EvalSessionDetailDto:
     """Convert an EvalSessionRow and associated data to an EvalSessionDetailDto.
 
@@ -250,9 +255,10 @@ def eval_session_to_detail_dto(
         judge_scores: All judge score rows for this session's conversation.
         turn_intents: All turn intent rows for this session's conversation.
         persona:      Persona row for this session (None when persona_id is unset).
+        ground_truth: Ground truth row for this session (None when ground_truth_id is unset).
 
     Returns:
-        Wire-safe EvalSessionDetailDto with nested metrics, scores, intents, and persona.
+        Wire-safe EvalSessionDetailDto with nested metrics, scores, intents, persona, and ground truth.
     """
     return EvalSessionDetailDto(
         id=row.id,
@@ -271,4 +277,5 @@ def eval_session_to_detail_dto(
             key=lambda t: (t.turn_number, t.mode),
         ),
         persona=persona_to_dto(persona) if persona else None,
+        ground_truth=ground_truth_to_dto(ground_truth) if ground_truth else None,
     )

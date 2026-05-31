@@ -12,13 +12,21 @@ export async function createConversationFetcher(): Promise<ConversationDto> {
 }
 
 /**
- * Fetch a conversation with its most recent messages.
+ * Fetch a conversation with its messages.
  *
  * @param conversationId - Conversation UUID.
+ * @param limit          - Maximum messages to return. Pass null to fetch all.
  * @returns ConversationDto.
  */
-export async function getConversationFetcher(conversationId: string): Promise<ConversationDto> {
-    return apiClient<ConversationDto>(`/conversations/get/${conversationId}`)
+export async function getConversationFetcher(
+    conversationId: string,
+    limit: number | null = 20,
+): Promise<ConversationDto> {
+    const url =
+        limit === null
+            ? `/conversations/get/${conversationId}?limit=10000`
+            : `/conversations/get/${conversationId}`
+    return apiClient<ConversationDto>(url)
 }
 
 /**

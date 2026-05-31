@@ -7,7 +7,7 @@ interface TurnIntentsTableProps {
 
 /**
  * Scrollable table showing per-turn intent data: turn number, mode, concept,
- * confidence, and whether the clarifier fired.
+ * and whether the clarifier fired.
  */
 export function TurnIntentsTable({ intents }: TurnIntentsTableProps) {
     return (
@@ -15,7 +15,7 @@ export function TurnIntentsTable({ intents }: TurnIntentsTableProps) {
             <table className="w-full text-[11px] border-collapse">
                 <thead>
                     <tr className="border-b border-[var(--color-border)]">
-                        {['Turn', 'Mode', 'Concept', 'Conf', 'Clarifier'].map((h) => (
+                        {['Turn', 'Mode', 'Concept', 'Clarifier'].map((h) => (
                             <th key={h} className="text-left py-1.5 px-2 text-[var(--color-muted)] font-medium">
                                 {h}
                             </th>
@@ -37,13 +37,12 @@ export function TurnIntentsTable({ intents }: TurnIntentsTableProps) {
                                     {t.mode}
                                 </span>
                             </td>
-                            <td className="py-1 px-2 text-[var(--color-text)] max-w-[120px] truncate" title={t.concept ?? ''}>
-                                {t.concept ?? '—'}
+                            <td className="py-1 px-2 text-[var(--color-text)] max-w-[160px] truncate" title={t.concept ?? ''}>
+                                {t.concept ?? <span className="text-[var(--color-muted)] italic">—</span>}
                             </td>
-                            <td className="py-1 px-2 font-mono">{t.confidence.toFixed(3)}</td>
                             <td className="py-1 px-2 text-center">
                                 {t.clarifier_fired ? (
-                                    <span className="text-red-500 font-bold">▲</span>
+                                    <span className="text-red-500 font-bold" title="Clarifier fired">▲</span>
                                 ) : (
                                     <span className="text-[var(--color-muted)]">—</span>
                                 )}

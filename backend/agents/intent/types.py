@@ -184,7 +184,9 @@ class IntentAction:
     Attributes:
         mode:              Classified intent mode (NavigationMode or DialogueMode).
         concept:           Semantic concept to apply (e.g. ``"surrealism"``).
-                           Populated for drill_down; ``None`` otherwise.
+                           Populated for cluster (both branches), focus, exclude,
+                           and merge; ``None`` for cross_filter, reset, undo,
+                           small_talk, and explain.
         merged_label:      Label to give the resulting merged cluster.
                            Populated only for ``mode == merge``; ``None`` otherwise.
         target_cluster_id: UUID of the cluster to operate on for drill_down / merge /

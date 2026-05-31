@@ -177,27 +177,40 @@ def delete_conversation(conversation_id: uuid.UUID) -> None:
     log.info("conversation_deleted", extra={"conversation_id": str(conversation_id)})
 
 
-def get_messages(conversation_id: uuid.UUID, limit: int = 20) -> list[MessageRow]:
-    """Return the most recent *limit* messages for a conversation, oldest first.
+def get_messages(conversation_id: uuid.UUID, limit: int | None = 20) -> list[MessageRow]:
+    """Return messages for a conversation, oldest first.
 
     Args:
         conversation_id: Parent conversation UUID.
-        limit:           Maximum number of messages to return.
+        limit:           Maximum number of messages to return (most recent first, then
+                         reversed). Pass ``None`` to return all messages.
 
     Returns:
         List of ``MessageRow`` ordered by creation time ascending.
     """
     with transaction() as conn:
-        rows = conn.execute(
-            """
-            SELECT id, conversation_id, role, content, created_at, cost_usd, suggestion, axis_concept_id
-            FROM messages
-            WHERE conversation_id = %s
-            ORDER BY created_at DESC
-            LIMIT %s
-            """,
-            (conversation_id, limit),
-        ).fetchall()
-    result = [MessageRow.from_row(r) for r in reversed(rows)]
+        if limit is None:
+            rows = conn.execute(
+                """
+                SELECT id, conversation_id, role, content, created_at, cost_usd, suggestion, axis_concept_id
+                FROM messages
+                WHERE conversation_id = %s
+                ORDER BY created_at ASC
+                """,
+                (conversation_id,),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                """
+                SELECT id, conversation_id, role, content, created_at, cost_usd, suggestion, axis_concept_id
+                FROM messages
+                WHERE conversation_id = %s
+                ORDER BY created_at DESC
+                LIMIT %s
+                """,
+                (conversation_id, limit),
+            ).fetchall()
+            rows = list(reversed(rows))
+    result = [MessageRow.from_row(r) for r in rows]
     log.debug("get_messages", extra={"conversation_id": str(conversation_id), "returned": len(result)})
     return result

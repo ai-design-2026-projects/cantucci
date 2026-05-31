@@ -75,6 +75,7 @@ export interface EvalSessionDetailDto extends EvalSessionDto {
     judge_scores: JudgeScoreDto[]
     turn_intents: TurnIntentDto[]
     persona: PersonaDto | null
+    ground_truth: GroundTruthDto | null
 }
 
 export interface SessionMetricsDto {
@@ -98,6 +99,10 @@ export interface SessionAggregateRowDto {
     created_at: string
     metrics: SessionMetricsDto | null
     judge_scores: JudgeScoreDto[]
+    persona_slug: string | null
+    persona_verbosity: string | null
+    persona_patience: number | null
+    mean_confidence: number | null
 }
 
 export interface RunAggregateSummaryDto {
