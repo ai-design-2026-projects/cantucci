@@ -238,7 +238,7 @@ CREATE TABLE eval_sessions (
     persona_id            UUID        REFERENCES personas (id) ON DELETE SET NULL,
     ground_truth_id       UUID        REFERENCES ground_truths (id) ON DELETE SET NULL,
     seed                  BIGINT      NOT NULL,
-    condition             VARCHAR(20) NOT NULL DEFAULT 'conversational',  -- conversational | monolithic | human
+    condition             VARCHAR(20) NOT NULL DEFAULT 'conversational',  -- conversational | baseline | human
     status                VARCHAR(20) NOT NULL DEFAULT 'active',          -- active | finished_trajectory | finished_misbehaviour | finished_budget
     termination_rationale TEXT,
     oracle_rating         SMALLINT    CHECK (oracle_rating IS NULL OR oracle_rating BETWEEN 1 AND 5),
@@ -456,7 +456,7 @@ eval harness:
   runs ──► eval_sessions ──► conversations
   personas ──►  eval_sessions
   ground_truths ──► eval_sessions
-  eval_sessions.condition: conversational | monolithic | human
+  eval_sessions.condition: conversational | baseline | human
   eval_sessions.oracle_rating: 1–5 (NULL for human oracle)
 
   conversations ──► conversation_metrics  (1:1, written by eval harness)

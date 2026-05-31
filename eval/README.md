@@ -83,7 +83,7 @@ Available conditions:
 | Condition | System under test |
 |---|---|
 | `conversational` | Full multi-agent coordinator (default) |
-| `monolithic` | Single-prompt monolithic baseline |
+| `baseline` | Single-prompt baseline (one LLM call per turn) |
 
 ---
 

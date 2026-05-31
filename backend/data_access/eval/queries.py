@@ -34,7 +34,7 @@ def create_run(
         config_snapshot: Full YAML config dict.
         seed:            RNG seed for the run.
         name:            Human-readable run label.
-        condition:       Experimental condition (conversational | monolithic | human).
+        condition:       Experimental condition (conversational | baseline | human).
         model_version:   LLM model identifier string.
         notes:           Free-text notes.
 
