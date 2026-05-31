@@ -110,6 +110,7 @@ eval_harness:
     dimensions:
       - operation_appropriateness
       - label_accuracy
+      - clustering_coherence
       - suggestion_meaningfulness
       - explanation_quality
       - intent_alignment
@@ -118,5 +119,5 @@ eval_harness:
     exemplar_k: 5         # max exemplar titles shown per cluster in judge prompt
 
   gt_builder:
-    min_ops: 3
-    max_ops: 6
+    min_ops: 2
+    max_ops: 4

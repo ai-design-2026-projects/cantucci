@@ -3,37 +3,34 @@
 
 def infer_termination_status(
     oracle_decision: str,
-    evolution_trace: list[dict],
-    ground_truth_operations: list[dict],
+    oracle_rating: int | None,
     hit_budget: bool,
 ) -> str:
-    """Infer a terminal status string from the oracle's final decision.
+    """Infer a terminal status string from the oracle's final decision and rating.
 
-    Compares the set of executed ``(op, concept)`` pairs derived from the
-    evolution trace against the ground truth operation set.
+    The oracle's ``session_rating`` is the authoritative signal for whether the
+    session was successful.  Concept-string comparison against the ground-truth
+    trajectory is intentionally omitted — GT concepts rarely match executed
+    concepts verbatim, so such a comparison would produce false misbehaviour
+    classifications.
 
     Args:
-        oracle_decision:          ``"stop"`` or ``"continue"``.
-        evolution_trace:          List of ``{turn, modes, concepts}`` dicts accumulated
-                                  during the session.
-        ground_truth_operations:  GT operations list (dicts with ``op`` and ``concept``).
-        hit_budget:               ``True`` when the runner exhausted ``max_turns`` without
-                                  the oracle stopping.
+        oracle_decision: ``"stop"`` or ``"continue"``.
+        oracle_rating:   Oracle's self-reported session quality (1–5), present
+                         only when ``oracle_decision == "stop"``.
+        hit_budget:      ``True`` when the runner exhausted ``max_turns`` without
+                         the oracle stopping.
 
     Returns:
-        One of: ``"finished_trajectory"``, ``"finished_misbehaviour"``, ``"finished_budget"``.
+        One of: ``"finished_trajectory"``, ``"finished_misbehaviour"``,
+        ``"finished_budget"``.
     """
     if hit_budget:
         return "finished_budget"
 
     if oracle_decision == "stop":
-        executed_set = {
-            (mode, concept.strip().lower())
-            for entry in evolution_trace
-            for mode, concept in zip(entry["modes"], entry["concepts"])
-        }
-        gt_set = {(op["op"], op["concept"].strip().lower()) for op in ground_truth_operations}
-        all_done = gt_set.issubset(executed_set)
-        return "finished_trajectory" if all_done else "finished_misbehaviour"
+        if oracle_rating is not None and oracle_rating >= 4:
+            return "finished_trajectory"
+        return "finished_misbehaviour"
 
     return "finished_budget"

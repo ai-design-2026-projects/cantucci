@@ -19,26 +19,26 @@ log = logging.getLogger(__name__)
 _ENV = Environment(loader=FileSystemLoader(str(eval_prompts_dir("builder"))), autoescape=False)
 
 _LENSES = [
-    "visual style and cinematography",
-    "political or ideological subtext",
-    "cultural geography — a specific country, city, or region",
-    "a historical period or decade",
-    "gender and power dynamics",
-    "social class and economic tension",
-    "narrative structure — non-linear, fragmented, or unreliable",
-    "sound design, silence, or music as storytelling",
-    "the relationship between humans and their physical environment",
-    "religion, ritual, or spirituality",
-    "childhood, adolescence, or coming-of-age",
-    "violence and its consequences — psychological or physical",
-    "comedy mode — absurdist, satirical, or deadpan",
-    "a specific director's filmography or national cinema movement",
-    "technology, modernity, and alienation",
-    "family structure and generational conflict",
-    "crime, morality, and complicity",
-    "the body — illness, desire, physical transformation",
-    "documentary realism vs stylised artifice",
-    "colonialism, diaspora, or cultural displacement",
+    "genre and tone",
+    "decade and era",
+    "runtime and pacing",
+    "audience rating and critical reception",
+    "country and language of origin",
+    "director's style",
+    "family and coming-of-age stories",
+    "crime and thriller",
+    "comedy — romantic, dark, or satirical",
+    "science fiction and fantasy",
+    "action and spectacle",
+    "drama and character study",
+    "horror and psychological tension",
+    "romance and relationships",
+    "history and biographical films",
+    "animation and visual storytelling",
+    "social issues and politics",
+    "adventure and exploration",
+    "mystery and suspense",
+    "war and conflict",
 ]
 
 
@@ -110,7 +110,7 @@ async def build_bundle(
     if target_ops is None:
         target_ops = random.randint(harness_cfg.gt_builder.min_ops, harness_cfg.gt_builder.max_ops)
 
-    template = _ENV.get_template("ground_truth_v1.j2")
+    template = _ENV.get_template("ground_truth_v2.j2")
     prompt = template.render(hint=hint, lens=lens, target_ops=target_ops)
     prompt_hash = hashlib.sha256(prompt.encode()).hexdigest()
 
@@ -149,6 +149,15 @@ async def build_bundle(
     )
     write_bundle(bundle)
 
+    log.debug(
+        "bundle_proposal",
+        extra={
+            "slug": resolved_slug,
+            "intent_description": proposal.intent_description,
+            "operations": [(o.op, o.concept, o.kind, o.space) for o in proposal.operations],
+            "prompt_hash": prompt_hash[:8],
+        },
+    )
     log.info(
         "bundle_built",
         extra={"slug": resolved_slug, "num_ops": len(ops), "cost_usd": resp.cost_usd},

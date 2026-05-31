@@ -14,6 +14,7 @@ import logging
 import sys
 
 from backend.logging_setup import configure_logging
+from eval.logging_setup import configure_eval_logging
 
 log = logging.getLogger(__name__)
 
@@ -58,6 +59,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
 async def _main() -> None:
     configure_logging()
+    configure_eval_logging()
     parser = _build_parser()
     args = parser.parse_args()
 

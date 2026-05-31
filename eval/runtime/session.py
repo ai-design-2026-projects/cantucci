@@ -13,6 +13,7 @@ from backend.data_access.conversations.queries import (
     append_message,
     create_conversation,
     get_conversation,
+    get_messages,
 )
 from backend.data_access.eval.queries import (
     create_eval_session,
@@ -120,8 +121,14 @@ async def run_simulated_session(
             )
 
         pending_axis: dict | None = None
-        if conversation_row.axis_concept_id is not None:
-            concept = get_concept(conversation_row.axis_concept_id)
+        last_messages = get_messages(conversation_id, limit=1)
+        last_axis_concept_id = (
+            last_messages[-1].axis_concept_id
+            if last_messages and last_messages[-1].role == "assistant"
+            else None
+        )
+        if last_axis_concept_id is not None:
+            concept = get_concept(last_axis_concept_id)
             if concept is not None:
                 pole_k = harness_cfg.scorer.pole_sample_k
                 points = get_concept_axis_points(concept.id)
@@ -179,6 +186,7 @@ async def run_simulated_session(
             "assistant",
             system_result.reply_text,
             cost_usd=system_result.turn_cost_usd,
+            suggestion=system_result.suggestion,
         )
         add_conversation_cost(conversation_id, system_result.turn_cost_usd)
         transcript.append({"role": "assistant", "content": system_result.reply_text})
@@ -214,8 +222,7 @@ async def run_simulated_session(
 
     termination_status = infer_termination_status(
         oracle_decision=last_oracle_decision,
-        evolution_trace=evolution_trace,
-        ground_truth_operations=ground_truth.operations,
+        oracle_rating=last_oracle_rating,
         hit_budget=hit_budget,
     )
 

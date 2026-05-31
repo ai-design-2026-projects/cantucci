@@ -16,6 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from pydantic import ValidationError
 
 from backend.auth.passwords import hash_password
+from backend.data_access.connection import close_pool
 from backend.data_access.users.queries import create_user
 from backend.routers.auth import LoginRequest
 import logging
@@ -46,14 +47,17 @@ def main() -> None:
             print(f"Error: {err['loc'][-1]}: {err['msg']}", file=sys.stderr)
         sys.exit(1)
 
-    user_id = create_user(
-        email=args.email,
-        password_hash=hash_password(args.password),
-        role_name=args.role,
-    )
+    try:
+        user_id = create_user(
+            email=args.email,
+            password_hash=hash_password(args.password),
+            role_name=args.role,
+        )
 
-    _auth_log.info("user_created", extra={"email": args.email, "role": args.role})
-    print(f"Created user {user_id}  email={args.email}  role={args.role}")
+        _auth_log.info("user_created", extra={"email": args.email, "role": args.role})
+        print(f"Created user {user_id}  email={args.email}  role={args.role}")
+    finally:
+        close_pool()
 
 
 if __name__ == "__main__":

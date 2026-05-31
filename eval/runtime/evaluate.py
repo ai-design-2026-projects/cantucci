@@ -18,7 +18,6 @@ from eval.metrics.conversation import (
     compute_cost,
     compute_num_operations,
     compute_num_turns,
-    compute_operation_recall,
 )
 from eval.metrics.snapshot import compute_num_clusters
 
@@ -40,8 +39,7 @@ async def evaluate_conversation(
 
     Args:
         conversation_id:   UUID of the conversation to evaluate.
-        ground_truth_slug: Optional slug used to compute ``operation_recall`` and pass
-                           GT context to the judge.
+        ground_truth_slug: Optional slug used to pass GT context to the judge.
 
     Raises:
         ValueError: If the conversation row is not found.
@@ -58,7 +56,6 @@ async def evaluate_conversation(
     num_turns = compute_num_turns(conversation_id)
     num_ops = compute_num_operations(conversation_id)
     clarifier_rate = compute_clarifier_trigger_rate(conversation_id)
-    operation_recall = compute_operation_recall(conversation_id, ground_truth)
 
     final_num_clusters = 0
     if conversation.current_cluster_snapshot_id is not None:
@@ -67,7 +64,6 @@ async def evaluate_conversation(
     upsert_conversation_metrics(
         conversation_id=conversation_id,
         final_num_clusters=final_num_clusters,
-        operation_recall=operation_recall,
         clarifier_trigger_rate=clarifier_rate,
         num_turns=num_turns,
         num_operations=num_ops,
@@ -96,7 +92,6 @@ async def evaluate_conversation(
             "conversation_id": str(conversation_id),
             "num_turns": num_turns,
             "num_operations": num_ops,
-            "operation_recall": operation_recall,
             "final_num_clusters": final_num_clusters,
         },
     )

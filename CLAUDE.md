@@ -48,11 +48,10 @@ demo/
   demo_replay.sh       Replay a recorded manifest with zero live LLM calls
   manifests/           JSONL manifests produced by demo_record.sh
 eval/
-  metrics.py           Deterministic metrics: final_num_clusters, cost, operation_recall, clarifier_trigger_rate, num_turns, num_operations
-  runner.py            run_simulated_session + evaluate_conversation (reuses live Coordinator path)
+  metrics/             Deterministic metrics: final_num_clusters, cost, clarifier_trigger_rate, num_turns, num_operations
   run.py               CLI entry point: python -m eval.run (subcommands: create-run, simulate, evaluate)
-  oracle/              LLM-simulated oracle: agent.py, types.py, prompts/oracle_v1.j2
-  judge/               LLM-as-judge (6 dims): agent.py, types.py, prompts/judge_v2.j2, prompts/judge_v3.j2
+  oracle/              LLM-simulated oracle: agent.py, types.py, prompts/oracle_v5.j2
+  judge/               LLM-as-judge (7 dims): agent.py, types.py, prompts/judge_v5.j2
   (SQL for eval lives in backend/data_access/evaluation/ — the sole SQL layer)
 frontend/              React + Vite + TypeScript; zustand + react-query; vitest
 tests/                 agents/, data_access/, postprocess/ — Postgres via testcontainers

@@ -11,7 +11,6 @@ import {
 
 const METRIC_KEYS: Array<{ key: keyof NonNullable<SessionAggregateRowDto['metrics']>; label: string }> = [
     { key: 'final_num_clusters', label: 'Num clusters' },
-    { key: 'operation_recall', label: 'Op recall' },
     { key: 'clarifier_trigger_rate', label: 'Clarifier rate' },
     { key: 'num_turns', label: 'Turns' },
     { key: 'num_operations', label: 'Operations' },

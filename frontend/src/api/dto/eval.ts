@@ -50,7 +50,6 @@ export interface JudgeScoreDto {
 
 export interface ConversationMetricsDto {
     final_num_clusters: number
-    operation_recall: number | null
     clarifier_trigger_rate: number | null
     num_turns: number
     num_operations: number
@@ -79,7 +78,6 @@ export interface EvalSessionDetailDto extends EvalSessionDto {
 
 export interface SessionMetricsDto {
     final_num_clusters: number | null
-    operation_recall: number | null
     clarifier_trigger_rate: number | null
     num_turns: number
     num_operations: number
