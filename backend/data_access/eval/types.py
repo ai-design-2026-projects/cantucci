@@ -227,9 +227,6 @@ class ConversationMetricsRow:
 
     Attributes:
         conversation_id:       Parent conversation UUID.
-        silhouette:            Silhouette score of the final clustering, or None.
-        mean_membership_prob:  Mean argmax membership probability across all movies.
-        noise_fraction:        Fraction of movies with low membership probability.
         final_num_clusters:    Number of clusters in the final snapshot.
         operation_recall:      Fraction of GT operations executed, or None for human sessions.
         clarifier_trigger_rate: Fraction of turns on which the clarifier gate fired.
@@ -239,9 +236,6 @@ class ConversationMetricsRow:
         computed_at:           UTC timestamp of this computation.
     """
     conversation_id: uuid.UUID
-    silhouette: float | None
-    mean_membership_prob: float | None
-    noise_fraction: float | None
     final_num_clusters: int | None
     operation_recall: float | None
     clarifier_trigger_rate: float | None
@@ -255,9 +249,6 @@ class ConversationMetricsRow:
         """Construct from a psycopg dict_row result."""
         return cls(
             conversation_id=r["conversation_id"],
-            silhouette=r["silhouette"],
-            mean_membership_prob=r["mean_membership_prob"],
-            noise_fraction=r["noise_fraction"],
             final_num_clusters=r["final_num_clusters"],
             operation_recall=r["operation_recall"],
             clarifier_trigger_rate=r["clarifier_trigger_rate"],
@@ -348,9 +339,6 @@ class RunAggregateSessionRow:
         termination_rationale: Free-text oracle rationale, or None.
         oracle_rating:         1–5 oracle self-rating, or None.
         created_at:            UTC creation timestamp.
-        silhouette:            Silhouette score, or None if metrics not computed.
-        mean_membership_prob:  Mean soft-membership probability, or None.
-        noise_fraction:        Noise fraction, or None.
         final_num_clusters:    Final cluster count, or None.
         operation_recall:      Operation recall vs ground truth, or None.
         clarifier_trigger_rate: Clarifier trigger rate, or None.
@@ -371,9 +359,6 @@ class RunAggregateSessionRow:
     termination_rationale: str | None
     oracle_rating: int | None
     created_at: datetime
-    silhouette: float | None
-    mean_membership_prob: float | None
-    noise_fraction: float | None
     final_num_clusters: int | None
     operation_recall: float | None
     clarifier_trigger_rate: float | None
@@ -403,9 +388,6 @@ class RunAggregateSessionRow:
             termination_rationale=r["termination_rationale"],
             oracle_rating=r["oracle_rating"],
             created_at=r["created_at"],
-            silhouette=r["silhouette"],
-            mean_membership_prob=r["mean_membership_prob"],
-            noise_fraction=r["noise_fraction"],
             final_num_clusters=r["final_num_clusters"],
             operation_recall=r["operation_recall"],
             clarifier_trigger_rate=r["clarifier_trigger_rate"],

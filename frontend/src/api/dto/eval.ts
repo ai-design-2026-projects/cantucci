@@ -49,9 +49,6 @@ export interface JudgeScoreDto {
 }
 
 export interface ConversationMetricsDto {
-    silhouette: number | null
-    mean_membership_prob: number | null
-    noise_fraction: number | null
     final_num_clusters: number
     operation_recall: number | null
     clarifier_trigger_rate: number | null
@@ -80,9 +77,6 @@ export interface EvalSessionDetailDto extends EvalSessionDto {
 }
 
 export interface SessionMetricsDto {
-    silhouette: number | null
-    mean_membership_prob: number | null
-    noise_fraction: number | null
     final_num_clusters: number | null
     operation_recall: number | null
     clarifier_trigger_rate: number | null

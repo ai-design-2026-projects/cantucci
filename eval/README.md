@@ -145,12 +145,10 @@ Passing `--ground-truth` enables `operation_recall` computation and passes GT co
 | `num_operations` | Navigation operations executed (`drill_down`, `merge`, `focus`, `cross_filter`, `partition_by`) |
 | `operation_recall` | Fraction of GT `(op, concept)` pairs found in turn intents (requires GT) |
 | `clarifier_trigger_rate` | Fraction of turns where the clarifier gate fired |
-| `silhouette` | Silhouette score of the final cluster snapshot (`None` if < 2 clusters) |
-| `mean_membership_prob` | Mean argmax HDBSCAN membership probability |
-| `noise_fraction` | Fraction of movies below `noise_prob_threshold` (default 0.3) |
+| `final_num_clusters` | Number of clusters in the final snapshot |
 | `total_cost_usd` | Accumulated LLM cost for the conversation |
 
-### LLM judge (5 dimensions, score 1–5)
+### LLM judge (score 1–5 per dimension)
 
 | Dimension | What it measures |
 |---|---|
@@ -159,6 +157,7 @@ Passing `--ground-truth` enables `operation_recall` computation and passes GT co
 | `suggestion_meaningfulness` | Relevance of system-generated suggestions |
 | `explanation_quality` | Quality of cluster explanations shown to the oracle |
 | `intent_alignment` | Overall alignment between oracle intent and final clustering state |
+| `concept_axis_quality` | Coherence and discriminativeness of constructed concept axes (emitted only when ≥1 axis was built) |
 
 Judge scores are appended per `(conversation_id, dimension, judge_prompt_hash)`. Multiple judge versions coexist; the latest score per dimension is used in aggregates.
 
@@ -173,8 +172,6 @@ All harness knobs live in `eval/eval.yaml` under the `eval_harness:` key. This s
 | `runner.max_turns` | `15` | Turn budget per simulated session |
 | `oracle.cost_limit_usd` | `2.0` | Per-session oracle LLM cost ceiling |
 | `judge.cost_limit_usd` | `2.0` | Per-conversation judge LLM cost ceiling |
-| `scorer.noise_prob_threshold` | `0.3` | Membership probability below which a movie is noise |
-| `scorer.silhouette_metric` | `cosine` | Distance metric for silhouette score |
 | `gt_builder.max_movies` | `30` | Catalogue sample size for GT generation |
 | `gt_builder.min_ops` | `3` | Minimum operations in a generated GT |
 | `gt_builder.max_ops` | `6` | Maximum operations in a generated GT |

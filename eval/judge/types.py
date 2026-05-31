@@ -1,8 +1,29 @@
 from dataclasses import dataclass
+from dataclasses import field
 
 from pydantic import BaseModel
 
 from backend.llm.exceptions import LLMParseError
+
+
+@dataclass(frozen=True, slots=True)
+class AxisConceptContext:
+    """Context about a single concept axis built during a session, fed to the judge.
+
+    Attributes:
+        concept_name:   Human-readable concept name (e.g. ``"emotional tone"``).
+        positive_label: Short label for the HIGH end of the axis.
+        negative_label: Short label for the LOW end of the axis.
+        space:          Embedding space used (``"semantic"`` or ``"visual"``).
+        high_pole_films: Up to 5 film titles from the highest-scoring end of the axis.
+        low_pole_films:  Up to 5 film titles from the lowest-scoring end of the axis.
+    """
+    concept_name: str
+    positive_label: str
+    negative_label: str
+    space: str
+    high_pole_films: list[str] = field(default_factory=list)
+    low_pole_films: list[str] = field(default_factory=list)
 
 
 class JudgeDimensionScore(BaseModel):

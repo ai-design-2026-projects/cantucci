@@ -86,6 +86,7 @@ async def propose_concept_axis(
             "concept_name": concept_rep.concept_name,
             "positive_label": getattr(concept_rep, "positive_label", ""),
             "negative_label": getattr(concept_rep, "negative_label", ""),
+            "space": getattr(concept_rep, "space", "semantic"),
         },
     )
     upsert_concept_scores(concept_id, normalized)

@@ -21,5 +21,5 @@ Do not add per-agent or per-function tests here.
 
 - `oracle_turn` in dry_run mode (test.yaml has `dry_run: true`) returns a well-formed `OracleTurnResult`
   without hitting a live LLM API. Exercises the fixture at `tests/fixtures/dry_run/oracle_turn.json`.
-- `compute_clustering_metrics` returns a positive silhouette score for two tight, well-separated clusters.
-- `compute_clustering_metrics` returns `silhouette=None` when there is only one cluster or no members.
+- `compute_clustering_metrics` returns `final_num_clusters=0` for a snapshot with no clusters.
+- `compute_clustering_metrics` returns the correct cluster count for a non-empty snapshot.

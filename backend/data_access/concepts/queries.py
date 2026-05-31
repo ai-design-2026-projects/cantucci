@@ -118,6 +118,36 @@ def get_concept_scores(concept_id: uuid.UUID, movie_ids: list[int] | None = None
     return [ConceptScoreRow.from_row(r) for r in rows]
 
 
+def get_conversation_axis_concepts(conversation_id: uuid.UUID) -> list[ConceptRow]:
+    """Return the distinct concept axes proposed during a conversation.
+
+    Joins the ``messages.axis_concept_id`` column (set when the coordinator
+    persists an axis proposal) back to ``concepts``, deduplicating by
+    concept id.  Ordering is by concept creation time ascending so the judge
+    sees axes in the order they were introduced.
+
+    Args:
+        conversation_id: UUID of the conversation.
+
+    Returns:
+        List of ``ConceptRow`` ordered by ``created_at`` ascending.
+        Empty when the session built no concept axes.
+    """
+    with transaction() as conn:
+        rows = conn.execute(
+            """
+            SELECT DISTINCT ON (c.id)
+                c.id, c.name, c.type, c.definition, c.created_at
+            FROM concepts c
+            JOIN messages m ON m.axis_concept_id = c.id
+            WHERE m.conversation_id = %s
+            ORDER BY c.id, c.created_at ASC
+            """,
+            (conversation_id,),
+        ).fetchall()
+    return [ConceptRow.from_row(r) for r in rows]
+
+
 def get_concept_axis_points(concept_id: uuid.UUID) -> list[ConceptAxisPointRow]:
     """Return per-movie axis points enriched with movie titles, ordered by ascending score.
 
