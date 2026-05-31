@@ -18,7 +18,7 @@ We approach this from three angles:
 
 ## 2 Baselines
 
-A **monolithic LLM**: a single LLM acts as the clustering agent end-to-end, holding the conversation, deciding which operation to perform, and emitting a free-form description of the resulting groups without going through the typed agent boundary. This baseline removes structured components and tests whether the architecture's modularity provides benefits over a single-agent approach.
+A **single-prompt baseline**: one LLM call per turn receives the full film list, the current cluster state, and the conversation transcript, and emits — in a single JSON response — the complete resulting cluster grouping (with labels, summaries, and film assignments), the declared navigation operation, and the oracle reply. No embeddings, HDBSCAN, concept-axis scoring, or labeling agent are used; the LLM performs all clustering decisions from text alone. This baseline removes structured components and tests whether the architecture's modularity provides benefits over a single-agent approach.
 
 ---
 

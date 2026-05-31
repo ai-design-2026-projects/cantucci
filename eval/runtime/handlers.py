@@ -30,7 +30,7 @@ class _ConversationalHandler:
         user_message: str,
         conversation_row,
     ):
-        from backend.baseline.shared.types import SystemTurnResult
+        from backend.baseline.types import SystemTurnResult
 
         result = await self._coordinator.handle_message(
             conversation_id=conversation_id,
@@ -50,7 +50,7 @@ def select_handler(condition: str) -> SystemHandler:
     """Return the system-under-test handler for the given experimental condition.
 
     Args:
-        condition: One of ``"conversational"``, ``"monolithic"``.
+        condition: One of ``"conversational"``, ``"baseline"``.
 
     Returns:
         An object implementing the ``SystemHandler`` protocol.
@@ -60,7 +60,7 @@ def select_handler(condition: str) -> SystemHandler:
     """
     if condition == "conversational":
         return _ConversationalHandler()
-    if condition == "monolithic":
-        from backend.baseline.monolithic.runner import MonolithicHandler
-        return MonolithicHandler()
+    if condition == "baseline":
+        from backend.baseline.runner import BaselineHandler
+        return BaselineHandler()
     raise ValueError(f"unknown condition: {condition!r}")

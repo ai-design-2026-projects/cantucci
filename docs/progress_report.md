@@ -80,7 +80,7 @@ The TMDB IDs are held only by the runner and used for objective metric computati
 **Baseline**: We compare our full system against two ablations designed to isolate retrieval and agentic benefits.
 
 - *Dry-run retrieval*: perform a top-K embedding retrieval using the same embedding pipeline but omit any LLM-driven clustering, labelling, or question generation.
-- *Plain LLM conversation*: a single monolithic LLM acts as the recommender: it receives the oracle's message and is prompted to either ask clarifying questions or return a ranked list of recommendations, without any attachment to the database, relying only on his knowledge. This baseline removes structured components.
+- *Single-prompt baseline*: one LLM call per turn receives the full film list, the current cluster state, and the conversation transcript, and emits the complete resulting cluster grouping (labels, summaries, film assignments), the declared navigation operation, and the oracle reply — all in one structured JSON response. No embeddings, HDBSCAN, or specialised sub-agents are used; the LLM clusters entirely from text. This baseline removes structured components and tests whether the architecture's modularity provides benefits over a single-agent approach.
 
 A full specification of the evaluation setup is given in [evaluation.md](https://github.com/ai-design-2026-projects/cantucci/blob/main/docs/specifications/evaluation.md).
 

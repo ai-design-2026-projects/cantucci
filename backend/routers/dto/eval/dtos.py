@@ -10,7 +10,7 @@ class RunDto(BaseModel):
     Attributes:
         id:             Run UUID.
         name:           Optional human-readable label.
-        condition:      Experimental condition (conversational | monolithic | human).
+        condition:      Experimental condition (conversational | baseline | human).
         model_version:  Model tier string from config.
         config_hash:    SHA-256 8-char prefix of the YAML config used.
         seed:           Top-level RNG seed.
