@@ -1,7 +1,6 @@
 import json
 import logging
 import uuid
-from collections import defaultdict
 from typing import Any
 
 from backend.data_access.connection import transaction
@@ -207,25 +206,6 @@ def update_cluster_label(cluster_id: uuid.UUID, label: str, summary: str | None)
     log.debug("cluster_label_updated", extra={"cluster_id": str(cluster_id), "label": label})
 
 
-def get_root_cluster_snapshot() -> ClusterSnapshotRow | None:
-    """Return the most recent root cluster snapshot (``parent_id IS NULL, operation = 'base'``).
-
-    Returns:
-        The most recently created root ``ClusterSnapshotRow``, or None if none exists.
-    """
-    with transaction() as conn:
-        row = conn.execute(
-            """
-            SELECT id, parent_id, operation, params, config_hash, created_at
-            FROM cluster_snapshots
-            WHERE parent_id IS NULL AND operation = 'base'
-            ORDER BY created_at DESC
-            LIMIT 1
-            """,
-        ).fetchone()
-    return ClusterSnapshotRow.from_row(row) if row else None
-
-
 def get_cluster_snapshot(cluster_snapshot_id: uuid.UUID) -> ClusterSnapshotRow | None:
     """Fetch a single cluster snapshot row by ID.
 
@@ -323,98 +303,6 @@ def get_conversation_cluster_snapshots(conversation_id: uuid.UUID) -> list[Clust
             (conversation_id,),
         ).fetchall()
     return [ClusterSnapshotRow.from_row(r) for r in rows]
-
-
-def create_root_snapshot_from_assignments(
-    movie_ids: list[int],
-    cluster_ids: list[int],
-    cluster_probs: list[float],
-    params: dict[str, Any],
-    n_exemplars: int = 15,
-) -> uuid.UUID:
-    """Build a root cluster snapshot from offline primary cluster assignments.
-
-    Creates the snapshot, all clusters (without labels), and all primary-assignment
-    memberships in a single transaction. Called at ingest time after the offline
-    embedding pipeline has produced cluster_ids and cluster_probs columns in the
-    parquet artifact. The active config hash is stamped on the snapshot so the
-    snapshot cache can key on it.
-
-    Args:
-        movie_ids:    TMDB IDs in row order (must match array row order).
-        cluster_ids:  Primary cluster index per movie (0-based, from argmax of
-                      soft membership probabilities).
-        cluster_probs: Soft-membership probability of the primary cluster.
-        params:       Replayability parameters (UMAP + HDBSCAN settings).
-        n_exemplars:  Maximum number of exemplar movie IDs to store per cluster.
-
-    Returns:
-        UUID of the newly created root cluster snapshot.
-    """
-    canon_params = canonicalize_params(params)
-    config_hash = get_config_hash()
-    buckets: dict[int, list[tuple[int, float]]] = defaultdict(list)
-    for movie_id, cid, prob in zip(movie_ids, cluster_ids, cluster_probs):
-        buckets[cid].append((movie_id, prob))
-
-    with transaction() as conn:
-        row = conn.execute(
-            """
-            INSERT INTO cluster_snapshots (parent_id, operation, params, config_hash)
-            VALUES (NULL, 'base', %s, %s)
-            ON CONFLICT (parent_id, operation, params, config_hash) DO NOTHING
-            RETURNING id
-            """,
-            (json.dumps(canon_params), config_hash),
-        ).fetchone()
-        if row is None:
-            existing = conn.execute(
-                """
-                SELECT id FROM cluster_snapshots
-                WHERE parent_id IS NULL AND operation = 'base'
-                  AND params = %s::jsonb AND config_hash = %s
-                LIMIT 1
-                """,
-                (json.dumps(canon_params), config_hash),
-            ).fetchone()
-            log.info("root_snapshot_already_exists", extra={"snapshot_id": str(existing["id"])})
-            return existing["id"]
-        snapshot_id: uuid.UUID = row["id"]
-
-        cluster_uuid_map: dict[int, uuid.UUID] = {}
-        for slot, cid in enumerate(sorted(buckets.keys())):
-            movies_in_cluster = sorted(buckets[cid], key=lambda x: x[1], reverse=True)
-            exemplar_ids = [m[0] for m in movies_in_cluster[:n_exemplars]]
-            cluster_row = conn.execute(
-                """
-                INSERT INTO clusters (cluster_snapshot_id, label, summary, exemplar_movie_ids, color_slot, parent_cluster_id)
-                VALUES (%s, NULL, NULL, %s, %s, NULL)
-                RETURNING id
-                """,
-                (snapshot_id, json.dumps(exemplar_ids), slot),
-            ).fetchone()
-            cluster_uuid_map[cid] = cluster_row["id"]
-
-        membership_rows = [
-            (cluster_uuid_map[cid], movie_id, prob)
-            for movie_id, cid, prob in zip(movie_ids, cluster_ids, cluster_probs)
-        ]
-        with conn.cursor() as cur:
-            cur.executemany(
-                "INSERT INTO cluster_memberships (cluster_id, movie_id, probability) VALUES (%s, %s, %s)",
-                membership_rows,
-            )
-
-    log.info(
-        "root_snapshot_created",
-        extra={
-            "snapshot_id": str(snapshot_id),
-            "n_clusters": len(buckets),
-            "n_memberships": len(membership_rows),
-            "config_hash": config_hash,
-        },
-    )
-    return snapshot_id
 
 
 def count_snapshot_children(snapshot_id: uuid.UUID) -> int:

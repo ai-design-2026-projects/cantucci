@@ -1,5 +1,5 @@
 import { apiClient } from '../client'
-import type { ClusterSnapshotDto } from '../dto/snapshots'
+import type { ClusterSnapshotDto, UmapPointDto } from '../dto/snapshots'
 
 /**
  * Fetch a cluster snapshot with its full cluster list and argmax members.
@@ -12,13 +12,14 @@ export async function getSnapshotFetcher(snapshotId: string): Promise<ClusterSna
 }
 
 /**
- * Fetch the most recent root (base HDBSCAN) cluster snapshot.
- * Returns 404 if no snapshot has been ingested yet.
+ * Fetch UMAP 2D coordinates for all catalogued movies.
+ * Used to render the uncoloured scatter plot silhouette before any clustering is performed.
+ * The result is stable after ingest and can be cached indefinitely.
  *
- * @returns ClusterSnapshotDto for the root snapshot.
+ * @returns Array of UmapPointDto ordered by movie ID.
  */
-export async function getRootSnapshotFetcher(): Promise<ClusterSnapshotDto> {
-    return apiClient<ClusterSnapshotDto>('/cluster-snapshots/get_root')
+export async function getAllUmapPointsFetcher(): Promise<UmapPointDto[]> {
+    return apiClient<UmapPointDto[]>('/movies/umap_points')
 }
 
 /**

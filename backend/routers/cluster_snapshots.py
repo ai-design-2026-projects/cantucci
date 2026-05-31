@@ -8,9 +8,8 @@ from backend.data_access.cluster_snapshots.queries import (
     delete_cluster_snapshot,
     get_cluster_snapshot_with_clusters,
     get_memberships,
-    get_root_cluster_snapshot,
 )
-from backend.exceptions import ClusterSnapshotNotFound, NotFoundError, SnapshotHasChildren
+from backend.exceptions import ClusterSnapshotNotFound, SnapshotHasChildren
 from backend.routers.dto.cluster_snapshots.dtos import ClusterMembershipDto, ClusterSnapshotDto
 from backend.routers.dto.cluster_snapshots.build_snapshot import build_snapshot_dto
 import demo.utils.replay as _demo
@@ -18,26 +17,6 @@ import demo.utils.replay as _demo
 log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/cluster-snapshots", tags=["cluster-snapshots"])
-
-
-@router.get("/get_root", response_model=ClusterSnapshotDto)
-def get_root_cluster_snapshot_endpoint() -> ClusterSnapshotDto:
-    """Return the most recent root cluster snapshot.
-
-    The root snapshot is produced at ingest time from the full HDBSCAN clustering
-    of the corpus. It is public and used to populate the corpus-level scatter plot
-    before any conversation is active.
-
-    Returns:
-        ``ClusterSnapshotDto`` for the root snapshot with all base clusters.
-
-    Raises:
-        NotFoundError: If no root snapshot has been ingested yet.
-    """
-    root = get_root_cluster_snapshot()
-    if root is None:
-        raise NotFoundError("No root cluster snapshot has been ingested yet")
-    return build_snapshot_dto(root.id)
 
 
 @router.get("/get/{cluster_snapshot_id}", response_model=ClusterSnapshotDto)

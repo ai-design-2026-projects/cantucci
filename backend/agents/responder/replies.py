@@ -5,7 +5,7 @@ SMALL_TALK = (
 
 RESET_REPLY = (
     "Session reset — you're back to an unclustered state. "
-    "Tell me how you'd like to start, or ask me to go back to the default clustering."
+    "Tell me how you'd like to start exploring."
 )
 
 NO_CLUSTER_TO_SPLIT = "Please specify which cluster to split."
@@ -18,8 +18,6 @@ UNSUPPORTED_OPERATION = (
     "I understood your request but couldn't perform that operation on the current "
     "cluster snapshot. Try asking to split, merge, or explain a cluster."
 )
-
-NO_BASE_SNAPSHOT = "No base cluster snapshot found yet. Ingest the catalogue first."
 
 EXPLAIN_TARGET_UNCLEAR = (
     "I couldn't identify which movie or cluster to explain. Please be more specific."

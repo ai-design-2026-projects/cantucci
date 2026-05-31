@@ -50,7 +50,7 @@ export function ClusterSnapshotTab({ conversationId }: { conversationId: string 
             </div>
 
             <div className="flex-1 min-h-0 relative">
-                {snapshot ? (
+                {scatterPoints.length > 0 ? (
                     <SnapshotPlot
                         points={scatterPoints}
                         snapshot={snapshot}

@@ -55,7 +55,7 @@ class Command(Protocol):
         REQUIRES_SNAPSHOT: True when the command must have a non-None snapshot
                            to operate (e.g. merge, focus, exclude).
         CREATES_SNAPSHOT:  True when the command navigates to or writes a new
-                           snapshot (all navigation modes + go_to_base, undo).
+                           snapshot (all navigation modes + undo).
         READS_CLUSTERS:    True when the command's behavior depends on the current cluster state
     """
 

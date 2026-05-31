@@ -13,7 +13,7 @@ import { computeScatterDomains, groupScatterPointsByCluster } from '../lib/snaps
  */
 export function useSnapshotPlotData(
 	points: ScatterPoint[],
-	snapshot: ClusterSnapshotDto,
+	snapshot: ClusterSnapshotDto | undefined,
 	baseDomain?: { x: [number, number]; y: [number, number] },
 ) {
 	const perSnapshotDomain = useMemo(() => computeScatterDomains(points), [points])

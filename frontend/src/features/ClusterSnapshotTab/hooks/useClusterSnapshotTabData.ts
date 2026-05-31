@@ -2,8 +2,8 @@ import { useMemo } from 'react'
 import { useConversation } from '@/features/Chat/hooks/useConversation'
 import { useSyncConversationSnapshot } from '@/features/Chat/hooks/useSyncConversationSnapshot'
 import { useClusterSnapshot } from './useClusterSnapshot'
-import { useRootSnapshot } from './useRootSnapshot'
-import { useScatterData } from './useScatterData'
+import { useAllUmapPoints } from './useAllUmapPoints'
+import { useScatterData, type ScatterPoint } from './useScatterData'
 import { useExemplarMovies } from '@/features/ClustersInspect/hooks/useExemplarMovies'
 
 /**
@@ -18,28 +18,47 @@ export function useClusterSnapshotTabData(conversationId: string | undefined) {
     useSyncConversationSnapshot(snapshotId)
 
     const { data: conversationSnapshot, isLoading: snapshotLoading } = useClusterSnapshot(snapshotId)
-    const { data: rootSnapshot } = useRootSnapshot()
+    const { data: allUmapPoints } = useAllUmapPoints()
     const hasConversation = !!conversationId
     const conversationSnapshotPending = hasConversation && (!!snapshotId ? snapshotLoading : !conversation)
-    const isOnRootSnapshot = !!snapshotId && snapshotId === rootSnapshot?.id
     const isUnclustered = hasConversation && !snapshotId && !!conversation
 
-    const snapshot = hasConversation
-        ? conversationSnapshot ?? (conversationSnapshotPending || isUnclustered ? rootSnapshot : undefined)
-        : rootSnapshot
+    const snapshot = hasConversation && !conversationSnapshotPending && !isUnclustered
+        ? conversationSnapshot
+        : undefined
     const dimmedAll = !hasConversation || conversationSnapshotPending || isUnclustered
 
     const { data: movieMap } = useExemplarMovies(snapshot)
-    const scatterPoints = useScatterData(snapshot)
+    const clusteredPoints = useScatterData(snapshot)
 
+    // Grey silhouette when no clustering is active (unclustered or welcome screen).
+    const unclusteredPoints: ScatterPoint[] = useMemo(() => {
+        if (!allUmapPoints) return []
+        return allUmapPoints.map((p) => ({
+            movieId: p.movie_id,
+            title: p.title,
+            clusterId: null,
+            clusterLabel: null,
+            colorSlot: null,
+            x: p.umap_x,
+            y: p.umap_y,
+            probability: 1.0,
+            isExemplar: false,
+        }))
+    }, [allUmapPoints])
+
+    const scatterPoints = snapshot ? clusteredPoints : unclusteredPoints
+
+    // Stable viewport bounds derived from all movies' coordinates.
     const baseDomain = useMemo(() => {
-        if (!rootSnapshot || rootSnapshot.members.length === 0) return undefined
+        const points = allUmapPoints ?? []
+        if (points.length === 0) return undefined
         let xMin = Infinity, xMax = -Infinity, yMin = Infinity, yMax = -Infinity
-        for (const m of rootSnapshot.members) {
-            if (m.umap_x < xMin) xMin = m.umap_x
-            if (m.umap_x > xMax) xMax = m.umap_x
-            if (m.umap_y < yMin) yMin = m.umap_y
-            if (m.umap_y > yMax) yMax = m.umap_y
+        for (const p of points) {
+            if (p.umap_x < xMin) xMin = p.umap_x
+            if (p.umap_x > xMax) xMax = p.umap_x
+            if (p.umap_y < yMin) yMin = p.umap_y
+            if (p.umap_y > yMax) yMax = p.umap_y
         }
         const xPad = (xMax - xMin) * 0.05 || 1
         const yPad = (yMax - yMin) * 0.05 || 1
@@ -47,18 +66,17 @@ export function useClusterSnapshotTabData(conversationId: string | undefined) {
             x: [xMin - xPad, xMax + xPad] as [number, number],
             y: [yMin - yPad, yMax + yPad] as [number, number],
         }
-    }, [rootSnapshot])
+    }, [allUmapPoints])
 
     return {
         conversation,
         snapshotId,
         conversationSnapshot,
-        rootSnapshot,
         movieMap,
         snapshot,
         hasConversation,
         conversationSnapshotPending,
-        isOnRootSnapshot,
+        isUnclustered,
         dimmedAll,
         scatterPoints,
         baseDomain,

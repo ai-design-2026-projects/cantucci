@@ -2,13 +2,27 @@ import logging
 
 from fastapi import APIRouter
 
-from backend.data_access.movies.queries import fetch_movie_details
+from backend.data_access.movies.queries import fetch_movie_details, list_umap_points
 from backend.exceptions import MovieNotFound
-from backend.routers.dto.movies.dtos import MovieBatchRequest, MovieDto, movie_row_to_dto
+from backend.routers.dto.movies.dtos import MovieBatchRequest, MovieDto, UmapPointDto, movie_row_to_dto
 
 log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/movies", tags=["movies"])
+
+
+@router.get("/umap_points", response_model=list[UmapPointDto])
+def get_umap_points() -> list[UmapPointDto]:
+    """Return UMAP 2D coordinates for every catalogued movie that has been projected.
+
+    Used by the scatter plot to render a grey silhouette of all films before any
+    clustering operation has been performed.  The result is stable after ingest and
+    can be cached indefinitely by the client.
+
+    Returns:
+        List of ``UmapPointDto`` ordered by movie ID.
+    """
+    return [UmapPointDto.from_row(r) for r in list_umap_points()]
 
 
 @router.get("/get/{movie_id}", response_model=MovieDto)
