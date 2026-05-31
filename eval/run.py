@@ -1,15 +1,18 @@
-"""CLI entry point for the evaluation harness.
+"""CLI entry point for the evaluation run harness.
 
 Usage:
-    python -m eval.run create-persona --slug <slug> [--verbosity terse|medium|verbose] [--patience <float>]
-    python -m eval.run create-run [--name <name>] [--condition <cond>] [--notes <text>]
-    python -m eval.run simulate (--run <run_id> | --run-name <name>) --persona <slug> --ground-truth <slug> (--seed <int> | --seeds <int> [<int> ...]) [--condition <cond>]
-    python -m eval.run evaluate --conversation <conversation_id> [--ground-truth <slug>]
-    python -m eval.run build-gt --slug <slug> [--hint <text>]
+    # Run all bundles in eval/personas/ (parallel, with progress bar):
+    python -m eval.run --all --run-name <name> --seeds <int> [<int> ...]  [--condition <cond>]
 
-When --run-name is used, the most-recent run with that name is resolved.  If no
-run exists with that name a new one is created automatically.  Pass --seeds with
-multiple integers to run several sessions concurrently in a single invocation.
+    # Run specific persona(s):
+    python -m eval.run --persona <slug> --run-name <name> --seeds <int> [<int> ...] [--condition <cond>]
+    python -m eval.run --personas <slug> [<slug> ...] --run-name <name> --seeds <int> [<int> ...] [--condition <cond>]
+
+    # Bind to an existing run by UUID instead of name:
+    python -m eval.run --persona <slug> --run <uuid> --seeds <int> [<int> ...]
+
+    # Re-score an existing conversation (idempotent):
+    python -m eval.run --evaluate-only <conversation_id> [--ground-truth <slug>]
 """
 import argparse
 import asyncio
@@ -20,142 +23,92 @@ import uuid
 from backend.logging_setup import configure_logging
 from backend.settings import get_config_hash, get_config_snapshot
 
+log = logging.getLogger(__name__)
+
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="python -m eval.run",
-        description="CinePal evaluation harness — simulate oracle sessions and score conversations.",
-    )
-    sub = parser.add_subparsers(dest="command", required=True)
-
-    create_persona_cmd = sub.add_parser("create-persona", help="Register an oracle persona and print its UUID.")
-    create_persona_cmd.add_argument("--slug", required=True, help="Unique persona identifier.")
-    create_persona_cmd.add_argument(
-        "--verbosity",
-        default="medium",
-        choices=["terse", "medium", "verbose"],
-        help="Reply-length dial (default: medium).",
-    )
-    create_persona_cmd.add_argument(
-        "--patience",
-        type=float,
-        default=0.5,
-        help="Willingness to continue after misbehaviour, [0, 1] (default: 0.5).",
+        description="Run simulated oracle sessions and evaluate them.",
     )
 
-    create_run_cmd = sub.add_parser("create-run", help="Register a new eval run and print its UUID.")
-    create_run_cmd.add_argument("--name", default=None)
-    create_run_cmd.add_argument(
-        "--condition",
-        default="conversational",
-        choices=["conversational", "no_agents", "monolithic", "human"],
+    evaluate_only = parser.add_argument_group("re-score only")
+    evaluate_only.add_argument(
+        "--evaluate-only",
+        default=None,
+        metavar="CONVERSATION_UUID",
+        help="Re-score an existing conversation (idempotent). Skips simulation.",
     )
-    create_run_cmd.add_argument("--notes", default=None)
+    evaluate_only.add_argument(
+        "--ground-truth",
+        default=None,
+        dest="ground_truth",
+        help="Ground truth slug for --evaluate-only (enables operation_recall).",
+    )
 
-    simulate_cmd = sub.add_parser("simulate", help="Drive one or more simulated oracle sessions and evaluate them.")
-    run_group = simulate_cmd.add_mutually_exclusive_group(required=True)
-    run_group.add_argument("--run", default=None, help="Run UUID.")
-    run_group.add_argument("--run-name", default=None, dest="run_name", help="Run name (creates one if it doesn't exist).")
-    simulate_cmd.add_argument("--persona", required=True, help="Persona slug.")
-    simulate_cmd.add_argument("--ground-truth", required=True, dest="ground_truth", help="Ground truth slug.")
-    seed_group = simulate_cmd.add_mutually_exclusive_group(required=True)
-    seed_group.add_argument("--seed", type=int, default=None, help="Single RNG seed.")
-    seed_group.add_argument("--seeds", type=int, nargs="+", default=None, help="One or more RNG seeds (runs concurrently).")
-    simulate_cmd.add_argument(
+    persona_sel = parser.add_mutually_exclusive_group()
+    persona_sel.add_argument("--persona", default=None, metavar="SLUG", help="Single persona slug.")
+    persona_sel.add_argument("--personas", nargs="+", default=None, metavar="SLUG", help="One or more persona slugs.")
+    persona_sel.add_argument("--all", action="store_true", help="Use all bundles in eval/personas/.")
+
+    run_sel = parser.add_mutually_exclusive_group()
+    run_sel.add_argument(
+        "--run-name",
+        default=None,
+        dest="run_name",
+        help="Run name — auto-creates a run if it does not exist; uses the most recent if multiple exist.",
+    )
+    run_sel.add_argument("--run", default=None, help="Existing run UUID.")
+
+    parser.add_argument("--seeds", type=int, nargs="+", default=None, help="One or more RNG seeds.")
+    parser.add_argument(
         "--condition",
         default="conversational",
         choices=["conversational", "no_agents", "monolithic"],
+        help="Experimental condition (default: conversational).",
     )
-
-    evaluate_cmd = sub.add_parser("evaluate", help="Score an existing conversation (idempotent).")
-    evaluate_cmd.add_argument("--conversation", required=True, help="Conversation UUID.")
-    evaluate_cmd.add_argument(
-        "--ground-truth", default=None, dest="ground_truth", help="Ground truth slug (optional)."
-    )
-
-    build_gt_cmd = sub.add_parser("build-gt", help="Build and persist a ground truth trajectory.")
-    build_gt_cmd.add_argument("--slug", required=True, help="Unique slug for the new ground truth.")
-    build_gt_cmd.add_argument("--hint", default=None, help="Optional free-text exploration hint.")
 
     return parser
 
 
-async def _cmd_create_persona(args: argparse.Namespace) -> None:
-    from backend.data_access.eval.queries import create_persona
-
-    persona_id = create_persona(
-        slug=args.slug,
-        verbosity=args.verbosity,
-        patience=args.patience,
-    )
-    print(str(persona_id))
-
-
-async def _cmd_create_run(args: argparse.Namespace) -> None:
-    from backend.data_access.eval.queries import create_run
-
-    run_id = create_run(
-        config_hash=get_config_hash(),
-        config_snapshot=get_config_snapshot(),
-        seed=0,
-        name=args.name,
-        condition=args.condition,
-        notes=args.notes,
-    )
-    print(str(run_id))
-
-
-async def _cmd_simulate(args: argparse.Namespace) -> None:
+def _resolve_run_id(args: argparse.Namespace) -> uuid.UUID:
+    """Resolve or create the run_id from CLI args."""
     from backend.data_access.eval.queries import (
         count_runs_by_name,
         create_run,
         get_run_by_name,
     )
-    from eval.runner import run_simulated_session
+    from eval.config import load_eval_harness_config
 
-    if args.run_name is not None:
-        n = count_runs_by_name(args.run_name)
-        if n == 0:
-            run_id = create_run(
-                config_hash=get_config_hash(),
-                config_snapshot=get_config_snapshot(),
-                seed=0,
-                name=args.run_name,
-                condition=args.condition,
-            )
-            print(f"created run name={args.run_name!r} run_id={run_id}")
-        else:
-            if n > 1:
-                logging.getLogger(__name__).warning(
-                    "multiple_runs_with_same_name",
-                    extra={"name": args.run_name, "count": n},
-                )
-                print(f"warning: {n} runs named {args.run_name!r} — using most recent")
-            row = get_run_by_name(args.run_name)
-            run_id = row.run_id
-            print(f"resolved run name={args.run_name!r} run_id={run_id}")
-    else:
-        run_id = uuid.UUID(args.run)
+    harness_cfg = load_eval_harness_config()
 
-    seeds: list[int] = args.seeds if args.seeds is not None else [args.seed]
+    if args.run is not None:
+        return uuid.UUID(args.run)
 
-    async def _one(seed: int) -> None:
-        conversation_id = await run_simulated_session(
-            run_id=run_id,
-            persona_slug=args.persona,
-            ground_truth_slug=args.ground_truth,
-            seed=seed,
+    name = args.run_name
+    n = count_runs_by_name(name)
+    if n == 0:
+        run_id = create_run(
+            config_hash=get_config_hash(),
+            config_snapshot=get_config_snapshot(),
+            seed=harness_cfg.runner.run_seed,
+            name=name,
             condition=args.condition,
         )
-        print(f"seed={seed} conversation_id={conversation_id}")
+        print(f"created run name={name!r} run_id={run_id}")
+        return run_id
+    if n > 1:
+        log.warning("multiple_runs_with_same_name", extra={"name": name, "count": n})
+        print(f"warning: {n} runs named {name!r} — using most recent", file=sys.stderr)
+    row = get_run_by_name(name)
+    print(f"resolved run name={name!r} run_id={row.run_id}")
+    return row.run_id
 
-    await asyncio.gather(*[_one(s) for s in seeds])
 
+async def _cmd_evaluate_only(args: argparse.Namespace) -> None:
+    from eval.runtime.evaluate import evaluate_conversation
 
-async def _cmd_evaluate(args: argparse.Namespace) -> None:
-    from eval.runner import evaluate_conversation
-
-    conversation_id = uuid.UUID(args.conversation)
+    conversation_id = uuid.UUID(args.evaluate_only)
     await evaluate_conversation(
         conversation_id=conversation_id,
         ground_truth_slug=args.ground_truth,
@@ -163,11 +116,36 @@ async def _cmd_evaluate(args: argparse.Namespace) -> None:
     print(f"evaluated conversation_id={conversation_id}")
 
 
-async def _cmd_build_gt(args: argparse.Namespace) -> None:
-    from eval.ground_truths.builder import build_ground_truth
+async def _cmd_run(args: argparse.Namespace) -> None:
+    from eval.runtime.batch import run_all_personas, run_personas
 
-    row = await build_ground_truth(slug=args.slug, hint=args.hint)
-    print(f"ground_truth_id={row.id}  slug={row.slug}  ops={len(row.operations)}")
+    if args.seeds is None:
+        print("error: --seeds is required for simulation runs", file=sys.stderr)
+        sys.exit(1)
+
+    run_id = _resolve_run_id(args)
+
+    if args.all:
+        conversation_ids = await run_all_personas(
+            run_id=run_id,
+            seeds=args.seeds,
+            condition=args.condition,
+        )
+    else:
+        slugs = [args.persona] if args.persona else (args.personas or [])
+        if not slugs:
+            print("error: specify --persona, --personas, or --all", file=sys.stderr)
+            sys.exit(1)
+        conversation_ids = await run_personas(
+            run_id=run_id,
+            slugs=slugs,
+            seeds=args.seeds,
+            condition=args.condition,
+        )
+
+    for conv_id in conversation_ids:
+        print(f"conversation_id={conv_id}")
+    print(f"\n{len(conversation_ids)} session(s) completed.")
 
 
 async def _main() -> None:
@@ -175,16 +153,13 @@ async def _main() -> None:
     parser = _build_parser()
     args = parser.parse_args()
 
-    if args.command == "create-persona":
-        await _cmd_create_persona(args)
-    elif args.command == "create-run":
-        await _cmd_create_run(args)
-    elif args.command == "simulate":
-        await _cmd_simulate(args)
-    elif args.command == "evaluate":
-        await _cmd_evaluate(args)
-    elif args.command == "build-gt":
-        await _cmd_build_gt(args)
+    if args.evaluate_only is not None:
+        await _cmd_evaluate_only(args)
+    elif args.persona is not None or args.personas is not None or args.all:
+        if args.run is None and args.run_name is None:
+            print("error: specify --run or --run-name when simulating", file=sys.stderr)
+            sys.exit(1)
+        await _cmd_run(args)
     else:
         parser.print_help()
         sys.exit(1)

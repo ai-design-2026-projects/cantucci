@@ -38,22 +38,32 @@ class RunnerConfig:
     """Oracle session runner knobs.
 
     Attributes:
-        max_turns: Maximum oracle turns before the runner terminates a simulated session.
+        max_turns:       Maximum oracle turns before the runner terminates a simulated session.
+        transcript_tail: Number of recent messages passed to the oracle prompt each turn.
+        exemplar_top_k:  Maximum exemplar movie titles shown per cluster in oracle prompts.
+        max_parallel:    Maximum concurrent simulated sessions in a batch run.
+        run_seed:        Seed used when auto-creating a run row.
     """
     max_turns: int
+    transcript_tail: int
+    exemplar_top_k: int
+    max_parallel: int
+    run_seed: int
 
 
 @dataclass(frozen=True, slots=True)
 class ScorerConfig:
-    """Deterministic scoring knobs.
+    """LLM-judge scoring knobs.
 
     Attributes:
         dimensions:    Ordered list of LLM-judge dimension names.
-        pole_sample_k: Number of film titles sampled from each pole of a concept
-                       axis and passed to the judge for concept_axis_quality scoring.
+        pole_sample_k: Number of film titles sampled from each pole of a concept axis,
+                       passed to the judge for ``concept_axis_quality`` scoring.
+        exemplar_k:    Maximum exemplar titles shown per cluster in the judge prompt.
     """
     dimensions: list[str]
     pole_sample_k: int
+    exemplar_k: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,11 +71,9 @@ class GTBuilderConfig:
     """Ground-truth trajectory builder knobs.
 
     Attributes:
-        max_movies: Catalogue movies sampled per build call.
-        min_ops:    Minimum operations in a generated trajectory.
-        max_ops:    Maximum operations in a generated trajectory.
+        min_ops: Minimum operations in a generated trajectory.
+        max_ops: Maximum operations in a generated trajectory.
     """
-    max_movies: int
     min_ops: int
     max_ops: int
 
@@ -78,7 +86,7 @@ class EvalHarnessConfig:
         oracle:     Oracle simulation model config.
         judge:      LLM-judge model config.
         runner:     Session runner knobs.
-        scorer:     Deterministic scoring knobs.
+        scorer:     LLM-judge scoring knobs.
         gt_builder: Ground-truth builder knobs.
     """
     oracle: EvalModelConfig
@@ -120,13 +128,19 @@ def load_eval_harness_config() -> EvalHarnessConfig:
     return EvalHarnessConfig(
         oracle=_model(section["oracle"]),
         judge=_model(section["judge"]),
-        runner=RunnerConfig(max_turns=runner["max_turns"]),
+        runner=RunnerConfig(
+            max_turns=runner["max_turns"],
+            transcript_tail=runner["transcript_tail"],
+            exemplar_top_k=runner["exemplar_top_k"],
+            max_parallel=runner["max_parallel"],
+            run_seed=runner["run_seed"],
+        ),
         scorer=ScorerConfig(
             dimensions=scorer["dimensions"],
             pole_sample_k=scorer["pole_sample_k"],
+            exemplar_k=scorer["exemplar_k"],
         ),
         gt_builder=GTBuilderConfig(
-            max_movies=gt["max_movies"],
             min_ops=gt["min_ops"],
             max_ops=gt["max_ops"],
         ),
