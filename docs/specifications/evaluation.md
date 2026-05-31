@@ -18,8 +18,6 @@ We approach this from three angles:
 
 ## 2 Baselines
 
-A **no-agents pipeline**: the oracle's first message is embedded, plain HDBSCAN is run on their fused embeddings. No Intent, Clarifier, Concept, Labeling, or Responder agent runs; clusters are presented unnamed. This is the minimum bar for the modular pipeline to justify its cost.
-
 A **monolithic LLM**: a single LLM acts as the clustering agent end-to-end, holding the conversation, deciding which operation to perform, and emitting a free-form description of the resulting groups without going through the typed agent boundary. This baseline removes structured components and tests whether the architecture's modularity provides benefits over a single-agent approach.
 
 ---

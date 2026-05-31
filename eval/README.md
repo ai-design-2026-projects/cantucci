@@ -83,7 +83,6 @@ Available conditions:
 | Condition | System under test |
 |---|---|
 | `conversational` | Full multi-agent coordinator (default) |
-| `no_agents` | Baseline without sub-agents |
 | `monolithic` | Single-prompt monolithic baseline |
 
 ---

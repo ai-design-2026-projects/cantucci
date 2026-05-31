@@ -56,8 +56,7 @@ async def run_simulated_session(
         persona_slug:       Slug of the bundle to use as oracle persona.
         ground_truth_slug:  Slug of the bundle's ground truth.
         seed:               Per-session RNG seed for reproducibility.
-        condition:          Experimental condition (``"conversational"``, ``"no_agents"``,
-                            ``"monolithic"``).
+        condition:          Experimental condition (``"conversational"``, ``"monolithic"``).
         user_id:            Optional user UUID (``None`` for anonymous).
 
     Returns:

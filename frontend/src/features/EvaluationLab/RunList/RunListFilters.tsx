@@ -1,7 +1,7 @@
 import { Search } from 'lucide-react'
 import { useEvalLabStore } from '../hooks/useEvalLabStore'
 
-const CONDITIONS = ['conversational', 'no_agents', 'monolithic', 'human']
+const CONDITIONS = ['conversational', 'monolithic', 'human']
 const STATUSES = ['running', 'completed', 'aborted']
 
 /**

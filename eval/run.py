@@ -64,7 +64,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--condition",
         default="conversational",
-        choices=["conversational", "no_agents", "monolithic"],
+        choices=["conversational", "monolithic"],
         help="Experimental condition (default: conversational).",
     )
 

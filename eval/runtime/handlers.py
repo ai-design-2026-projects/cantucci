@@ -50,7 +50,7 @@ def select_handler(condition: str) -> SystemHandler:
     """Return the system-under-test handler for the given experimental condition.
 
     Args:
-        condition: One of ``"conversational"``, ``"no_agents"``, ``"monolithic"``.
+        condition: One of ``"conversational"``, ``"monolithic"``.
 
     Returns:
         An object implementing the ``SystemHandler`` protocol.
@@ -60,9 +60,6 @@ def select_handler(condition: str) -> SystemHandler:
     """
     if condition == "conversational":
         return _ConversationalHandler()
-    if condition == "no_agents":
-        from backend.baseline.no_agents.runner import NoAgentsHandler
-        return NoAgentsHandler()
     if condition == "monolithic":
         from backend.baseline.monolithic.runner import MonolithicHandler
         return MonolithicHandler()
