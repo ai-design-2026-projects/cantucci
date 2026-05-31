@@ -68,7 +68,7 @@ async def oracle_turn(
     tail_size = harness_cfg.runner.transcript_tail
     transcript_tail = transcript[-tail_size:] if len(transcript) > tail_size else transcript
 
-    template = _ENV.get_template("oracle_v3.j2")
+    template = _ENV.get_template("oracle_v4.j2")
     prompt = template.render(
         intent_description=ground_truth.intent_description,
         verbosity=persona.verbosity,

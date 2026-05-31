@@ -13,6 +13,7 @@ from backend.data_access.conversations.queries import (
     append_message,
     create_conversation,
     get_conversation,
+    get_messages,
 )
 from backend.data_access.eval.queries import (
     create_eval_session,
@@ -120,8 +121,14 @@ async def run_simulated_session(
             )
 
         pending_axis: dict | None = None
-        if conversation_row.axis_concept_id is not None:
-            concept = get_concept(conversation_row.axis_concept_id)
+        last_messages = get_messages(conversation_id, limit=1)
+        last_axis_concept_id = (
+            last_messages[-1].axis_concept_id
+            if last_messages and last_messages[-1].role == "assistant"
+            else None
+        )
+        if last_axis_concept_id is not None:
+            concept = get_concept(last_axis_concept_id)
             if concept is not None:
                 pole_k = harness_cfg.scorer.pole_sample_k
                 points = get_concept_axis_points(concept.id)
