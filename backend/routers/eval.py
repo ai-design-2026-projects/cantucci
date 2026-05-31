@@ -14,6 +14,7 @@ from backend.data_access.eval.queries import (
     get_conversation_metrics,
     get_eval_session,
     get_judge_scores,
+    get_persona_by_id,
     get_run,
     get_run_aggregate,
     list_eval_sessions_for_run,
@@ -158,8 +159,9 @@ def get_session_endpoint(
     metrics = get_conversation_metrics(session.conversation_id)
     judge_scores = get_judge_scores(session.conversation_id)
     turn_intents = list_turn_intents(session.conversation_id)
+    persona = get_persona_by_id(session.persona_id) if session.persona_id else None
 
-    return eval_session_to_detail_dto(session, metrics, judge_scores, turn_intents)
+    return eval_session_to_detail_dto(session, metrics, judge_scores, turn_intents, persona)
 
 
 @router.get("/list_ground_truths", response_model=list[GroundTruthDto])

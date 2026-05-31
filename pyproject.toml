@@ -17,9 +17,12 @@ dependencies = [
     "httpx>=0.28",
     "mcp>=1.0",
     "numpy>=1.26",
+    "rich>=13.0",
     "sentence-transformers>=2.7",
     "hdbscan>=0.8.40",
     "umap-learn>=0.5.6",
+    "Pillow>=10",
+    "open-clip-torch>=2.24",
 ]
 
 [project.scripts]
@@ -38,8 +41,6 @@ dataset = [
     "sentence-transformers>=2.7",
     "tqdm>=4",
     "yt-dlp>=2024.10",
-    "open-clip-torch>=2.24",
-    "Pillow>=10",
 ]
 
 [dependency-groups]

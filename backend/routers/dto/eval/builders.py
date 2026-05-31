@@ -115,9 +115,6 @@ def metrics_to_dto(row: ConversationMetricsRow) -> ConversationMetricsDto:
         Wire-safe ConversationMetricsDto.
     """
     return ConversationMetricsDto(
-        silhouette=row.silhouette,
-        mean_membership_prob=row.mean_membership_prob,
-        noise_fraction=row.noise_fraction,
         final_num_clusters=row.final_num_clusters,
         operation_recall=row.operation_recall,
         clarifier_trigger_rate=row.clarifier_trigger_rate,
@@ -181,9 +178,6 @@ def build_session_aggregate_row_dto(row: RunAggregateSessionRow) -> SessionAggre
     metrics: SessionMetricsDto | None = None
     if row.num_turns is not None:
         metrics = SessionMetricsDto(
-            silhouette=row.silhouette,
-            mean_membership_prob=row.mean_membership_prob,
-            noise_fraction=row.noise_fraction,
             final_num_clusters=row.final_num_clusters,
             operation_recall=row.operation_recall,
             clarifier_trigger_rate=row.clarifier_trigger_rate,
@@ -246,6 +240,7 @@ def eval_session_to_detail_dto(
     metrics: ConversationMetricsRow | None,
     judge_scores: list[JudgeScoreRow],
     turn_intents: list[TurnIntentRow],
+    persona: PersonaRow | None,
 ) -> EvalSessionDetailDto:
     """Convert an EvalSessionRow and associated data to an EvalSessionDetailDto.
 
@@ -254,9 +249,10 @@ def eval_session_to_detail_dto(
         metrics:      Conversation metrics row (may be None if not yet computed).
         judge_scores: All judge score rows for this session's conversation.
         turn_intents: All turn intent rows for this session's conversation.
+        persona:      Persona row for this session (None when persona_id is unset).
 
     Returns:
-        Wire-safe EvalSessionDetailDto with nested metrics, scores, and intents.
+        Wire-safe EvalSessionDetailDto with nested metrics, scores, intents, and persona.
     """
     return EvalSessionDetailDto(
         id=row.id,
@@ -274,4 +270,5 @@ def eval_session_to_detail_dto(
             [turn_intent_to_dto(t) for t in turn_intents],
             key=lambda t: (t.turn_number, t.mode),
         ),
+        persona=persona_to_dto(persona) if persona else None,
     )

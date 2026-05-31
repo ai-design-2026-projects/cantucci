@@ -249,7 +249,7 @@ Convergence is detected **post-hoc** by the evaluation harness (`eval/metrics.py
 | **UX** | Display poster, title, year, and rating for every title shown in a cluster | `TitleCard` component | MVP |
 | **Evaluation** | Run LLM-simulated oracle sessions with seeded persona and preference spec | `eval/oracle/agent.py`, `eval/runner.py` | MVP |
 | **Evaluation** | Score sessions via LLM-as-Judge (4 dims: clustering_coherence, question_quality, label_accuracy, intent_alignment) | `eval/judge/agent.py` | MVP |
-| **Evaluation** | Compute deterministic clustering metrics (silhouette, turns-to-convergence, cost, spec-satisfaction) post-hoc | `eval/metrics.py` | MVP |
+| **Evaluation** | Compute deterministic metrics (final_num_clusters, cost, operation_recall, clarifier_trigger_rate, num_turns) post-hoc | `eval/metrics.py` | MVP |
 
 ### 5.2 Non-functional requirements
 

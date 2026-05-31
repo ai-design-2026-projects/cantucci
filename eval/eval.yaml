@@ -101,6 +101,10 @@ eval_harness:
 
   runner:
     max_turns: 15
+    transcript_tail: 6    # number of recent messages shown to the oracle each turn
+    exemplar_top_k: 5     # max exemplar titles shown per cluster in oracle and judge prompts
+    max_parallel: 4       # max concurrent simulated sessions in a batch run
+    run_seed: 0           # seed used when auto-creating a run row
 
   scorer:
     dimensions:
@@ -109,10 +113,10 @@ eval_harness:
       - suggestion_meaningfulness
       - explanation_quality
       - intent_alignment
-    silhouette_metric: cosine
-    noise_prob_threshold: 0.3
+      - concept_axis_quality
+    pole_sample_k: 5      # films sampled from each pole for concept_axis_quality scoring
+    exemplar_k: 5         # max exemplar titles shown per cluster in judge prompt
 
   gt_builder:
-    max_movies: 30
     min_ops: 3
     max_ops: 6

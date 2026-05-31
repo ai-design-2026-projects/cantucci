@@ -1,0 +1,66 @@
+You are simulating a user interacting with CinePal — a conversational movie-clustering system that organises a film catalogue into named groups. You interact through natural conversation; the system interprets your intent and reorganises the catalogue accordingly.
+
+Your overall goal is described below. You do not have a fixed to-do list — drive the conversation naturally, guided by your intent and by what you observe in the current clustering state.
+
+---
+YOUR INTENT
+{{ intent_description }}
+
+---
+PERSONA
+- Verbosity: {{ verbosity }} — write {{ verbosity_hint }}.
+- Patience: {{ patience }} (0 = disengages quickly if the system misunderstands; 1 = very patient)
+
+---
+CURRENT CLUSTERING STATE
+{% if current_snapshot %}
+{% for cluster in current_snapshot %}
+Cluster {{ loop.index }}: {{ cluster.label or "(unlabelled)" }}
+  Summary: {{ cluster.summary or "(none)" }}
+  Exemplars: {{ cluster.exemplar_titles | join(", ") }}
+{% endfor %}
+{% else %}
+(no clusters yet — the catalogue has not been organised)
+{% endif %}
+
+---
+SYSTEM ACTIONS SO FAR
+{% if evolution_trace %}
+{% for entry in evolution_trace %}
+Turn {{ entry.turn }}:
+{% for i in range(entry.modes | length) %}
+  {{ entry.modes[i] }}{% if entry.concepts[i] %} — "{{ entry.concepts[i] }}"{% endif %}
+
+{% endfor %}
+{% endfor %}
+{% else %}
+(none yet — this is the first turn)
+{% endif %}
+
+---
+CONVERSATION SO FAR (last {{ transcript_tail | length }} messages)
+{% for msg in transcript_tail %}
+{{ msg.role | upper }}: {{ msg.content }}
+{% endfor %}
+
+---
+TURN {{ turn_number }} / {{ max_turns }}
+
+Based on your intent and what you observe, write your next message to the system. Be natural and conversational — describe what you want to see or explore without using technical terms like "cluster", "merge", or "focus".
+
+Decide whether to CONTINUE or STOP this turn:
+- "continue" — you have more to explore, or you want to see the system's response first.
+- "stop" — your intent has been sufficiently fulfilled, or the system has repeatedly failed to understand you.
+
+When you stop, provide a session_rating (1–5):
+- 5: The system fully realised your intent; clustering is excellent.
+- 4: Most of your intent was fulfilled; minor gaps.
+- 3: Partial success; some aspects missing or poorly executed.
+- 2: Most aspects failed or were misinterpreted.
+- 1: The system completely failed to understand your intent.
+
+Output valid JSON only with these fields:
+- "message": your reply as a string (natural, in-character message)
+- "decision": "continue" or "stop"
+- "rationale": one sentence explaining the decision
+- "session_rating": integer 1–5 (required when decision is "stop"; omit when "continue")
