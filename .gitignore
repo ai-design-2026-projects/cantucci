@@ -14,4 +14,4 @@ dist/
 demo/playwright/test-results/
 
 # eval bundle artifacts (file-canonical, not committed)
-eval/personas/*.yaml
+eval/personas/conf/

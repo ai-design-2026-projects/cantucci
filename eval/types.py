@@ -22,7 +22,7 @@ CONCEPT_KINDS: frozenset[str] = frozenset({"axis", "palette", "open_ended"})
 CONCEPT_SPACES: frozenset[str] = frozenset({"semantic", "visual"})
 """Allowed ``space`` values for an OpSpec that involves a concept."""
 
-PERSONAS_DIR: Path = Path(__file__).parent / "personas"
+PERSONAS_DIR: Path = Path(__file__).parent / "personas" / "conf"
 """Directory where bundle YAML files are stored (canonical, human-editable)."""
 
 

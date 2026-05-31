@@ -13,12 +13,14 @@ from backend.data_access.eval.queries import (
 )
 from eval.config import load_eval_harness_config
 from eval.judge.agent import judge_conversation
-from eval.metrics.clarifier import compute_clarifier_trigger_rate
-from eval.metrics.clustering import compute_clustering_metrics
-from eval.metrics.cost import compute_cost
-from eval.metrics.operations import compute_num_operations
-from eval.metrics.recall import compute_operation_recall
-from eval.metrics.turns import compute_num_turns
+from eval.metrics.conversation import (
+    compute_clarifier_trigger_rate,
+    compute_cost,
+    compute_num_operations,
+    compute_num_turns,
+    compute_operation_recall,
+)
+from eval.metrics.snapshot import compute_num_clusters
 
 log = logging.getLogger(__name__)
 
@@ -58,13 +60,13 @@ async def evaluate_conversation(
     clarifier_rate = compute_clarifier_trigger_rate(conversation_id)
     operation_recall = compute_operation_recall(conversation_id, ground_truth)
 
-    clustering_m = None
+    final_num_clusters = 0
     if conversation.current_cluster_snapshot_id is not None:
-        clustering_m = compute_clustering_metrics(conversation.current_cluster_snapshot_id)
+        final_num_clusters = compute_num_clusters(conversation.current_cluster_snapshot_id)
 
     upsert_conversation_metrics(
         conversation_id=conversation_id,
-        final_num_clusters=clustering_m.final_num_clusters if clustering_m else 0,
+        final_num_clusters=final_num_clusters,
         operation_recall=operation_recall,
         clarifier_trigger_rate=clarifier_rate,
         num_turns=num_turns,
@@ -95,6 +97,6 @@ async def evaluate_conversation(
             "num_turns": num_turns,
             "num_operations": num_ops,
             "operation_recall": operation_recall,
-            "final_num_clusters": clustering_m.final_num_clusters if clustering_m else 0,
+            "final_num_clusters": final_num_clusters,
         },
     )
