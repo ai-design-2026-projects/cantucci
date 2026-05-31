@@ -87,9 +87,6 @@ All metrics are persisted after each session in `conversation_metrics` (determin
 
 | Metric | How measured |
 |---|---|
-| **Silhouette score** | Mean of the per-point silhouette `s(i) = (b(i) − a(i)) / max(a(i), b(i))`, where `a(i)` is the mean cosine distance from point `i` to other members of its own cluster and `b(i)` is the mean cosine distance from `i` to members of the nearest other cluster. Range `[-1, 1]`: values near `1` mean dense, well-separated clusters; values near `0` mean overlapping clusters; negative values mean points are closer to a different cluster than their own. Computed via `sklearn.metrics.silhouette_score` on the fused embeddings of the final snapshot's members under argmax cluster assignment. `NULL` when fewer than 2 clusters or any cluster has fewer than 2 members. Diagnostic only — alignment with the GT operation trajectory is the objective function. |
-| **Mean membership probability** | Mean argmax soft-membership probability across all movies in the final snapshot. Measures cluster firmness: high values mean HDBSCAN was confident in its assignments, low values mean many borderline memberships. |
-| **Noise fraction** | Fraction of movies in the final snapshot whose argmax probability falls below `eval.noise_prob_threshold`. Quantifies the share of the catalogue that the clustering could not place confidently. |
 | **Operation recall vs GT** | Fraction of ground-truth operations (matched by operation type and concept) that the system actually executed during the session. `NULL` for human-oracle sessions. The primary structural quality signal. |
 | **Clarifier trigger rate** | Fraction of turns on which the Clarifier gate fired and the turn returned without mutating state. |
 | **Num turns** | Total oracle turns in the conversation. |
@@ -110,6 +107,7 @@ A separate judge (`eval/judge/agent.py`) reads the completed transcript, the per
 | `suggestion_meaningfulness` | When the Responder volunteers a follow-up suggestion, is it relevant to the current snapshot state, well-timed, and non-redundant with what the oracle has already requested? |
 | `explanation_quality` | When the Explanation agent justifies why a movie sits in a given cluster, is the rationale faithful to the cluster's label and exemplars, and specific enough to be informative rather than generic? |
 | `intent_alignment` | Does the system's executed sequence of operations and the resulting final snapshot reflect what the oracle was trying to elicit through the intent description? |
+| `concept_axis_quality` | For each concept axis the system built: do the two poles form a coherent, genuinely opposing spectrum? Are the axis name and pole labels concise and non-generic? Was the embedding space (semantic vs visual) appropriate for the concept? Is the axis discriminative — would the poles meaningfully separate films? Scored 1–5. Only emitted when the session built ≥1 concept axis; omitted otherwise. |
 
 ---
 

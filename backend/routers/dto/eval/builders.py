@@ -115,9 +115,6 @@ def metrics_to_dto(row: ConversationMetricsRow) -> ConversationMetricsDto:
         Wire-safe ConversationMetricsDto.
     """
     return ConversationMetricsDto(
-        silhouette=row.silhouette,
-        mean_membership_prob=row.mean_membership_prob,
-        noise_fraction=row.noise_fraction,
         final_num_clusters=row.final_num_clusters,
         operation_recall=row.operation_recall,
         clarifier_trigger_rate=row.clarifier_trigger_rate,
@@ -181,9 +178,6 @@ def build_session_aggregate_row_dto(row: RunAggregateSessionRow) -> SessionAggre
     metrics: SessionMetricsDto | None = None
     if row.num_turns is not None:
         metrics = SessionMetricsDto(
-            silhouette=row.silhouette,
-            mean_membership_prob=row.mean_membership_prob,
-            noise_fraction=row.noise_fraction,
             final_num_clusters=row.final_num_clusters,
             operation_recall=row.operation_recall,
             clarifier_trigger_rate=row.clarifier_trigger_rate,

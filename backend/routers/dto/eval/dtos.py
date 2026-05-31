@@ -94,9 +94,6 @@ class ConversationMetricsDto(BaseModel):
     """Wire model for conversation-level deterministic metrics.
 
     Attributes:
-        silhouette:              Silhouette score in [-1, 1], or None.
-        mean_membership_prob:    Mean soft-membership probability.
-        noise_fraction:          Fraction of movies below the noise threshold.
         final_num_clusters:      Number of clusters at session end.
         operation_recall:        Fraction of GT ops matched, or None if no GT.
         clarifier_trigger_rate:  Rate of turns that triggered the clarifier.
@@ -105,9 +102,6 @@ class ConversationMetricsDto(BaseModel):
         total_cost_usd:          Total LLM cost in USD.
         computed_at:             Metrics computation timestamp.
     """
-    silhouette: float | None
-    mean_membership_prob: float | None
-    noise_fraction: float | None
     final_num_clusters: int
     operation_recall: float | None
     clarifier_trigger_rate: float | None
@@ -180,9 +174,6 @@ class SessionMetricsDto(BaseModel):
     """Metrics for one session within a run aggregate. All nullable for LEFT JOIN semantics.
 
     Attributes:
-        silhouette:             Silhouette score [-1, 1], or None.
-        mean_membership_prob:   Mean soft-membership probability, or None.
-        noise_fraction:         Fraction of movies below the noise threshold, or None.
         final_num_clusters:     Number of clusters at session end, or None.
         operation_recall:       Fraction of GT ops matched, or None.
         clarifier_trigger_rate: Rate of turns that triggered the clarifier, or None.
@@ -191,9 +182,6 @@ class SessionMetricsDto(BaseModel):
         total_cost_usd:         Total LLM cost in USD.
         computed_at:            Metrics computation timestamp.
     """
-    silhouette: float | None
-    mean_membership_prob: float | None
-    noise_fraction: float | None
     final_num_clusters: int | None
     operation_recall: float | None
     clarifier_trigger_rate: float | None

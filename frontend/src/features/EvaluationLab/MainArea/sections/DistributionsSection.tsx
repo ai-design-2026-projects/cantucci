@@ -10,9 +10,6 @@ import {
 } from 'recharts'
 
 const METRIC_KEYS: Array<{ key: keyof NonNullable<SessionAggregateRowDto['metrics']>; label: string }> = [
-    { key: 'silhouette', label: 'Silhouette' },
-    { key: 'mean_membership_prob', label: 'Membership prob' },
-    { key: 'noise_fraction', label: 'Noise fraction' },
     { key: 'final_num_clusters', label: 'Num clusters' },
     { key: 'operation_recall', label: 'Op recall' },
     { key: 'clarifier_trigger_rate', label: 'Clarifier rate' },
@@ -34,9 +31,9 @@ interface DistributionsSectionProps {
 }
 
 /**
- * Distributions section: box plots for 9 scalar metrics, oracle rating histogram,
- * session status stacked bar, and 3 scatter plots (cost↔turns, cost↔silhouette,
- * turns↔silhouette). In compare mode, box plots are grouped side by side per run.
+ * Distributions section: box plots for 6 scalar metrics, oracle rating histogram,
+ * session status stacked bar, and 3 scatter plots (cost↔turns, cost↔clusters,
+ * turns↔clusters). In compare mode, box plots are grouped side by side per run.
  */
 export function DistributionsSection({ aggregates }: DistributionsSectionProps) {
     const { setOpenSessionId } = useEvalLabStore()
@@ -76,18 +73,18 @@ export function DistributionsSection({ aggregates }: DistributionsSectionProps) 
             yLabel: 'Turns',
         },
         {
-            label: 'Cost ↔ Silhouette',
+            label: 'Cost ↔ Clusters',
             xKey: 'total_cost_usd' as const,
-            yKey: 'silhouette' as const,
+            yKey: 'final_num_clusters' as const,
             xLabel: 'Cost (USD)',
-            yLabel: 'Silhouette',
+            yLabel: 'Num clusters',
         },
         {
-            label: 'Turns ↔ Silhouette',
+            label: 'Turns ↔ Clusters',
             xKey: 'num_turns' as const,
-            yKey: 'silhouette' as const,
+            yKey: 'final_num_clusters' as const,
             xLabel: 'Turns',
-            yLabel: 'Silhouette',
+            yLabel: 'Num clusters',
         },
     ]
 

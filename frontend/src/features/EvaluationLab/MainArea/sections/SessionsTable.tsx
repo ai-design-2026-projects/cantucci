@@ -6,7 +6,7 @@ import { colorForRun } from '../../plots/colors'
 import { fmt } from '../../plots/stats'
 import { useEvalLabStore } from '../../hooks/useEvalLabStore'
 
-type SortKey = 'status' | 'num_turns' | 'cost' | 'oracle_rating' | 'silhouette' | 'mean_judge'
+type SortKey = 'status' | 'num_turns' | 'cost' | 'oracle_rating' | 'mean_judge'
 
 interface TableRow {
     session: SessionAggregateRowDto
@@ -24,7 +24,6 @@ function sortRows(rows: TableRow[], key: SortKey, dir: 'asc' | 'desc'): TableRow
             case 'num_turns': va = a.session.metrics?.num_turns ?? null; vb = b.session.metrics?.num_turns ?? null; break
             case 'cost': va = a.session.metrics?.total_cost_usd ?? null; vb = b.session.metrics?.total_cost_usd ?? null; break
             case 'oracle_rating': va = a.session.oracle_rating ?? null; vb = b.session.oracle_rating ?? null; break
-            case 'silhouette': va = a.session.metrics?.silhouette ?? null; vb = b.session.metrics?.silhouette ?? null; break
             case 'mean_judge': va = a.meanJudge; vb = b.meanJudge; break
         }
         if (va == null && vb == null) return 0
@@ -107,7 +106,6 @@ export function SessionsTable({ aggregates }: SessionsTableProps) {
                         <SortHeader label="Turns" sortKey="num_turns" current={sortKey} dir={sortDir} onSort={handleSort} />
                         <SortHeader label="Cost" sortKey="cost" current={sortKey} dir={sortDir} onSort={handleSort} />
                         <SortHeader label="Oracle" sortKey="oracle_rating" current={sortKey} dir={sortDir} onSort={handleSort} />
-                        <SortHeader label="Silhouette" sortKey="silhouette" current={sortKey} dir={sortDir} onSort={handleSort} />
                         <SortHeader label="Judge avg" sortKey="mean_judge" current={sortKey} dir={sortDir} onSort={handleSort} />
                     </tr>
                 </thead>
@@ -143,7 +141,6 @@ export function SessionsTable({ aggregates }: SessionsTableProps) {
                             <td className="py-1.5 px-3 font-mono">{session.metrics?.num_turns ?? '—'}</td>
                             <td className="py-1.5 px-3 font-mono">{session.metrics ? fmt(session.metrics.total_cost_usd) : '—'}</td>
                             <td className="py-1.5 px-3 font-mono">{session.oracle_rating ?? '—'}</td>
-                            <td className="py-1.5 px-3 font-mono">{session.metrics?.silhouette != null ? fmt(session.metrics.silhouette) : '—'}</td>
                             <td className="py-1.5 px-3 font-mono">{meanJudge != null ? fmt(meanJudge) : '—'}</td>
                         </tr>
                     ))}

@@ -8,14 +8,10 @@ import logging
 import uuid
 from dataclasses import dataclass
 
-import numpy as np
-
-from backend.data_access.cluster_snapshots.queries import get_snapshot_member_embeddings
+from backend.data_access.cluster_snapshots.queries import get_cluster_snapshot_with_clusters
 from backend.data_access.conversations.queries import get_conversation, get_messages
 from backend.data_access.eval.queries import list_turn_intents
 from backend.data_access.eval.types import GroundTruthRow
-from backend.settings import get_settings
-from eval.config import load_eval_harness_config
 
 log = logging.getLogger(__name__)
 
@@ -25,121 +21,34 @@ _NAVIGATION_MODES = {"cluster", "merge", "focus", "cross_filter"}
 
 @dataclass(frozen=True, slots=True)
 class ClusteringMetrics:
-    """Deterministic clustering-quality metrics from the final snapshot.
+    """Cluster-count metric from the final snapshot.
 
     Attributes:
-        silhouette:           Silhouette score in [-1, 1], or None if not computable.
-        mean_membership_prob: Mean argmax membership probability across all movies.
-        noise_fraction:       Fraction of movies below the noise_prob_threshold.
-        final_num_clusters:   Number of clusters in the snapshot.
+        final_num_clusters: Number of clusters in the snapshot.
     """
-    silhouette: float | None
-    mean_membership_prob: float | None
-    noise_fraction: float | None
     final_num_clusters: int
 
 
 def compute_clustering_metrics(snapshot_id: uuid.UUID) -> ClusteringMetrics:
-    """Compute silhouette score and membership statistics for a cluster snapshot.
+    """Return the number of clusters in the given snapshot.
 
-    Fuses text and review embeddings with the active config weights, assigns
-    each movie to its argmax cluster, and runs silhouette_score. Silhouette is
-    None when there are fewer than 2 clusters or any cluster has fewer than
-    2 members (sklearn requirement).
+    Reads the cluster snapshot via ``get_cluster_snapshot_with_clusters``.
 
     Args:
         snapshot_id: UUID of the cluster snapshot to evaluate.
 
     Returns:
-        ``ClusteringMetrics`` with silhouette and summary statistics.
+        ``ClusteringMetrics`` with the final cluster count.
     """
-    from sklearn.metrics import silhouette_score
-
-    cfg = get_settings()
-    harness_cfg = load_eval_harness_config()
-    noise_thresh = harness_cfg.scorer.noise_prob_threshold
-    silhouette_metric = harness_cfg.scorer.silhouette_metric
-
-    members = get_snapshot_member_embeddings(snapshot_id)
-    if not members:
-        return ClusteringMetrics(
-            silhouette=None,
-            mean_membership_prob=None,
-            noise_fraction=None,
-            final_num_clusters=0,
-        )
-
-    cluster_ids = sorted({m.cluster_id for m in members})
-    num_clusters = len(cluster_ids)
-    label_map = {cid: i for i, cid in enumerate(cluster_ids)}
-
-    text_weight = cfg.fusion.runtime_weights.get("text", 0.6)
-    review_weight = cfg.fusion.runtime_weights.get("review", 0.4)
-    total = text_weight + review_weight if (text_weight + review_weight) > 0 else 1.0
-    text_w = text_weight / total
-    review_w = review_weight / total
-
-    embeddings: list[np.ndarray] = []
-    labels: list[int] = []
-
-    for m in members:
-        if m.text_embedding is None:
-            continue
-        text_arr = np.array(m.text_embedding, dtype=np.float32)
-        if m.review_embedding is not None:
-            review_arr = np.array(m.review_embedding, dtype=np.float32)
-            fused = text_w * text_arr + review_w * review_arr
-        else:
-            fused = text_arr
-        norm = np.linalg.norm(fused)
-        if norm > 0:
-            fused = fused / norm
-        embeddings.append(fused)
-        labels.append(label_map[m.cluster_id])
-
-    if not embeddings:
-        return ClusteringMetrics(
-            silhouette=None,
-            mean_membership_prob=None,
-            noise_fraction=None,
-            final_num_clusters=num_clusters,
-        )
-
-    embedding_matrix = np.stack(embeddings)
-    label_array = np.array(labels)
-    unique_labels = np.unique(label_array)
-
-    silhouette: float | None = None
-    if len(unique_labels) >= 2 and all(
-        np.sum(label_array == lbl) >= 2 for lbl in unique_labels
-    ):
-        try:
-            silhouette = float(silhouette_score(embedding_matrix, label_array, metric=silhouette_metric))
-        except Exception:
-            log.warning("silhouette_score_failed", exc_info=True)
-
-    mean_prob: float | None = None
-    noise_frac: float | None = None
-    if members:
-        probs = [m.probability for m in members]
-        mean_prob = float(np.mean(probs))
-        noise_frac = float(sum(1 for p in probs if p < noise_thresh) / len(probs))
-
+    snapshot_with_clusters = get_cluster_snapshot_with_clusters(snapshot_id)
+    if snapshot_with_clusters is None:
+        return ClusteringMetrics(final_num_clusters=0)
+    num_clusters = len(snapshot_with_clusters.clusters)
     log.debug(
         "clustering_metrics_computed",
-        extra={
-            "snapshot_id": str(snapshot_id),
-            "num_clusters": num_clusters,
-            "silhouette": silhouette,
-            "n_movies": len(embeddings),
-        },
+        extra={"snapshot_id": str(snapshot_id), "num_clusters": num_clusters},
     )
-    return ClusteringMetrics(
-        silhouette=silhouette,
-        mean_membership_prob=mean_prob,
-        noise_fraction=noise_frac,
-        final_num_clusters=num_clusters,
-    )
+    return ClusteringMetrics(final_num_clusters=num_clusters)
 
 
 def compute_cost(conversation_id: uuid.UUID) -> float:

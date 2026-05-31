@@ -48,13 +48,12 @@ class ScorerConfig:
     """Deterministic scoring knobs.
 
     Attributes:
-        dimensions:          Ordered list of LLM-judge dimension names.
-        silhouette_metric:   Distance metric passed to ``sklearn.metrics.silhouette_score``.
-        noise_prob_threshold: Membership probability below which a movie is counted as noise.
+        dimensions:    Ordered list of LLM-judge dimension names.
+        pole_sample_k: Number of film titles sampled from each pole of a concept
+                       axis and passed to the judge for concept_axis_quality scoring.
     """
     dimensions: list[str]
-    silhouette_metric: str
-    noise_prob_threshold: float
+    pole_sample_k: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -124,8 +123,7 @@ def load_eval_harness_config() -> EvalHarnessConfig:
         runner=RunnerConfig(max_turns=runner["max_turns"]),
         scorer=ScorerConfig(
             dimensions=scorer["dimensions"],
-            silhouette_metric=scorer["silhouette_metric"],
-            noise_prob_threshold=scorer["noise_prob_threshold"],
+            pole_sample_k=scorer["pole_sample_k"],
         ),
         gt_builder=GTBuilderConfig(
             max_movies=gt["max_movies"],

@@ -69,14 +69,13 @@ The TMDB IDs are held only by the runner and used for objective metric computati
 
 **Metrics** (persisted per session in `conversation_metrics` and `judge_scores`):
 
-- *Turns to convergence*: turn number at which the first convergence signal fires (explicit acceptance phrase or behavioural stability), or null if the session is abandoned.
 - *Final num clusters*: number of clusters in the final snapshot.
-- *Silhouette score*: `sklearn silhouette_score` on fused embeddings of all movies in the final snapshot (cosine distance). Diagnostic signal for cluster separation quality.
-- *Mean membership probability*: mean argmax soft-assignment probability across all movies in the final snapshot.
-- *Noise fraction*: fraction of movies with argmax probability below `eval.noise_prob_threshold`.
-- *Spec-satisfaction rate*: fraction of final-snapshot movies that appear in the ground truth's hidden target film set. `NULL` for human-oracle sessions.
+- *Operation recall vs GT*: fraction of ground-truth `(op, concept)` pairs the system executed. `NULL` for human-oracle sessions.
+- *Clarifier trigger rate*: fraction of turns on which the clarifier gate fired.
+- *Num turns*: oracle turns in the conversation.
+- *Num operations*: navigation operations executed.
 - *Total cost (USD)*: accumulated LLM cost for the session.
-- *LLM-judge scores*: `clustering_coherence`, `question_quality`, `label_accuracy`, and `intent_alignment`, each rated 1–5 by a separate judge model (`eval/judge/agent.py`) reading the full transcript and final cluster state.
+- *LLM-judge scores*: `operation_appropriateness`, `label_accuracy`, `suggestion_meaningfulness`, `explanation_quality`, `intent_alignment`, and `concept_axis_quality` (when ≥1 axis was built), each rated 1–5 by a separate judge model (`eval/judge/agent.py`) reading the full transcript and final cluster state.
 
 **Baseline**: We compare our full system against two ablations designed to isolate retrieval and agentic benefits.
 
@@ -87,7 +86,7 @@ A full specification of the evaluation setup is given in [evaluation.md](https:/
 
 ## What We Have Done
 - **End-to-end pipeline.** All six agents — Orchestrator, Retrieval, Clustering, Profile, Decision, and State — are implemented and wired together. A human user can interact with the system through the chat interface, provide feedback, and receive updated clusters turn by turn as intended.
-- **Evaluation subsystem.** The full eval harness is implemented: DB migration 012 adds `personas`, `ground_truths`, `eval_sessions`, `conversation_metrics`, and `judge_scores` tables. `eval/oracle/` provides the LLM-simulated oracle with seeded behavioral rolls and an acceptance gate. `eval/judge/` provides the 4-dimension LLM judge (`clustering_coherence`, `question_quality`, `label_accuracy`, `intent_alignment`). `eval/metrics.py` computes deterministic clustering metrics (silhouette, convergence, cost, spec-satisfaction) post-hoc from DB state. `eval/runner.py` + `eval/run.py` drive automated sessions and score existing conversations via CLI.
+- **Evaluation subsystem.** The full eval harness is implemented: DB migration 012 adds `personas`, `ground_truths`, `eval_sessions`, `conversation_metrics`, and `judge_scores` tables. `eval/oracle/` provides the LLM-simulated oracle with seeded behavioral rolls and an acceptance gate. `eval/judge/` provides the LLM judge (`operation_appropriateness`, `label_accuracy`, `suggestion_meaningfulness`, `explanation_quality`, `intent_alignment`, `concept_axis_quality`). `eval/metrics.py` computes deterministic metrics (final_num_clusters, cost, operation_recall, clarifier_trigger_rate, num_turns, num_operations) post-hoc from DB state. `eval/runner.py` + `eval/run.py` drive automated sessions and score existing conversations via CLI.
 - **Logging and config.** A structured logging system emits one key=value line per event, with mandatory fields (`run_id`, `session_id`, `turn_id`, `model`, `prompt_hash`, `tokens`, `latency`) on every LLM call. All session parameters (model, seed, clustering strategy) are driven by a YAML config file loaded at startup, so experimental conditions can be switched by changing a single env variable with no code edits. Each session stores the full config snapshot and a SHA-256 hash, enabling exact replay.
 - **Data pipeline.** We scrape and clean film metadata from TMDB, embed synopses using `BAAI/bge-large-en-v1.5` in a GPU Colab notebook, and upload the resulting parquet artifacts to Hugging Face. The backend ingests them into a pgvector-enabled Postgres instance on startup. Three catalogue splits are available: `mini` (dev), `main` (~40k films), and `eval_holdout` (reserved for ground-truth construction).
 - **Test suite and CI/CD.** Smoke tests cover the full turn pipeline end-to-end in dry-run mode (no live LLM calls) using fixture responses. The CI pipeline runs ruff, mypy, and pytest on every push. A CD pipeline builds and pushes versioned Docker images on merge to main.

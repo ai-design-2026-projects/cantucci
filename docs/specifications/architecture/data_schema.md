@@ -277,9 +277,6 @@ Deterministic eval metrics, 1:1 per conversation. Safe to recompute (PK = `conve
 ```sql
 CREATE TABLE conversation_metrics (
     conversation_id       UUID          PRIMARY KEY REFERENCES conversations (id) ON DELETE CASCADE,
-    silhouette            FLOAT,                                       -- NULL if < 2 clusters or any cluster < 2 members
-    mean_membership_prob  FLOAT,
-    noise_fraction        FLOAT,
     final_num_clusters    SMALLINT,
     operation_recall      FLOAT,                                       -- NULL for human oracle / no GT
     clarifier_trigger_rate FLOAT,
@@ -292,13 +289,13 @@ CREATE TABLE conversation_metrics (
 
 ### `judge_scores`
 
-LLM-judge dimension scores. Append-only; `judge_prompt_hash` lets multiple judge versions coexist. Dimension values: `operation_appropriateness`, `label_accuracy`, `suggestion_meaningfulness`, `explanation_quality`, `intent_alignment`.
+LLM-judge dimension scores. Append-only; `judge_prompt_hash` lets multiple judge versions coexist. Dimension values: `operation_appropriateness`, `label_accuracy`, `suggestion_meaningfulness`, `explanation_quality`, `intent_alignment`, `concept_axis_quality` (only when the session built ≥1 concept axis).
 
 ```sql
 CREATE TABLE judge_scores (
     id                UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
     conversation_id   UUID        NOT NULL REFERENCES conversations (id) ON DELETE CASCADE,
-    dimension         VARCHAR(40) NOT NULL,  -- operation_appropriateness | label_accuracy | suggestion_meaningfulness | explanation_quality | intent_alignment
+    dimension         VARCHAR(40) NOT NULL,  -- operation_appropriateness | label_accuracy | suggestion_meaningfulness | explanation_quality | intent_alignment | concept_axis_quality
     score             SMALLINT    NOT NULL CHECK (score BETWEEN 1 AND 5),
     rationale         TEXT,
     judge_model       TEXT        NOT NULL,

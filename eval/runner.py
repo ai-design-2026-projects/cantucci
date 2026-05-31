@@ -332,9 +332,6 @@ async def evaluate_conversation(
 
     upsert_conversation_metrics(
         conversation_id=conversation_id,
-        silhouette=clustering_m.silhouette if clustering_m else None,
-        mean_membership_prob=clustering_m.mean_membership_prob if clustering_m else None,
-        noise_fraction=clustering_m.noise_fraction if clustering_m else None,
         final_num_clusters=clustering_m.final_num_clusters if clustering_m else 0,
         operation_recall=operation_recall,
         clarifier_trigger_rate=clarifier_rate,
@@ -366,7 +363,7 @@ async def evaluate_conversation(
             "num_turns": num_turns,
             "num_operations": num_ops,
             "operation_recall": operation_recall,
-            "silhouette": clustering_m.silhouette if clustering_m else None,
+            "final_num_clusters": clustering_m.final_num_clusters if clustering_m else 0,
         },
     )
 
