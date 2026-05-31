@@ -3,8 +3,8 @@ import * as path from 'path'
 
 export interface Turn {
     user_message: string
-    assistant: { content: string; suggestion?: string }
-    cluster_snapshot_id: string
+    assistant: { content: string; suggestion?: string; axis_concept_id?: string | null }
+    cluster_snapshot_id: string | null
 }
 
 export interface Recording {

@@ -1,5 +1,5 @@
 import type { Page, Locator } from '@playwright/test'
-import { rand, easeInOut, sleep } from './humanize'
+import { easeInOut, sleep } from './humanize'
 
 /**
  * Single source of truth for the cursor position.
@@ -14,7 +14,7 @@ export class Cursor {
         this.y = y
     }
 
-    /** Move to (x, y) in a straight line with easing and tiny per-step jitter. */
+    /** Move to (x, y) in a stable eased line for repeatable demo captures. */
     async moveTo(page: Page, x: number, y: number): Promise<void> {
         const dx = x - this.x
         const dy = y - this.y
@@ -23,33 +23,39 @@ export class Cursor {
 
         for (let i = 1; i <= steps; i++) {
             const t = easeInOut(i / steps)
-            const nx = this.x + dx * t + rand(-0.5, 0.5)
-            const ny = this.y + dy * t + rand(-0.5, 0.5)
+            const nx = this.x + dx * t
+            const ny = this.y + dy * t
             await page.mouse.move(nx, ny)
-            await sleep(rand(3, 10))
+            await sleep(6)
         }
 
         this.x = x
         this.y = y
-        await sleep(rand(80, 220))
+        await sleep(150)
     }
 
-    /** Move to a locator's centre then click with natural press-and-release timing. */
+    /** Move to a locator's centre then click with fixed press-and-release timing. */
     async click(page: Page, locator: Locator): Promise<void> {
         const box = await locator.boundingBox()
         if (!box) {
             throw new Error(`cursor.click: element has no bounding box — locator may not be visible: ${locator}`)
         }
-        const insetX = Math.min(box.width * 0.22, 16)
-        const insetY = Math.min(box.height * 0.22, 16)
-        const tx = box.x + rand(insetX, Math.max(insetX, box.width - insetX))
-        const ty = box.y + rand(insetY, Math.max(insetY, box.height - insetY))
+        const tx = box.x + box.width / 2
+        const ty = box.y + box.height / 2
         await this.moveTo(page, tx, ty)
-        await sleep(rand(80, 260))
+        await sleep(170)
+        await page.evaluate(() => {
+            const el = document.getElementById('__mac-cursor__')
+            if (!el) return
+            el.classList.remove('is-clicking')
+            void el.offsetWidth
+            el.classList.add('is-clicking')
+            window.setTimeout(() => el.classList.remove('is-clicking'), 380)
+        })
         await page.mouse.down()
-        await sleep(rand(55, 140))
+        await sleep(95)
         await page.mouse.up()
-        await sleep(rand(180, 420))
+        await sleep(300)
     }
 }
 
@@ -58,10 +64,45 @@ export async function injectMacCursor(page: Page, cursor: Cursor): Promise<void>
         if (document.getElementById('__mac-cursor__')) return
 
         const style = document.createElement('style')
-        style.textContent = '*, *::before, *::after { cursor: none !important; }'
+        style.textContent = `
+            *, *::before, *::after { cursor: none !important; }
+            #__mac-cursor__ {
+                --cursor-scale: 1;
+                transform-origin: 4px 2px;
+            }
+            #__mac-cursor__.is-clicking {
+                --cursor-scale: 0.88;
+            }
+            #__mac-cursor__ svg {
+                transform: scale(var(--cursor-scale));
+                transform-origin: 4px 2px;
+                transition: transform 90ms ease-out;
+            }
+            #__mac-cursor__.is-clicking::after {
+                content: '';
+                position: absolute;
+                left: -7px;
+                top: -7px;
+                width: 24px;
+                height: 24px;
+                border: 2px solid rgba(88, 166, 255, 0.72);
+                border-radius: 999px;
+                animation: cinepal-cursor-click 360ms ease-out forwards;
+            }
+            @keyframes cinepal-cursor-click {
+                from {
+                    opacity: 0.9;
+                    transform: scale(0.35);
+                }
+                to {
+                    opacity: 0;
+                    transform: scale(1.85);
+                }
+            }
+        `
         document.head.appendChild(style)
 
-        const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="22" height="26" viewBox="0 0 22 26">
+        const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="28" height="33" viewBox="0 0 22 26">
             <defs>
                 <filter id="cs" x="-30%" y="-30%" width="160%" height="160%">
                     <feDropShadow dx="0" dy="1.5" stdDeviation="1.5"
@@ -79,8 +120,8 @@ export async function injectMacCursor(page: Page, cursor: Cursor): Promise<void>
             'position: fixed',
             'top: 0',
             'left: 0',
-            'width: 22px',
-            'height: 26px',
+            'width: 28px',
+            'height: 33px',
             'pointer-events: none',
             'z-index: 2147483647',
             'will-change: transform',

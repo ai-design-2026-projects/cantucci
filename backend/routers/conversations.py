@@ -300,10 +300,8 @@ async def send_message(
         cluster_snapshot_id=response_cluster_snapshot_id,
     )
 
-    if _demo_record.is_record_mode() and response_cluster_snapshot_id is not None:
-        from backend.routers.dto.cluster_snapshots.build_snapshot import build_snapshot_dto
-        snapshot_dto = build_snapshot_dto(response_cluster_snapshot_id)
-        _demo_record.record_turn(str(conversation_id), body.content, response, snapshot_dto)
+    if _demo_record.is_record_mode():
+        _demo_record.record_turn(str(conversation_id), body.content, response)
 
     return response
 
@@ -358,11 +356,6 @@ def get_cluster_snapshot_graph(conversation_id: uuid.UUID) -> ClusterSnapshotGra
     Returns:
         ``ClusterSnapshotGraphDto`` with all snapshot nodes for this conversation.
     """
-    if _demo.is_replay_mode():
-        recorded = _demo.get_recorded_snapshot_graph(str(conversation_id))
-        if recorded is not None:
-            return recorded
-
     snapshots = get_conversation_cluster_snapshots(conversation_id)
     dto = build_snapshot_graph_dto(snapshots)
     log.debug("cluster_snapshot_graph", extra={"conversation_id": str(conversation_id), "n_nodes": len(dto.cluster_snapshots)})

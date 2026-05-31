@@ -16,23 +16,24 @@ def record_turn(
     conversation_id: str,
     user_message: str,
     response: "SendMessageResponse",
-    snapshot_dto: "ClusterSnapshotDto",
 ) -> None:
     """Append a completed turn to the in-memory recording and flush to disk.
+
+    Snapshot data is stored in the database during the live session; the
+    recording file stores only the turn sequence and snapshot IDs so that
+    replay can reference the DB rows directly.
 
     Args:
         conversation_id: Conversation UUID string.
         user_message:    The user message that produced this turn.
         response:        The SendMessageResponse returned to the client.
-        snapshot_dto:    Full snapshot DTO for the cluster snapshot referenced in response.
     """
     if _state._RECORDING_PATH is None:
         raise RuntimeError(
             "CINEPAL_DEMO_RECORDING must be set when CINEPAL_DEMO_MODE=record"
         )
 
-    snap_id = str(response.cluster_snapshot_id)
-    _state.snapshots[snap_id] = snapshot_dto.model_dump(mode="json")
+    snap_id = str(response.cluster_snapshot_id) if response.cluster_snapshot_id is not None else None
 
     turn: dict = {
         "user_message": user_message,
@@ -67,7 +68,6 @@ def _flush_recording(conversation_id: str) -> None:
         "recorded_at": datetime.now(tz=timezone.utc).isoformat(),
         "conversation_id": conversation_id,
         "turns": turns,
-        "snapshots": _state.snapshots,
     }
     _state._RECORDING_PATH.write_text(
         json.dumps(payload, indent=2, default=str), encoding="utf-8"

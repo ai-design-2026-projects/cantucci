@@ -12,3 +12,4 @@ node_modules/
 dist/
 
 demo/playwright/test-results/
+demo/recordings/

@@ -48,6 +48,9 @@ function CustomDot({ cx = 0, cy = 0, payload }: CustomDotProps) {
                 cx={cx}
                 cy={cy}
                 r={8}
+                data-axis-movie-title={payload.title}
+                data-axis-score={payload.score}
+                aria-label={`${payload.title} axis score ${payload.score.toFixed(3)}`}
                 fill="var(--color-primary)"
                 fillOpacity={0.95}
                 stroke="var(--color-primary)"
@@ -60,6 +63,9 @@ function CustomDot({ cx = 0, cy = 0, payload }: CustomDotProps) {
             cx={cx}
             cy={cy}
             r={5}
+            data-axis-movie-title={payload.title}
+            data-axis-score={payload.score}
+            aria-label={`${payload.title} axis score ${payload.score.toFixed(3)}`}
             fill="var(--color-accent)"
             fillOpacity={0.45}
             stroke="none"
