@@ -1,4 +1,4 @@
-"""Parallel evaluation batch runner with Rich progress bar.
+"""Parallel evaluation batch runner.
 
 Runs multiple (persona, seed) pairs concurrently, bounded by ``max_parallel``
 from the harness config.  Single-persona debug runs use the same code path with
@@ -7,8 +7,6 @@ a list of length 1.
 import asyncio
 import logging
 import uuid
-
-from rich.progress import BarColumn, Progress, SpinnerColumn, TaskProgressColumn, TextColumn, TimeElapsedColumn
 
 from eval.config import load_eval_harness_config
 from eval.personas.store import list_bundles, load_bundle, upsert_bundle
@@ -23,7 +21,7 @@ async def run_personas(
     seeds: list[int],
     condition: str = "conversational",
 ) -> list[uuid.UUID]:
-    """Run all (slug, seed) combinations in parallel, with a progress bar.
+    """Run all (slug, seed) combinations in parallel.
 
     Upserts each bundle into the DB before running, then dispatches all
     ``(slug, seed)`` pairs concurrently, bounded by ``runner.max_parallel`` from
@@ -37,7 +35,9 @@ async def run_personas(
 
     Returns:
         List of conversation UUIDs created (one per ``(slug, seed)`` pair that succeeded).
-        Any exceptions are logged and re-raised after all tasks finish.
+
+    Raises:
+        RuntimeError: If any sessions fail (after all tasks finish).
     """
     harness_cfg = load_eval_harness_config()
     semaphore = asyncio.Semaphore(harness_cfg.runner.max_parallel)
@@ -53,40 +53,29 @@ async def run_personas(
     conversation_ids: list[uuid.UUID] = []
     errors: list[tuple[str, int, BaseException]] = []
 
-    with Progress(
-        SpinnerColumn(),
-        TextColumn("[progress.description]{task.description}"),
-        BarColumn(),
-        TaskProgressColumn(),
-        TimeElapsedColumn(),
-    ) as progress:
-        task = progress.add_task("Running sessions…", total=len(pairs))
+    async def _one(slug: str, seed: int) -> uuid.UUID | None:
+        async with semaphore:
+            log.info("session_start", extra={"slug": slug, "seed": seed})
+            try:
+                conv_id = await run_simulated_session(
+                    run_id=run_id,
+                    persona_slug=slug,
+                    ground_truth_slug=slug,
+                    seed=seed,
+                    condition=condition,
+                )
+                log.info("session_done", extra={"slug": slug, "seed": seed, "conversation_id": str(conv_id)})
+                return conv_id
+            except Exception as exc:
+                log.error(
+                    "session_failed",
+                    extra={"slug": slug, "seed": seed, "error": str(exc)},
+                    exc_info=True,
+                )
+                errors.append((slug, seed, exc))
+                return None
 
-        async def _one(slug: str, seed: int) -> uuid.UUID | None:
-            async with semaphore:
-                progress.update(task, description=f"[{slug}  seed={seed}] running…")
-                try:
-                    conv_id = await run_simulated_session(
-                        run_id=run_id,
-                        persona_slug=slug,
-                        ground_truth_slug=slug,
-                        seed=seed,
-                        condition=condition,
-                    )
-                    progress.update(task, description=f"[{slug}  seed={seed}] done ✓")
-                    return conv_id
-                except Exception as exc:
-                    log.error(
-                        "session_failed",
-                        extra={"slug": slug, "seed": seed, "error": str(exc)},
-                        exc_info=True,
-                    )
-                    errors.append((slug, seed, exc))
-                    return None
-                finally:
-                    progress.advance(task)
-
-        results = await asyncio.gather(*[_one(slug, seed) for slug, seed in pairs])
+    results = await asyncio.gather(*[_one(slug, seed) for slug, seed in pairs])
 
     for conv_id in results:
         if conv_id is not None:

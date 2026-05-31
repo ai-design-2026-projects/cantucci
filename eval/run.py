@@ -166,4 +166,8 @@ async def _main() -> None:
 
 
 if __name__ == "__main__":
-    asyncio.run(_main())
+    try:
+        asyncio.run(_main())
+    finally:
+        from backend.data_access.connection import close_pool
+        close_pool()
