@@ -10,19 +10,14 @@ This took us a lot of time and effort, but we are happy with the result, which i
 
 ## What I Did
 
-**1. Stability & hardening**
-Performed a project rebuild and a set of dependency/wiring fixes to stabilise the repo after the pivot. This made local runs and CI more predictable and resolved several reproducibility issues. *[PR #94](https://github.com/ai-design-2026-projects/cantucci/pull/94)*
+**1. Full Backend Rebuild (Project Pivot)**
+Performed a project rebuild and a set of dependency/wiring fixes to stabilise the repo after the pivot. This made local runs and CI more predictable and resolved several reproducibility issues.
+[[PR #94](https://github.com/ai-design-2026-projects/cantucci/pull/94)]
 
-**3. Evaluation & reporting**
-Added an initial evaluation harness, documentation, and a dashboard prototype to run reproducible experiments and inspect results. Also added progress-streaming hooks used by long-running runs. 
+**2. Iterative Steps Toward the Goal**
+Added an initial evaluation harness, documentation, and a dashboard prototype to run reproducible experiments and inspect results. Also added progress-streaming hooks used by long-running runs.
+[[PR #106](https://github.com/ai-design-2026-projects/cantucci/pull/106)]
 
-**4. Frontend rebuild**
-Fixed UI issues that affected demos and visualisations (scatterplot, representative movie display) and applied frontend bug fixes to improve demo reliability. *[PR #110](https://github.com/ai-design-2026-projects/cantucci/pull/110), [PR #108](https://github.com/ai-design-2026-projects/cantucci/pull/108)*
-
-## Artifacts / PRs / Commits
-- *[PR #94](https://github.com/ai-design-2026-projects/cantucci/pull/94)* — Project Rebuild
-- *[PR #106](https://github.com/ai-design-2026-projects/cantucci/pull/106)* — Add progress streaming
-- *[PR #108](https://github.com/ai-design-2026-projects/cantucci/pull/108)* — Frontend fixes
-- *[PR #110](https://github.com/ai-design-2026-projects/cantucci/pull/110)* — Fix scatterplot
-- *[PR #112](https://github.com/ai-design-2026-projects/cantucci/pull/112)* — Fix bugs
-- *[PR #116](https://github.com/ai-design-2026-projects/cantucci/pull/116)* — Demo
+**3. Frontend Rebuild & Demo Stability**
+Fixed UI issues that affected demos and visualisations (scatterplot, representative movie display) and applied frontend bug fixes to improve demo reliability.
+[[PR #108](https://github.com/ai-design-2026-projects/cantucci/pull/108), [PR #110](https://github.com/ai-design-2026-projects/cantucci/pull/110), [PR #112](https://github.com/ai-design-2026-projects/cantucci/pull/112), [PR #116](https://github.com/ai-design-2026-projects/cantucci/pull/116)]

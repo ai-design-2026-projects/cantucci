@@ -34,7 +34,7 @@ def create_run(
         config_snapshot: Full YAML config dict.
         seed:            RNG seed for the run.
         name:            Human-readable run label.
-        condition:       Experimental condition (conversational | no_agents | monolithic | human).
+        condition:       Experimental condition (conversational | monolithic | human).
         model_version:   LLM model identifier string.
         notes:           Free-text notes.
 
@@ -182,6 +182,23 @@ def create_persona(
     persona_id: uuid.UUID = row["id"]
     log.info("persona_created", extra={"persona_id": str(persona_id), "slug": slug})
     return persona_id
+
+
+def get_persona_by_id(persona_id: uuid.UUID) -> PersonaRow | None:
+    """Fetch a persona by its UUID.
+
+    Args:
+        persona_id: Persona UUID.
+
+    Returns:
+        ``PersonaRow`` if found, ``None`` otherwise.
+    """
+    with transaction() as conn:
+        row = conn.execute(
+            "SELECT id, slug, verbosity, patience, definition, created_at FROM personas WHERE id = %s",
+            (persona_id,),
+        ).fetchone()
+    return PersonaRow.from_row(row) if row else None
 
 
 def get_persona_by_slug(slug: str) -> PersonaRow | None:

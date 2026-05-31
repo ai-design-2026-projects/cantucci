@@ -10,7 +10,7 @@ class RunDto(BaseModel):
     Attributes:
         id:             Run UUID.
         name:           Optional human-readable label.
-        condition:      Experimental condition (conversational | no_agents | monolithic | human).
+        condition:      Experimental condition (conversational | monolithic | human).
         model_version:  Model tier string from config.
         config_hash:    SHA-256 8-char prefix of the YAML config used.
         seed:           Top-level RNG seed.
@@ -164,10 +164,12 @@ class EvalSessionDetailDto(EvalSessionDto):
         metrics:      Conversation-level metrics (None if not yet computed).
         judge_scores: All judge dimension scores for this session.
         turn_intents: Ordered per-turn intent records.
+        persona:      Persona used for this session (None for old sessions).
     """
     metrics: ConversationMetricsDto | None
     judge_scores: list[JudgeScoreDto]
     turn_intents: list[TurnIntentDto]
+    persona: PersonaDto | None
 
 
 class SessionMetricsDto(BaseModel):

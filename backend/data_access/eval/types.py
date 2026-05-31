@@ -15,7 +15,7 @@ class RunRow:
         seed:            RNG seed for the run.
         started_at:      UTC start timestamp.
         name:            Human-readable run label.
-        condition:       Experimental condition (conversational | no_agents | monolithic | human).
+        condition:       Experimental condition (conversational | monolithic | human).
         model_version:   LLM model identifier string.
         ended_at:        UTC end timestamp, or None if still running.
         status:          Run lifecycle status (running | completed | aborted).
@@ -135,7 +135,7 @@ class EvalSessionRow:
         persona_id:            Oracle persona UUID, or None for human.
         ground_truth_id:       Ground truth UUID, or None for human.
         seed:                  Per-session RNG seed.
-        condition:             Experimental condition (conversational | no_agents | monolithic | human).
+        condition:             Experimental condition (conversational | monolithic | human).
         status:                Session lifecycle (active | finished_trajectory | finished_misbehaviour | finished_budget).
         termination_rationale: Free-text rationale from oracle on stop, or None.
         oracle_rating:         1–5 self-rating from oracle at session end, or None for human.

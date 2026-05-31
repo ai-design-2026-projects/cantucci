@@ -40,6 +40,21 @@ export function SessionSlideOver() {
                                     oracle {data.oracle_rating}/5
                                 </span>
                             )}
+                            {data.persona && (
+                                <span className="text-[10px] px-2 py-0.5 rounded-full bg-[var(--color-border)] text-[var(--color-muted)] font-mono">
+                                    {data.persona.slug}
+                                </span>
+                            )}
+                            {data.persona && (
+                                <span className="text-[10px] px-2 py-0.5 rounded-full bg-[var(--color-border)] text-[var(--color-muted)]">
+                                    {data.persona.verbosity}
+                                </span>
+                            )}
+                            {data.persona && (
+                                <span className="text-[10px] px-2 py-0.5 rounded-full bg-[var(--color-border)] text-[var(--color-muted)]">
+                                    patience {data.persona.patience}
+                                </span>
+                            )}
                         </div>
                     )}
                     {data?.termination_rationale && (

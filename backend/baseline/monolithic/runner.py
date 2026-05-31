@@ -1,91 +1,58 @@
 """Monolithic baseline system handler.
 
-One LLM call per turn using the system-under-test model family. The LLM
-proposes the full cluster partition directly; no intent/labeling/concept agents.
+Two LLM calls per turn, both using the same generalist model (no specialised
+sub-agents):
+  1. Decide  — select the operation and extract parameters.
+  2. Reply   — after the operation runs, label new clusters and write the reply.
+
+All structural mutations (HDBSCAN, focus, merge, exclude, cross_filter) use the
+same implementation as the full coordinator pipeline.
 """
 import logging
 import uuid
 
-from backend.coordinator.types import ClusterDraft, ClusterSnapshotDraft
-from backend.coordinator.types import TurnTrace, sentinel_cluster_snapshot_id
-from backend.baseline.monolithic.agent import monolithic_turn
+from backend.agents.concept.axe_builder import build_linear_axis
+from backend.agents.concept.types import ConceptLLMResponse
+from backend.agents.intent.types import MetadataFilter, Modality
+from backend.baseline.monolithic.agent import monolithic_decide, monolithic_reply
+from backend.baseline.monolithic.types import MonolithicDecideResponse
 from backend.baseline.shared.types import SystemTurnResult
-from backend.data_access.cluster_snapshots.queries import (
-    canonicalize_params,
-    create_cluster,
-    create_cluster_snapshot,
-    create_memberships,
-    record_conversation_snapshot_ref,
-)
-from backend.data_access.conversations.queries import (
-    get_conversation,
-    set_current_cluster_snapshot,
-)
-from backend.data_access.movies.queries import fetch_stubs
+from backend.coordinator.commands.helpers.drafts import merge_in_siblings
+from backend.coordinator.commands.impl.cluster.building import concept_cluster, free_cluster
+from backend.coordinator.commands.impl.cross_filter import cross_filter
+from backend.coordinator.commands.impl.exclude import exclude_cluster
+from backend.coordinator.commands.impl.focus import focus
+from backend.coordinator.commands.impl.merge import merge_clusters
+from backend.coordinator.tools.persist import persist_and_label
+from backend.coordinator.types import ClusterDraft, ClusterSnapshotDraft, TurnTrace, sentinel_cluster_snapshot_id
+from backend.data_access.cluster_snapshots.queries import get_cluster_snapshot_with_clusters
+from backend.data_access.cluster_snapshots.types import ClusterRow
 from backend.data_access.conversations.types import ConversationRow
-from backend.settings import get_config_hash
 
 log = logging.getLogger(__name__)
 
 
-def _persist_monolithic_snapshot(
-    conversation_id: uuid.UUID,
-    clusters_proposal: list,
-    known_movie_ids: set[int],
-    current_snapshot_id: uuid.UUID | None,
-) -> uuid.UUID:
-    """Persist a cluster snapshot from the LLM's cluster proposal.
-
-    Filters out movie IDs not in *known_movie_ids* to ignore hallucinated IDs.
-    Creates one cluster per proposed entry; assigns a uniform probability of 1.0
-    (hard assignment) to all members.
+def _resolve_cluster(
+    label: str | None,
+    clusters: list[ClusterRow],
+    fallback_first: bool = True,
+) -> uuid.UUID | None:
+    """Resolve a label string to a cluster UUID via case-insensitive substring match.
 
     Args:
-        conversation_id:    UUID of the conversation.
-        clusters_proposal:  List of MonolithicCluster objects from the LLM.
-        known_movie_ids:    Set of valid movie IDs (from the previous snapshot).
-        current_snapshot_id: Parent snapshot ID for lineage tracking.
+        label:          Label to match, or None.
+        clusters:       Available clusters.
+        fallback_first: Return the first cluster's ID when label is absent or unmatched.
 
     Returns:
-        UUID of the newly created cluster snapshot.
+        Matched UUID, first-cluster fallback, or None.
     """
-    config_hash = get_config_hash()
-    snapshot_id = create_cluster_snapshot(
-        operation="monolithic",
-        params=canonicalize_params({"condition": "monolithic"}),
-        config_hash=config_hash,
-        parent_id=current_snapshot_id,
-    )
-
-    for proposal in clusters_proposal:
-        valid_ids = [mid for mid in proposal.movie_ids if mid in known_movie_ids]
-        if not valid_ids:
-            continue
-
-        exemplar_ids = valid_ids[:8]
-        cluster_id = create_cluster(
-            cluster_snapshot_id=snapshot_id,
-            label=proposal.label,
-            summary=proposal.summary,
-            exemplar_movie_ids=exemplar_ids,
-            parent_cluster_id=None,
-        )
-        memberships: list[tuple[uuid.UUID, int, float]] = [
-            (cluster_id, mid, 1.0) for mid in valid_ids
-        ]
-        create_memberships(memberships)
-
-    record_conversation_snapshot_ref(conversation_id, snapshot_id)
-    set_current_cluster_snapshot(conversation_id, snapshot_id)
-    log.info(
-        "monolithic_snapshot_persisted",
-        extra={
-            "conversation_id": str(conversation_id),
-            "n_clusters": len(clusters_proposal),
-            "snapshot_id": str(snapshot_id),
-        },
-    )
-    return snapshot_id
+    if clusters and label is not None:
+        label_lower = label.strip().lower()
+        for c in clusters:
+            if c.label and label_lower in c.label.lower():
+                return c.id
+    return clusters[0].id if (fallback_first and clusters) else None
 
 
 class MonolithicHandler:
@@ -97,44 +64,203 @@ class MonolithicHandler:
         user_message: str,
         conversation_row: ConversationRow,
     ) -> SystemTurnResult:
-        """Run one monolithic LLM turn and persist the proposed clustering.
+        """Run one monolithic turn: decide → execute → reply.
+
+        Call 1 (decide) selects the operation. The operation is executed in code
+        using the same implementation as the coordinator. Call 2 (reply) receives
+        the result — including exemplar titles for any new clusters — and produces
+        the oracle reply and cluster labels in one shot.
 
         Args:
-            conversation_id: UUID of the active conversation.
-            user_message:    Oracle message (included in conversation context).
-            conversation_row: Current conversation row.
+            conversation_id:  UUID of the active conversation.
+            user_message:     Oracle message (already stored in DB before this call).
+            conversation_row: Current conversation row with snapshot and cost state.
 
         Returns:
-            ``SystemTurnResult`` with the new snapshot ID and a monolithic TurnTrace.
+            ``SystemTurnResult`` with new snapshot ID, reply, cost, and TurnTrace.
         """
         current_snapshot_id = conversation_row.current_cluster_snapshot_id
         accumulated_cost = conversation_row.accumulated_cost_usd
+        message_id = uuid.uuid4()
 
-        from backend.data_access.cluster_snapshots.queries import get_snapshot_members
-        known_movie_ids: set[int] = set()
+        clusters: list[ClusterRow] = []
         if current_snapshot_id is not None:
-            members = get_snapshot_members(current_snapshot_id)
-            known_movie_ids = {m.movie_id for m in members}
+            snapshot = get_cluster_snapshot_with_clusters(current_snapshot_id)
+            if snapshot is not None:
+                clusters = snapshot.clusters
 
-        parsed, cost = await monolithic_turn(
+        # --- Call 1: decide ---
+        decision, decide_cost = await monolithic_decide(
             conversation_id=conversation_id,
             current_cluster_snapshot_id=current_snapshot_id,
             accumulated_cost=accumulated_cost,
+            message_id=message_id,
         )
 
-        if parsed.clusters and known_movie_ids:
-            new_snapshot_id = _persist_monolithic_snapshot(
-                conversation_id=conversation_id,
-                clusters_proposal=parsed.clusters,
-                known_movie_ids=known_movie_ids,
-                current_snapshot_id=current_snapshot_id,
-            )
-        else:
-            new_snapshot_id = current_snapshot_id or sentinel_cluster_snapshot_id()
+        op = decision.operation
+        new_snapshot_id = current_snapshot_id or sentinel_cluster_snapshot_id()
+        new_cluster_exemplars: list[list[int]] = []
+        op_cost = 0.0
 
+        # --- Execute operation ---
+        try:
+            if op == "cluster":
+                target_id = _resolve_cluster(
+                    decision.target_cluster_label, clusters, fallback_first=False
+                )
+
+                if (
+                    decision.concept
+                    and decision.concept_positive_descriptions
+                    and decision.concept_negative_descriptions
+                ):
+                    concept_llm_resp = ConceptLLMResponse(
+                        space=decision.concept_space or "semantic",
+                        positive_descriptions=decision.concept_positive_descriptions,
+                        negative_descriptions=decision.concept_negative_descriptions,
+                        positive_label=decision.concept_positive_label or "",
+                        negative_label=decision.concept_negative_label or "",
+                    )
+                    concept_rep = build_linear_axis(concept_llm_resp, decision.concept, cost=0.0)
+                    draft = await concept_cluster(
+                        source_cluster_id=target_id,
+                        concept=concept_rep,
+                        parent_cluster_snapshot_id=current_snapshot_id,
+                    )
+                else:
+                    draft = await free_cluster(
+                        source_cluster_id=target_id,
+                        parent_cluster_snapshot_id=current_snapshot_id,
+                        embedding_spaces=[Modality.TEXT],
+                    )
+
+                if target_id is not None and current_snapshot_id is not None:
+                    draft = ClusterSnapshotDraft(
+                        operation=draft.operation,
+                        params=draft.params,
+                        clusters=merge_in_siblings(
+                            current_snapshot_id, target_id, draft.clusters
+                        ),
+                    )
+                new_cluster_exemplars = [cd.exemplar_movie_ids for cd in draft.clusters]
+
+            elif op == "focus" and current_snapshot_id is not None:
+                target_id = _resolve_cluster(decision.target_cluster_label, clusters)
+                draft = await focus(target_id, current_snapshot_id)
+
+            elif op == "exclude" and current_snapshot_id is not None:
+                target_id = _resolve_cluster(decision.target_cluster_label, clusters)
+                draft = await exclude_cluster(target_id, current_snapshot_id)
+
+            elif op == "merge" and len(clusters) >= 2 and current_snapshot_id is not None:
+                id_a = _resolve_cluster(decision.cluster_a_label, clusters, fallback_first=True)
+                id_b = _resolve_cluster(decision.cluster_b_label, clusters, fallback_first=True)
+                if id_a == id_b:
+                    id_b = clusters[1].id
+                draft = await merge_clusters(
+                    cluster_ids=list(dict.fromkeys([id_a, id_b])),
+                    parent_cluster_snapshot_id=current_snapshot_id,
+                    merged_label=decision.merged_label or "Merged",
+                )
+
+            elif op == "cross_filter" and current_snapshot_id is not None:
+                metadata_filter = MetadataFilter(
+                    genres=decision.genres or None,
+                    release_year_min=decision.release_year_min,
+                    release_year_max=decision.release_year_max,
+                    director=decision.director,
+                )
+                draft = await cross_filter(current_snapshot_id, metadata_filter)
+
+        except (ValueError, RuntimeError) as exc:
+            log.warning(
+                "monolithic_operation_failed",
+                extra={
+                    "conversation_id": str(conversation_id),
+                    "operation": op,
+                    "error": str(exc),
+                },
+            )
+            op = "reply"
+
+        # --- Call 2: reply ---
+        reply_resp, reply_cost = await monolithic_reply(
+            oracle_message=user_message,
+            operation=op,
+            new_cluster_exemplars=new_cluster_exemplars,
+            conversation_id=conversation_id,
+            accumulated_cost=accumulated_cost + decide_cost + op_cost,
+            message_id=message_id,
+            concept=decision.concept,
+            concept_positive_label=decision.concept_positive_label,
+            concept_negative_label=decision.concept_negative_label,
+        )
+
+        # --- Persist (after reply so labels are available) ---
+        if op == "cluster" and new_cluster_exemplars:
+            labels = reply_resp.cluster_labels or []
+            labeled: list[ClusterDraft] = []
+            for i, cd in enumerate(draft.clusters):
+                if i < len(labels):
+                    label, summary = labels[i].label, labels[i].summary
+                else:
+                    label, summary = f"Cluster {i + 1}", "A group of related films."
+                labeled.append(ClusterDraft(
+                    label=label,
+                    summary=summary,
+                    exemplar_movie_ids=cd.exemplar_movie_ids,
+                    parent_cluster_id=cd.parent_cluster_id,
+                    memberships=cd.memberships,
+                    concept_score=cd.concept_score,
+                    color_slot=cd.color_slot,
+                ))
+            labeled_draft = ClusterSnapshotDraft(
+                operation=draft.operation,
+                params=draft.params,
+                clusters=labeled,
+            )
+            new_snapshot_id, op_cost = await persist_and_label(
+                draft=labeled_draft,
+                conversation_id=conversation_id,
+                parent_cluster_snapshot_id=current_snapshot_id,
+                accumulated_cost=accumulated_cost + decide_cost + reply_cost,
+            )
+
+        elif op in ("focus", "exclude", "merge") and current_snapshot_id is not None:
+            new_snapshot_id, op_cost = await persist_and_label(
+                draft=draft,
+                conversation_id=conversation_id,
+                parent_cluster_snapshot_id=current_snapshot_id,
+                accumulated_cost=accumulated_cost + decide_cost + reply_cost,
+            )
+
+        elif op == "cross_filter" and current_snapshot_id is not None:
+            cluster_label = decision.filtered_cluster_label or "Filtered Set"
+            cd = draft.clusters[0]
+            labeled_cf = ClusterSnapshotDraft(
+                operation=draft.operation,
+                params=draft.params,
+                clusters=[ClusterDraft(
+                    label=cluster_label,
+                    summary="Movies matching the requested metadata filter.",
+                    exemplar_movie_ids=cd.exemplar_movie_ids,
+                    parent_cluster_id=cd.parent_cluster_id,
+                    memberships=cd.memberships,
+                    concept_score=cd.concept_score,
+                    color_slot=cd.color_slot,
+                )],
+            )
+            new_snapshot_id, op_cost = await persist_and_label(
+                draft=labeled_cf,
+                conversation_id=conversation_id,
+                parent_cluster_snapshot_id=current_snapshot_id,
+                accumulated_cost=accumulated_cost + decide_cost + reply_cost,
+            )
+
+        turn_cost = decide_cost + reply_cost + op_cost
         trace = TurnTrace(
-            modes=["monolithic"],
-            concepts=[None],
+            modes=[op],
+            concepts=[decision.concept],
             target_cluster_ids=[None],
             confidence=1.0,
             clarifier_fired=False,
@@ -143,10 +269,19 @@ class MonolithicHandler:
             explanation=None,
         )
 
+        log.info(
+            "monolithic_turn_done",
+            extra={
+                "conversation_id": str(conversation_id),
+                "operation": op,
+                "turn_cost_usd": turn_cost,
+            },
+        )
+
         return SystemTurnResult(
-            reply_text=parsed.reply,
+            reply_text=reply_resp.reply,
             cluster_snapshot_id=new_snapshot_id,
-            turn_cost_usd=cost,
+            turn_cost_usd=turn_cost,
             suggestion=None,
             turn_trace=trace,
         )
