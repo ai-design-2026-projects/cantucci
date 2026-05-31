@@ -21,8 +21,10 @@ class GroundTruthProposal(BaseModel):
     """Structured LLM output from the ground-truth builder prompt.
 
     Attributes:
+        slug:               Single lowercase word identifying this bundle (e.g. ``"colonialism"``).
         intent_description: Natural-language goal statement for the oracle.
         operations:         Ordered list of proposed operations.
     """
+    slug: str
     intent_description: str
     operations: list[OpProposal]

@@ -10,7 +10,20 @@ from pathlib import Path
 
 import yaml
 
-_EVAL_YAML_PATH = Path(__file__).parent / "eval.yaml"
+_EVAL_DIR = Path(__file__).parent
+_EVAL_YAML_PATH = _EVAL_DIR / "eval.yaml"
+
+
+def eval_prompts_dir(module: str) -> Path:
+    """Return the prompts directory for the named eval module.
+
+    Args:
+        module: Module name under ``eval/``, e.g. ``"oracle"``, ``"judge"``, ``"build"``.
+
+    Returns:
+        ``Path`` to ``eval/<module>/prompts/``.
+    """
+    return _EVAL_DIR / module / "prompts"
 
 
 @dataclass(frozen=True, slots=True)

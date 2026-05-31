@@ -2,7 +2,6 @@ import hashlib
 import logging
 import uuid
 from collections import defaultdict
-from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader
 
@@ -11,14 +10,13 @@ from backend.data_access.conversations.queries import get_conversation, get_mess
 from backend.data_access.eval.queries import list_turn_intents
 from backend.llm import llm_harness
 from backend.settings import get_config_hash
-from eval.config import load_eval_harness_config
+from eval.config import eval_prompts_dir, load_eval_harness_config
 from eval.judge.types import AxisConceptContext, JudgeLLMResponse, JudgeResult
 from eval.runtime.snapshot import build_cluster_info
 
 log = logging.getLogger(__name__)
 
-_PROMPTS_DIR = Path(__file__).parent / "prompts"
-_ENV = Environment(loader=FileSystemLoader(str(_PROMPTS_DIR)), autoescape=False)
+_ENV = Environment(loader=FileSystemLoader(str(eval_prompts_dir("judge"))), autoescape=False)
 
 
 async def judge_conversation(

@@ -1,23 +1,26 @@
 """CLI entry point for the bundle builder.
 
 Usage:
-    # Random batch (n bundles with randomised themes and dials):
-    python -m eval.build --count 5
+    # Random batch (n bundles with freely invented themes and dials):
+    python -m eval.builder --count 5
 
     # Single explicit bundle:
-    python -m eval.build --slug exploration_v1 --verbosity medium --patience 0.7 --hint "psychological thrillers"
-    python -m eval.build --slug action_v1 --hint "action films, exclude superhero"
+    python -m eval.builder --slug exploration_v1 --verbosity medium --patience 0.7 --hint "psychological thrillers"
+    python -m eval.builder --slug action_v1 --hint "action films, exclude superhero"
 """
 import argparse
 import asyncio
+import logging
 import sys
 
 from backend.logging_setup import configure_logging
 
+log = logging.getLogger(__name__)
+
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="python -m eval.build",
+        prog="python -m eval.builder",
         description="Build persona + ground-truth bundles for the eval harness.",
     )
     mode = parser.add_mutually_exclusive_group(required=True)
@@ -25,7 +28,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "--count",
         type=int,
         metavar="N",
-        help="Build N bundles with randomised themes and dials (slugs: rand-001…).",
+        help="Build N bundles with freely invented themes and randomised dials.",
     )
     mode.add_argument(
         "--slug",
@@ -58,11 +61,11 @@ async def _main() -> None:
     parser = _build_parser()
     args = parser.parse_args()
 
-    from eval.build.builder import build_bundle, build_random_batch
+    from eval.builder.builder import build_bundle, build_random_batch
 
     if args.count is not None:
         bundles = await build_random_batch(args.count)
-        print(f"\n{len(bundles)} bundle(s) written to eval/personas/conf/")
+        log.info("batch_complete", extra={"count": len(bundles)})
     else:
         bundle = await build_bundle(
             args.slug,
@@ -70,9 +73,6 @@ async def _main() -> None:
             patience=args.patience,
             hint=args.hint,
         )
-        from eval.types import PERSONAS_DIR
-        path = PERSONAS_DIR / f"{bundle.slug}.yaml"
-        print(f"slug={bundle.slug}  ops={len(bundle.operations)}  path={path}")
 
 
 if __name__ == "__main__":

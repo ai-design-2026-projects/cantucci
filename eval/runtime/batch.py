@@ -128,7 +128,7 @@ async def run_all_personas(
     """
     bundles = list_bundles()
     if not bundles:
-        raise ValueError("no bundles found in eval/personas/ — run 'python -m eval.build' first")
+        raise ValueError("no bundles found in eval/personas/ — run 'python -m eval.builder' first")
     slugs = [b.slug for b in bundles]
     log.info("running_all_personas", extra={"n_bundles": len(slugs), "seeds": seeds})
     return await run_personas(run_id, slugs, seeds, condition)

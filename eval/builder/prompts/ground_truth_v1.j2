@@ -7,7 +7,7 @@ Each step in the trajectory is one of five operations. Understand exactly what e
 
 **cluster** — split the current working set into sub-groups.
 Two modes exist:
-- *Semantic / concept-guided*: HDBSCAN soft-clustering driven by a concept. The concept can be a thematic axis (e.g. "bleak vs hopeful tone"), a visual axis (e.g. "warm vs cold palette"), an open-ended theme (e.g. "films about grief and loss"), or left unspecified for fully emergent grouping.
+- *Semantic / concept-guided*: HDBSCAN soft-clustering driven by a concept. The concept must describe a **dimension that separates films from each other**, not a category that filters films in or out. Think: "what axis would place some films at one end and others at the other?" Good concepts produce meaningfully different groups. Bad concepts produce one big group and leftover noise.
 - *Metadata partition*: group by an exact attribute — genre, decade, director, language, vote average, or runtime. No concept needed; supply a descriptive label instead.
 When applied to a specific existing cluster, sibling clusters are carried forward unchanged alongside the new sub-groups.
 
@@ -28,10 +28,14 @@ When applied to a specific existing cluster, sibling clusters are carried forwar
 
 | kind | space | meaning |
 |------|-------|---------|
-| `axis` | `semantic` | A thematic spectrum scored along a bipolar axis: tone, pacing, emotion, narrative type. E.g. "bleak vs hopeful tone", "slow-burn vs kinetic pacing". |
-| `axis` | `visual` | A visual / cinematographic spectrum scored using image embeddings: colour palette, lighting style, saturation. E.g. "warm vs cold palette", "high-contrast vs muted look". |
-| `open_ended` | *(omit)* | A thematic cluster with no clear opposing pole. E.g. "films about memory and loss", "stories of quiet resilience". Uses semantic embeddings. |
+| `axis` | `semantic` | A bipolar thematic spectrum: tone, pacing, narrative structure, emotional register. The concept names both poles explicitly or implies them. E.g. "bleak vs hopeful tone", "solitary protagonist vs ensemble cast", "slow-burn vs kinetic pacing". |
+| `axis` | `visual` | A bipolar visual / cinematographic spectrum scored using image embeddings: colour palette, lighting, saturation. E.g. "warm vs cold palette", "high-contrast vs muted look". |
+| `open_ended` | *(omit)* | A characteristic that varies across films and produces natural sub-groups, but has no clean opposing pole. Frame it as a dimension of variation, not a membership filter. E.g. "degree of narrative ambiguity" (not "films with ambiguous endings"), "social scale: intimate vs sprawling" (not "films about society"). Uses semantic embeddings. |
 | *(omit)* | *(omit)* | Plain metadata concept: genre, director, decade, country, language, runtime. No embedding scoring. |
+
+**Retrieval vs clustering — critical distinction:**
+- ✗ Retrieval (wrong): "films about isolation", "movies with a lone protagonist", "stories of grief" — these describe a membership criterion, not a splitting dimension. They would produce one cluster containing matching films and leave everything else as noise.
+- ✓ Clustering (correct): "solitary protagonist vs embedded in community", "degree of social isolation", "intimate character study vs broad social canvas" — these describe a spectrum every film in the set can be scored on, producing meaningful sub-groups across the whole working set.
 
 For `focus`, `exclude`, `merge`, and `cross_filter`, always omit `kind` and `space`.
 
@@ -43,6 +47,9 @@ For `focus`, `exclude`, `merge`, and `cross_filter`, always omit `kind` and `spa
 - `merge` requires at least two clusters to exist; do not place it as the very first step.
 - `exclude` and `focus` each act on a single cluster; their concept should name which cluster is targeted (not a new semantic concept).
 - Avoid redundant steps: don't cluster on the same concept twice in a row, or focus immediately after another focus.
+- Every `cluster` concept must be a splitting dimension, not a retrieval filter. Ask: "can every film in the working set be placed somewhere on this axis?" If no, reframe it.
+- **Mix classical and semantic steps.** At least one step per trajectory should use a plain metadata partition (genre, director, decade, language, runtime, vote_average) or a `cross_filter`. Not every trajectory should be purely abstract and thematic.
+- **The catalogue is small (~200 films).** Avoid overly specific filters that would return only a handful of results: a single director, a single country, a very narrow year range, or a very niche subgenre. Prefer broad groupings (genre family, decade, language family, vote range) that leave enough films to cluster meaningfully.
 
 ---
 ## Examples
@@ -71,19 +78,32 @@ Example 2 — metadata filter, then cluster semantically, then merge two related
 }
 ```
 
-Example 3 — open-ended theme, then partition metadata, then focus:
+Example 3 — classical metadata start, then semantic refinement, then focus:
 ```json
 {
-  "intent_description": "Surface films about grief and memory, break them down by decade, then zoom into the most recent ones.",
+  "intent_description": "Start by splitting the catalogue by genre, then look more closely at drama films and explore how emotionally heavy vs restrained they are.",
   "operations": [
-    {"op": "cluster", "concept": "films about grief and memory", "kind": "open_ended"},
-    {"op": "cluster", "concept": "decade"},
-    {"op": "focus",   "concept": "films from the 2010s and 2020s"}
+    {"op": "cluster",      "concept": "genre"},
+    {"op": "focus",        "concept": "drama films"},
+    {"op": "cluster",      "concept": "emotionally overwhelming vs emotionally restrained", "kind": "axis", "space": "semantic"}
   ]
 }
 ```
 
-Example 4 — visual axis, then cross-filter, then recluster:
+Example 4 — decade partition, then semantic axis, then exclude:
+```json
+{
+  "intent_description": "Split the catalogue by decade, zoom into 1990s films, then separate the cynical and ironic ones from the earnest ones.",
+  "operations": [
+    {"op": "cluster", "concept": "decade"},
+    {"op": "focus",   "concept": "1990s films"},
+    {"op": "cluster", "concept": "cynical ironic tone vs earnest sincerity", "kind": "axis", "space": "semantic"},
+    {"op": "exclude", "concept": "earnest films"}
+  ]
+}
+```
+
+Example 5 — visual axis, then cross-filter, then recluster:
 ```json
 {
   "intent_description": "Organise by colour palette warmth, then keep only European films and re-cluster them thematically.",
@@ -98,13 +118,19 @@ Example 4 — visual axis, then cross-filter, then recluster:
 ---
 {% if hint %}
 THEME HINT: {{ hint }}
-
+{% else %}
+CINEMATIC LENS: {{ lens }}
+Invent a theme that is specifically grounded in this lens. The theme must be concrete and distinct — do not default to loneliness, identity, grief, or transformation. The lens is your constraint: stay inside it.
 {% endif %}
-Write a ground truth trajectory for a simulated user session. The trajectory must have between {{ min_ops }} and {{ max_ops }} steps. Apply the trajectory rules above. Include at least one non-trivial concept (kind = axis or open_ended). The intent_description should read as a natural user goal, not a list of operations.
+
+Write a ground truth trajectory for a simulated user session. The trajectory must have exactly {{ target_ops }} steps. Apply the trajectory rules above. Include at least one non-trivial concept (kind = axis or open_ended). The intent_description should read as a natural user goal, not a list of operations.
+
+Also generate a `slug`: a single lowercase word (no hyphens, no spaces) that best identifies the core theme of this bundle. It should be specific and distinctive — prefer a concrete noun or adjective over a generic one (e.g. ``"colonialism"``, ``"surveillance"``, ``"melancholy"`` rather than ``"theme"`` or ``"drama"``).
 
 Output valid JSON only:
 ```json
 {
+  "slug": "...",
   "intent_description": "...",
   "operations": [
     {"op": "...", "concept": "...", "kind": "...", "space": "..."},

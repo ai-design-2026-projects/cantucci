@@ -25,6 +25,9 @@ CONCEPT_SPACES: frozenset[str] = frozenset({"semantic", "visual"})
 PERSONAS_DIR: Path = Path(__file__).parent / "personas" / "conf"
 """Directory where bundle YAML files are stored (canonical, human-editable)."""
 
+VERBOSITIES: tuple[str, ...] = ("terse", "medium", "verbose")
+"""Allowed verbosity values for oracle personas."""
+
 
 @dataclass(frozen=True, slots=True)
 class OpSpec:
