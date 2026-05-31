@@ -7,6 +7,19 @@ import { loadRecording } from './lib/recording'
 import { APP_URL, CDP_ENDPOINT } from './lib/constants'
 
 const ANON_CONVERSATION_KEY = 'cinepal_anon_conv_id'
+const CHART_MARGIN = { top: 8, right: 8, bottom: 8, left: 8 }
+
+interface DemoSnapshotMember {
+    cluster_id: string
+    probability: number
+    umap_x: number
+    umap_y: number
+}
+
+interface DemoSnapshot {
+    clusters: Array<{ id: string }>
+    members: DemoSnapshotMember[]
+}
 
 async function visiblePosterTarget(clustersDialog: Locator): Promise<{ index: number; x: number; y: number } | null> {
     const posterButtons = clustersDialog.locator('button:has(img[alt])')
@@ -84,13 +97,87 @@ async function previewUnclusteredMap(page: Page, cursor: Cursor): Promise<void> 
 }
 
 async function previewConceptAxis(page: Page, cursor: Cursor, hoverTitles: string[]): Promise<void> {
-    await cursor.click(page, page.getByRole('button', { name: 'View axis distribution' }).last())
+    const axisBtn = page.getByRole('button', { name: 'View axis distribution' }).last()
+    await axisBtn.scrollIntoViewIfNeeded()
+    await cursor.click(page, axisBtn)
     const conceptAxisDialog = page.getByRole('dialog').filter({ hasText: 'How your films spread out' })
     await expect(conceptAxisDialog).toBeVisible({ timeout: 5_000 })
     await expect(conceptAxisDialog.locator('g.recharts-scatter-symbol circle').first()).toBeVisible({ timeout: 8_000 })
     await showTooltipTitles(page, cursor, conceptAxisDialog, hoverTitles)
     await sleep(rand(500, 800))
     await closeDialog(page, cursor, conceptAxisDialog)
+}
+
+function computeMemberDomain(members: DemoSnapshotMember[]): { x: [number, number]; y: [number, number] } {
+    let xMin = Infinity, xMax = -Infinity, yMin = Infinity, yMax = -Infinity
+    for (const member of members) {
+        if (member.umap_x < xMin) xMin = member.umap_x
+        if (member.umap_x > xMax) xMax = member.umap_x
+        if (member.umap_y < yMin) yMin = member.umap_y
+        if (member.umap_y > yMax) yMax = member.umap_y
+    }
+
+    const xPad = (xMax - xMin) * 0.05 || 1
+    const yPad = (yMax - yMin) * 0.05 || 1
+    return {
+        x: [xMin - xPad, xMax + xPad],
+        y: [yMin - yPad, yMax + yPad],
+    }
+}
+
+function computeCentroids(snapshot: DemoSnapshot): Array<{ clusterId: string; x: number; y: number }> {
+    const centroids: Array<{ clusterId: string; x: number; y: number }> = []
+
+    for (const cluster of snapshot.clusters) {
+        let sumW = 0, sumX = 0, sumY = 0
+        for (const member of snapshot.members) {
+            if (member.cluster_id !== cluster.id) continue
+            sumW += member.probability
+            sumX += member.probability * member.umap_x
+            sumY += member.probability * member.umap_y
+        }
+        if (sumW > 0) {
+            centroids.push({ clusterId: cluster.id, x: sumX / sumW, y: sumY / sumW })
+        }
+    }
+
+    return centroids
+}
+
+async function fetchRootSnapshot(page: Page): Promise<DemoSnapshot> {
+    const snapshotUrl = new URL('/cluster-snapshots/get_root', APP_URL).toString()
+    const response = await page.request.get(snapshotUrl)
+    if (!response.ok()) {
+        throw new Error(`Could not load root snapshot: ${response.status()} ${response.statusText()}`)
+    }
+    return await response.json() as DemoSnapshot
+}
+
+async function previewFirstCentroids(page: Page, cursor: Cursor, snapshot: DemoSnapshot, count: number): Promise<void> {
+    const rootSnapshot = await fetchRootSnapshot(page)
+    const domain = computeMemberDomain(rootSnapshot.members)
+    const canvas = page.locator('canvas').first()
+    await expect(canvas).toBeVisible({ timeout: 5_000 })
+    const box = await canvas.boundingBox()
+    if (!box) {
+        throw new Error('Could not locate snapshot canvas for centroid preview.')
+    }
+
+    const plotW = box.width - CHART_MARGIN.left - CHART_MARGIN.right
+    const plotH = box.height - CHART_MARGIN.top - CHART_MARGIN.bottom
+    const xRange = domain.x[1] - domain.x[0]
+    const yRange = domain.y[1] - domain.y[0]
+
+    for (const centroid of computeCentroids(snapshot).slice(0, count)) {
+        const x = box.x + CHART_MARGIN.left + ((centroid.x - domain.x[0]) / xRange) * plotW
+        const y = box.y + CHART_MARGIN.top + ((domain.y[1] - centroid.y) / yRange) * plotH
+        await cursor.moveTo(page, x, y)
+        await sleep(350)
+        await page.mouse.down()
+        await sleep(95)
+        await page.mouse.up()
+        await sleep(900)
+    }
 }
 
 async function showTooltipTitles(
@@ -154,7 +241,7 @@ test('CinePal scripted demo', async () => {
     // Inject the cursor and start the demo
     const cursor = new Cursor(96, 96)
     await injectMacCursor(page, cursor)
-
+    
     // Click the "Start with Poppy" button to begin the conversation
     await cursor.click(page, page.getByRole('button', { name: 'Start with Poppy' }))
     
@@ -177,9 +264,9 @@ test('CinePal scripted demo', async () => {
     const exemplarStrip = clustersDialog.locator('[class*="overflow-x-auto"]').first()
     const clusterList = clustersDialog.locator('[class*="overflow-y-auto"]').first()
     await smoothScroll(page, cursor, exemplarStrip, 400, 0, 1000)
-	await smoothScroll(page, cursor, exemplarStrip, -400, 0, 1000)
-    await smoothScroll(page, cursor, clusterList, 0, 820, 1050)
-    await smoothScroll(page, cursor, clusterList, 0, -820, 950)
+    await smoothScroll(page, cursor, exemplarStrip, -400, 0, 1000)
+    await smoothScroll(page, cursor, clusterList, 0, 1280, 1250)
+    await smoothScroll(page, cursor, clusterList, 0, -1280, 1050)
     await previewMovieFromInspect(page, cursor, clustersDialog)
     await sleep(rand(250, 450))
     await closeDialog(page, cursor, clustersDialog)
@@ -205,24 +292,83 @@ test('CinePal scripted demo', async () => {
     await humanType(page, chatInput, turns[2].user_message)
     await submitMessageLikeHuman(page, cursor, chatInput, 'enter')
     await waitForTurnComplete(page, chatInput)
-    await fetchSnapshot(page, turns[2].cluster_snapshot_id)
+    const confirmationSnapshot = await fetchSnapshot(page, turns[2].cluster_snapshot_id) as DemoSnapshot
     await sleep(rand(500, 800))
 
-    //Focus and deterministic split
+    await previewFirstCentroids(page, cursor, confirmationSnapshot, 2)
+
+    // Focus and deterministic split
     await humanType(page, chatInput, turns[3].user_message)
     await submitMessageLikeHuman(page, cursor, chatInput, 'enter')
     await waitForTurnComplete(page, chatInput)
     await fetchSnapshot(page, turns[3].cluster_snapshot_id)
+    //Find the chat message container and scroll to the bottom to show the latest message
     const chatMessages = chatInput.locator('xpath=ancestor::div[contains(@class, "border-t")]/preceding-sibling::div[contains(@class, "overflow-y-auto")][1]')
+
     await chatMessages.evaluate((el) => {
         el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
     })
     await sleep(3000)
+    // Confirm the buckets for the split
     await humanType(page, chatInput, turns[4].user_message)
     await submitMessageLikeHuman(page, cursor, chatInput, 'enter')
     await waitForTurnComplete(page, chatInput)
     await fetchSnapshot(page, turns[4].cluster_snapshot_id)
     await sleep(rand(500, 800))
+    
+    // Quick Inspect showcase — scroll only, no clicks
+    await cursor.click(page, page.getByRole('button', { name: 'Inspect' }))
+    const postSplitDialog = page.getByRole('dialog').filter({ hasText: 'Clusters' })
+    await expect(postSplitDialog).toBeVisible({ timeout: 5_000 })
+    await sleep(rand(500, 800))
+    const postSplitStrip = postSplitDialog.locator('[class*="overflow-x-auto"]').first()
+    // Horizontal scroll of exemplar strip to show more exemplars in the split view
+    await smoothScroll(page, cursor, postSplitStrip, 300, 0, 800)
+    await smoothScroll(page, cursor, postSplitStrip, -300, 0, 800)
+    // Vertical scroll of cluster list to show more clusters in the split view
+    const postSplitClusterList = postSplitDialog.locator('[class*="overflow-y-auto"]').first()
+    await smoothScroll(page, cursor, postSplitClusterList, 0, 800, 900)
+    await closeDialog(page, cursor, postSplitDialog)
+    await sleep(rand(500, 800))
+
+    // Turn 5 — colour palette concept axis
+    await chatMessages.evaluate((el) => {
+        el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
+    })
+    await previewUnclusteredMap(page, cursor)
+    await humanType(page, chatInput, turns[5].user_message)
+    await submitMessageLikeHuman(page, cursor, chatInput, 'enter')
+    await waitForTurnComplete(page, chatInput)
+    
+    const colourAxisHoverTitles = [
+        'Mad Max: Fury Road',
+        'Pulp Fiction',
+        'Frozen',
+        'The Dark Knight Rises',
+        'Shutter Island',
+
+    ]
+    await previewConceptAxis(page, cursor, colourAxisHoverTitles)
+    await sleep(rand(500, 800))
+
+    // Turn 6 — confirm 3 clusters + show cluster details
+    await humanType(page, chatInput, turns[6].user_message)
+    await submitMessageLikeHuman(page, cursor, chatInput, 'enter')
+    await waitForTurnComplete(page, chatInput)
+    const finalSnapshot = await fetchSnapshot(page, turns[6].cluster_snapshot_id) as DemoSnapshot
+    await sleep(rand(500, 800))
+
+    await cursor.click(page, page.getByRole('button', { name: 'Inspect' }))
+    const finalClustersDialog = page.getByRole('dialog').filter({ hasText: 'Clusters' })
+    await expect(finalClustersDialog).toBeVisible({ timeout: 5_000 })
+    await sleep(rand(700, 1100))
+    const finalExemplarStrip = finalClustersDialog.locator('[class*="overflow-x-auto"]').first()
+    const finalClusterList = finalClustersDialog.locator('[class*="overflow-y-auto"]').first()
+    await smoothScroll(page, cursor, finalExemplarStrip, 400, 0, 1000)
+    await smoothScroll(page, cursor, finalExemplarStrip, -400, 0, 1000)
+    await smoothScroll(page, cursor, finalClusterList, 0, 1280, 1250)
+
+    // End of the demo — show how to clean up any open dialogs and reset the app state without closing the browser (since it's the user's Chrome)
     const openDialog = page.getByRole('dialog').first()
     if (await openDialog.isVisible()) {
         await closeDialog(page, cursor, openDialog)

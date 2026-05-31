@@ -14,7 +14,6 @@ export function easeInOut(t: number): number {
 export async function humanType(_page: Page, locator: Locator, text: string): Promise<void> {
     await expect(locator).toBeEnabled({ timeout: 15_000 })
     await locator.scrollIntoViewIfNeeded()
-    await locator.click({ force: true })
     await locator.focus()
     await sleep(180)
 
