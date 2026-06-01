@@ -19,7 +19,7 @@ https://github.com/user-attachments/assets/95a79f0f-2e41-40f0-88f5-f9e8a581a8bf
 - [`db/README.md`](db/README.md) — Postgres migrations and loading pre-built HF artifacts.
 - [`dataset/README.md`](dataset/README.md) — Offline data pipeline: TMDB scrape → Colab embed → HF upload.
 - [`demo/README.md`](demo/README.md) — Record/replay demo scripts
-- `eval/` — Offline evaluation harness (forthcoming).
+- [`eval/README.md`](eval/README.md) — Offline evaluation harness: Oracle simulator, judge, runner.
 
 
 ---
