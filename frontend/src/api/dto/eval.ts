@@ -50,7 +50,6 @@ export interface JudgeScoreDto {
 
 export interface ConversationMetricsDto {
     final_num_clusters: number
-    operation_recall: number | null
     clarifier_trigger_rate: number | null
     num_turns: number
     num_operations: number
@@ -80,7 +79,6 @@ export interface EvalSessionDetailDto extends EvalSessionDto {
 
 export interface SessionMetricsDto {
     final_num_clusters: number | null
-    operation_recall: number | null
     clarifier_trigger_rate: number | null
     num_turns: number
     num_operations: number
@@ -103,6 +101,7 @@ export interface SessionAggregateRowDto {
     persona_verbosity: string | null
     persona_patience: number | null
     mean_confidence: number | null
+    ground_truth_slug: string | null
 }
 
 export interface RunAggregateSummaryDto {

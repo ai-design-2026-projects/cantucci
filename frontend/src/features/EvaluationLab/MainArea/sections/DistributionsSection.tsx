@@ -9,7 +9,6 @@ import {
 
 const METRIC_KEYS: Array<{ key: keyof NonNullable<SessionAggregateRowDto['metrics']>; label: string; fmt?: (v: number) => string }> = [
     { key: 'final_num_clusters', label: 'Clusters' },
-    { key: 'operation_recall', label: 'Op Recall', fmt: (v) => `${(v * 100).toFixed(1)}%` },
     { key: 'clarifier_trigger_rate', label: 'Clarifier Rate', fmt: (v) => `${(v * 100).toFixed(1)}%` },
     { key: 'num_turns', label: 'Turns' },
     { key: 'num_operations', label: 'Operations' },
@@ -36,62 +35,8 @@ interface DistributionsSectionProps {
     aggregates: RunAggregateDto[]
 }
 
-/** Horizontal beeswarm strip: one dot per session with mean±CI overlay. */
-function MetricBeeswarm({
-    values,
-    color,
-    fmtVal,
-}: {
-    values: number[]
-    color: string
-    fmtVal?: (v: number) => string
-}) {
-    const stats = computeBoxStats(values)
-    if (!stats || values.length === 0) return <span className="text-[10px] text-[var(--color-muted)]">no data</span>
-
-    const min = Math.min(...values)
-    const max = Math.max(...values)
-    const range = max - min || 1
-    const W = 180
-    const H = 36
-    const r = 3
-    const pad = 10
-
-    const toX = (v: number) => pad + ((v - min) / range) * (W - pad * 2)
-    const ciLo = toX(Math.max(min, stats.ci95[0]))
-    const ciHi = toX(Math.min(max, stats.ci95[1]))
-    const meanX = toX(stats.mean)
-
-    return (
-        <div className="flex flex-col gap-1">
-            <svg width={W} height={H} className="overflow-visible">
-                <rect x={ciLo} y={H / 2 - 6} width={ciHi - ciLo} height={12} fill={color} opacity={0.15} rx={2} />
-                <line x1={meanX} y1={H / 2 - 8} x2={meanX} y2={H / 2 + 8} stroke={color} strokeWidth={2} />
-                {values.map((v, i) => (
-                    <circle
-                        key={i}
-                        cx={toX(v)}
-                        cy={H / 2 + (i % 3 === 0 ? -5 : i % 3 === 1 ? 5 : 0)}
-                        r={r}
-                        fill={color}
-                        opacity={0.6}
-                    />
-                ))}
-            </svg>
-            <div className="flex justify-between text-[9px] text-[var(--color-muted)] px-[10px]">
-                <span>{fmtVal ? fmtVal(min) : fmt(min)}</span>
-                <span className="font-semibold text-[var(--color-text)]">
-                    mean {fmtVal ? fmtVal(stats.mean) : fmt(stats.mean)}
-                </span>
-                <span>{fmtVal ? fmtVal(max) : fmt(max)}</span>
-            </div>
-        </div>
-    )
-}
-
-/** Single-run metric cards with beeswarm. */
+/** Single-run metric cards: mean value with ±CI text. */
 function SingleRunMetrics({ agg }: { agg: RunAggregateDto }) {
-    const color = colorForRun(agg.run.id)
     return (
         <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
             {METRIC_KEYS.map(({ key, label, fmt: fmtFn }) => {
@@ -102,14 +47,12 @@ function SingleRunMetrics({ agg }: { agg: RunAggregateDto }) {
                 return (
                     <div
                         key={key}
-                        className="flex flex-col gap-2 p-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)]"
+                        className="flex flex-col gap-1 p-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)]"
                     >
-                        <div className="flex items-baseline justify-between gap-2">
-                            <span className="text-[10px] uppercase tracking-wide text-[var(--color-muted)]">{label}</span>
-                            <span className="text-sm font-bold text-[var(--color-text)]">
-                                {stats ? (fmtFn ? fmtFn(stats.mean) : fmt(stats.mean)) : '—'}
-                            </span>
-                        </div>
+                        <span className="text-[10px] uppercase tracking-wide text-[var(--color-muted)]">{label}</span>
+                        <span className="text-sm font-bold text-[var(--color-text)]">
+                            {stats ? (fmtFn ? fmtFn(stats.mean) : fmt(stats.mean)) : '—'}
+                        </span>
                         {stats && (
                             <span className="text-[10px] text-[var(--color-muted)]">
                                 ± {fmtFn
@@ -117,7 +60,6 @@ function SingleRunMetrics({ agg }: { agg: RunAggregateDto }) {
                                     : fmt(stats.ci95[1] - stats.mean)} 95% CI
                             </span>
                         )}
-                        <MetricBeeswarm values={values} color={color} fmtVal={fmtFn} />
                     </div>
                 )
             })}
@@ -176,19 +118,15 @@ function TerminationPie({ agg }: { agg: RunAggregateDto }) {
     }))
 
     return (
-        <ResponsiveContainer width="100%" height={180}>
-            <PieChart>
+        <ResponsiveContainer width="100%" height={220}>
+            <PieChart margin={{ top: 8, right: 16, bottom: 16, left: 16 }}>
                 <Pie
                     data={data}
                     cx="50%"
-                    cy="50%"
+                    cy="45%"
                     innerRadius={45}
-                    outerRadius={70}
+                    outerRadius={60}
                     dataKey="value"
-                    label={({ name, percent }: { name?: string; percent?: number }) =>
-                        (percent ?? 0) > 0.05 ? `${name ?? ''} ${((percent ?? 0) * 100).toFixed(0)}%` : ''
-                    }
-                    labelLine={false}
                 >
                     {data.map((entry) => (
                         <Cell key={entry.name} fill={entry.fill} />
@@ -200,6 +138,11 @@ function TerminationPie({ agg }: { agg: RunAggregateDto }) {
                         border: '1px solid var(--color-border)',
                         fontSize: 11,
                     }}
+                    formatter={(v, name) => [v, name]}
+                />
+                <Legend
+                    wrapperStyle={{ fontSize: 11, paddingTop: 8 }}
+                    formatter={(value) => STATUS_LABELS[value] ?? value}
                 />
             </PieChart>
         </ResponsiveContainer>
@@ -230,7 +173,7 @@ export function DistributionsSection({ aggregates }: DistributionsSectionProps) 
                     <SingleRunMetrics agg={agg} />
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="flex flex-col gap-6">
                     <div>
                         <h3 className="text-xs font-semibold uppercase tracking-wide text-[var(--color-muted)] mb-1">
                             Oracle rating breakdown

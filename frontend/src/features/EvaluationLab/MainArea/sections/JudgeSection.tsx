@@ -2,7 +2,7 @@ import type { RunAggregateDto } from '@/api/dto/eval'
 import { BoxPlot } from '../../plots/BoxPlot'
 import { RadarPlot } from '../../plots/Radar'
 import { computeBoxStats, fmt } from '../../plots/stats'
-import { colorForRun } from '../../plots/colors'
+import { colorForRun, paletteAt } from '../../plots/colors'
 
 const JUDGE_DIMENSIONS = [
     'operation_appropriateness',
@@ -10,6 +10,7 @@ const JUDGE_DIMENSIONS = [
     'suggestion_meaningfulness',
     'explanation_quality',
     'intent_alignment',
+    'clustering_coherence',
     'concept_axis_quality',
 ]
 
@@ -19,6 +20,7 @@ const DIMENSION_LABELS: Record<string, string> = {
     suggestion_meaningfulness: 'Suggestion Meaningfulness',
     explanation_quality: 'Explanation Quality',
     intent_alignment: 'Intent Alignment',
+    clustering_coherence: 'Clustering Coherence',
     concept_axis_quality: 'Concept Axis Quality',
 }
 
@@ -28,6 +30,7 @@ const DIMENSION_DESCRIPTIONS: Record<string, string> = {
     suggestion_meaningfulness: 'Were proactive suggestions relevant and actionable given the current cluster state?',
     explanation_quality: 'Were explanations clear, accurate, and helpful to the oracle?',
     intent_alignment: 'Does the final clustering state reflect the oracle\'s overall intent?',
+    clustering_coherence: 'Are the final clusters internally coherent and mutually distinct — do exemplars justify their labels and do clusters differ meaningfully from each other?',
     concept_axis_quality: 'How well-formed were the bipolar concept axes built during the session? (Only scored when axes were created.)',
 }
 
@@ -50,7 +53,7 @@ export function JudgeSection({ aggregates }: JudgeSectionProps) {
 
     const radarEntries = aggregates.map((agg) => {
         const scores: Record<string, { mean: number; ci95: [number, number] }> = {}
-        for (const dim of activeDims) {
+        for (const dim of JUDGE_DIMENSIONS) {
             const values = agg.sessions.flatMap((s) =>
                 s.judge_scores.filter((j) => j.dimension === dim).map((j) => j.score)
             )
@@ -80,7 +83,7 @@ export function JudgeSection({ aggregates }: JudgeSectionProps) {
                 <p className="text-xs text-[var(--color-muted)] mb-3">
                     Radar chart of mean scores per dimension (scale 1 to 5). Each polygon represents one run; overlapping polygons help compare conditions at a glance.
                 </p>
-                <RadarPlot entries={radarEntries} dimensions={activeDims} />
+                <RadarPlot entries={radarEntries} dimensions={JUDGE_DIMENSIONS} />
             </div>
 
             {isSingle ? (
@@ -92,13 +95,13 @@ export function JudgeSection({ aggregates }: JudgeSectionProps) {
                         Mean score with 95% CI for each dimension. The shaded bar spans the CI; the label shows mean and CI half-width. Scores range from 1 (poor) to 5 (excellent).
                     </p>
                     <div className="flex flex-col gap-4">
-                        {activeDims.map((dim) => {
+                        {activeDims.map((dim, i) => {
                             const agg = aggregates[0]
                             const values = agg.sessions.flatMap((s) =>
                                 s.judge_scores.filter((j) => j.dimension === dim).map((j) => j.score)
                             )
                             const stats = computeBoxStats(values)
-                            const color = colorForRun(agg.run.id)
+                            const color = paletteAt(i)
                             const meanPct = stats ? ((stats.mean - 1) / 4) * 100 : 0
                             const loPct = stats ? ((stats.ci95[0] - 1) / 4) * 100 : 0
                             const hiPct = stats ? ((stats.ci95[1] - 1) / 4) * 100 : 0
@@ -106,13 +109,16 @@ export function JudgeSection({ aggregates }: JudgeSectionProps) {
                             return (
                                 <div key={dim} className="flex flex-col gap-1">
                                     <div className="flex items-baseline justify-between gap-2">
-                                        <div>
-                                            <span className="text-xs font-medium text-[var(--color-text)]">
-                                                {DIMENSION_LABELS[dim] ?? dim}
-                                            </span>
-                                            <p className="text-[10px] text-[var(--color-muted)] mt-0.5">
-                                                {DIMENSION_DESCRIPTIONS[dim]}
-                                            </p>
+                                        <div className="flex items-center gap-2">
+                                            <div className="h-2.5 w-2.5 rounded-full shrink-0" style={{ background: color }} />
+                                            <div>
+                                                <span className="text-xs font-medium text-[var(--color-text)]">
+                                                    {DIMENSION_LABELS[dim] ?? dim}
+                                                </span>
+                                                <p className="text-[10px] text-[var(--color-muted)] mt-0.5">
+                                                    {DIMENSION_DESCRIPTIONS[dim]}
+                                                </p>
+                                            </div>
                                         </div>
                                         <span className="text-sm font-bold text-[var(--color-text)] shrink-0">
                                             {stats ? `${fmt(stats.mean)}/5` : '—'}

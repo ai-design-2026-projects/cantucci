@@ -9,7 +9,6 @@ import {
 type GroupBy = 'persona' | 'verbosity' | 'patience'
 
 const METRIC_OPTIONS: Array<{ key: keyof NonNullable<SessionAggregateRowDto['metrics']>; label: string; fmt?: (v: number) => string }> = [
-    { key: 'operation_recall', label: 'Op Recall', fmt: (v) => `${(v * 100).toFixed(1)}%` },
     { key: 'total_cost_usd', label: 'Cost (USD)', fmt: (v) => `$${v.toFixed(4)}` },
     { key: 'num_turns', label: 'Turns' },
 ]
@@ -35,7 +34,7 @@ function patienceBucket(p: number | null): string {
  */
 export function PersonaStatsSection({ aggregates }: PersonaStatsSectionProps) {
     const [groupBy, setGroupBy] = useState<GroupBy>('persona')
-    const [metric, setMetric] = useState<string>('operation_recall')
+    const [metric, setMetric] = useState<string>('total_cost_usd')
 
     if (aggregates.length !== 1) {
         return (

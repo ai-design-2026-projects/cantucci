@@ -214,6 +214,7 @@ class SessionAggregateRowDto(BaseModel):
         persona_verbosity:     Persona verbosity level, or None.
         persona_patience:      Persona patience float [0, 1], or None.
         mean_confidence:       Mean turn-intent confidence for this session, or None.
+        ground_truth_slug:     Ground truth slug for this session, or None.
     """
     eval_session_id: uuid.UUID
     conversation_id: uuid.UUID
@@ -229,6 +230,7 @@ class SessionAggregateRowDto(BaseModel):
     persona_verbosity: str | None
     persona_patience: float | None
     mean_confidence: float | None
+    ground_truth_slug: str | None
 
 
 class RunAggregateSummaryDto(BaseModel):

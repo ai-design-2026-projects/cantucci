@@ -80,8 +80,12 @@ export function SessionsTable({ aggregates }: SessionsTableProps) {
 
     const rows: TableRow[] = aggregates.flatMap((agg) =>
         agg.sessions.map((s) => {
-            const scores = s.judge_scores.map((j) => j.score)
-            const meanJudge = scores.length > 0 ? scores.reduce((a, b) => a + b, 0) / scores.length : null
+            const standardScores = s.judge_scores
+                .filter((j) => j.dimension !== 'concept_axis_quality')
+                .map((j) => j.score)
+            const meanJudge = standardScores.length > 0
+                ? standardScores.reduce((a, b) => a + b, 0) / standardScores.length
+                : null
             return {
                 session: s,
                 runId: agg.run.id,
@@ -107,6 +111,7 @@ export function SessionsTable({ aggregates }: SessionsTableProps) {
                         <SortHeader label="Cost" sortKey="cost" current={sortKey} dir={sortDir} onSort={handleSort} />
                         <SortHeader label="Oracle" sortKey="oracle_rating" current={sortKey} dir={sortDir} onSort={handleSort} />
                         <SortHeader label="Judge avg" sortKey="mean_judge" current={sortKey} dir={sortDir} onSort={handleSort} />
+                        <th className="text-left py-2 px-3 text-[var(--color-muted)] font-medium text-[11px]">GT</th>
                         <th className="text-left py-2 px-3 text-[var(--color-muted)] font-medium text-[11px]">Created</th>
                     </tr>
                 </thead>
@@ -143,6 +148,9 @@ export function SessionsTable({ aggregates }: SessionsTableProps) {
                             <td className="py-1.5 px-3 font-mono">{session.metrics ? fmt(session.metrics.total_cost_usd) : '—'}</td>
                             <td className="py-1.5 px-3 font-mono">{session.oracle_rating ?? '—'}</td>
                             <td className="py-1.5 px-3 font-mono">{meanJudge != null ? fmt(meanJudge) : '—'}</td>
+                            <td className="py-1.5 px-3 text-[10px] text-[var(--color-muted)] font-mono">
+                                {session.ground_truth_slug ?? '—'}
+                            </td>
                             <td className="py-1.5 px-3 text-[10px] text-[var(--color-muted)] whitespace-nowrap">
                                 {new Date(session.created_at).toLocaleDateString(undefined, {
                                     month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',

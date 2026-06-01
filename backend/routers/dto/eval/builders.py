@@ -201,6 +201,7 @@ def build_session_aggregate_row_dto(row: RunAggregateSessionRow) -> SessionAggre
         persona_verbosity=row.persona_verbosity,
         persona_patience=row.persona_patience,
         mean_confidence=row.mean_confidence,
+        ground_truth_slug=row.ground_truth_slug,
     )
 
 

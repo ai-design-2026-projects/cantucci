@@ -352,6 +352,7 @@ class RunAggregateSessionRow:
         persona_patience:      Persona patience float (None when no persona).
         mean_confidence:       Mean turn-intent confidence across the session (None
                                when no turn intents recorded).
+        ground_truth_slug:     Ground truth slug (None when no ground truth).
     """
     id: uuid.UUID
     run_id: uuid.UUID
@@ -376,6 +377,7 @@ class RunAggregateSessionRow:
     persona_verbosity: str | None
     persona_patience: float | None
     mean_confidence: float | None
+    ground_truth_slug: str | None
 
     @classmethod
     def from_row(cls, r: dict) -> "RunAggregateSessionRow":
@@ -409,4 +411,5 @@ class RunAggregateSessionRow:
             persona_verbosity=r.get("persona_verbosity"),
             persona_patience=float(r["persona_patience"]) if r.get("persona_patience") is not None else None,
             mean_confidence=float(r["mean_confidence"]) if r.get("mean_confidence") is not None else None,
+            ground_truth_slug=r.get("ground_truth_slug"),
         )

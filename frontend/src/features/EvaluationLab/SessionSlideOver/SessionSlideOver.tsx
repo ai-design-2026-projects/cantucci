@@ -5,7 +5,6 @@ import { useSessionDetail } from '../hooks/useSessionDetail'
 import { TurnIntentsTable } from './TurnIntentsTable'
 import { JudgeScoreList } from './JudgeScoreList'
 import { TranscriptLink } from './TranscriptLink'
-import { GTComparisonTable } from './GTComparisonTable'
 import { PersonaDialog } from './PersonaDialog'
 
 const STATUS_LABELS: Record<string, string> = {
@@ -64,6 +63,8 @@ export function SessionSlideOver() {
                                         },
                                         { label: 'Oracle rating', value: data.oracle_rating != null ? `${data.oracle_rating}/5` : '—' },
                                         { label: 'Condition', value: data.condition },
+                                        { label: 'Ground truth', value: data.ground_truth?.slug ?? '—' },
+                                        { label: 'GT intent', value: data.ground_truth?.intent_description ?? '—' },
                                         { label: 'Seed', value: String(data.seed) },
                                         { label: 'Persona', value: data.persona?.slug ?? '—' },
                                         { label: 'Verbosity', value: data.persona?.verbosity ?? '—' },
@@ -91,12 +92,6 @@ export function SessionSlideOver() {
                                         { label: 'Turns', value: String(data.metrics.num_turns) },
                                         { label: 'Operations', value: String(data.metrics.num_operations) },
                                         { label: 'Cost (USD)', value: `$${data.metrics.total_cost_usd.toFixed(5)}` },
-                                        {
-                                            label: 'Op recall',
-                                            value: data.metrics.operation_recall != null
-                                                ? `${(data.metrics.operation_recall * 100).toFixed(1)}%`
-                                                : '—',
-                                        },
                                         {
                                             label: 'Clarifier rate',
                                             value: data.metrics.clarifier_trigger_rate != null
@@ -130,18 +125,6 @@ export function SessionSlideOver() {
                                 <p className="text-xs text-[var(--color-muted)]">No turn intents recorded.</p>
                             )}
                         </section>
-
-                        {data.ground_truth && data.turn_intents.length > 0 && (
-                            <section className="px-6 py-4 border-b border-[var(--color-border)]">
-                                <h3 className="text-[10px] font-semibold uppercase tracking-wide text-[var(--color-muted)] mb-1">
-                                    GT vs executed comparison
-                                </h3>
-                                <p className="text-[10px] text-[var(--color-muted)] mb-3">
-                                    Aligned view of the target ground-truth trajectory (left) against what the system actually executed (right).
-                                </p>
-                                <GTComparisonTable groundTruth={data.ground_truth} intents={data.turn_intents} />
-                            </section>
-                        )}
 
                         <section className="px-6 py-4 flex items-center gap-3 flex-wrap">
                             <TranscriptLink conversationId={data.conversation_id} />

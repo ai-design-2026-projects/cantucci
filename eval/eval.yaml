@@ -113,6 +113,7 @@ eval_harness:
       - suggestion_meaningfulness
       - explanation_quality
       - intent_alignment
+      - clustering_coherence
       - concept_axis_quality
     pole_sample_k: 5      # films sampled from each pole for concept_axis_quality scoring
     exemplar_k: 5         # max exemplar titles shown per cluster in judge prompt

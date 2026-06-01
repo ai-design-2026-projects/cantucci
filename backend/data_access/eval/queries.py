@@ -717,12 +717,14 @@ def get_run_aggregate(run_id: uuid.UUID) -> tuple[RunRow | None, list[RunAggrega
                 p.slug AS persona_slug,
                 p.verbosity AS persona_verbosity,
                 p.patience AS persona_patience,
-                sc.mean_confidence
+                sc.mean_confidence,
+                gt.slug AS ground_truth_slug
             FROM eval_sessions es
             LEFT JOIN conversation_metrics cm ON cm.conversation_id = es.conversation_id
             LEFT JOIN session_judge sj ON sj.conversation_id = es.conversation_id
             LEFT JOIN personas p ON p.id = es.persona_id
             LEFT JOIN session_confidence sc ON sc.conversation_id = es.conversation_id
+            LEFT JOIN ground_truths gt ON gt.id = es.ground_truth_id
             WHERE es.run_id = %s
             ORDER BY es.created_at ASC
             """,

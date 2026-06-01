@@ -107,7 +107,7 @@ async def judge_conversation(
         if d != "concept_axis_quality" or has_axes
     ]
 
-    template = _ENV.get_template("judge_v4.j2")
+    template = _ENV.get_template("judge_v5.j2")
     prompt = template.render(
         intent_description=ground_truth_intent_description or "(not provided)",
         ground_truth_operations=ground_truth_operations or [],
