@@ -10,7 +10,7 @@ Extensions required: `vector` (pgvector, for `VECTOR` columns), `pgcrypto` (for 
 and `pg_trgm` (trigram indexing). See `db/migrations/001_extensions.sql`.
 
 The authoritative source is the numbered migrations under `db/migrations/`; this document is the
-effective final shape after migrations 001–011.
+effective final shape after migrations 001–017.
 
 ---
 
@@ -166,7 +166,7 @@ CREATE TABLE users (
 ```
 
 The register endpoint always creates `role = user`. The `roles` table seeds both `user` and
-`admin`, but no HTTP route checks for `admin` in the current backend.
+`admin`. Admin-scoped JWTs are required for all `/eval/*` routes (resolved by `require_admin` in `backend/routers/auth_deps.py`).
 
 ---
 
@@ -339,7 +339,9 @@ CREATE TABLE messages (
     role            TEXT        NOT NULL CHECK (role IN ('user', 'assistant')),
     content         TEXT        NOT NULL,
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    cost_usd        FLOAT       NOT NULL DEFAULT 0.0
+    cost_usd        FLOAT       NOT NULL DEFAULT 0.0,
+    suggestion      TEXT,                       -- proactive next-step suggestion text; NULL when absent
+    axis_concept_id UUID        REFERENCES concepts(id) ON DELETE SET NULL  -- linked linear-axis concept; NULL when absent
 );
 
 CREATE INDEX ON messages (conversation_id);
@@ -372,7 +374,8 @@ CREATE TABLE clusters (
     label               TEXT,                   -- NULL for unlabelled root clusters; filled lazily
     summary             TEXT,
     exemplar_movie_ids  JSONB       DEFAULT '[]',
-    parent_cluster_id   UUID        REFERENCES clusters(id)
+    parent_cluster_id   UUID        REFERENCES clusters(id),
+    color_slot          INT         NOT NULL    -- stable hue index; inherited by carry-forward clusters
 );
 ```
 
@@ -436,14 +439,11 @@ CREATE INDEX ON concept_scores (concept_id);
 
 ```
 catalogue:
-  collections ◄── movies ──► movie_genres       ──► genres
-                      │
-                      ├──► cast_members          ──► people
-                      ├──► crew_members          ──► people
-                      ├──► movie_keywords        ──► keywords
-                      ├──► movie_companies       ──► production_companies
-                      ├──► movie_spoken_languages ──► languages
-                      └──► movie_countries       ──► countries
+  movies ──► movie_genres       ──► genres
+     │
+     ├──► cast_members          ──► people
+     ├──► crew_members          ──► people
+     └──► movie_keywords        ──► keywords
 
 runtime:
   roles ◄── users ──► conversations ──► messages

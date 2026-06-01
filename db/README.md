@@ -50,6 +50,11 @@ Re-running `apply` is safe — files already recorded in `schema_migrations` are
 | `010_trailer_embedding_index.sql` | IVFFlat index on `movies.trailer_embedding` for fast cosine-similarity search |
 | `011_message_and_conversation_costs.sql` | `cost_usd` on `messages`; `accumulated_cost_usd` on `conversations` |
 | `012_evaluation.sql` | Eval harness tables: `personas`, `ground_truths`, `eval_sessions`, `conversation_metrics`, `judge_scores`; extends `runs` with `name`, `condition`, `model_version`, `ended_at`, `status`, `notes` |
+| `013_cluster_color_slot.sql` | `color_slot INT NOT NULL` on `clusters` — stable hue assignment via golden angle |
+| `014_message_axis.sql` | `suggestion TEXT` and `axis_concept_id UUID` on `messages` — persist suggestion text and axis link |
+| `015_drop_clustering_metrics.sql` | Drop `silhouette`, `mean_membership_prob`, `noise_fraction` from `conversation_metrics` |
+| `016_widen_eval_status.sql` | Widen `status` and `condition` to `VARCHAR(40)` on `eval_sessions` and `runs` |
+| `017_drop_operation_recall.sql` | Drop `operation_recall` from `conversation_metrics` (replaced by judge's `operation_appropriateness`) |
 
 ---
 

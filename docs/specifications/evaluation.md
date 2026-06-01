@@ -10,7 +10,7 @@ Our main objective is to explore the following question:
 
 We approach this from three angles:
 
-- **Operation choice**: given a free-form oracle message, does the Intent agent pick the right navigation operation (`cluster`, `merge`, `focus`, `cross_filter`, `exclude`) and the right parameters (concept, target cluster, modalities)?
+- **Operation choice**: given a free-form oracle message, does the Intent agent pick the right navigation operation (`drill_down`, `merge`, `focus`, `cross_filter`, `exclude`, `partition_by`) and the right parameters (concept, target cluster, modalities)?
 - **Cluster update strategy**: do concept-guided splits, soft HDBSCAN memberships, and the content-addressed snapshot tree yield more stable, more separable clusters than plain re-clustering on raw embeddings?
 - **Satisfaction**: how do we assess clustering quality when there is no recommended film list — only a sequence of cluster snapshots — and how far do those assessments generalise?
 
@@ -24,7 +24,7 @@ A **single-prompt baseline**: one LLM call per turn receives the full film list,
 
 ## 3 Ground-truth construction
 
-A ground truth is a **target navigation trajectory**: an ordered list of operations — each tagged with its operation type and its concept — together with an *intent description* that paraphrases that trajectory in natural language.  Operations are drawn from the full navigation vocabulary: `cluster`, `merge`, `focus`, `cross_filter`, `exclude`. Concept-guided `cluster` and `exclude` operations carry an optional `kind` (`axis`, `palette`, `open_ended`) and `space` (`semantic`, `visual`) to express richer exploration goals.
+A ground truth is a **target navigation trajectory**: an ordered list of operations — each tagged with its operation type and its concept — together with an *intent description* that paraphrases that trajectory in natural language.  Operations are drawn from the full navigation vocabulary: `drill_down`, `merge`, `focus`, `cross_filter`, `exclude`, `partition_by`. Concept-guided `drill_down` and `exclude` operations carry an optional `kind` (`axis`, `palette`, `open_ended`) and `space` (`semantic`, `visual`) to express richer exploration goals.
 
 Persona and ground truth are bundled together as a **persona bundle** (`eval/personas/<slug>.yaml`) — a human-editable YAML file that is the canonical source of truth. Database rows are derived from the file at run time (idempotent upsert by slug).
 
@@ -92,10 +92,10 @@ All metrics are persisted after each session in `conversation_metrics` (determin
 
 | Metric | How measured |
 |---|---|
-| **Operation recall vs GT** | Fraction of ground-truth operations (matched by operation type and concept) that the system actually executed during the session. `NULL` for human-oracle sessions. The primary structural quality signal. |
+| **Operation recall vs GT** | Fraction of ground-truth operations (matched by operation type and concept) that the system actually executed during the session. `NULL` for human-oracle sessions. Computed offline; not stored in `conversation_metrics` (see `judge_scores.operation_appropriateness`). |
 | **Clarifier trigger rate** | Fraction of turns on which the Clarifier gate fired and the turn returned without mutating state. |
 | **Num turns** | Total oracle turns in the conversation. |
-| **Num operations** | Total navigation operations executed across the session (`cluster`, `merge`, `focus`, `cross_filter`, `exclude`) |
+| **Num operations** | Total navigation operations executed across the session (`drill_down`, `merge`, `focus`, `cross_filter`, `exclude`, `partition_by`) |
 | **Final num clusters** | Number of clusters in the final snapshot. |
 | **Total cost (USD)** | `conversations.accumulated_cost_usd` — the running total of all LLM costs for the session. |
 | **Oracle rating** | Self-rating (1–5) emitted by the simulated oracle at session end, summarising how well the system understood its intent and executed the requested operations. `NULL` for human-oracle sessions. |
@@ -107,7 +107,7 @@ A separate judge (`eval/judge/agent.py`) reads the completed transcript, the per
 
 | Dimension | What is assessed |
 |---|---|
-| `operation_appropriateness` | Across the session, did the system pick the right operation (`cluster`, `merge`, `focus`, `cross_filter`, `exclude`) given each oracle message, with sensible parameters (concept, target cluster, modalities)? |
+| `operation_appropriateness` | Across the session, did the system pick the right operation (`drill_down`, `merge`, `focus`, `cross_filter`, `exclude`, `partition_by`) given each oracle message, with sensible parameters (concept, target cluster, modalities)? |
 | `label_accuracy` | Do the cluster labels and summaries accurately describe their exemplar films at each snapshot, and do they remain consistent across snapshots and turns? |
 | `clustering_coherence` | Do the films within each cluster genuinely belong together? For each cluster, do the exemplar films share a common characteristic consistent with the cluster's label, and is the grouping tight rather than overly broad? |
 | `suggestion_meaningfulness` | When the Responder volunteers a follow-up suggestion, is it relevant to the current snapshot state, well-timed, and non-redundant with what the oracle has already requested? Only emitted when at least one suggestion was offered. |

@@ -18,11 +18,11 @@ backend/
   exceptions.py        DomainError base + NotFoundError / ParseError / AuthError / OperationalError
   CLAUDE.md            Type-layering and exception conventions for backend contributors
   auth/                JWT encode/decode; bcrypt password hashing
-  data_access/         ONLY layer that runs SQL — movies, conversations, cluster_snapshots, concepts, users
+  data_access/         ONLY layer that runs SQL — movies, conversations, cluster_snapshots, concepts, users, eval
   agents/              LLM-backed agents: intent, clarifier, concept, explanation, responder, labeling
                        base.py — LLMAgent abstract base class shared by all agents
   coordinator/         Orchestrator + command layer (moved out of agents/ — it is not an agent)
-                       agent.py — Coordinator class; commands/ — 11 command classes; tools/ — shared helpers
+                       agent.py — Coordinator class; commands/ — 13 command classes; pipeline/ — 6 turn phases; tools/ — shared helpers
   llm/                 LLM harness + types + exceptions (CostLimitExceeded, LLMParseError, ReplayDriftError)
   routers/             HTTP endpoints; dto/ holds Pydantic wire models
 configs/dev.yaml       Local/dev config (free OpenRouter models; no-CONFIG_PATH fallback)
@@ -46,15 +46,20 @@ db/
 demo/
   demo_record.sh       Record a live session to a JSONL manifest
   demo_replay.sh       Replay a recorded manifest with zero live LLM calls
-  manifests/           JSONL manifests produced by demo_record.sh
+  recordings/          JSONL manifests produced by demo_record.sh
+  utils/               Python helpers: record.py, replay.py, state.py
+  playwright/          Playwright automation scripts
 eval/
+  run.py               CLI entry point: python -m eval.run (run sessions + evaluate)
+  build/               Bundle builder: python -m eval.builder (creates persona bundles)
+  oracle/              LLM-simulated oracle: agent.py, types.py, prompts/oracle_v2.j2
+  judge/               LLM-as-judge (7 dims): agent.py, types.py, prompts/judge_v4.j2
   metrics/             Deterministic metrics: final_num_clusters, cost, clarifier_trigger_rate, num_turns, num_operations
-  run.py               CLI entry point: python -m eval.run (subcommands: create-run, simulate, evaluate)
-  oracle/              LLM-simulated oracle: agent.py, types.py, prompts/oracle_v5.j2
-  judge/               LLM-as-judge (7 dims): agent.py, types.py, prompts/judge_v5.j2
-  (SQL for eval lives in backend/data_access/evaluation/ — the sole SQL layer)
+  personas/            Bundle store: conf/<slug>.yaml files + store.py
+  runtime/             Session driver: session.py, batch.py, evaluate.py, handlers.py, termination.py
+  (SQL for eval lives in backend/data_access/eval/ — the sole SQL layer)
 frontend/              React + Vite + TypeScript; zustand + react-query; vitest
-tests/                 agents/, data_access/, postprocess/ — Postgres via testcontainers
+tests/                 backend/, db/ — Postgres via testcontainers
 notebooks/embed_in_colab.ipynb  Stage-2 GPU embedding; reads HF snapshot, uploads embeddings/ back
 ```
 
@@ -110,7 +115,7 @@ npm run test:watch
 ## Architecture — things that span files
 
 **Per-turn flow** (orchestrator is the sole DB writer):
-Oracle → `routers/sessions.py` → `Orchestrator.run_turn` → Retrieval Agent → Cluster Agent → Decision Agent → (Ambiguity Agent if *continue*) → Orchestrator writes turn / clusters / feedback → response to client. Sub-agents are read-only.
+Oracle → `routers/conversations.py` → `Coordinator.handle_message` → Labeling Agent → Intent Agent → (Clarifier if low confidence) → Command execution (Concept/Clustering/Explain/SmallTalk) → Responder → Coordinator writes messages / snapshots → response to client. Sub-agents are read-only.
 
 **Replayability contract**: every session row stores `seed` + full YAML `config_snapshot`. `runs.config_hash` is the SHA-256 prefix from `backend.settings.get_config_hash()`. Any non-deterministic change to the turn path breaks this and must be flagged.
 
@@ -120,7 +125,7 @@ Oracle → `routers/sessions.py` → `Orchestrator.run_turn` → Retrieval Agent
 
 **LLM harness** (`backend/llm/llm_harness.py`): `call()` is the only entry point. Enforces `cost_limit_usd` before each call (raises `CostLimitExceeded`), retries 3× on transient OpenAI errors with exponential backoff, supports `dry_run=True` for tests, emits one `log_llm_call(...)` record per attempt.
 
-**Partition advisor** (`backend/agents/partition_advisor/agent.py`): called when a `partition_by` on a numeric attribute (`runtime`, `release_year`, `vote_average`) has no user-supplied bins. `propose_bins(attribute, stats)` is fully deterministic — it snaps the p33/p67 positions of the distribution to the nearest round-number candidate edge (multiples of 15/30 for runtime, decade boundaries for release_year, 0.5 increments for vote_average) and builds 3 labelled `PartitionBin` objects. No LLM call is made; `cost` is always 0.0.
+**Partition bins** (`backend/coordinator/commands/helpers/bins.py`): called when a `partition_by` on a numeric attribute (`runtime`, `release_year`, `vote_average`) has no user-supplied bins. `propose_bins(attribute, stats)` is fully deterministic — it snaps the p33/p67 positions of the distribution to the nearest round-number candidate edge (multiples of 15/30 for runtime, decade boundaries for release_year, 0.5 increments for vote_average) and builds 3 labelled `PartitionBin` objects. No LLM call is made; `cost` is always 0.0.
 
 **DB access boundary**: nothing outside `backend/data_access/` opens a cursor. `backend/data_access/connection.py` exposes a connection pool + `transaction()` context manager; each `data_access/<domain>/queries.py` is a typed CRUD module consumed by routers and agents.
 

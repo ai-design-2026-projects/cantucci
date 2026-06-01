@@ -41,7 +41,9 @@ We can distinguish two families:
 | `focus` | navigation | Discard every cluster except the selected one, narrowing the working set to its members. | "just keep the sci-fi cluster" |
 | `cross_filter` | navigation | Keep only movies matching a metadata predicate (genres, year range, director) | "only 90s movies directed by Spielberg, then regroup" |
 | `partition_by` | navigation | Group a cluster (or the whole catalogue) into contiguous buckets of a numeric attribute (`runtime`, `release_year`, `vote_average`). When no bins are supplied the Coordinator proposes round-number defaults and asks the oracle to confirm before clustering. | "split by decade", "group by runtime" |
+| `exclude` | navigation | Remove movies matching a concept or metadata predicate from the working set and re-cluster the remainder. | "get rid of all the horror films", "exclude anything before 1980" |
 | `reset` | dialogue | Return to the unclustered state (no active snapshot). | "start over" |
+| `undo` | dialogue | Step back to the previous snapshot, undoing the last navigation operation. | "undo that", "go back" |
 | `explain` | dialogue | Explain why a given movie sits in a given cluster. | "why is Blade Runner in this group?" |
 | `small_talk` | dialogue | Casual, non-operational message; answered with a static help reply. | "what can you do?" |
 
@@ -81,7 +83,7 @@ The intent agent picks which modalities to fuse per operation via `embedding_spa
 
 ## Clustering
 
-The Clustering Agent (`core/clustering.py`, `backend/agents/clustering/operations/`) is a pure
+The Clustering Agent (`core/clustering.py`, `backend/coordinator/commands/`) is a pure
 computation layer: it receives embeddings or a precomputed distance matrix and returns a
 `ClusterSnapshotDraft`; it never writes to the DB.
 
@@ -99,7 +101,7 @@ produces either a `linear_axis` (normalised difference of two pole descriptions)
 is split at the **median** score into high/low halves, and each half is clustered independently to
 produce more concept-coherent groups.
 
-**Persist & label** (`backend/agents/coordinator/tools/persist.py`) — after the Clustering Agent
+**Persist & label** (`backend/coordinator/tools/persist.py`) — after the Clustering Agent
 returns a draft, the Coordinator checks the **content-addressed cache** keyed by
 `(parent_snapshot_id, operation, canonical_params, config_hash)`. On a cache hit the existing
 snapshot is reused with no re-labelling cost. On a miss: a new `cluster_snapshots` row is created,
@@ -123,8 +125,8 @@ forward. Two structures (defined in `data_schema.md`) make this work:
   snapshots themselves are shared.
 
 **Going back** is just re-pointing `conversations.current_cluster_snapshot_id` at an earlier node — no
-recomputation. `PATCH /conversations/{id}` (and the MCP `navigate_to_snapshot` tool) sets the active
-snapshot to any prior snapshot id; `reset` clears the pointer to the unclustered state. `GET /conversations/{id}/cluster-snapshots`
+recomputation. `PATCH /conversations/update_snapshot/{id}` (and the MCP `navigate_to_snapshot` tool) sets the active
+snapshot to any prior snapshot id; `reset` clears the pointer to the unclustered state. `GET /conversations/get_cluster_snapshot/{id}`
 returns the whole node set (id, parent_id, operation, created_at) so a client can render the tree and
 let the oracle click a past state to return to it.
 
@@ -141,7 +143,7 @@ snapshot's parent, so the graph never loses a state that is still on someone's p
 <img src="../../media/flowchart.svg" style="background:#fff;padding:8px;" />
 
 Each user message is handled by a stateless `Coordinator.handle_message`
-(`backend/agents/coordinator/agent.py`), which loads current state from the DB, runs a
+(`backend/coordinator/agent.py`), which loads current state from the DB, runs a
 **deterministic sequential pipeline**, and writes results back. A `ProgressReporter` emits SSE
 step events throughout (consumed by `GET /conversations/{id}/events`).
 
