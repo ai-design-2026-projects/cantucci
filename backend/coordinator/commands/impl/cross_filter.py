@@ -40,10 +40,19 @@ class CrossFilterCommand:
             ActionResult with reply, new snapshot id, and cost.
         """
         ctx.reporter.step("clustering")
-        draft = await cross_filter(
-            parent_cluster_snapshot_id=ctx.current_cluster_snapshot_id,
-            metadata_filter=self.metadata_filter,
-        )
+        try:
+            draft = await cross_filter(
+                parent_cluster_snapshot_id=ctx.current_cluster_snapshot_id,
+                metadata_filter=self.metadata_filter,
+            )
+        except ValueError as exc:
+            if "No movies matched" in str(exc):
+                return ActionResult(
+                    reply_fragment=replies.NO_MOVIES_MATCHED_FILTER,
+                    cluster_snapshot_id=ctx.current_cluster_snapshot_id,
+                    step_cost=0.0,
+                )
+            raise
         new_snapshot_id, step_cost, n_movies, _ = await persist_draft(ctx, draft)
         return ActionResult(
             reply_fragment=replies.format_cross_filter_reply(n_movies),

@@ -34,7 +34,7 @@ async def execute_deterministic(cmd: ClusterCommand, ctx: ExecutionContext) -> A
 
     spec = cmd.partition_spec  # type: ignore[assignment]
 
-    if cmd.target_cluster_id is None and ctx.clusters:
+    if cmd.target_cluster_id is None and len(ctx.clusters) > 1:
         mark_awaiting(
             ctx.conversation_id,
             pending_spec=PartitionSpec(attribute=spec.attribute, bins=None),

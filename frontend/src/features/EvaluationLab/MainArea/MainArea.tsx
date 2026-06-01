@@ -91,7 +91,7 @@ export function MainArea({ aggregates, isLoading }: MainAreaProps) {
 
             <Section
                 title="Sessions"
-                description="All sessions for the selected run(s). Click any row to open the full session detail including judge scores, turn intents, GT comparison, and transcript."
+                description="All sessions for the selected run(s). Click any row to open the full session detail including judge scores, turn intents, and transcript."
             >
                 <SessionsTable aggregates={aggregates} />
             </Section>

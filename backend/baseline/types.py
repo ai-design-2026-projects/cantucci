@@ -54,6 +54,7 @@ class SystemTurnResult:
         turn_cost_usd:       LLM cost incurred during this turn.
         suggestion:          Optional follow-up suggestion text.
         turn_trace:          Structured intent trace for turn_intents persistence.
+        axis_concept_id:     UUID of the concept axis proposed this turn, if any.
     """
 
     reply_text: str
@@ -61,3 +62,4 @@ class SystemTurnResult:
     turn_cost_usd: float = 0.0
     suggestion: str | None = None
     turn_trace: TurnTrace | None = None
+    axis_concept_id: uuid.UUID | None = None

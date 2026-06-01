@@ -65,10 +65,9 @@ async def oracle_turn(
     model = harness_cfg.oracle
 
     verbosity_hint = _VERBOSITY_HINTS.get(persona.verbosity, _VERBOSITY_HINTS["medium"])
-    tail_size = harness_cfg.runner.transcript_tail
-    transcript_tail = transcript[-tail_size:] if len(transcript) > tail_size else transcript
+    last_turn_was_explain = bool(evolution_trace) and "explain" in evolution_trace[-1]["modes"]
 
-    template = _ENV.get_template("oracle_v5.j2")
+    template = _ENV.get_template("oracle_v7.j2")
     prompt = template.render(
         intent_description=ground_truth.intent_description,
         verbosity=persona.verbosity,
@@ -76,10 +75,11 @@ async def oracle_turn(
         patience=persona.patience,
         current_snapshot=current_snapshot,
         evolution_trace=evolution_trace,
-        transcript_tail=transcript_tail,
+        transcript=transcript,
         turn_number=turn_number,
         max_turns=harness_cfg.runner.max_turns,
         pending_axis=pending_axis,
+        last_turn_was_explain=last_turn_was_explain,
     )
 
     resp = await llm_harness.call(

@@ -63,7 +63,7 @@ Score each dimension on a 1–5 scale (1 = very poor, 5 = excellent).
 
 1. operation_appropriateness — Did the system execute the correct clustering operations in response to each oracle message? A score of 5 means the system correctly interpreted and executed the intended operation type each turn; a score of 1 means operations were wrong, ignored, or repeatedly incorrect.
 
-2. label_accuracy — Do the cluster labels and summaries accurately describe their exemplar films? A score of 5 means labels are precise and instantly recognisable from the exemplars; a score of 1 means labels are misleading, generic, or contradicted by the exemplars shown.
+2. label_accuracy — Do the cluster labels reflect what the oracle actually asked for during the conversation? Use only the conversation transcript and the per-turn action log — ignore the ground truth intent entirely. Labels are cumulative: each split appends a new suffix to the parent label, so "Action Dramatic Adventures" means the parent was "Dramatic Adventures" and the latest split was by genre. Judge only the suffix added by the most recent operation. Examples of a 5: oracle says "split by genre" and the new suffix is a genre name; oracle says "split by runtime" and the suffix is a length category; oracle says "split by mood" and the suffix names a mood. A score of 1 means the suffix does not match what the oracle requested in the conversation, is generic, or is missing.
 
 3. suggestion_meaningfulness — Were the system's proactive suggestions (when offered) relevant and actionable given the current clustering state? A score of 5 means every suggestion was insightful and appropriate; a score of 1 means suggestions were irrelevant, repetitive, or absent when clearly warranted.
 
@@ -89,7 +89,7 @@ Example:
 {
   "scores": [
     {"dimension": "operation_appropriateness", "score": 4, "rationale": "Operations were correct on most turns; one merge was interpreted as a focus."},
-    {"dimension": "label_accuracy", "score": 5, "rationale": "Labels precisely matched the exemplar films shown."},
+    {"dimension": "label_accuracy", "score": 5, "rationale": "Oracle asked to split by genre and labels were genre names (Action, Drama, Comedy)."},
     {"dimension": "suggestion_meaningfulness", "score": 3, "rationale": "Suggestions were relevant but arrived too early in the session."},
     {"dimension": "explanation_quality", "score": 4, "rationale": "Explanations were clear and accurate throughout."},
     {"dimension": "intent_alignment", "score": 4, "rationale": "Final clusters closely matched the oracle's stated intent."},

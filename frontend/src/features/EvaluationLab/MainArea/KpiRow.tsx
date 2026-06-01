@@ -32,12 +32,8 @@ export function KpiRow({ aggregates }: KpiRowProps) {
     if (aggregates.length === 1) {
         const agg = aggregates[0]
         const sessions = agg.sessions
-        const costs = sessions.flatMap((s) => (s.metrics ? [s.metrics.total_cost_usd] : []))
-        const turns = sessions.flatMap((s) => (s.metrics ? [s.metrics.num_turns] : []))
         const ratings = sessions.flatMap((s) => (s.oracle_rating != null ? [s.oracle_rating] : []))
 
-        const costStats = computeBoxStats(costs)
-        const turnStats = computeBoxStats(turns)
         const ratingStats = computeBoxStats(ratings)
         const confidences = sessions.flatMap((s) => (s.mean_confidence != null ? [s.mean_confidence] : []))
         const confStats = computeBoxStats(confidences)
@@ -49,7 +45,7 @@ export function KpiRow({ aggregates }: KpiRowProps) {
             : 0
 
         return (
-            <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
                 <KpiCard
                     label="Sessions"
                     value={String(agg.summary.n_sessions)}
@@ -58,16 +54,6 @@ export function KpiRow({ aggregates }: KpiRowProps) {
                 <KpiCard
                     label="% Completed"
                     value={`${pctCompleted}%`}
-                />
-                <KpiCard
-                    label="Mean Cost (USD)"
-                    value={costStats ? fmt(costStats.mean) : '—'}
-                    sub={costStats ? `± ${fmt(costStats.ci95[1] - costStats.mean)} 95% CI` : undefined}
-                />
-                <KpiCard
-                    label="Mean Turns"
-                    value={turnStats ? fmt(turnStats.mean) : '—'}
-                    sub={turnStats ? `± ${fmt(turnStats.ci95[1] - turnStats.mean)} 95% CI` : undefined}
                 />
                 <KpiCard
                     label="Mean Oracle Rating"
@@ -96,8 +82,6 @@ export function KpiRow({ aggregates }: KpiRowProps) {
                         <th className="text-left py-2 px-3 text-[var(--color-muted)] font-medium">Run</th>
                         <th className="text-right py-2 px-3 text-[var(--color-muted)] font-medium">Sessions</th>
                         <th className="text-right py-2 px-3 text-[var(--color-muted)] font-medium">Completed %</th>
-                        <th className="text-right py-2 px-3 text-[var(--color-muted)] font-medium">Mean Cost</th>
-                        <th className="text-right py-2 px-3 text-[var(--color-muted)] font-medium">Mean Turns</th>
                         <th className="text-right py-2 px-3 text-[var(--color-muted)] font-medium">Oracle Rating</th>
                         <th className="text-right py-2 px-3 text-[var(--color-muted)] font-medium">Judge avg</th>
                         <th className="text-right py-2 px-3 text-[var(--color-muted)] font-medium">Confidence</th>
@@ -106,15 +90,11 @@ export function KpiRow({ aggregates }: KpiRowProps) {
                 <tbody>
                     {aggregates.map((agg) => {
                         const sessions = agg.sessions
-                        const costs = sessions.flatMap((s) => (s.metrics ? [s.metrics.total_cost_usd] : []))
-                        const turns = sessions.flatMap((s) => (s.metrics ? [s.metrics.num_turns] : []))
                         const ratings = sessions.flatMap((s) => (s.oracle_rating != null ? [s.oracle_rating] : []))
                         const confidences = sessions.flatMap((s) => (s.mean_confidence != null ? [s.mean_confidence] : []))
                         const pct = agg.summary.n_sessions > 0
                             ? Math.round((agg.summary.n_completed / agg.summary.n_sessions) * 100)
                             : 0
-                        const cStats = computeBoxStats(costs)
-                        const tStats = computeBoxStats(turns)
                         const rStats = computeBoxStats(ratings)
                         const jScores = sessions.flatMap((s) => s.judge_scores.map((j) => j.score))
                         const jStats = computeBoxStats(jScores)
@@ -124,8 +104,6 @@ export function KpiRow({ aggregates }: KpiRowProps) {
                                 <td className="py-1.5 px-3 font-medium">{agg.run.name ?? agg.run.id.slice(0, 8)}</td>
                                 <td className="py-1.5 px-3 text-right">{agg.summary.n_sessions}</td>
                                 <td className="py-1.5 px-3 text-right">{pct}%</td>
-                                <td className="py-1.5 px-3 text-right font-mono">{cStats ? fmt(cStats.mean) : '—'}</td>
-                                <td className="py-1.5 px-3 text-right font-mono">{tStats ? fmt(tStats.mean) : '—'}</td>
                                 <td className="py-1.5 px-3 text-right font-mono">{rStats ? fmt(rStats.mean) : '—'}</td>
                                 <td className="py-1.5 px-3 text-right font-mono">{jStats ? `${fmt(jStats.mean)} / 5` : '—'}</td>
                                 <td className="py-1.5 px-3 text-right font-mono">{cfStats ? `${Math.round(cfStats.mean * 100)}%` : '—'}</td>

@@ -140,11 +140,12 @@ export function PersonaStatsSection({ aggregates }: PersonaStatsSectionProps) {
             {chartData.length === 0 ? (
                 <p className="text-xs text-[var(--color-muted)]">No data for this grouping.</p>
             ) : (
+                <div className="flex justify-center">
                 <ResponsiveContainer width="100%" height={Math.max(120, chartData.length * 36 + 40)}>
                     <BarChart
                         data={chartData}
                         layout="vertical"
-                        margin={{ left: 110, right: 60, top: 4, bottom: 4 }}
+                        margin={{ left: 110, right: 110, top: 4, bottom: 4 }}
                     >
                         <CartesianGrid stroke="var(--color-border)" strokeOpacity={0.4} horizontal={false} />
                         <XAxis
@@ -177,6 +178,7 @@ export function PersonaStatsSection({ aggregates }: PersonaStatsSectionProps) {
                         </Bar>
                     </BarChart>
                 </ResponsiveContainer>
+                </div>
             )}
 
             <p className="text-[10px] text-[var(--color-muted)]">
