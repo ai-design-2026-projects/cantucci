@@ -158,7 +158,7 @@ All eval routes require an admin-scoped JWT and are not intended for frontend co
 | `GET` | `/eval/runs/{run_id}` | admin | Return a single eval run by ID. Returns 404 if not found. |
 | `GET` | `/eval/runs/{run_id}/aggregate` | admin | Return a run with per-session metrics, latest judge scores per dimension, and summary KPIs. Returns 404 if not found. |
 | `GET` | `/eval/runs/{run_id}/sessions` | admin | Return all eval sessions for a run. |
-| `GET` | `/eval/sessions/{eval_session_id}` | admin | Return full detail for a single eval session: metrics, judge scores, and per-turn intent records. Returns 404 if not found. |
+| `GET` | `/eval/sessions/{session_id}` | admin | Return full detail for a single eval session: metrics, judge scores, and per-turn intent records. Returns 404 if not found. |
 | `GET` | `/eval/ground-truths` | admin | Return all ground truth trajectories. |
 | `GET` | `/eval/personas` | admin | Return all evaluation personas. |
 

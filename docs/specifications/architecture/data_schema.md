@@ -186,10 +186,10 @@ CREATE TABLE runs (
     seed            INTEGER     NOT NULL,
     started_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     name            TEXT,
-    condition       VARCHAR(20) DEFAULT 'conversational',  -- conversational | baseline | human
+    condition       VARCHAR(40) DEFAULT 'conversational',  -- conversational | baseline | human
     model_version   TEXT,
     ended_at        TIMESTAMPTZ,
-    status          VARCHAR(20) NOT NULL DEFAULT 'running',  -- running | completed | aborted
+    status          VARCHAR(40) NOT NULL DEFAULT 'running',  -- running | completed | aborted
     notes           TEXT
 );
 ```
@@ -238,8 +238,8 @@ CREATE TABLE eval_sessions (
     persona_id            UUID        REFERENCES personas (id) ON DELETE SET NULL,
     ground_truth_id       UUID        REFERENCES ground_truths (id) ON DELETE SET NULL,
     seed                  BIGINT      NOT NULL,
-    condition             VARCHAR(20) NOT NULL DEFAULT 'conversational',  -- conversational | baseline | human
-    status                VARCHAR(20) NOT NULL DEFAULT 'active',          -- active | finished_trajectory | finished_misbehaviour | finished_budget
+    condition             VARCHAR(40) NOT NULL DEFAULT 'conversational',  -- conversational | baseline | human
+    status                VARCHAR(40) NOT NULL DEFAULT 'active',          -- active | finished_trajectory | finished_misbehaviour | finished_budget
     termination_rationale TEXT,
     oracle_rating         SMALLINT    CHECK (oracle_rating IS NULL OR oracle_rating BETWEEN 1 AND 5),
     created_at            TIMESTAMPTZ NOT NULL DEFAULT NOW()

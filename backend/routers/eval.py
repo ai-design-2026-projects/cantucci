@@ -24,7 +24,7 @@ from backend.data_access.eval.queries import (
     list_runs,
     list_turn_intents,
 )
-from backend.exceptions import NotFoundError
+from backend.exceptions import EvalSessionNotFound, RunNotFound
 from backend.routers.auth_deps import require_admin
 from backend.routers.dto.eval.builders import (
     build_run_aggregate_dto,
@@ -50,9 +50,9 @@ router = APIRouter(prefix="/eval", tags=["eval"])
 
 @router.get("/runs", response_model=list[RunDto])
 def list_runs_endpoint(
+    _admin: Annotated[User, Depends(require_admin)],
     limit: int = 50,
     offset: int = 0,
-    _admin: Annotated[User, Depends(require_admin)] = ...,
 ) -> list[RunDto]:
     """Return a paginated list of eval runs, ordered newest first.
 
@@ -70,7 +70,7 @@ def list_runs_endpoint(
 @router.get("/runs/{run_id}", response_model=RunDto)
 def get_run_endpoint(
     run_id: uuid.UUID,
-    _admin: Annotated[User, Depends(require_admin)] = ...,
+    _admin: Annotated[User, Depends(require_admin)],
 ) -> RunDto:
     """Return a single eval run by ID.
 
@@ -81,18 +81,18 @@ def get_run_endpoint(
         ``RunDto`` for the requested run.
 
     Raises:
-        NotFoundError: If the run does not exist.
+        RunNotFound: If the run does not exist.
     """
     row = get_run(run_id)
     if row is None:
-        raise NotFoundError(f"run {run_id} not found")
+        raise RunNotFound(run_id)
     return run_to_dto(row)
 
 
 @router.get("/runs/{run_id}/aggregate", response_model=RunAggregateDto)
 def get_run_aggregate_endpoint(
     run_id: uuid.UUID,
-    _admin: Annotated[User, Depends(require_admin)] = ...,
+    _admin: Annotated[User, Depends(require_admin)],
 ) -> RunAggregateDto:
     """Return a run with per-session metrics, latest judge scores, and summary KPIs.
 
@@ -107,11 +107,11 @@ def get_run_aggregate_endpoint(
         ``RunAggregateDto`` with run metadata, per-session rows, and summary KPIs.
 
     Raises:
-        NotFoundError: If the run does not exist.
+        RunNotFound: If the run does not exist.
     """
     run, sessions = get_run_aggregate(run_id)
     if run is None:
-        raise NotFoundError(f"run {run_id} not found")
+        raise RunNotFound(run_id)
     log.info("run_aggregate_fetched", extra={"run_id": str(run_id), "n_sessions": len(sessions)})
     return build_run_aggregate_dto(run, sessions)
 
@@ -119,7 +119,7 @@ def get_run_aggregate_endpoint(
 @router.get("/runs/{run_id}/sessions", response_model=list[EvalSessionDto])
 def list_sessions_endpoint(
     run_id: uuid.UUID,
-    _admin: Annotated[User, Depends(require_admin)] = ...,
+    _admin: Annotated[User, Depends(require_admin)],
 ) -> list[EvalSessionDto]:
     """Return all eval sessions for a given run.
 
@@ -133,10 +133,10 @@ def list_sessions_endpoint(
     return [eval_session_to_dto(r) for r in rows]
 
 
-@router.get("/sessions/{eval_session_id}", response_model=EvalSessionDetailDto)
+@router.get("/sessions/{session_id}", response_model=EvalSessionDetailDto)
 def get_session_endpoint(
-    eval_session_id: uuid.UUID,
-    _admin: Annotated[User, Depends(require_admin)] = ...,
+    session_id: uuid.UUID,
+    _admin: Annotated[User, Depends(require_admin)],
 ) -> EvalSessionDetailDto:
     """Return full detail for a single eval session.
 
@@ -145,17 +145,17 @@ def get_session_endpoint(
     during the session.
 
     Args:
-        eval_session_id: UUID of the eval session.
+        session_id: UUID of the eval session.
 
     Returns:
         ``EvalSessionDetailDto`` with nested metrics, scores, and intent records.
 
     Raises:
-        NotFoundError: If the eval session does not exist.
+        EvalSessionNotFound: If the eval session does not exist.
     """
-    session = get_eval_session(eval_session_id)
+    session = get_eval_session(session_id)
     if session is None:
-        raise NotFoundError(f"eval session {eval_session_id} not found")
+        raise EvalSessionNotFound(session_id)
 
     metrics = get_conversation_metrics(session.conversation_id)
     judge_scores = get_judge_scores(session.conversation_id)
@@ -168,7 +168,7 @@ def get_session_endpoint(
 
 @router.get("/ground-truths", response_model=list[GroundTruthDto])
 def list_ground_truths_endpoint(
-    _admin: Annotated[User, Depends(require_admin)] = ...,
+    _admin: Annotated[User, Depends(require_admin)],
 ) -> list[GroundTruthDto]:
     """Return all ground truth trajectories used as oracle reference conversations.
 
@@ -181,7 +181,7 @@ def list_ground_truths_endpoint(
 
 @router.get("/personas", response_model=list[PersonaDto])
 def list_personas_endpoint(
-    _admin: Annotated[User, Depends(require_admin)] = ...,
+    _admin: Annotated[User, Depends(require_admin)],
 ) -> list[PersonaDto]:
     """Return all evaluation personas used to drive simulated oracle sessions.
 

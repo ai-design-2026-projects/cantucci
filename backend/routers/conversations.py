@@ -116,7 +116,7 @@ async def create_new_conversation(
 
 
 @router.get("/{conversation_id}", response_model=ConversationDto)
-def get_conversation_endpoint(conversation_id: uuid.UUID) -> ConversationDto:
+def get_conversation_endpoint(conversation_id: uuid.UUID, limit: int = 0) -> ConversationDto:
     """Return a conversation with its 20 most recent messages.
     Args:
         conversation_id: Conversation UUID.
@@ -133,7 +133,8 @@ def get_conversation_endpoint(conversation_id: uuid.UUID) -> ConversationDto:
     row = get_conversation(conversation_id)
     if row is None:
         raise ConversationNotFound(conversation_id)
-    messages = get_messages(conversation_id, limit=limit)
+    effective_limit = limit if limit > 0 else 20
+    messages = get_messages(conversation_id, limit=effective_limit)
     return ConversationDto(
         id=row.id,
         current_cluster_snapshot_id=row.current_cluster_snapshot_id,
