@@ -1,7 +1,7 @@
 import { Search } from 'lucide-react'
 import { useEvalLabStore } from '../hooks/useEvalLabStore'
 
-const CONDITIONS = ['conversational', 'baseline', 'human']
+const CONDITIONS = ['conversational', 'baseline']
 const STATUSES = ['running', 'completed', 'aborted']
 
 /**
@@ -54,6 +54,10 @@ export function RunListFilters() {
             >
                 <option value="started_at:desc">Newest first</option>
                 <option value="started_at:asc">Oldest first</option>
+                <option value="n_sessions:desc">Most sessions</option>
+                <option value="mean_cost:desc">Highest cost</option>
+                <option value="mean_cost:asc">Lowest cost</option>
+                <option value="mean_oracle_rating:desc">Highest oracle rating</option>
             </select>
         </div>
     )

@@ -174,11 +174,19 @@ async def run_simulated_session(
             )
             break
 
-        system_result = await system_handler.handle_turn(
-            conversation_id=conversation_id,
-            user_message=oracle_result.message,
-            conversation_row=conversation_row,
-        )
+        try:
+            system_result = await system_handler.handle_turn(
+                conversation_id=conversation_id,
+                user_message=oracle_result.message,
+                conversation_row=conversation_row,
+            )
+        except RuntimeError as exc:
+            fallback = f"The operation could not be completed: {exc}. Please try a different approach."
+            log.warning("system_turn_failed_non_fatal", extra={"conversation_id": str(conversation_id), "turn": turn_number, "error": str(exc)})
+            append_message(conversation_id, "assistant", fallback)
+            transcript.append({"role": "assistant", "content": fallback})
+            continue
+
         accumulated_cost += system_result.turn_cost_usd
 
         append_message(
@@ -187,9 +195,13 @@ async def run_simulated_session(
             system_result.reply_text,
             cost_usd=system_result.turn_cost_usd,
             suggestion=system_result.suggestion,
+            axis_concept_id=system_result.axis_concept_id,
         )
         add_conversation_cost(conversation_id, system_result.turn_cost_usd)
-        transcript.append({"role": "assistant", "content": system_result.reply_text})
+        oracle_content = system_result.reply_text
+        if system_result.suggestion:
+            oracle_content = oracle_content.replace(system_result.suggestion, "").strip()
+        transcript.append({"role": "assistant", "content": oracle_content})
 
         if system_result.turn_trace is not None:
             trace = system_result.turn_trace

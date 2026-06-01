@@ -14,7 +14,11 @@ class TurnTrace:
         concepts:          Parallel list of semantic concept strings (None if absent).
         target_cluster_ids: Parallel list of target cluster UUIDs (None if absent).
         confidence:        Minimum confidence across all classified actions.
-        clarifier_fired:   True if the clarifier gate interrupted dispatch this turn.
+        clarifier_fired:   True if this turn ended by asking the oracle a clarifying or
+                           confirming question (i.e. the conversation is awaiting a reply).
+                           This covers both the up-front low-confidence gate and any
+                           in-dispatch confirmation prompt (numeric-bin proposal, concept-axis
+                           count confirmation, target resolution, etc.).
         raw_intent:        Raw intent JSON string from IntentResult.raw_intent.
         suggestion:        Responder suggestion text, or None.
         explanation:       Explanation agent output text, or None.

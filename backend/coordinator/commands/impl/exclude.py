@@ -61,10 +61,19 @@ class ExcludeCommand:
         label = target_cluster.label if target_cluster else None
 
         ctx.reporter.step("clustering")
-        draft = await exclude_cluster(
-            source_cluster_id=target_id,
-            parent_cluster_snapshot_id=ctx.current_cluster_snapshot_id,
-        )
+        try:
+            draft = await exclude_cluster(
+                source_cluster_id=target_id,
+                parent_cluster_snapshot_id=ctx.current_cluster_snapshot_id,
+            )
+        except ValueError as exc:
+            if "Cannot exclude the only cluster" in str(exc):
+                return ActionResult(
+                    reply_fragment=replies.CANNOT_EXCLUDE_ONLY_CLUSTER,
+                    cluster_snapshot_id=ctx.current_cluster_snapshot_id,
+                    step_cost=0.0,
+                )
+            raise
         new_snapshot_id, step_cost, _, _ = await persist_draft(ctx, draft)
         n_remaining = len(draft.clusters)
         return ActionResult(

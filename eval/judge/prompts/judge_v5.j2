@@ -27,7 +27,7 @@ Turn {{ loop.index }}:
   Suggestion offered: {{ turn.suggestion }}
 {% endif %}
 {% if turn.explanation %}
-  [Explanation mode triggered — see transcript]
+  Explanation: {{ turn.explanation }}
 {% endif %}
 {% endfor %}
 
@@ -59,26 +59,22 @@ Axis {{ loop.index }}: "{{ ax.concept_name }}"
 ---
 SCORING DIMENSIONS
 
-Score each applicable dimension on a 1–5 scale (1 = very poor, 5 = excellent).
+Score each dimension on a 1–5 scale (1 = very poor, 5 = excellent).
 
-operation_appropriateness — Did the system execute the correct clustering operations in response to each oracle message? A score of 5 means the system correctly interpreted and executed the intended operation type each turn; a score of 1 means operations were wrong, ignored, or repeatedly incorrect.
+1. operation_appropriateness — Did the system execute the correct clustering operations in response to each oracle message? A score of 5 means the system correctly interpreted and executed the intended operation type each turn; a score of 1 means operations were wrong, ignored, or repeatedly incorrect.
 
-label_accuracy — Do the cluster labels and summaries accurately describe the intended cluster result? A score of 5 means labels are precise and reflect the desired characteristics; a score of 1 means labels are misleading, generic, or contradicting.
+2. label_accuracy — Do the cluster labels reflect what the oracle actually asked for during the conversation? Use only the conversation transcript and the per-turn action log — ignore the ground truth intent entirely. Labels are cumulative: each split appends a new suffix to the parent label, so "Action Dramatic Adventures" means the parent was "Dramatic Adventures" and the latest split was by genre. Judge only the suffix added by the most recent operation. Examples of a 5: oracle says "split by genre" and the new suffix is a genre name; oracle says "split by runtime" and the suffix is a length category; oracle says "split by mood" and the suffix names a mood. A score of 1 means the suffix does not match what the oracle requested in the conversation, is generic, or is missing.
 
-clustering_coherence — Do the films within each cluster genuinely belong together? For each cluster, consider whether the exemplar films share a common characteristic consistent with the cluster's label, and whether the grouping is tight or overly broad. A score of 5 means every cluster has internally consistent, clearly distinguishable members; a score of 1 means clusters are incoherent, mixing unrelated films, or so broad as to be meaningless.
-{% if has_suggestion %}
+3. suggestion_meaningfulness — Were the system's proactive suggestions (when offered) relevant and actionable given the current clustering state? A score of 5 means every suggestion was insightful and appropriate; a score of 1 means suggestions were irrelevant, repetitive, or absent when clearly warranted.
 
-suggestion_meaningfulness — Were the system's proactive suggestions (when offered) relevant and actionable given the current clustering state? A score of 5 means every suggestion was insightful and appropriate; a score of 1 means suggestions were irrelevant or repetitive.
-{% endif %}
-{% if has_explanation %}
+4. explanation_quality — When the system offered explanations of its actions or clusters, were they clear, accurate, and helpful? A score of 5 means explanations were precise and added real value; a score of 1 means they were vague, incorrect, or unhelpful. If no explanations were given, score based on whether that was appropriate (3 if neutral, lower if explanations were clearly needed).
 
-explanation_quality — The system explained its reasoning during this session (see transcript). Were those explanations clear, accurate, and helpful? A score of 5 means explanations were precise and added real value; a score of 1 means they were vague, incorrect, or unhelpful.
-{% endif %}
+5. intent_alignment — Does the final clustering state reflect the oracle's overall intent description, considering the full trajectory? A score of 5 means the final clusters closely realise the intended exploration; a score of 1 means the final state ignores or contradicts the intent.
 
-intent_alignment — Does the final clustering state reflect the oracle's overall intent description, considering the full trajectory? A score of 5 means the final clusters closely realise the intended exploration; a score of 1 means the final state ignores or contradicts the intent.
+6. clustering_coherence — How internally coherent and mutually distinct are the final clusters, judged purely from their labels, summaries, and exemplar films? Consider: (a) Internal coherence — do the exemplar films in each cluster genuinely belong together under their label? (b) Separation — are the clusters meaningfully different from each other, or do they overlap in theme and content? (c) Granularity — is the number of clusters sensible for what was explored? A score of 5 means every cluster has a tight, distinct identity whose exemplars clearly justify the label; a score of 1 means exemplars contradict their label, clusters are redundant or undifferentiated, or the partition is incoherent.
 {% if axis_contexts %}
 
-concept_axis_quality — For each concept axis the system built (listed above), rate the quality of its construction. Consider: (a) Bipolar coherence — do the two poles form a genuine, sensible opposing spectrum? (b) Discriminativeness — would these poles meaningfully separate films? (c) Naming — are the axis name and pole labels concise, accurate, and non-generic? (d) Space appropriateness — was semantic (text) or visual (trailer) embedding the right choice? Give one overall score across all axes. A score of 5 means every axis has coherent, discriminative, well-named poles in the right space; a score of 1 means poles are not genuine opposites, are generic/mislabeled, or the wrong space was used.
+7. concept_axis_quality — For each concept axis the system built (listed above), rate the quality of its construction. Consider: (a) Bipolar coherence — do the two poles form a genuine, sensible opposing spectrum? (b) Discriminativeness — would these poles meaningfully separate films? (c) Naming — are the axis name and pole labels concise, accurate, and non-generic? (d) Space appropriateness — was semantic (text) or visual (trailer) embedding the right choice? Give one overall score across all axes. A score of 5 means every axis has coherent, discriminative, well-named poles in the right space; a score of 1 means poles are not genuine opposites, are generic/mislabeled, or the wrong space was used.
 {% endif %}
 
 ---
@@ -89,12 +85,16 @@ Respond with valid JSON only. The JSON must contain a "scores" array with exactl
 - "score": an integer from 1 to 5
 - "rationale": one sentence explaining the score
 
-Example (showing the always-present dimensions; include optional ones only when listed above):
+Example:
 {
   "scores": [
     {"dimension": "operation_appropriateness", "score": 4, "rationale": "Operations were correct on most turns; one merge was interpreted as a focus."},
-    {"dimension": "label_accuracy", "score": 5, "rationale": "Labels precisely matched the exemplar films shown."},
-    {"dimension": "clustering_coherence", "score": 4, "rationale": "Most clusters were internally consistent; one group mixed unrelated films."},
-    {"dimension": "intent_alignment", "score": 4, "rationale": "Final clusters closely matched the oracle's stated intent."}
+    {"dimension": "label_accuracy", "score": 5, "rationale": "Oracle asked to split by genre and labels were genre names (Action, Drama, Comedy)."},
+    {"dimension": "suggestion_meaningfulness", "score": 3, "rationale": "Suggestions were relevant but arrived too early in the session."},
+    {"dimension": "explanation_quality", "score": 4, "rationale": "Explanations were clear and accurate throughout."},
+    {"dimension": "intent_alignment", "score": 4, "rationale": "Final clusters closely matched the oracle's stated intent."},
+    {"dimension": "clustering_coherence", "score": 4, "rationale": "Clusters were internally consistent and well-separated; one cluster had slightly mixed exemplars."}{% if axis_contexts %},
+    {"dimension": "concept_axis_quality", "score": 5, "rationale": "Both axes had coherent, discriminative poles with precise labels in the appropriate embedding space."}{% endif %}
+
   ]
 }

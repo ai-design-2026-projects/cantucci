@@ -4,16 +4,20 @@ import { ConfigPanel } from './ConfigPanel/ConfigPanel'
 import { MainArea } from './MainArea/MainArea'
 import { SessionSlideOver } from './SessionSlideOver/SessionSlideOver'
 import { useEvalLabStore } from './hooks/useEvalLabStore'
+import { useRuns } from './hooks/useRuns'
 import { useRunAggregate, useMultipleRunAggregates } from './hooks/useRunAggregate'
 
 /**
  * Admin-only Eval Lab page. Three-column layout (RunList | MainArea | ConfigPanel)
- * under the shared Header. SessionSlideOver floats on top as a right-side sheet.
+ * under the shared Header. SessionSlideOver floats on top as a centered dialog.
  */
 export function EvalLabPage() {
     const { selectedRunId, compareMode, compareRunIds } = useEvalLabStore()
+    const { data: runs } = useRuns()
+    const selectedRun = runs?.find((r) => r.id === selectedRunId)
+    const isRunning = !compareMode && selectedRun?.status === 'running'
 
-    const singleResult = useRunAggregate(compareMode ? null : selectedRunId)
+    const singleResult = useRunAggregate(compareMode ? null : selectedRunId, isRunning)
     const multiResults = useMultipleRunAggregates(compareMode ? compareRunIds : [])
 
     const aggregates = compareMode
@@ -31,7 +35,7 @@ export function EvalLabPage() {
     const configSnapshot = primaryAggregate?.config_snapshot ?? null
 
     return (
-        <div className="flex flex-col h-screen overflow-hidden bg-[var(--color-bg)]">
+        <div className="flex flex-col h-screen overflow-hidden bg-[var(--color-bg)]" style={{ fontSize: '150%' }}>
             <Header />
 
             <div className="flex flex-1 min-h-0 pt-14">

@@ -1,12 +1,17 @@
 import type { ReactNode } from 'react'
 import { Navigate } from 'react-router-dom'
+import { useAuthHydration } from '@/hooks/useAuthHydration'
 import { useAuthStore } from '@/store/useAuthStore'
 
 /**
  * Route guard for admin-only pages. While auth is hydrating shows a spinner;
  * once settled, redirects non-admins to / silently.
+ *
+ * Bootstraps auth itself so the /eval-lab route works on a hard refresh
+ * without requiring the main App to mount first.
  */
 export function AdminGate({ children }: { children: ReactNode }) {
+    useAuthHydration()
     const { user, status } = useAuthStore()
 
     if (status === 'idle' || status === 'loading') {

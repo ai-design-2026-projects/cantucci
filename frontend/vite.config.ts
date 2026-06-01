@@ -17,7 +17,7 @@ export default defineConfig({
       '/movies': 'http://localhost:8000',
       '/cluster-snapshots': 'http://localhost:8000',
       '/concepts': 'http://localhost:8000',
-      '/eval': 'http://localhost:8000',
+      '/eval/': 'http://localhost:8000',
     },
   },
 })

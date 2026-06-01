@@ -52,7 +52,11 @@ def compute_num_operations(conversation_id: uuid.UUID) -> int:
 
 
 def compute_clarifier_trigger_rate(conversation_id: uuid.UUID) -> float:
-    """Compute the fraction of turns on which the clarifier gate fired.
+    """Compute the fraction of turns on which the assistant asked a clarifying or confirming question.
+
+    A turn counts when ``turn_intents.clarifier_fired`` is True, which covers both the
+    up-front low-confidence gate and any in-dispatch confirmation prompt (numeric-bin
+    proposal, concept-axis count, target resolution, etc.) that called ``mark_awaiting``.
 
     Args:
         conversation_id: UUID of the conversation.

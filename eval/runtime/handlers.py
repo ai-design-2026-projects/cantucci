@@ -43,6 +43,7 @@ class _ConversationalHandler:
             turn_trace=result.turn_trace,
             turn_cost_usd=result.turn_cost_usd,
             cluster_snapshot_id=result.cluster_snapshot_id,
+            axis_concept_id=result.axis_concept_id,
         )
 
 

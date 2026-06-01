@@ -13,6 +13,7 @@ from backend.auth.types import User
 from backend.data_access.eval.queries import (
     get_conversation_metrics,
     get_eval_session,
+    get_ground_truth_by_id,
     get_judge_scores,
     get_persona_by_id,
     get_run,
@@ -160,8 +161,9 @@ def get_session_endpoint(
     judge_scores = get_judge_scores(session.conversation_id)
     turn_intents = list_turn_intents(session.conversation_id)
     persona = get_persona_by_id(session.persona_id) if session.persona_id else None
+    ground_truth = get_ground_truth_by_id(session.ground_truth_id) if session.ground_truth_id else None
 
-    return eval_session_to_detail_dto(session, metrics, judge_scores, turn_intents, persona)
+    return eval_session_to_detail_dto(session, metrics, judge_scores, turn_intents, persona, ground_truth)
 
 
 @router.get("/ground-truths", response_model=list[GroundTruthDto])

@@ -46,6 +46,7 @@ export function RunList() {
             return 0
         })
 
+
     return (
         <div className={cn(
             'flex-shrink-0 flex flex-col border-r border-[var(--color-border)] bg-[var(--color-surface)] transition-all duration-200 overflow-hidden',
@@ -86,7 +87,7 @@ export function RunList() {
             {open && (
                 <>
                     <RunListFilters />
-                    <div className="flex-1 overflow-y-auto">
+                    <div className="flex-1 overflow-y-auto scrollbar-styled">
                         {isLoading && (
                             <p className="text-xs text-[var(--color-muted)] px-4 py-3">Loading…</p>
                         )}

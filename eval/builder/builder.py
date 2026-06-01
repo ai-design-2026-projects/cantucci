@@ -45,11 +45,16 @@ _LENSES = [
 def _validate_proposal(proposal: GroundTruthProposal) -> None:
     """Raise LLMParseError if any operation in the proposal is invalid.
 
+    Enforces that the trajectory contains exactly one concept-axis step (a cluster op
+    with ``kind`` set). Zero axes or two-plus axes both raise, causing the harness to
+    retry the LLM call.
+
     Args:
         proposal: The LLM-produced ground truth proposal to validate.
 
     Raises:
-        LLMParseError: On empty operations list or invalid op/kind/space values.
+        LLMParseError: On empty operations list, invalid op/kind/space values, or
+                       any count of concept-axis ops other than exactly one.
     """
     if not proposal.operations:
         raise LLMParseError(step_type="gt_builder", raw="proposal has no operations")
@@ -69,6 +74,12 @@ def _validate_proposal(proposal: GroundTruthProposal) -> None:
                 step_type="gt_builder",
                 raw=f"operation[{i}].space {op.space!r} is not in CONCEPT_SPACES",
             )
+    axis_ops = [op for op in proposal.operations if op.kind is not None]
+    if len(axis_ops) != 1:
+        raise LLMParseError(
+            step_type="gt_builder",
+            raw=f"trajectory must contain exactly one concept-axis op, got {len(axis_ops)}",
+        )
 
 
 async def build_bundle(
@@ -110,7 +121,7 @@ async def build_bundle(
     if target_ops is None:
         target_ops = random.randint(harness_cfg.gt_builder.min_ops, harness_cfg.gt_builder.max_ops)
 
-    template = _ENV.get_template("ground_truth_v2.j2")
+    template = _ENV.get_template("ground_truth_v3.j2")
     prompt = template.render(hint=hint, lens=lens, target_ops=target_ops)
     prompt_hash = hashlib.sha256(prompt.encode()).hexdigest()
 
