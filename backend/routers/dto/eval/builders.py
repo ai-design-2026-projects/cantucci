@@ -218,16 +218,10 @@ def build_run_aggregate_dto(run: RunRow, sessions: list[RunAggregateSessionRow])
     session_dtos = [build_session_aggregate_row_dto(s) for s in sessions]
 
     completed = [s for s in sessions if s.status.startswith("finished_")]
-    costs = [s.total_cost_usd for s in sessions if s.total_cost_usd is not None]
-    ratings = [s.oracle_rating for s in sessions if s.oracle_rating is not None]
-    turns = [s.num_turns for s in sessions if s.num_turns is not None]
 
     summary = RunAggregateSummaryDto(
         n_sessions=len(sessions),
         n_completed=len(completed),
-        mean_cost_usd=sum(costs) / len(costs) if costs else None,
-        mean_oracle_rating=sum(ratings) / len(ratings) if ratings else None,
-        mean_num_turns=sum(turns) / len(turns) if turns else None,
     )
 
     return RunAggregateDto(

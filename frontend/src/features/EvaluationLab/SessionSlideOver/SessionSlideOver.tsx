@@ -23,8 +23,8 @@ const STATUS_CHIP: Record<string, string> = {
 
 /**
  * Centered dialog showing full detail for one eval session: session metadata
- * table, deterministic metrics, judge scores, turn intents, GT comparison,
- * and links to the conversation transcript and persona config.
+ * table, deterministic metrics, judge scores, turn intents, and links to the
+ * conversation transcript and persona config.
  */
 export function SessionSlideOver() {
     const { openSessionId, setOpenSessionId } = useEvalLabStore()

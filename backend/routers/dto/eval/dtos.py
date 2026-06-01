@@ -233,17 +233,11 @@ class RunAggregateSummaryDto(BaseModel):
     """Run-level summary block for KPI cards.
 
     Attributes:
-        n_sessions:        Total number of sessions in the run.
-        n_completed:       Sessions with a finished_* terminal status.
-        mean_cost_usd:     Mean LLM cost across sessions with computed metrics, or None.
-        mean_oracle_rating: Mean oracle self-rating across rated sessions, or None.
-        mean_num_turns:    Mean turn count across sessions with computed metrics, or None.
+        n_sessions:  Total number of sessions in the run.
+        n_completed: Sessions with a finished_* terminal status.
     """
     n_sessions: int
     n_completed: int
-    mean_cost_usd: float | None
-    mean_oracle_rating: float | None
-    mean_num_turns: float | None
 
 
 class RunAggregateDto(BaseModel):

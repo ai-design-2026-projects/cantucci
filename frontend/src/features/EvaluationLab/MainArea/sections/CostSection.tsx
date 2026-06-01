@@ -53,10 +53,10 @@ export function CostSection({ aggregates }: CostSectionProps) {
                                 .sort((a, b) => b.cost - a.cost)
 
                             return (
-                                <ResponsiveContainer width="100%" height={Math.min(220, costs.length * 20 + 30)}>
-                                    <BarChart data={costs} layout="vertical" margin={{ left: 48, right: 16, top: 4, bottom: 4 }}>
+                                <ResponsiveContainer width="100%" height={220}>
+                                    <BarChart data={costs} layout="vertical" margin={{ left: 8, right: 16, top: 8, bottom: 28 }}>
                                         <XAxis type="number" tick={{ fontSize: 9, fill: 'var(--color-muted)' }} tickFormatter={(v) => `$${v.toFixed(3)}`} />
-                                        <YAxis type="category" dataKey="id" tick={{ fontSize: 9, fill: 'var(--color-muted)' }} width={44} />
+                                        <YAxis type="category" dataKey="id" tick={{ fontSize: 9, fill: 'var(--color-muted)' }} width={56} />
                                         <Tooltip
                                             contentStyle={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', fontSize: 11 }}
                                             formatter={(v) => [`$${(v as number).toFixed(5)}`, 'cost']}
@@ -104,8 +104,8 @@ export function CostSection({ aggregates }: CostSectionProps) {
                     <p className="text-xs text-[var(--color-muted)] mb-3">
                         Running total cost as sessions complete, ordered by creation time. Steep ramps indicate a cluster of expensive sessions.
                     </p>
-                    <ResponsiveContainer width="100%" height={180}>
-                        <LineChart data={cumulativeData} margin={{ top: 8, right: 16, bottom: 20, left: 40 }}>
+                    <ResponsiveContainer width="100%" height={220}>
+                        <LineChart data={cumulativeData} margin={{ top: 8, right: 16, bottom: 28, left: 8 }}>
                             <CartesianGrid stroke="var(--color-border)" strokeOpacity={0.4} />
                             <XAxis
                                 dataKey="index"
@@ -113,8 +113,9 @@ export function CostSection({ aggregates }: CostSectionProps) {
                                 tick={{ fontSize: 10, fill: 'var(--color-muted)' }}
                             />
                             <YAxis
-                                label={{ value: 'Cum. USD', angle: -90, position: 'insideLeft', offset: 8, fontSize: 10, fill: 'var(--color-muted)' }}
-                                tick={{ fontSize: 10, fill: 'var(--color-muted)' }}
+                                width={56}
+                                tickFormatter={(v) => `$${(v as number).toFixed(2)}`}
+                                tick={{ fontSize: 9, fill: 'var(--color-muted)' }}
                             />
                             <Tooltip
                                 contentStyle={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', fontSize: 11 }}

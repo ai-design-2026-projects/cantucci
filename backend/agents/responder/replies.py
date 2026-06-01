@@ -25,6 +25,16 @@ EXPLAIN_TARGET_UNCLEAR = (
 
 NO_UNDO = "Nothing to undo — there is no previous clustering snapshot to return to."
 
+NO_MOVIES_MATCHED_FILTER = (
+    "No movies matched that filter — the criteria may be too specific for this catalogue. "
+    "Try broadening the filter (e.g. a wider year range, a more common genre, or a different director)."
+)
+
+CANNOT_EXCLUDE_ONLY_CLUSTER = (
+    "There is only one group left, so there is nothing to exclude. "
+    "Use focus to zoom into it, or reset to start over."
+)
+
 
 def format_partition_clarification(attribute: str, labels: list[str | None]) -> str:
     """Format a clarification question when no target cluster was specified for a deterministic partition.

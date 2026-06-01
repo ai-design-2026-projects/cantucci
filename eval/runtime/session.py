@@ -189,7 +189,10 @@ async def run_simulated_session(
             suggestion=system_result.suggestion,
         )
         add_conversation_cost(conversation_id, system_result.turn_cost_usd)
-        transcript.append({"role": "assistant", "content": system_result.reply_text})
+        oracle_content = system_result.reply_text
+        if system_result.suggestion:
+            oracle_content = oracle_content.replace(system_result.suggestion, "").strip()
+        transcript.append({"role": "assistant", "content": oracle_content})
 
         if system_result.turn_trace is not None:
             trace = system_result.turn_trace

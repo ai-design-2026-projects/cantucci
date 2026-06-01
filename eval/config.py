@@ -52,13 +52,11 @@ class RunnerConfig:
 
     Attributes:
         max_turns:       Maximum oracle turns before the runner terminates a simulated session.
-        transcript_tail: Number of recent messages passed to the oracle prompt each turn.
         exemplar_top_k:  Maximum exemplar movie titles shown per cluster in oracle prompts.
         max_parallel:    Maximum concurrent simulated sessions in a batch run.
         run_seed:        Seed used when auto-creating a run row.
     """
     max_turns: int
-    transcript_tail: int
     exemplar_top_k: int
     max_parallel: int
     run_seed: int
@@ -143,7 +141,6 @@ def load_eval_harness_config() -> EvalHarnessConfig:
         judge=_model(section["judge"]),
         runner=RunnerConfig(
             max_turns=runner["max_turns"],
-            transcript_tail=runner["transcript_tail"],
             exemplar_top_k=runner["exemplar_top_k"],
             max_parallel=runner["max_parallel"],
             run_seed=runner["run_seed"],
