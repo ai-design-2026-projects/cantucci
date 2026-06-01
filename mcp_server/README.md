@@ -1,6 +1,6 @@
 # CinePal MCP Server
 
-An [MCP (Model Context Protocol)](https://modelcontextprotocol.io) server that exposes CinePal's conversational clustering system to AI agents and Claude Desktop users.
+An [MCP (Model Context Protocol)](https://modelcontextprotocol.io) server that exposes CinePal's conversational clustering system to AI agents and Claude users.
 
 The server wraps the CinePal FastAPI backend over HTTP — all requests flow through the existing REST API, keeping layer boundaries intact.
 
@@ -46,18 +46,10 @@ All capabilities are exposed as **tools** (callable by the model autonomously), 
 
 - **Hard deletes** — the MCP never destroys data; `DELETE /conversations/{id}` and `DELETE /cluster-snapshots/{id}` are excluded.
 - **SSE progress stream** — `GET /conversations/{id}/events` doesn't fit the tool request/response model; `send_message` returns the final result directly.
-- **Auth endpoints** — login, register, logout, me. The MCP runs anonymously or with a pre-configured token; auth lifecycle is not an LLM capability.
-- **Per-user history** — `GET /conversations` requires user authentication, which is meaningless in anonymous mode.
+- **UMAP points** — `GET /movies/umap-points` returns 2D coordinates for the frontend visualisation; not useful as an LLM tool.
+- **Auth endpoints** — `POST /auth/login`, `POST /auth/register`, `POST /auth/logout`, `GET /auth/me`. The MCP runs anonymously; auth lifecycle is not an LLM capability.
+- **Per-user conversation history** — `GET /conversations` requires authentication, which is meaningless in anonymous mode.
 - **Eval / research endpoints** — all `GET /eval/*` routes are admin-only experiment introspection, out of scope for the conversational oracle.
-
----
-
-## Configuration
-
-| Environment variable | Default | Description |
-|---|---|---|
-| `CINEPAL_MCP_BACKEND_URL` | `http://localhost:8000` | Base URL of the CinePal FastAPI backend. |
-| `CINEPAL_MCP_TIMEOUT` | `30.0` | HTTP request timeout in seconds. |
 
 ---
 
@@ -66,24 +58,83 @@ All capabilities are exposed as **tools** (callable by the model autonomously), 
 Make sure the CinePal backend is running first:
 
 ```bash
-python -m uvicorn backend.app:app --reload
+source .venv/bin/activate
+uvicorn backend.app:app --reload
 ```
 
-Then run the MCP server:
+Then start the MCP server:
 
 ```bash
 python -m mcp_server.server
-```
-
-Or via the console script:
-
-```bash
+# or via the installed console script:
 cinepal-mcp
 ```
 
-The server communicates over stdio (standard for MCP hosts).
+The server communicates over **stdio** (standard for MCP hosts).
 
-### Claude Desktop
+---
+
+## Setting up with Claude Code
+
+Claude Code reads MCP server config from `.claude/mcp.json` at the project root (project-scoped) or `~/.claude/mcp.json` (user-scoped).
+
+### Option 1 — CLI (recommended)
+
+```bash
+claude mcp add cinepal -- python -m mcp_server.server
+```
+
+This writes the entry into `.claude/mcp.json` automatically. If `CINEPAL_MCP_BACKEND_URL` differs from the default, pass it via `--env`:
+
+```bash
+claude mcp add cinepal --env CINEPAL_MCP_BACKEND_URL=http://localhost:8000 -- python -m mcp_server.server
+```
+
+Verify the server is registered and reachable:
+
+```bash
+claude mcp list
+claude mcp get cinepal
+```
+
+### Option 2 — manual JSON
+
+Add to `.claude/mcp.json` in the repo root (create the file if it doesn't exist):
+
+```json
+{
+  "mcpServers": {
+    "cinepal": {
+      "command": "python",
+      "args": ["-m", "mcp_server.server"],
+      "cwd": "/absolute/path/to/cantucci",
+      "env": {
+        "CINEPAL_MCP_BACKEND_URL": "http://localhost:8000"
+      }
+    }
+  }
+}
+```
+
+Replace `/absolute/path/to/cantucci` with the actual path on your machine.
+
+### Confirming it works
+
+Start a Claude Code session in the repo:
+
+```bash
+claude
+```
+
+Type `/mcp` — you should see `cinepal` listed as connected. You can then ask Claude to use the tools directly, for example:
+
+```
+Create a conversation and cluster the catalogue by genre.
+```
+
+---
+
+## Setting up with Claude Desktop
 
 Add to `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) or `%APPDATA%\Claude\claude_desktop_config.json` (Windows):
 
@@ -93,7 +144,10 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS)
     "cinepal": {
       "command": "python",
       "args": ["-m", "mcp_server.server"],
-      "cwd": "/absolute/path/to/cantucci"
+      "cwd": "/absolute/path/to/cantucci",
+      "env": {
+        "CINEPAL_MCP_BACKEND_URL": "http://localhost:8000"
+      }
     }
   }
 }
@@ -107,17 +161,17 @@ Restart Claude Desktop after saving.
 
 ```
 mcp_server/
-  server.py                    # composition root — one shared httpx client wired into domain clients
-  settings.py                  # McpSettings (CINEPAL_MCP_* env vars)
-  clients/http.py              # BackendError + BaseClient (shared httpx.AsyncClient, _check())
-  capabilities/                # MCP surface — @tool registrations, one module per domain
-    conversations.py
-    cluster_snapshots.py
-    movies.py
-    concepts.py
-  clients/                     # HTTP transport — typed client classes, one per domain
-    conversations.py
-    cluster_snapshots.py
-    movies.py
-    concepts.py
+├── server.py                    # composition root — one shared httpx client wired into domain clients
+├── settings.py                  # McpSettings (CINEPAL_MCP_* env vars)
+├── capabilities/                # MCP surface — @tool registrations, one module per domain
+│   ├── conversations.py
+│   ├── cluster_snapshots.py
+│   ├── movies.py
+│   └── concepts.py
+└── clients/                     # HTTP transport — typed client classes, one per domain
+    ├── http.py                  # BackendError + BaseClient (shared httpx.AsyncClient, _check())
+    ├── conversations.py
+    ├── cluster_snapshots.py
+    ├── movies.py
+    └── concepts.py
 ```
