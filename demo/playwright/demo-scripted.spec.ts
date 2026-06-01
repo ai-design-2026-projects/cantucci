@@ -145,7 +145,7 @@ function computeCentroids(snapshot: DemoSnapshot): Array<{ clusterId: string; x:
 }
 
 async function fetchRootSnapshot(page: Page): Promise<DemoSnapshot> {
-    const snapshotUrl = new URL('/cluster-snapshots/get_root', APP_URL).toString()
+    const snapshotUrl = new URL('/cluster-snapshots/root', APP_URL).toString()
     const response = await page.request.get(snapshotUrl)
     if (!response.ok()) {
         throw new Error(`Could not load root snapshot: ${response.status()} ${response.statusText()}`)

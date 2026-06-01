@@ -47,7 +47,7 @@ log = logging.getLogger(__name__)
 router = APIRouter(prefix="/eval", tags=["eval"])
 
 
-@router.get("/list_runs", response_model=list[RunDto])
+@router.get("/runs", response_model=list[RunDto])
 def list_runs_endpoint(
     limit: int = 50,
     offset: int = 0,
@@ -66,7 +66,7 @@ def list_runs_endpoint(
     return [run_to_dto(r) for r in rows]
 
 
-@router.get("/get_run/{run_id}", response_model=RunDto)
+@router.get("/runs/{run_id}", response_model=RunDto)
 def get_run_endpoint(
     run_id: uuid.UUID,
     _admin: Annotated[User, Depends(require_admin)] = ...,
@@ -88,7 +88,7 @@ def get_run_endpoint(
     return run_to_dto(row)
 
 
-@router.get("/get_run_aggregate/{run_id}", response_model=RunAggregateDto)
+@router.get("/runs/{run_id}/aggregate", response_model=RunAggregateDto)
 def get_run_aggregate_endpoint(
     run_id: uuid.UUID,
     _admin: Annotated[User, Depends(require_admin)] = ...,
@@ -97,7 +97,7 @@ def get_run_aggregate_endpoint(
 
     All sessions for the run are fetched in a single SQL round-trip. Per-session
     metrics and the latest judge score per dimension are inlined. Per-turn intent
-    data is not included here — use ``/eval/get_session/{id}`` for that detail.
+    data is not included here — use ``/eval/sessions/{id}`` for that detail.
 
     Args:
         run_id: UUID of the eval run.
@@ -115,7 +115,7 @@ def get_run_aggregate_endpoint(
     return build_run_aggregate_dto(run, sessions)
 
 
-@router.get("/list_sessions/{run_id}", response_model=list[EvalSessionDto])
+@router.get("/runs/{run_id}/sessions", response_model=list[EvalSessionDto])
 def list_sessions_endpoint(
     run_id: uuid.UUID,
     _admin: Annotated[User, Depends(require_admin)] = ...,
@@ -132,7 +132,7 @@ def list_sessions_endpoint(
     return [eval_session_to_dto(r) for r in rows]
 
 
-@router.get("/get_session/{eval_session_id}", response_model=EvalSessionDetailDto)
+@router.get("/sessions/{eval_session_id}", response_model=EvalSessionDetailDto)
 def get_session_endpoint(
     eval_session_id: uuid.UUID,
     _admin: Annotated[User, Depends(require_admin)] = ...,
@@ -164,7 +164,7 @@ def get_session_endpoint(
     return eval_session_to_detail_dto(session, metrics, judge_scores, turn_intents, persona)
 
 
-@router.get("/list_ground_truths", response_model=list[GroundTruthDto])
+@router.get("/ground-truths", response_model=list[GroundTruthDto])
 def list_ground_truths_endpoint(
     _admin: Annotated[User, Depends(require_admin)] = ...,
 ) -> list[GroundTruthDto]:
@@ -177,7 +177,7 @@ def list_ground_truths_endpoint(
     return [ground_truth_to_dto(r) for r in rows]
 
 
-@router.get("/list_personas", response_model=list[PersonaDto])
+@router.get("/personas", response_model=list[PersonaDto])
 def list_personas_endpoint(
     _admin: Annotated[User, Depends(require_admin)] = ...,
 ) -> list[PersonaDto]:

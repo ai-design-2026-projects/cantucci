@@ -66,7 +66,7 @@ class MovieDto(BaseModel):
 
 
 class MovieBatchRequest(BaseModel):
-    """Body for ``POST /movies/get_batch``.
+    """Body for ``POST /movies/batch``.
 
     Attributes:
         ids: Up to 200 TMDB movie IDs to retrieve in one request.

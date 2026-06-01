@@ -18,7 +18,7 @@ log = logging.getLogger(__name__)
 router = APIRouter(prefix="/cluster-snapshots", tags=["cluster-snapshots"])
 
 
-@router.get("/get/{cluster_snapshot_id}", response_model=ClusterSnapshotDto)
+@router.get("/{cluster_snapshot_id}", response_model=ClusterSnapshotDto)
 def get_cluster_snapshot_endpoint(cluster_snapshot_id: uuid.UUID) -> ClusterSnapshotDto:
     """Return a cluster snapshot with its full cluster list and argmax member counts.
 
@@ -37,7 +37,7 @@ def get_cluster_snapshot_endpoint(cluster_snapshot_id: uuid.UUID) -> ClusterSnap
     return build_snapshot_dto(cluster_snapshot_id)
 
 
-@router.delete("/delete/{cluster_snapshot_id}", status_code=204)
+@router.delete("/{cluster_snapshot_id}", status_code=204)
 def delete_cluster_snapshot_endpoint(
     cluster_snapshot_id: uuid.UUID,
 ) -> None:
@@ -65,7 +65,7 @@ def delete_cluster_snapshot_endpoint(
 
 
 @router.get(
-    "/cluster_members/{cluster_snapshot_id}/{cluster_id}",
+    "/{cluster_snapshot_id}/clusters/{cluster_id}/members",
     response_model=list[ClusterMembershipDto],
 )
 def get_cluster_members_endpoint(

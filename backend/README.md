@@ -47,10 +47,10 @@ backend/
 │   ├── auth.py          POST /auth/login, POST /auth/logout, GET /auth/me.
 │   ├── auth_deps.py     FastAPI dependency for JWT bearer token extraction.
 │   ├── conversations.py POST /conversations, POST /conversations/{id}/messages, GET /conversations/{id}.
-│   ├── cluster_snapshots.py GET /cluster-snapshots/get_root, GET /cluster-snapshots/get/{id}, …
-│   ├── concepts.py      GET /concepts/get_axis/{id}.
-│   ├── movies.py        GET /movies/get/{id}, POST /movies/get_batch.
-│   ├── eval.py          GET /eval/list_runs, GET /eval/get_run/{id}, … (admin only).
+│   ├── cluster_snapshots.py GET /cluster-snapshots/{id}, DELETE /cluster-snapshots/{id}, …
+│   ├── concepts.py      GET /concepts/{id}/axis.
+│   ├── movies.py        GET /movies/{movie_id}, POST /movies/batch.
+│   ├── eval.py          GET /eval/runs, GET /eval/runs/{id}, … (admin only).
 │   └── dto/             Pydantic request/response wire models.
 ```
 
@@ -125,28 +125,28 @@ Tests spin up a throwaway pgvector container automatically via `testcontainers` 
 | POST   | `/auth/register`                                                 | Create a new `user`-role account (returns 201).                  |
 | POST   | `/auth/logout`                                                   | Clear the auth cookie (returns 204).                             |
 | GET    | `/auth/me`                                                       | Return the authenticated user.                                   |
-| POST   | `/conversations/create`                                          | Create a new conversation (returns 201).                         |
-| GET    | `/conversations/get_history`                                     | List conversations for the authenticated user.                   |
-| GET    | `/conversations/get/{conversation_id}`                           | Retrieve conversation state + recent messages.                   |
-| PATCH  | `/conversations/update_snapshot/{conversation_id}`               | Set active cluster snapshot (undo / branch navigation).          |
-| POST   | `/conversations/send_message/{conversation_id}`                  | Submit a user message, get a response.                           |
-| DELETE | `/conversations/delete/{conversation_id}`                        | Delete a conversation (returns 204).                             |
-| GET    | `/conversations/progress_stream/{conversation_id}`               | SSE stream of real-time turn progress.                           |
-| GET    | `/conversations/get_cluster_snapshot/{conversation_id}`          | Return the full DAG of snapshots touched by a conversation.      |
-| GET    | `/cluster-snapshots/get_root`                                    | Return the most recent root snapshot.                            |
-| GET    | `/cluster-snapshots/get/{snapshot_id}`                           | Retrieve a cluster snapshot with its clusters.                   |
-| DELETE | `/cluster-snapshots/delete/{snapshot_id}`                        | Delete a leaf snapshot (returns 204).                            |
-| GET    | `/cluster-snapshots/cluster_members/{snapshot_id}/{cluster_id}`  | Return all movie memberships in a cluster.                       |
-| GET    | `/movies/get/{movie_id}`                                         | Retrieve full movie metadata.                                    |
-| POST   | `/movies/get_batch`                                              | Return metadata for up to 200 movies.                            |
-| GET    | `/concepts/get_axis/{concept_id}`                                | Return movie score distribution along a concept axis.            |
-| GET    | `/eval/list_runs`                                                | Paginated list of eval runs (admin).                             |
-| GET    | `/eval/get_run/{run_id}`                                         | Return a single eval run (admin).                                |
-| GET    | `/eval/get_run_aggregate/{run_id}`                               | Return run with per-session metrics and KPIs (admin).            |
-| GET    | `/eval/list_sessions/{run_id}`                                   | Return all eval sessions for a run (admin).                      |
-| GET    | `/eval/get_session/{eval_session_id}`                            | Return full detail for a single eval session (admin).            |
-| GET    | `/eval/list_ground_truths`                                       | Return all ground truth trajectories (admin).                    |
-| GET    | `/eval/list_personas`                                            | Return all evaluation personas (admin).                          |
+| POST   | `/conversations`                                                 | Create a new conversation (returns 201).                         |
+| GET    | `/conversations`                                                 | List conversations for the authenticated user.                   |
+| GET    | `/conversations/{conversation_id}`                               | Retrieve conversation state + recent messages.                   |
+| PATCH  | `/conversations/{conversation_id}`                               | Set active cluster snapshot (undo / branch navigation).          |
+| POST   | `/conversations/{conversation_id}/messages`                      | Submit a user message, get a response.                           |
+| DELETE | `/conversations/{conversation_id}`                               | Delete a conversation (returns 204).                             |
+| GET    | `/conversations/{conversation_id}/events`                        | SSE stream of real-time turn progress.                           |
+| GET    | `/conversations/{conversation_id}/snapshot-graph`                | Return the full DAG of snapshots touched by a conversation.      |
+| GET    | `/cluster-snapshots/{snapshot_id}`                               | Retrieve a cluster snapshot with its clusters.                   |
+| DELETE | `/cluster-snapshots/{snapshot_id}`                               | Delete a leaf snapshot (returns 204).                            |
+| GET    | `/cluster-snapshots/{snapshot_id}/clusters/{cluster_id}/members` | Return all movie memberships in a cluster.                       |
+| GET    | `/movies/{movie_id}`                                             | Retrieve full movie metadata.                                    |
+| GET    | `/movies/umap-points`                                            | Return UMAP 2D coordinates for all catalogued movies.            |
+| POST   | `/movies/batch`                                                  | Return metadata for up to 200 movies.                            |
+| GET    | `/concepts/{concept_id}/axis`                                    | Return movie score distribution along a concept axis.            |
+| GET    | `/eval/runs`                                                     | Paginated list of eval runs (admin).                             |
+| GET    | `/eval/runs/{run_id}`                                            | Return a single eval run (admin).                                |
+| GET    | `/eval/runs/{run_id}/aggregate`                                  | Return run with per-session metrics and KPIs (admin).            |
+| GET    | `/eval/runs/{run_id}/sessions`                                   | Return all eval sessions for a run (admin).                      |
+| GET    | `/eval/sessions/{eval_session_id}`                               | Return full detail for a single eval session (admin).            |
+| GET    | `/eval/ground-truths`                                            | Return all ground truth trajectories (admin).                    |
+| GET    | `/eval/personas`                                                 | Return all evaluation personas (admin).                          |
 
 All responses are JSON. Unknown resource → 404. Invalid request body → 422.
 

@@ -9,18 +9,18 @@ class ConversationsClient(BaseClient):
     """
 
     async def create_conversation(self) -> dict:
-        """POST /conversations/create — create a new anonymous conversation.
+        """POST /conversations — create a new anonymous conversation.
 
         Returns:
             ``ConversationDto`` dict with id, current_cluster_snapshot_id,
             messages, and created_at.
         """
-        resp = await self._http.post("/conversations/create")
+        resp = await self._http.post("/conversations")
         self._check(resp)
         return resp.json()
 
     async def get_conversation(self, conversation_id: str) -> dict:
-        """GET /conversations/get/{id} — fetch a conversation with its recent messages.
+        """GET /conversations/{id} — fetch a conversation with its recent messages.
 
         Returns up to 20 of the most recent messages and the current active
         cluster snapshot ID.
@@ -31,12 +31,12 @@ class ConversationsClient(BaseClient):
         Returns:
             ``ConversationDto`` dict.
         """
-        resp = await self._http.get(f"/conversations/get/{conversation_id}")
+        resp = await self._http.get(f"/conversations/{conversation_id}")
         self._check(resp)
         return resp.json()
 
     async def send_message(self, conversation_id: str, content: str) -> dict:
-        """POST /conversations/send_message/{id} — submit an oracle message.
+        """POST /conversations/{id}/messages — submit an oracle message.
 
         Runs the full intent → cluster → suggester pipeline and returns the
         assistant reply together with the updated cluster snapshot ID.
@@ -49,14 +49,14 @@ class ConversationsClient(BaseClient):
             ``SendMessageResponse`` dict with message and cluster_snapshot_id.
         """
         resp = await self._http.post(
-            f"/conversations/send_message/{conversation_id}",
+            f"/conversations/{conversation_id}/messages",
             json={"content": content},
         )
         self._check(resp)
         return resp.json()
 
     async def navigate_to_snapshot(self, conversation_id: str, snapshot_id: str) -> dict:
-        """PATCH /conversations/update_snapshot/{id} — set the active cluster snapshot.
+        """PATCH /conversations/{id} — set the active cluster snapshot.
 
         Args:
             conversation_id: Conversation UUID string.
@@ -66,14 +66,14 @@ class ConversationsClient(BaseClient):
             Updated ``ConversationDto`` dict.
         """
         resp = await self._http.patch(
-            f"/conversations/update_snapshot/{conversation_id}",
+            f"/conversations/{conversation_id}",
             json={"current_cluster_snapshot_id": snapshot_id},
         )
         self._check(resp)
         return resp.json()
 
     async def get_snapshot_graph(self, conversation_id: str) -> dict:
-        """GET /conversations/get_cluster_snapshot/{id} — fetch the snapshot DAG.
+        """GET /conversations/{id}/snapshot-graph — fetch the snapshot DAG.
 
         Args:
             conversation_id: Conversation UUID string.
@@ -82,7 +82,7 @@ class ConversationsClient(BaseClient):
             ``ClusterSnapshotGraphDto`` dict with cluster_snapshots list.
         """
         resp = await self._http.get(
-            f"/conversations/get_cluster_snapshot/{conversation_id}"
+            f"/conversations/{conversation_id}/snapshot-graph"
         )
         self._check(resp)
         return resp.json()

@@ -125,8 +125,8 @@ forward. Two structures (defined in `data_schema.md`) make this work:
   snapshots themselves are shared.
 
 **Going back** is just re-pointing `conversations.current_cluster_snapshot_id` at an earlier node — no
-recomputation. `PATCH /conversations/update_snapshot/{id}` (and the MCP `navigate_to_snapshot` tool) sets the active
-snapshot to any prior snapshot id; `reset` clears the pointer to the unclustered state. `GET /conversations/get_cluster_snapshot/{id}`
+recomputation. `PATCH /conversations/{id}` (and the MCP `navigate_to_snapshot` tool) sets the active
+snapshot to any prior snapshot id; `reset` clears the pointer to the unclustered state. `GET /conversations/{id}/snapshot-graph`
 returns the whole node set (id, parent_id, operation, created_at) so a client can render the tree and
 let the oracle click a past state to return to it.
 

@@ -9,5 +9,5 @@ import type { AxisDistributionDto } from '@/api/dto/concepts'
  * @returns AxisDistributionDto with per-movie scores and pole labels.
  */
 export async function getAxisDistributionFetcher(conceptId: string): Promise<AxisDistributionDto> {
-    return apiClient<AxisDistributionDto>(`/concepts/get_axis/${conceptId}`)
+    return apiClient<AxisDistributionDto>(`/concepts/${conceptId}/axis`)
 }

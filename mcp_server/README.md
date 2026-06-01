@@ -46,9 +46,9 @@ All capabilities are exposed as **tools** (callable by the model autonomously), 
 ## What is not exposed
 
 - **Hard deletes** — the MCP never destroys data; `DELETE /conversations/{id}` and `DELETE /cluster-snapshots/{id}` are excluded.
-- **SSE progress stream** — `GET /conversations/progress_stream/{id}` doesn't fit the tool request/response model; `send_message` returns the final result directly.
+- **SSE progress stream** — `GET /conversations/{id}/events` doesn't fit the tool request/response model; `send_message` returns the final result directly.
 - **Auth endpoints** — login, register, logout, me. The MCP runs anonymously or with a pre-configured token; auth lifecycle is not an LLM capability.
-- **Per-user history** — `GET /conversations/get_history` requires user authentication, which is meaningless in anonymous mode.
+- **Per-user history** — `GET /conversations` requires user authentication, which is meaningless in anonymous mode.
 - **Eval / research endpoints** — all `GET /eval/*` routes are admin-only experiment introspection, out of scope for the conversational oracle.
 
 ---

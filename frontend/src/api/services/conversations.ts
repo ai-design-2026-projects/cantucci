@@ -8,7 +8,7 @@ import type { ClusterSnapshotGraphDto } from '../dto/snapshots'
  * @returns Full ConversationDto with empty messages list.
  */
 export async function createConversationFetcher(): Promise<ConversationDto> {
-    return apiClient<ConversationDto>('/conversations/create', { method: 'POST' })
+    return apiClient<ConversationDto>('/conversations', { method: 'POST' })
 }
 
 /**
@@ -18,7 +18,7 @@ export async function createConversationFetcher(): Promise<ConversationDto> {
  * @returns ConversationDto.
  */
 export async function getConversationFetcher(conversationId: string): Promise<ConversationDto> {
-    return apiClient<ConversationDto>(`/conversations/get/${conversationId}`)
+    return apiClient<ConversationDto>(`/conversations/${conversationId}`)
 }
 
 /**
@@ -28,7 +28,7 @@ export async function getConversationFetcher(conversationId: string): Promise<Co
  * @returns Array of ConversationDto.
  */
 export async function listConversationsFetcher(): Promise<ConversationDto[]> {
-    return apiClient<ConversationDto[]>('/conversations/get_history')
+    return apiClient<ConversationDto[]>('/conversations')
 }
 
 /**
@@ -42,7 +42,7 @@ export async function sendMessageFetcher(
     conversationId: string,
     content: string,
 ): Promise<SendMessageResponse> {
-    return apiClient<SendMessageResponse>(`/conversations/send_message/${conversationId}`, {
+    return apiClient<SendMessageResponse>(`/conversations/${conversationId}/messages`, {
         method: 'POST',
         body: JSON.stringify({ content }),
     })
@@ -51,14 +51,14 @@ export async function sendMessageFetcher(
 /**
  * Open a Server-Sent Events stream for real-time turn progress updates.
  *
- * Returns an EventSource connected to GET /conversations/progress_stream/{id}.
+ * Returns an EventSource connected to GET /conversations/{id}/events.
  * The caller is responsible for closing it via `source.close()`.
  *
  * @param conversationId - Conversation UUID.
  * @returns Native EventSource instance.
  */
 export function openConversationEventStream(conversationId: string): EventSource {
-    return new EventSource(`/conversations/progress_stream/${conversationId}`)
+    return new EventSource(`/conversations/${conversationId}/events`)
 }
 
 /**
@@ -68,7 +68,7 @@ export function openConversationEventStream(conversationId: string): EventSource
  * @returns void
  */
 export async function deleteConversationFetcher(conversationId: string): Promise<void> {
-    return apiClient<void>(`/conversations/delete/${conversationId}`, { method: 'DELETE' })
+    return apiClient<void>(`/conversations/${conversationId}`, { method: 'DELETE' })
 }
 
 /**
@@ -82,7 +82,7 @@ export async function patchConversationFetcher(
     conversationId: string,
     currentClusterSnapshotId: string | null,
 ): Promise<ConversationDto> {
-    return apiClient<ConversationDto>(`/conversations/update_snapshot/${conversationId}`, {
+    return apiClient<ConversationDto>(`/conversations/${conversationId}`, {
         method: 'PATCH',
         body: JSON.stringify({ current_cluster_snapshot_id: currentClusterSnapshotId }),
     })
@@ -95,5 +95,5 @@ export async function patchConversationFetcher(
  * @returns ClusterSnapshotGraphDto with all snapshot nodes.
  */
 export async function getSnapshotGraphFetcher(conversationId: string): Promise<ClusterSnapshotGraphDto> {
-    return apiClient<ClusterSnapshotGraphDto>(`/conversations/get_cluster_snapshot/${conversationId}`)
+    return apiClient<ClusterSnapshotGraphDto>(`/conversations/${conversationId}/snapshot-graph`)
 }

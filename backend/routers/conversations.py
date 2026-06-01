@@ -45,7 +45,7 @@ log = logging.getLogger(__name__)
 router = APIRouter(prefix="/conversations", tags=["conversations"])
 
 
-@router.get("/get_history", response_model=list[ConversationDto])
+@router.get("", response_model=list[ConversationDto])
 def list_conversations_endpoint(
     user: Annotated[User | None, Depends(get_current_user)],
 ) -> list[ConversationDto]:
@@ -83,7 +83,7 @@ def list_conversations_endpoint(
     ]
 
 
-@router.post("/create", response_model=ConversationDto, status_code=201)
+@router.post("", response_model=ConversationDto, status_code=201)
 async def create_new_conversation(
     user: Annotated[User | None, Depends(get_current_user)],
 ) -> ConversationDto:
@@ -115,7 +115,7 @@ async def create_new_conversation(
     )
 
 
-@router.get("/get/{conversation_id}", response_model=ConversationDto)
+@router.get("/{conversation_id}", response_model=ConversationDto)
 def get_conversation_endpoint(conversation_id: uuid.UUID) -> ConversationDto:
     """Return a conversation with its 20 most recent messages.
 
@@ -147,7 +147,7 @@ def get_conversation_endpoint(conversation_id: uuid.UUID) -> ConversationDto:
     )
 
 
-@router.delete("/delete/{conversation_id}", status_code=204)
+@router.delete("/{conversation_id}", status_code=204)
 def delete_conversation_endpoint(
     conversation_id: uuid.UUID,
     user: Annotated[User | None, Depends(get_current_user)],
@@ -177,7 +177,7 @@ def delete_conversation_endpoint(
     log.info("conversation_deleted_by_user", extra={"conversation_id": str(conversation_id), "user_id": str(user.id)})
 
 
-@router.patch("/update_snapshot/{conversation_id}", response_model=ConversationDto)
+@router.patch("/{conversation_id}", response_model=ConversationDto)
 def update_conversation_endpoint(
     conversation_id: uuid.UUID,
     body: UpdateConversationRequest,
@@ -230,7 +230,7 @@ def update_conversation_endpoint(
     )
 
 
-@router.post("/send_message/{conversation_id}", response_model=SendMessageResponse)
+@router.post("/{conversation_id}/messages", response_model=SendMessageResponse)
 async def send_message(
     conversation_id: uuid.UUID,
     body: SendMessageRequest,
@@ -306,7 +306,7 @@ async def send_message(
     return response
 
 
-@router.get("/progress_stream/{conversation_id}")
+@router.get("/{conversation_id}/events")
 async def conversation_events(conversation_id: uuid.UUID) -> StreamingResponse:
     """Open a Server-Sent Events stream for real-time turn progress updates.
 
@@ -342,7 +342,7 @@ async def conversation_events(conversation_id: uuid.UUID) -> StreamingResponse:
     return StreamingResponse(_stream(), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
-@router.get("/get_cluster_snapshot/{conversation_id}", response_model=ClusterSnapshotGraphDto)
+@router.get("/{conversation_id}/snapshot-graph", response_model=ClusterSnapshotGraphDto)
 def get_cluster_snapshot_graph(conversation_id: uuid.UUID) -> ClusterSnapshotGraphDto:
     """Return all cluster snapshot nodes for a conversation as a directed acyclic graph.
 

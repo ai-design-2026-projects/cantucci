@@ -10,7 +10,7 @@ export async function waitForTurnComplete(page: Page, chatInput: Locator): Promi
 }
 
 export async function fetchSnapshot(page: Page, snapshotId: string): Promise<unknown> {
-    const snapshotUrl = new URL(`/cluster-snapshots/get/${snapshotId}`, APP_URL).toString()
+    const snapshotUrl = new URL(`/cluster-snapshots/${snapshotId}`, APP_URL).toString()
     const response = await page.request.get(snapshotUrl)
     if (!response.ok()) {
         throw new Error(`Could not load snapshot ${snapshotId}: ${response.status()} ${response.statusText()}`)
