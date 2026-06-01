@@ -48,3 +48,17 @@ The second sprint was dedicated to completing the system architecture, improving
     [PR #32](https://github.com/ai-design-2026-projects/cantucci/pull/32),
     [PR #91](https://github.com/ai-design-2026-projects/cantucci/pull/91)
 ]
+
+## What's Next
+
+After presenting our progress, we received critical feedback from the professor: the system we had built — a conversational-based retrieval engine that filters a fixed movie catalogue based on user queries — did not match the intended vision for the project. The goal was not retrieval but *conversational clustering*: the human oracle should be guiding an AI to progressively organize an entire catalogue into meaningful groups, with no intrinsic ground truth.
+
+Sprint 3 will therefore be a full pivot:
+
+1. **Rebuild from scratch.** We will design and implement a new system — CinePal — where the oracle proposes groupings, explains them, and refines them through dialogue. The oracle's acceptance is the objective function.
+
+2. **Reuse what still applies.** The data pipeline (scrape → embed) and the database infrastructure remain valid. Everything else — agents, routing logic, prompts — will be replaced.
+
+3. **Establish a cleaner architecture.** The new system will have a well-defined coordinator, a small set of typed commands, and versioned Jinja2 prompts from the start, avoiding the technical debt that accumulated in the current design.
+
+4. **First working demo.** By the end of the sprint we aim to have a live, conversable system that can partition a movie catalogue based on oracle instructions and iterate on the result in real time.
