@@ -83,7 +83,7 @@ ingestion:
 eval_harness:
   oracle:
     # Family B — oracle simulation (Google / Gemini, cheap)
-    name: "google/gemini-2.0-flash-001"
+    name: "google/gemini-2.5-flash"
     provider: openrouter
     seed: 42
     max_tokens: 512
@@ -102,7 +102,7 @@ eval_harness:
   runner:
     max_turns: 15
     exemplar_top_k: 5     # max exemplar titles shown per cluster in oracle and judge prompts
-    max_parallel: 4       # max concurrent simulated sessions in a batch run
+    max_parallel: 10       # max concurrent simulated sessions in a batch run
     run_seed: 0           # seed used when auto-creating a run row
 
   scorer:
