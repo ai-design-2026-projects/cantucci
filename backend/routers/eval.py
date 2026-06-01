@@ -140,7 +140,7 @@ def get_session_endpoint(
 ) -> EvalSessionDetailDto:
     """Return full detail for a single eval session.
 
-    Includes conversation metrics, judge scores across all four dimensions, and
+    Includes conversation metrics, judge scores across all evaluated dimensions, and
     per-turn intent records — the full picture of what the simulated oracle did
     during the session.
 

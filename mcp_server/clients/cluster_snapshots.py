@@ -8,16 +8,6 @@ class ClusterSnapshotsClient(BaseClient):
     prefix. Non-2xx responses are raised as ``BackendError``.
     """
 
-    async def get_root_snapshot(self) -> dict:
-        """GET /cluster-snapshots/root — most recent corpus-level snapshot.
-
-        Returns:
-            ``ClusterSnapshotDto`` dict with the root snapshot and its clusters.
-        """
-        resp = await self._http.get("/cluster-snapshots/root")
-        self._check(resp)
-        return resp.json()
-
     async def get_snapshot(self, snapshot_id: str) -> dict:
         """GET /cluster-snapshots/{id} — fetch a snapshot with its full cluster list.
 

@@ -24,7 +24,6 @@ All capabilities are exposed as **tools** (callable by the model autonomously), 
 
 | Tool | Description |
 |---|---|
-| `get_root_snapshot` | Fetch the corpus-level starting snapshot — the full catalogue clustered without any oracle guidance. Per-movie UMAP assignments are excluded; use `get_cluster_members` for memberships. |
 | `get_snapshot` | Fetch a snapshot with its full cluster list (labels, summaries, exemplar movie IDs). Per-movie UMAP assignments are excluded; use `get_cluster_members` for memberships. |
 | `get_cluster_members` | All movies in a cluster with their soft membership probabilities, ordered descending. |
 
@@ -110,7 +109,7 @@ Restart Claude Desktop after saving.
 mcp_server/
   server.py                    # composition root — one shared httpx client wired into domain clients
   settings.py                  # McpSettings (CINEPAL_MCP_* env vars)
-  http_client.py               # BackendError + BaseClient (shared httpx.AsyncClient, _check())
+  clients/http.py              # BackendError + BaseClient (shared httpx.AsyncClient, _check())
   capabilities/                # MCP surface — @tool registrations, one module per domain
     conversations.py
     cluster_snapshots.py

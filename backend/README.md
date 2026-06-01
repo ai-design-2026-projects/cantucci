@@ -20,7 +20,7 @@ backend/
 ├── auth/                JWT token encode/decode; password hashing.
 ├── data_access/         Data-access layer — the ONLY place SQL is allowed.
 │   ├── connection.py    Connection pool, transaction() context manager, dict_row default.
-│   ├── movies/          vector_search, fetch_metadata, fetch_stubs, fetch_movie_details.
+│   ├── movies/          fetch_metadata, fetch_stubs, fetch_movie_details.
 │   ├── conversations/   CRUD: conversations, messages.
 │   ├── cluster_snapshots/ CRUD: cluster_snapshots, clusters, cluster_memberships.
 │   ├── concepts/        CRUD: concepts, concept_scores.
@@ -36,7 +36,7 @@ backend/
 │   └── responder/       Suggest next exploration moves.
 ├── coordinator/         Orchestrator + command layer (not an agent; moved out of agents/).
 │   ├── agent.py         Coordinator class; orchestrates one turn through the pipeline.
-│   ├── commands/        13 command classes (DrillDown, Merge, Focus, CrossFilter, Exclude, PartitionBy, …) + factory.
+│   ├── commands/        9 command classes (ClusterCommand, MergeCommand, FocusCommand, CrossFilterCommand, ExcludeCommand, ResetCommand, UndoCommand, SmallTalkCommand, ExplainCommand) + factory.
 │   ├── pipeline/        Turn-handling phases: preparation, clarification, dispatch, finalize, pending, trace.
 │   └── tools/           Shared helpers: labeling, clarification state, persist, SSE progress.
 ├── llm/                 LLM harness, structured response parsing, record/replay utilities.
@@ -144,7 +144,7 @@ Tests spin up a throwaway pgvector container automatically via `testcontainers` 
 | GET    | `/eval/runs/{run_id}`                                            | Return a single eval run (admin).                                |
 | GET    | `/eval/runs/{run_id}/aggregate`                                  | Return run with per-session metrics and KPIs (admin).            |
 | GET    | `/eval/runs/{run_id}/sessions`                                   | Return all eval sessions for a run (admin).                      |
-| GET    | `/eval/sessions/{eval_session_id}`                               | Return full detail for a single eval session (admin).            |
+| GET    | `/eval/sessions/{session_id}`                                    | Return full detail for a single eval session (admin).            |
 | GET    | `/eval/ground-truths`                                            | Return all ground truth trajectories (admin).                    |
 | GET    | `/eval/personas`                                                 | Return all evaluation personas (admin).                          |
 

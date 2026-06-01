@@ -15,11 +15,12 @@ https://github.com/user-attachments/assets/95a79f0f-2e41-40f0-88f5-f9e8a581a8bf
 ## Component docs
 
 - [`backend/README.md`](backend/README.md) — FastAPI service, endpoints, env vars, logging helper.
-- [`frontend/README.md`](frontend/README.md) — React + Vite UI (forthcoming).
+- [`frontend/README.md`](frontend/README.md) — React + Vite UI.
 - [`db/README.md`](db/README.md) — Postgres migrations and loading pre-built HF artifacts.
 - [`dataset/README.md`](dataset/README.md) — Offline data pipeline: TMDB scrape → Colab embed → HF upload.
-- [`demo/README.md`](demo/README.md) — Record/replay demo scripts
+- [`demo/README.md`](demo/README.md) — Record/replay demo scripts.
 - [`eval/README.md`](eval/README.md) — Offline evaluation harness: Oracle simulator, judge, runner.
+- [`mcp_server/README.md`](mcp_server/README.md) — MCP server exposing CinePal tools to AI agents.
 
 
 ---
@@ -103,9 +104,9 @@ cd frontend && npm install && npm run dev
 CONFIG_PATH=configs/test.yaml pytest tests/
 
 # 9. Evaluation
-# The eval harness is forthcoming. The current suite under tests/ is intentionally
-# narrow — smoke tests that verify wiring between the DB, ingestion, and the
-# orchestrator/agents. Scoped CI runs them on every PR; see .github/workflows/smoke.yml.
+# Run simulated oracle sessions: python -m eval.run
+# Build persona bundles:         python -m eval.builder
+# See eval/README.md for the full workflow.
 ```
 
 ---
@@ -115,11 +116,14 @@ CONFIG_PATH=configs/test.yaml pytest tests/
 ```
 backend/    FastAPI service, agents, LLM harness, DB access layer
 configs/    YAML experimental-condition configs (model, clustering, …)
+core/       Shared primitives: text/image/trailer encoders, fusion, clustering
 dataset/    Offline data pipeline: TMDB scrape, clean, embed, HF upload
 db/         Postgres schema migrations + load pre-built HF artifacts
 demo/       Record/replay demo scripts and manifests
+docs/       Specifications: evaluation strategy, API reference, data schema
 eval/       Offline evaluation harness — Oracle simulator, judge, runner
 frontend/   React + Vite UI
+mcp_server/ MCP server exposing CinePal tools to AI agents
 notebooks/  Colab GPU embedding notebook
 tests/      Smoke tests (real Postgres via testcontainers; dry_run LLM via fixtures)
 ```

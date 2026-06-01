@@ -45,8 +45,7 @@ Modules are grouped by *what they do*, not by which pipeline stage uses them.
 |---|---|
 | `scraper.py` | Stage-1 CLI entry point: TMDB scrape → cleaned parquet → HF snapshots/ |
 | `fetch/tmdb.py` | TMDB API client: daily export download, `/movie/{id}` bulk fetch, review fetch |
-| `fetch/trailer.py` | Download a YouTube trailer via yt-dlp and sample evenly-spaced frames |
-| `embed/trailer.py` | Trailer-specific orchestration: frames → `core.image_encoder.encode_images` → mean-pool |
+| `fetch/trailer.py` | Download a YouTube trailer via yt-dlp and sample evenly-spaced frames. Trailer encoding (frames → `core.image_encoder.encode_images` → mean-pool) is handled by `core/trailer_encoder.py`. |
 | `transform/clean.py` | Filter, deduplicate, and normalise raw TMDB JSONL into a cleaned DataFrame |
 | `transform/split.py` | Produce mini / main / eval-holdout splits |
 | `transform/offline.py` | Offline pipeline: `core.fusion.fuse_batch` → UMAP 50D → HDBSCAN → UMAP 2D (visualization). Called by `db.ingest` |

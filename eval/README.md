@@ -8,7 +8,7 @@ Offline pipeline that drives simulated oracle sessions against the live system a
 
 ```
 build bundles  →  run sessions (parallel)  →  metrics + judge scores written automatically
-python -m eval.build     python -m eval.run
+python -m eval.builder   python -m eval.run
 ```
 
 Bundles (`eval/personas/conf/<slug>.yaml`) are the canonical source of truth for personas and ground truths. DB rows are created lazily at simulation time. Sessions are run in parallel with a Rich progress bar.
@@ -29,7 +29,7 @@ Bundles (`eval/personas/conf/<slug>.yaml`) are the canonical source of truth for
    - `CONFIG_PATH` — defaults to `configs/dev.yaml`; use `configs/prod.yaml` for production
 
 3. Eval harness uses two model tiers (configured in `eval/eval.yaml`):
-   - `eval_harness.oracle` — oracle simulation (current: `google/gemini-2.0-flash-001`)
+   - `eval_harness.oracle` — oracle simulation (current: `google/gemini-2.5-flash`)
    - `eval_harness.judge` — LLM judge (current: `anthropic/claude-opus-4-7`)
 
    Set `dry_run: true` under either to bypass real LLM calls during development.
@@ -76,7 +76,7 @@ python -m eval.run --all --run-name baseline-v1 --seeds 1 2 3 --condition conver
 
 Passing `--run-name` auto-creates the run row if it does not exist; the most recent is used if multiple share the same name.
 
-Sessions run in parallel (bounded by `eval_harness.runner.max_parallel`; default 4). A Rich progress bar shows live status per session. Each session's conversation UUID is printed on completion.
+Sessions run in parallel (bounded by `eval_harness.runner.max_parallel`; default 10). A Rich progress bar shows live status per session. Each session's conversation UUID is printed on completion.
 
 Available conditions:
 
@@ -142,9 +142,8 @@ python -m eval.run --evaluate-only <conversation_id> --ground-truth exploration_
 | Key | Default | Description |
 |---|---|---|
 | `runner.max_turns` | `15` | Turn budget per simulated session |
-| `runner.transcript_tail` | `6` | Recent messages shown to the oracle per turn |
 | `runner.exemplar_top_k` | `5` | Max exemplar titles per cluster shown in oracle prompts |
-| `runner.max_parallel` | `4` | Max concurrent simulated sessions |
+| `runner.max_parallel` | `10` | Max concurrent simulated sessions |
 | `runner.run_seed` | `0` | Seed for auto-created run rows |
 | `oracle.cost_limit_usd` | `2.0` | Per-session oracle LLM cost ceiling |
 | `oracle.dry_run` | `false` | Short-circuit oracle LLM calls with fixture responses |
@@ -152,8 +151,8 @@ python -m eval.run --evaluate-only <conversation_id> --ground-truth exploration_
 | `judge.dry_run` | `false` | Short-circuit judge LLM calls with fixture responses |
 | `scorer.pole_sample_k` | `5` | Films sampled per pole for `concept_axis_quality` |
 | `scorer.exemplar_k` | `5` | Max exemplar titles shown per cluster in judge prompts |
-| `gt_builder.min_ops` | `3` | Minimum operations in a generated GT |
-| `gt_builder.max_ops` | `6` | Maximum operations in a generated GT |
+| `gt_builder.min_ops` | `2` | Minimum operations in a generated GT |
+| `gt_builder.max_ops` | `4` | Maximum operations in a generated GT |
 
 ---
 
@@ -165,12 +164,12 @@ eval/
   config.py             eval/eval.yaml loader (eval_harness: section only)
   eval.yaml             All harness knobs + system config for eval runs
   types.py              Canonical operation vocabulary (NAVIGATION_OPERATIONS, OpSpec, PERSONAS_DIR)
-  build/                Bundle builder
-    __main__.py         CLI — build bundles (python -m eval.build)
+  builder/              Bundle builder
+    __main__.py         CLI — build bundles (python -m eval.builder)
     builder.py          build_bundle() / build_random_batch()
     types.py            GroundTruthProposal, OpProposal (pydantic wire)
     prompts/
-      ground_truth_v1.j2  Single-pass merged intent+trajectory prompt
+      ground_truth_v3.j2  Single-pass merged intent+trajectory prompt
   personas/             Bundle store
     conf/               Bundle YAML files (generated artifacts — gitignored)
     store.py            File I/O + idempotent DB upsert
@@ -185,11 +184,11 @@ eval/
   oracle/
     agent.py            oracle_turn() — intent-driven, no to-do list
     types.py            OracleLLMResponse, OracleTurnResult
-    prompts/oracle_v2.j2  Intent + cluster state + evolution trace
+    prompts/oracle_v7.j2  Intent + cluster state + evolution trace
   judge/
     agent.py            judge_conversation() — single LLM call
     types.py            JudgeLLMResponse, JudgeResult
-    prompts/judge_v4.j2   Single template with conditional axes block
+    prompts/judge_v5.j2   Single template with conditional axes block
   metrics/
     conversation.py     cost, num_turns, num_operations, clarifier_trigger_rate
     snapshot.py         num_clusters

@@ -56,7 +56,7 @@ unclustered state) and tracks accumulated LLM cost.
 |---|---|---|---|
 | `POST` | `/conversations` | public or user | Create a new conversation (201). Anonymous is allowed; if authenticated, it is owned by the caller. Returns a `ConversationDto` with an empty `messages` list. |
 | `GET` | `/conversations` | user | List all conversations owned by the authenticated user, newest first. Each item includes all messages. Returns 401 if anonymous. |
-| `GET` | `/conversations/{conversation_id}` | public | Fetch a conversation with up to 20 most recent messages. Returns 404 if not found. |
+| `GET` | `/conversations/{conversation_id}` | public | Fetch a conversation with up to 20 most recent messages. Optional `limit` query param (default 0 → 20 most recent; positive int uses that value). Returns 404 if not found. |
 | `PATCH` | `/conversations/{conversation_id}` | user | Set the active cluster snapshot (undo / branch navigation); records a `conversation_snapshot_refs` entry. Returns 401 if anonymous, 404 if the conversation is missing, 404 (`ClusterSnapshotNotFound`) if the snapshot is missing. |
 | `POST` | `/conversations/{conversation_id}/messages` | public or user | Submit a user message; runs the Coordinator pipeline and returns the assistant reply plus the new snapshot id. Returns 404 if the conversation is missing. |
 | `DELETE` | `/conversations/{conversation_id}` | user | Delete a conversation and its child data (204). Returns 401 if anonymous, 403 (`NotConversationOwner`) if not owned, 404 if not found. |
@@ -118,14 +118,14 @@ then the terminal `turn_done`. A `: heartbeat` comment line is sent every 15s of
 
 ### Cluster snapshots — `/cluster-snapshots`
 
-The cluster-snapshot tree. Mostly public reads; deletion requires authentication. Snapshot DTOs carry
+The cluster-snapshot tree. All reads and deletes are public (no authentication required). Snapshot DTOs carry
 the operation, replay params, config hash, the cluster list, and (for the full snapshot) argmax
 member assignments.
 
 | Method | Path | Level | Description |
 |---|---|---|---|
 | `GET` | `/cluster-snapshots/{cluster_snapshot_id}` | public | Return a snapshot with its full cluster list and argmax members. Returns 404 if not found. |
-| `DELETE` | `/cluster-snapshots/{cluster_snapshot_id}` | user | Delete a **leaf** snapshot. Conversations pointing at it are reparented to its parent (or NULL for root). Returns 401 if anonymous, 404 if missing, 409 (`SnapshotHasChildren`) if it still has children. |
+| `DELETE` | `/cluster-snapshots/{cluster_snapshot_id}` | public | Delete a **leaf** snapshot. Conversations pointing at it are reparented to its parent (or NULL for root). Returns 404 if missing, 409 (`SnapshotHasChildren`) if it still has children. |
 | `GET` | `/cluster-snapshots/{cluster_snapshot_id}/clusters/{cluster_id}/members` | public | Return all movie memberships in a cluster, ordered by descending probability. Validates the cluster belongs to the snapshot (404 otherwise). |
 
 **DTOs**: `ClusterSnapshotDto` (`id`, `parent_id`, `operation`, `params`, `config_hash`,
@@ -171,7 +171,7 @@ All eval routes require an admin-scoped JWT and are not intended for frontend co
 | `200` | success | GET/PATCH, `POST /conversations/{id}/messages` |
 | `201` | success | `POST /auth/register`, `POST /conversations` |
 | `204` | success | `POST /auth/logout`, `DELETE /conversations/{id}`, `DELETE /cluster-snapshots/{id}` |
-| `401` | `AuthError` / anonymous | `/auth/me`, list/patch/delete conversations, delete snapshot |
+| `401` | `AuthError` / anonymous | `/auth/me`, list/patch/delete conversations |
 | `403` | `NotConversationOwner` | deleting a conversation you don't own |
 | `404` | `NotFoundError` family | `ConversationNotFound`, `ClusterSnapshotNotFound`, `MovieNotFound`, `ConceptNotFound`, cluster-not-in-snapshot |
 | `409` | `ConflictError` family | `register` email taken, `SnapshotHasChildren` |
@@ -202,8 +202,7 @@ All capabilities are exposed as **tools** (no MCP Resources). All tools work in 
 
 | Tool | Args | Backend call | Notes |
 |---|---|---|---|
-| `get_root_snapshot()` | — | `GET /cluster-snapshots/root` | The corpus-level starting snapshot. `members` (per-movie UMAP data) is stripped before returning — too large for the protocol and only needed by the frontend. |
-| `get_snapshot(snapshot_id)` | 1 | `GET /cluster-snapshots/{id}` | A snapshot with its cluster list. `members` is stripped for the same reason. |
+| `get_snapshot(snapshot_id)` | 1 | `GET /cluster-snapshots/{id}` | A snapshot with its cluster list. `members` (per-movie UMAP data) is stripped before returning — too large for the protocol and only needed by the frontend. |
 | `get_cluster_members(snapshot_id, cluster_id)` | 2 | `GET /cluster-snapshots/{sid}/clusters/{cid}/members` | All movies in a cluster with soft membership probabilities, ordered descending. |
 
 ### Movie tools

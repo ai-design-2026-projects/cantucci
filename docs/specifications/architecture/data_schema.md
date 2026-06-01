@@ -233,7 +233,7 @@ Links a conversation to a run, persona, and ground truth. `condition` records wh
 ```sql
 CREATE TABLE eval_sessions (
     id                    UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
-    run_id                UUID        NOT NULL REFERENCES runs (id) ON DELETE CASCADE,
+    run_id                UUID        NOT NULL REFERENCES runs (run_id) ON DELETE CASCADE,
     conversation_id       UUID        UNIQUE NOT NULL REFERENCES conversations (id) ON DELETE CASCADE,
     persona_id            UUID        REFERENCES personas (id) ON DELETE SET NULL,
     ground_truth_id       UUID        REFERENCES ground_truths (id) ON DELETE SET NULL,
@@ -386,7 +386,7 @@ Soft assignment of a movie to a cluster.
 ```sql
 CREATE TABLE cluster_memberships (
     cluster_id  UUID    NOT NULL REFERENCES clusters(id) ON DELETE CASCADE,
-    movie_id    INTEGER NOT NULL REFERENCES movies(id),
+    movie_id    INTEGER NOT NULL REFERENCES movies(id) ON DELETE CASCADE,
     probability FLOAT   NOT NULL,
     PRIMARY KEY (cluster_id, movie_id)
 );
@@ -425,7 +425,7 @@ CREATE TABLE concepts (
 
 CREATE TABLE concept_scores (
     concept_id UUID    NOT NULL REFERENCES concepts(id) ON DELETE CASCADE,
-    movie_id   INTEGER NOT NULL REFERENCES movies(id),
+    movie_id   INTEGER NOT NULL REFERENCES movies(id) ON DELETE CASCADE,
     score      FLOAT   NOT NULL,
     PRIMARY KEY (concept_id, movie_id)
 );
