@@ -1,4 +1,4 @@
-import { useConversation } from '@/features/Chat/hooks/useConversation'
+import { useFullConversation } from '../hooks/useFullConversation'
 import { MessageList } from '@/features/Chat/components/MessageList'
 
 interface ReadOnlyTranscriptProps {
@@ -6,11 +6,11 @@ interface ReadOnlyTranscriptProps {
 }
 
 /**
- * Read-only view of a conversation transcript.
- * Renders the message history without a chat input.
+ * Read-only view of a conversation transcript. Fetches all messages (no limit)
+ * so the full eval conversation is shown regardless of length.
  */
 export function ReadOnlyTranscript({ conversationId }: ReadOnlyTranscriptProps) {
-    const { data: conversation, isLoading, isError } = useConversation(conversationId)
+    const { data: conversation, isLoading, isError } = useFullConversation(conversationId)
 
     return (
         <div className="flex flex-col flex-1 min-h-0">

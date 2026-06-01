@@ -343,6 +343,12 @@ class RunAggregateSessionRow:
         total_cost_usd:        Total LLM cost (None means metrics not computed).
         metrics_computed_at:   Metrics computation timestamp, or None.
         judge_scores:          Latest judge score per dimension (may be empty).
+        persona_slug:          Persona slug (None when no persona).
+        persona_verbosity:     Persona verbosity level (None when no persona).
+        persona_patience:      Persona patience float (None when no persona).
+        mean_confidence:       Mean turn-intent confidence across the session (None
+                               when no turn intents recorded).
+        ground_truth_slug:     Ground truth slug (None when no ground truth).
     """
     id: uuid.UUID
     run_id: uuid.UUID
@@ -362,6 +368,11 @@ class RunAggregateSessionRow:
     total_cost_usd: float | None
     metrics_computed_at: datetime | None
     judge_scores: list[JudgeScoreRow]
+    persona_slug: str | None
+    persona_verbosity: str | None
+    persona_patience: float | None
+    mean_confidence: float | None
+    ground_truth_slug: str | None
 
     @classmethod
     def from_row(cls, r: dict) -> "RunAggregateSessionRow":
@@ -390,4 +401,9 @@ class RunAggregateSessionRow:
             total_cost_usd=float(r["total_cost_usd"]) if r["total_cost_usd"] is not None else None,
             metrics_computed_at=r["metrics_computed_at"],
             judge_scores=judge_scores,
+            persona_slug=r.get("persona_slug"),
+            persona_verbosity=r.get("persona_verbosity"),
+            persona_patience=float(r["persona_patience"]) if r.get("persona_patience") is not None else None,
+            mean_confidence=float(r["mean_confidence"]) if r.get("mean_confidence") is not None else None,
+            ground_truth_slug=r.get("ground_truth_slug"),
         )

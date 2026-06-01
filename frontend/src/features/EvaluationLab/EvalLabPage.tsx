@@ -4,16 +4,20 @@ import { ConfigPanel } from './ConfigPanel/ConfigPanel'
 import { MainArea } from './MainArea/MainArea'
 import { SessionSlideOver } from './SessionSlideOver/SessionSlideOver'
 import { useEvalLabStore } from './hooks/useEvalLabStore'
+import { useRuns } from './hooks/useRuns'
 import { useRunAggregate, useMultipleRunAggregates } from './hooks/useRunAggregate'
 
 /**
  * Admin-only Eval Lab page. Three-column layout (RunList | MainArea | ConfigPanel)
- * under the shared Header. SessionSlideOver floats on top as a right-side sheet.
+ * under the shared Header. SessionSlideOver floats on top as a centered dialog.
  */
 export function EvalLabPage() {
     const { selectedRunId, compareMode, compareRunIds } = useEvalLabStore()
+    const { data: runs } = useRuns()
+    const selectedRun = runs?.find((r) => r.id === selectedRunId)
+    const isRunning = !compareMode && selectedRun?.status === 'running'
 
-    const singleResult = useRunAggregate(compareMode ? null : selectedRunId)
+    const singleResult = useRunAggregate(compareMode ? null : selectedRunId, isRunning)
     const multiResults = useMultipleRunAggregates(compareMode ? compareRunIds : [])
 
     const aggregates = compareMode

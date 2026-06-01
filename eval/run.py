@@ -118,6 +118,7 @@ async def _cmd_evaluate_only(args: argparse.Namespace) -> None:
 
 
 async def _cmd_run(args: argparse.Namespace) -> None:
+    from backend.data_access.eval.queries import set_run_status
     from eval.runtime.batch import run_all_personas, run_personas
 
     if args.seeds is None:
@@ -125,25 +126,31 @@ async def _cmd_run(args: argparse.Namespace) -> None:
         sys.exit(1)
 
     run_id = _resolve_run_id(args)
+    set_run_status(run_id, "running")
 
-    if args.all:
-        conversation_ids = await run_all_personas(
-            run_id=run_id,
-            seeds=args.seeds,
-            condition=args.condition,
-        )
-    else:
-        slugs = [args.persona] if args.persona else (args.personas or [])
-        if not slugs:
-            print("error: specify --persona, --personas, or --all", file=sys.stderr)
-            sys.exit(1)
-        conversation_ids = await run_personas(
-            run_id=run_id,
-            slugs=slugs,
-            seeds=args.seeds,
-            condition=args.condition,
-        )
+    try:
+        if args.all:
+            conversation_ids = await run_all_personas(
+                run_id=run_id,
+                seeds=args.seeds,
+                condition=args.condition,
+            )
+        else:
+            slugs = [args.persona] if args.persona else (args.personas or [])
+            if not slugs:
+                print("error: specify --persona, --personas, or --all", file=sys.stderr)
+                sys.exit(1)
+            conversation_ids = await run_personas(
+                run_id=run_id,
+                slugs=slugs,
+                seeds=args.seeds,
+                condition=args.condition,
+            )
+    except Exception:
+        set_run_status(run_id, "aborted")
+        raise
 
+    set_run_status(run_id, "completed")
     for conv_id in conversation_ids:
         print(f"conversation_id={conv_id}")
     print(f"\n{len(conversation_ids)} session(s) completed.")

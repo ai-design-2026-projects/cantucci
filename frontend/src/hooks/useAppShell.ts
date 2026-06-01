@@ -1,7 +1,7 @@
 import { useEffect } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { meFetcher } from '@/api/services/auth'
 import { getConversationFetcher } from '@/api/services/conversations'
+import { useAuthHydration } from '@/hooks/useAuthHydration'
 import { useAuthStore } from '@/store/useAuthStore'
 import { useConversationStore } from '@/store/useConversationStore'
 import { useThemeStore } from '@/store/useThemeStore'
@@ -15,7 +15,9 @@ export function useAppShell() {
 	const { conversationId } = useParams<{ conversationId: string }>()
 	const navigate = useNavigate()
 
-	const { setUser, setStatus, status } = useAuthStore()
+	useAuthHydration()
+
+	const { status } = useAuthStore()
 	const { initTheme } = useThemeStore()
 	const {
 		setActiveConversationId,
@@ -27,11 +29,6 @@ export function useAppShell() {
 	useEffect(() => {
 		initTheme()
 	}, [initTheme])
-
-	useEffect(() => {
-		setStatus('loading')
-		meFetcher().then((user) => setUser(user))
-	}, [setUser, setStatus])
 
 	useEffect(() => {
 		if (conversationId) {

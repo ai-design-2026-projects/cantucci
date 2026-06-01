@@ -46,7 +46,7 @@ export function ConfigPanel({ run, configSnapshot }: ConfigPanelProps) {
             </div>
 
             {configPanelOpen && (
-                <div className="flex-1 overflow-y-auto">
+                <div className="flex-1 overflow-y-auto scrollbar-styled">
                     {!run ? (
                         <p className="text-xs text-[var(--color-muted)] px-4 py-4">Select a run to view its config.</p>
                     ) : (
