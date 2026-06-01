@@ -95,7 +95,6 @@ class ConversationMetricsDto(BaseModel):
 
     Attributes:
         final_num_clusters:      Number of clusters at session end.
-        operation_recall:        Fraction of GT ops matched, or None if no GT.
         clarifier_trigger_rate:  Rate of turns that triggered the clarifier.
         num_turns:               Total number of oracle turns.
         num_operations:          Total NavigationMode operations recorded.
@@ -103,7 +102,6 @@ class ConversationMetricsDto(BaseModel):
         computed_at:             Metrics computation timestamp.
     """
     final_num_clusters: int
-    operation_recall: float | None
     clarifier_trigger_rate: float | None
     num_turns: int
     num_operations: int
@@ -180,7 +178,6 @@ class SessionMetricsDto(BaseModel):
 
     Attributes:
         final_num_clusters:     Number of clusters at session end, or None.
-        operation_recall:       Fraction of GT ops matched, or None.
         clarifier_trigger_rate: Rate of turns that triggered the clarifier, or None.
         num_turns:              Total oracle turns.
         num_operations:         Total navigation operations.
@@ -188,7 +185,6 @@ class SessionMetricsDto(BaseModel):
         computed_at:            Metrics computation timestamp.
     """
     final_num_clusters: int | None
-    operation_recall: float | None
     clarifier_trigger_rate: float | None
     num_turns: int
     num_operations: int

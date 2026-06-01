@@ -116,7 +116,6 @@ def metrics_to_dto(row: ConversationMetricsRow) -> ConversationMetricsDto:
     """
     return ConversationMetricsDto(
         final_num_clusters=row.final_num_clusters,
-        operation_recall=row.operation_recall,
         clarifier_trigger_rate=row.clarifier_trigger_rate,
         num_turns=row.num_turns,
         num_operations=row.num_operations,
@@ -179,7 +178,6 @@ def build_session_aggregate_row_dto(row: RunAggregateSessionRow) -> SessionAggre
     if row.num_turns is not None:
         metrics = SessionMetricsDto(
             final_num_clusters=row.final_num_clusters,
-            operation_recall=row.operation_recall,
             clarifier_trigger_rate=row.clarifier_trigger_rate,
             num_turns=row.num_turns,
             num_operations=row.num_operations or 0,

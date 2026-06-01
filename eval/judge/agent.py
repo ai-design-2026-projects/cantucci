@@ -31,12 +31,15 @@ async def judge_conversation(
     per-turn intent rows, and final cluster snapshot from the database, then
     calls the LLM harness once.
 
-    Uses ``judge_v4.j2``, which has a single conditional block for the
-    ``concept_axis_quality`` dimension — no dual-template branching.
+    Uses ``judge_v5.j2``, which has conditional blocks for three optional
+    dimensions: ``concept_axis_quality``, ``explanation_quality``, and
+    ``suggestion_meaningfulness`` — no dual-template branching.
 
-    When ≥1 concept axis was built during the session the ``concept_axis_quality``
-    dimension is included; otherwise it is omitted from both the prompt and the
-    expected dimensions list.
+    Optional dimensions are included only when the relevant signal is present:
+    ``concept_axis_quality`` when ≥1 concept axis was built; ``explanation_quality``
+    when at least one turn used the ``explain`` dialogue mode; and
+    ``suggestion_meaningfulness`` when at least one assistant message carried a
+    non-null suggestion text.
 
     Args:
         conversation_id:                 UUID of the completed conversation to judge.
@@ -68,17 +71,27 @@ async def judge_conversation(
     for ti in turn_intents:
         turns_by_number[ti.turn_number].append(ti)
 
+    assistant_messages = [m for m in messages if m.role == "assistant"]
+
     turn_action_log = []
-    for turn_num in sorted(turns_by_number):
+    for turn_idx, turn_num in enumerate(sorted(turns_by_number)):
         rows = turns_by_number[turn_num]
+        suggestion_text = (
+            assistant_messages[turn_idx].suggestion
+            if turn_idx < len(assistant_messages)
+            else None
+        )
         turn_action_log.append({
             "modes": [r.mode for r in rows],
             "concepts": [r.concept for r in rows],
             "confidence": min(r.confidence for r in rows),
             "clarifier_fired": any(r.clarifier_fired for r in rows),
-            "suggestion": None,
-            "explanation": None,
+            "suggestion": suggestion_text,
+            "explanation": any(r.mode == "explain" for r in rows),
         })
+
+    has_explanation = any(t["explanation"] for t in turn_action_log)
+    has_suggestion = any(bool(t["suggestion"]) for t in turn_action_log)
 
     exemplar_k = harness_cfg.scorer.exemplar_k
     clusters_info: list[dict] = []
@@ -102,9 +115,14 @@ async def judge_conversation(
         ))
 
     has_axes = len(axis_contexts) > 0
+    dimension_present = {
+        "concept_axis_quality": has_axes,
+        "explanation_quality": has_explanation,
+        "suggestion_meaningfulness": has_suggestion,
+    }
     effective_dimensions = [
         d for d in harness_cfg.scorer.dimensions
-        if d != "concept_axis_quality" or has_axes
+        if dimension_present.get(d, True)
     ]
 
     template = _ENV.get_template("judge_v5.j2")
@@ -115,6 +133,8 @@ async def judge_conversation(
         turn_action_log=turn_action_log,
         final_clusters=clusters_info,
         axis_contexts=axis_contexts,
+        has_explanation=has_explanation,
+        has_suggestion=has_suggestion,
     )
 
     prompt_hash = hashlib.sha256(prompt.encode()).hexdigest()
@@ -148,12 +168,25 @@ async def judge_conversation(
         prompt_hash=prompt_hash,
     )
 
+    for dim, (score, rationale) in result.scores.items():
+        log.debug(
+            "judge_dimension",
+            extra={
+                "conversation_id": str(conversation_id),
+                "dimension": dim,
+                "score": score,
+                "rationale": rationale,
+            },
+        )
+
     log.info(
         "judge_conversation_done",
         extra={
             "conversation_id": str(conversation_id),
             "prompt_hash": prompt_hash[:8],
             "has_axes": has_axes,
+            "has_explanation": has_explanation,
+            "has_suggestion": has_suggestion,
             "scores": {dim: score for dim, (score, _) in result.scores.items()},
         },
     )

@@ -228,7 +228,6 @@ class ConversationMetricsRow:
     Attributes:
         conversation_id:       Parent conversation UUID.
         final_num_clusters:    Number of clusters in the final snapshot.
-        operation_recall:      Fraction of GT operations executed, or None for human sessions.
         clarifier_trigger_rate: Fraction of turns on which the clarifier gate fired.
         num_turns:             Total oracle turns in the conversation.
         num_operations:        Total navigation operations executed.
@@ -237,7 +236,6 @@ class ConversationMetricsRow:
     """
     conversation_id: uuid.UUID
     final_num_clusters: int | None
-    operation_recall: float | None
     clarifier_trigger_rate: float | None
     num_turns: int
     num_operations: int
@@ -250,7 +248,6 @@ class ConversationMetricsRow:
         return cls(
             conversation_id=r["conversation_id"],
             final_num_clusters=r["final_num_clusters"],
-            operation_recall=r["operation_recall"],
             clarifier_trigger_rate=r["clarifier_trigger_rate"],
             num_turns=r["num_turns"],
             num_operations=r["num_operations"],
@@ -340,7 +337,6 @@ class RunAggregateSessionRow:
         oracle_rating:         1–5 oracle self-rating, or None.
         created_at:            UTC creation timestamp.
         final_num_clusters:    Final cluster count, or None.
-        operation_recall:      Operation recall vs ground truth, or None.
         clarifier_trigger_rate: Clarifier trigger rate, or None.
         num_turns:             Total turns (None means metrics not computed).
         num_operations:        Total operations (None means metrics not computed).
@@ -366,7 +362,6 @@ class RunAggregateSessionRow:
     oracle_rating: int | None
     created_at: datetime
     final_num_clusters: int | None
-    operation_recall: float | None
     clarifier_trigger_rate: float | None
     num_turns: int | None
     num_operations: int | None
@@ -400,7 +395,6 @@ class RunAggregateSessionRow:
             oracle_rating=r["oracle_rating"],
             created_at=r["created_at"],
             final_num_clusters=r["final_num_clusters"],
-            operation_recall=r["operation_recall"],
             clarifier_trigger_rate=r["clarifier_trigger_rate"],
             num_turns=r["num_turns"],
             num_operations=r["num_operations"],

@@ -22,6 +22,7 @@ import uuid
 
 from backend.logging_setup import configure_logging
 from backend.settings import get_config_hash, get_config_snapshot
+from eval.logging_setup import configure_eval_logging
 
 log = logging.getLogger(__name__)
 
@@ -43,7 +44,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "--ground-truth",
         default=None,
         dest="ground_truth",
-        help="Ground truth slug for --evaluate-only (enables operation_recall).",
+        help="Ground truth slug for --evaluate-only (passes GT context to the judge).",
     )
 
     persona_sel = parser.add_mutually_exclusive_group()
@@ -157,6 +158,7 @@ async def _cmd_run(args: argparse.Namespace) -> None:
 
 async def _main() -> None:
     configure_logging()
+    configure_eval_logging()
     parser = _build_parser()
     args = parser.parse_args()
 

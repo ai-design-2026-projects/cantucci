@@ -529,7 +529,6 @@ def list_turn_intents(conversation_id: uuid.UUID) -> list[TurnIntentRow]:
 def upsert_conversation_metrics(
     conversation_id: uuid.UUID,
     final_num_clusters: int | None,
-    operation_recall: float | None,
     clarifier_trigger_rate: float | None,
     num_turns: int,
     num_operations: int,
@@ -542,7 +541,6 @@ def upsert_conversation_metrics(
     Args:
         conversation_id:       Parent conversation UUID.
         final_num_clusters:    Number of clusters in the final snapshot.
-        operation_recall:      Fraction of GT operations executed, or None.
         clarifier_trigger_rate: Fraction of turns with clarifier gate fired.
         num_turns:             Total oracle turns.
         num_operations:        Total navigation operations executed.
@@ -552,13 +550,12 @@ def upsert_conversation_metrics(
         conn.execute(
             """
             INSERT INTO conversation_metrics (
-                conversation_id, final_num_clusters, operation_recall, clarifier_trigger_rate,
+                conversation_id, final_num_clusters, clarifier_trigger_rate,
                 num_turns, num_operations, total_cost_usd, computed_at
             )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, NOW())
+            VALUES (%s, %s, %s, %s, %s, %s, NOW())
             ON CONFLICT (conversation_id) DO UPDATE SET
                 final_num_clusters     = EXCLUDED.final_num_clusters,
-                operation_recall       = EXCLUDED.operation_recall,
                 clarifier_trigger_rate = EXCLUDED.clarifier_trigger_rate,
                 num_turns              = EXCLUDED.num_turns,
                 num_operations         = EXCLUDED.num_operations,
@@ -566,7 +563,7 @@ def upsert_conversation_metrics(
                 computed_at            = NOW()
             """,
             (
-                conversation_id, final_num_clusters, operation_recall, clarifier_trigger_rate,
+                conversation_id, final_num_clusters, clarifier_trigger_rate,
                 num_turns, num_operations, total_cost_usd,
             ),
         )
@@ -585,7 +582,7 @@ def get_conversation_metrics(conversation_id: uuid.UUID) -> ConversationMetricsR
     with transaction() as conn:
         row = conn.execute(
             """
-            SELECT conversation_id, final_num_clusters, operation_recall, clarifier_trigger_rate,
+            SELECT conversation_id, final_num_clusters, clarifier_trigger_rate,
                    num_turns, num_operations, total_cost_usd, computed_at
             FROM conversation_metrics WHERE conversation_id = %s
             """,
@@ -710,7 +707,7 @@ def get_run_aggregate(run_id: uuid.UUID) -> tuple[RunRow | None, list[RunAggrega
                 es.id, es.run_id, es.conversation_id, es.persona_id, es.ground_truth_id,
                 es.seed, es.condition, es.status, es.termination_rationale, es.oracle_rating,
                 es.created_at,
-                cm.final_num_clusters, cm.operation_recall, cm.clarifier_trigger_rate,
+                cm.final_num_clusters, cm.clarifier_trigger_rate,
                 cm.num_turns, cm.num_operations, cm.total_cost_usd,
                 cm.computed_at AS metrics_computed_at,
                 COALESCE(sj.judge_scores, '[]'::jsonb) AS judge_scores,

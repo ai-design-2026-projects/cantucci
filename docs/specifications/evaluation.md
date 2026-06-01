@@ -103,16 +103,17 @@ All metrics are persisted after each session in `conversation_metrics` (determin
 
 ### LLM-judge scores (subjective, 1–5)
 
-A separate judge (`eval/judge/agent.py`) reads the completed transcript, the per-turn action log, and the final cluster state (labels, summaries, exemplar titles). It scores five dimensions independently:
+A separate judge (`eval/judge/agent.py`) reads the completed transcript, the per-turn action log, and the final cluster state (labels, summaries, exemplar titles). It scores the following dimensions (always-present unless noted):
 
 | Dimension | What is assessed |
 |---|---|
 | `operation_appropriateness` | Across the session, did the system pick the right operation (`cluster`, `merge`, `focus`, `cross_filter`, `exclude`) given each oracle message, with sensible parameters (concept, target cluster, modalities)? |
-| `label_accuracy` | Do the cluster labels and summaries accurately describe their exemplar films at each snapshot, and do they remain consistent across snapshots and turns (no cosmetic thrashing between synonyms when cluster contents are unchanged)? |
-| `suggestion_meaningfulness` | When the Responder volunteers a follow-up suggestion, is it relevant to the current snapshot state, well-timed, and non-redundant with what the oracle has already requested? |
-| `explanation_quality` | When the Explanation agent justifies why a movie sits in a given cluster, is the rationale faithful to the cluster's label and exemplars, and specific enough to be informative rather than generic? |
+| `label_accuracy` | Do the cluster labels and summaries accurately describe their exemplar films at each snapshot, and do they remain consistent across snapshots and turns? |
+| `clustering_coherence` | Do the films within each cluster genuinely belong together? For each cluster, do the exemplar films share a common characteristic consistent with the cluster's label, and is the grouping tight rather than overly broad? |
+| `suggestion_meaningfulness` | When the Responder volunteers a follow-up suggestion, is it relevant to the current snapshot state, well-timed, and non-redundant with what the oracle has already requested? Only emitted when at least one suggestion was offered. |
+| `explanation_quality` | When the Explanation agent justifies why a movie sits in a given cluster, is the rationale faithful to the cluster's label and exemplars, and specific enough to be informative rather than generic? Only emitted when at least one explain turn occurred. |
 | `intent_alignment` | Does the system's executed sequence of operations and the resulting final snapshot reflect what the oracle was trying to elicit through the intent description? |
-| `concept_axis_quality` | For each concept axis the system built: do the two poles form a coherent, genuinely opposing spectrum? Are the axis name and pole labels concise and non-generic? Was the embedding space (semantic vs visual) appropriate for the concept? Is the axis discriminative — would the poles meaningfully separate films? Scored 1–5. Only emitted when the session built ≥1 concept axis; omitted otherwise. |
+| `concept_axis_quality` | For each concept axis the system built: do the two poles form a coherent, genuinely opposing spectrum? Are the axis name and pole labels concise and non-generic? Was the embedding space (semantic vs visual) appropriate for the concept? Is the axis discriminative — would the poles meaningfully separate films? Only emitted when the session built ≥1 concept axis. |
 
 ---
 
