@@ -158,7 +158,7 @@ class Coordinator:
             axis_concept_id=axis_concept_id,
             turn_trace=build_trace(
                 trace_modes, trace_concepts, trace_targets, trace_confidence, trace_raw,
-                clarifier_fired=False, suggestion=suggestion, reply_fragments=reply_fragments,
+                clarifier_fired=awaiting_after_dispatch, suggestion=suggestion, reply_fragments=reply_fragments,
                 intent_actions=actions,
             ),
         )

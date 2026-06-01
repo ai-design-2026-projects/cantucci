@@ -38,9 +38,9 @@ def build_trace(
 ) -> TurnTrace:
     """Construct a ``TurnTrace`` for the completed turn.
 
-    Handles both the early-return (clarifier fired) and normal dispatch paths.
-    When ``clarifier_fired`` is True, explanation is always ``None`` and
-    suggestion is always ``None``.
+    Handles both the early-return (low-confidence gate) and normal dispatch paths.
+    When ``clarifier_fired`` is True (either path), explanation and suggestion are
+    always ``None`` because no clustering operation completed this turn.
 
     Args:
         trace_modes:      Mode value strings from intent actions.
@@ -48,7 +48,9 @@ def build_trace(
         trace_targets:    Target cluster UUIDs (parallel to modes).
         trace_confidence: Minimum confidence across all actions.
         trace_raw:        Raw intent JSON string.
-        clarifier_fired:  True when the clarifier gate fired this turn.
+        clarifier_fired:  True when this turn ended by asking a clarifying or confirming
+                          question — covers the low-confidence gate (early return) and any
+                          in-dispatch confirmation prompt that called ``mark_awaiting``.
         suggestion:       Suggester result (``None`` on the clarifier path).
         reply_fragments:  Per-action reply texts (empty on the clarifier path).
         intent_actions:   Classified actions (used to extract the explain text).
