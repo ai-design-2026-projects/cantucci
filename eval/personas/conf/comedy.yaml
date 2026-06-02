@@ -1,0 +1,18 @@
+slug: comedy
+verbosity: medium
+patience: 0.86
+intent_description: Split the catalogue by genre, zoom into comedies, drop the more
+  recent ones to keep the older material, and then see how each film sits on a spectrum
+  from gentle and warm-hearted to biting and cynical.
+operations:
+- op: cluster
+  concept: genre
+- op: focus
+  concept: comedy films
+- op: cluster
+  concept: decade
+- op: cluster
+  concept: warm-hearted and gentle vs biting and cynical tone
+  kind: axis
+  space: semantic
+prompt_hash: b4122a1a4c960f945897e0c7cf793b3ee6e30dc40994778e0f4ebd0540249e4f

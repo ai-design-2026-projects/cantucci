@@ -11,6 +11,7 @@ from pathlib import Path
 import yaml
 
 _REPO_ROOT = Path(__file__).parent.parent
+_EVAL_DIR = Path(__file__).parent
 _EVAL_YAML_PATH = _REPO_ROOT / "configs" / "eval.yaml"
 
 
@@ -91,7 +92,7 @@ class GTBuilderConfig:
 
 @dataclass(frozen=True, slots=True)
 class EvalHarnessConfig:
-    """All offline eval settings from the ``eval_harness:`` section of eval/eval.yaml.
+    """All offline eval settings from the ``eval_harness:`` section of configs/eval.yaml.
 
     Attributes:
         oracle:     Oracle simulation model config.
@@ -109,13 +110,13 @@ class EvalHarnessConfig:
 
 @functools.cache
 def load_eval_harness_config() -> EvalHarnessConfig:
-    """Load the ``eval_harness:`` section from configs/eval.yaml (cached).
+    """Load the ``eval_harness:`` section from ``configs/eval.yaml`` (cached).
 
     Returns:
-        ``EvalHarnessConfig`` populated from configs/eval.yaml.
+        ``EvalHarnessConfig`` populated from ``configs/eval.yaml``.
 
     Raises:
-        FileNotFoundError: If configs/eval.yaml does not exist.
+        FileNotFoundError: If ``configs/eval.yaml`` does not exist.
         KeyError:          If the ``eval_harness:`` section or required keys are absent.
     """
     if not _EVAL_YAML_PATH.exists():

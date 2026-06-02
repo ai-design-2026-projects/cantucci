@@ -1,0 +1,16 @@
+slug: worldcinema
+verbosity: verbose
+patience: 0.37
+intent_description: Break the catalogue down by language to see what non-English traditions
+  are represented, then zoom into the French-language films and see how they spread
+  between intimate personal stories and broader societal canvases.
+operations:
+- op: cluster
+  concept: language
+- op: focus
+  concept: French-language films
+- op: cluster
+  concept: intimate character study vs sprawling social canvas
+  kind: axis
+  space: semantic
+prompt_hash: 340e8a57be82aaab15c6a28fe296b5e4e7ca570173aba35ac7f9e93549fd7e16

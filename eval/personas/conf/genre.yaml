@@ -1,0 +1,10 @@
+slug: rater
+verbosity: medium
+patience: 0.40
+intent_description: Cluster based on genre in the catalogue and exclude horror
+operations:
+- op: cluster
+  concept: vote
+- op: focus
+  concept: highly-rated films
+prompt_hash: f33aca5c0bc09212ac370c71b88002426c290d78524f935efb65ed2428ad0f84

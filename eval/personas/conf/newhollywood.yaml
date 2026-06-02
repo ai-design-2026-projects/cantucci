@@ -1,0 +1,19 @@
+slug: newhollywood
+verbosity: verbose
+patience: 0.8
+intent_description: I want to look at films from the 1970s, the New Hollywood era,
+  but set aside the lighter comedies so I can focus on the heavier work, and then
+  see how those break down between gritty street realism and more stylised, auteur-driven
+  filmmaking.
+operations:
+- op: cross_filter
+  concept: films released in the 1970s
+- op: cluster
+  concept: genre
+- op: exclude
+  concept: comedy films
+- op: cluster
+  concept: gritty street realism vs stylised auteur cinema
+  kind: axis
+  space: semantic
+prompt_hash: 98e8552c1d874fd124d3b51dc8692c53c6ef87d12561c3a88cadcf473e3ef0b8
