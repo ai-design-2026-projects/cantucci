@@ -1,0 +1,69 @@
+\section{Evaluation Framework}\label{sec:evaluation}
+
+\subsection{Evaluation Design}
+
+Because cluster quality is defined by the oracle, the system cannot be graded against a fixed
+target. The evaluation therefore closes a three-party loop: the \textbf{system under test} is
+driven by an \textbf{LLM-simulated oracle} that plays a user with a hidden goal, and a separate
+\textbf{LLM judge} scores the completed session. The simulated oracle runs through exactly the
+same code path as a human client, so its sessions are indistinguishable from live ones in the
+database. To avoid a model rewarding outputs that match its own conventions, the system, the
+oracle, and the judge each run on a \emph{different} model family.
+
+\subsection{Oracle Formulation}
+
+\paragraph{Ground truth.} Each session is anchored by a \emph{ground truth}: a target navigation
+trajectory, an ordered list of operations, paired with a natural-language \emph{intent
+description} that paraphrases it. The oracle is shown only the intent description, never the
+operation list, so it must reach its goal by stating intent and reacting to what the system
+returns, just as a real user would.
+
+\paragraph{Persona.} A persona is layered on top of the ground truth through two dials:
+\emph{verbosity}, which controls how much the oracle says, and \emph{patience}, which controls how
+many misunderstandings it tolerates before giving up. A persona bundle, the persona dials plus the
+ground truth, is a write-once, versioned artefact, so the same experimental condition can be
+re-run unchanged.
+
+\paragraph{Protocol.} The oracle follows a strict protocol: one request per message, answer any
+clarifying question, ask once per session why a specific film sits in its cluster, and stop either
+on success (rating the session 4--5) or on giving up after repeated failures (rating 1--2). A turn
+budget caps the session if neither happens.
+
+\paragraph{Reproducibility.} The oracle is reproducible: its output is a deterministic function of
+the persona, the ground truth, the session seed, and the turn number, so reruns of the same
+quadruple reproduce the same session.
+
+\subsection{Metrics}
+
+Evaluation runs automatically at the end of each session and produces two kinds of measurement.
+
+\paragraph{Deterministic metrics.} These are read directly from the recorded session state and
+need no model: the number of clusters in the final snapshot, the number of oracle turns, the
+number of navigation operations executed, the fraction of turns on which the clarifier fired, and
+the total LLM cost. The oracle's own self-rating (1--5) is recorded alongside them.
+
+\paragraph{Judge dimensions.} These are subjective scores (1--5) assigned by the judge after
+reading the full transcript, the per-turn action log, and the final clusters. Four are scored on
+every session: \emph{operation appropriateness} (did the system choose the right operation and
+parameters for each request), \emph{intent alignment} (does the final result reflect the stated
+goal), \emph{label accuracy}, and \emph{clustering coherence}. Three more are conditional, scored
+only when the session exercised the relevant feature: \emph{explanation quality}, \emph{suggestion
+meaningfulness}, and \emph{concept-axis quality}.
+
+\paragraph{Confidence intervals.} For every metric and dimension the dashboard reports a two-sided
+95\% confidence interval of the mean, computed from the per-session values under a
+$t$-distribution:
+%
+\begin{equation}
+  \text{CI}_{95} = \bar{x} \;\pm\; t_{0.975,\,n-1}\cdot \frac{s}{\sqrt{n}},
+  \qquad
+  s = \sqrt{\frac{1}{n-1}\sum_{i=1}^{n}\left(x_i-\bar{x}\right)^2},
+  \label{eq:ci}
+\end{equation}
+%
+where $n$ is the number of sessions contributing a value, $s$ is the Bessel-corrected sample
+standard deviation, and $t_{0.975,\,n-1}$ is the critical value for $n-1$ degrees of freedom
+(falling back to $1.96$ for $n\geq 31$). Bootstrapping is deliberately not used: at the sample
+sizes reached here ($n\approx 30$ per condition, fewer per persona) resampling cannot recover
+information the small sample lacks. Non-overlapping intervals are read as a practical signal of a
+real difference between conditions, not as a formal hypothesis test.

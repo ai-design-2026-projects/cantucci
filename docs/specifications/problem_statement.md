@@ -4,6 +4,8 @@
 
 > This document describes the problem and the high-level design decisions behind it. For detailed technical documentation see [`data_schema.md`](architecture/data_schema.md), [`architecture.md`](architecture/architecture.md), and [`api.md`](architecture/api.md).
 
+> Build-heavy project: the focus is on designing and implementing a novel system, keeping the focus on the technical implementation and the findings
+
 ---
 
 We build a **conversational clustering** system: the user (the **oracle**) sends natural-language messages, and the system responds by grouping a movie catalogue into named clusters that the oracle can then inspect, navigate, and refine. There is **no fixed objective function** — clustering quality is defined entirely by the oracle's acceptance. What the oracle accepts through dialogue *is* the objective.

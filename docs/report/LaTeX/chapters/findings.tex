@@ -1,0 +1,114 @@
+\section{Findings and Discussion}\label{sec:findings}
+
+\subsection{Key Findings}
+
+The central finding is that \textbf{the conversational system does what the oracle asks, while
+the baseline only looks tidier}. The conversational system wins operation appropriateness with
+disjoint intervals ($3.94\pm0.31$ vs.\ $2.73\pm0.35$) and trends higher on intent alignment and
+oracle rating; the baseline's higher coherence and label scores are an artefact of producing
+almost no structure (Finding~2). The remaining findings are tagged by evidential strength:
+disjoint intervals (CI-clean), a direction with overlapping intervals (trend), a proportion or
+distribution, a counted defect, or a qualitative observation.
+
+\begin{description}[leftmargin=1.4em,style=nextline]
+
+  \item[F1: The explanation agent explains the \emph{wrong film} about half the time
+    \textnormal{(counted defect, $n=89$).}] Across the 89 ``why is film $X$ here'' turns,
+    43 ($48\%$) answered about a different title: a question about \emph{The Graduate} was
+    answered with ``A Real Pain'', and one about \emph{Free Guy} with ``Miss Kobayashi's Dragon
+    Maid''. This systematic grounding failure is the hard number behind the lowest judge score in
+    the study, explanation quality $=1.79\pm0.31$.
+
+  \item[F2: Two opposite clustering failure modes \textnormal{(distributional).}] The baseline
+    ends with two or fewer clusters in $87\%$ of sessions (26/30; maximum 7), a chronic
+    under-segmentation. The conversational system usually produces a handful of clusters but
+    occasionally \emph{explodes}, reaching 17--18 clusters in four sessions (maximum 18). The
+    baseline's coherence and label-accuracy edge is therefore a coarseness artefact, and cluster
+    counts must be read as distributions, not means.
+
+  \item[F3: A capability cliff between structured and abstract intents \textnormal{(trend,
+    small $n$).}] Per-persona oracle ratings run from 2.0 for abstract goals (a satirical
+    \emph{tone}, the \emph{New Hollywood} movement, the \emph{heist} sub-genre) up to 4.67 for
+    metadata-grounded ones (a genre fan, a rater). The system is a better \emph{clusterer} of
+    well-scoped attributes than a \emph{grasper} of fuzzy semantic concepts.
+
+  \item[F4: On a genuinely abstract intent, the baseline \emph{wins} \textnormal{(trend, $n=3$
+    each).}] For the \texttt{newhollywood} persona the conversational system scored 2.0 against
+    the baseline's 5.0. A single holistic pass can sometimes capture a fuzzy film-movement concept
+    that the operation-constrained pipeline, forced to express everything as discrete navigation
+    steps, cannot. This complicates the ``conversational is better'' story honestly.
+
+  \item[F5: The conversational system completes more and misbehaves less
+    \textnormal{(proportion).}] It finishes the intended trajectory in $49\%$ of sessions and is
+    stopped for misbehaviour in $34\%$; the baseline finishes in $37\%$ and misbehaves in $53\%$,
+    a majority of its sessions.
+
+  \item[F6: Going multi-agent costs essentially the same per turn as one model call
+    \textnormal{(CI-tight).}] Cost per turn is \$0.0126 vs.\ \$0.0123 (per session \$0.169 vs.\
+    \$0.153). The agentic overhead is near-zero because about a quarter of conversational turns
+    are cheap non-operational moves; operations per turn are $0.74$ vs.\ $0.93$. The usual cost
+    objection to ``going agentic'' does not hold here.
+
+  \item[F7: Oracle satisfaction is bimodal \textnormal{(distributional).}] Ratings cluster toward
+    the extremes (1--2 and 4--5) with very few middle values, so a session tends to be a clear hit
+    or a clear miss and the mean rating is a poor summary; the distribution is the informative
+    object.
+
+  \item[F8: Oracle ratings are lenient and only weakly tied to cluster quality
+    \textnormal{(qualitative + distributional).}] The top-rated conversational session (oracle
+    $=5$) had a judged clustering coherence of 2, visibly looped, and returned two groups when
+    three were requested (Section~\ref{sec:results}). The oracle rewards responsiveness and
+    recovery more than the quality of the final partition, a validity caveat, and itself an
+    informative disagreement between oracle and judge.
+
+  \item[F9: Cluster labels concatenate and bloat with drill-down depth
+    \textnormal{(qualitative).}] The labeller \emph{prepends} to inherited labels instead of
+    renaming, yielding names such as \textsf{Biting Asian Romantic Comedies Family Fantasy
+    Comedies}. Depth compounds the problem rather than refining it.
+
+  \item[F10: The requested number of clusters is frequently not honoured
+    \textnormal{(qualitative).}] ``Split into 3 groups'' returned two groups in one session and
+    four in another. The split count the oracle asks for is treated as a hint rather than a
+    constraint.
+
+\end{description}
+
+Read together, these findings tell a coherent story. The conversational architecture's value is
+\emph{control fidelity}: choosing the right operation and following the oracle's trajectory, not
+intrinsic cluster quality, where it is no better and sometimes worse than a single model (F2, F4).
+Its sharpest weaknesses (F1, F9, F10) are localised, mechanical defects in individual agents
+rather than failures of the overall loop, which makes them tractable to fix. And the evaluation
+surfaces a measurement caveat of its own: the oracle is a lenient judge of structure (F7, F8), so
+oracle rating and judge dimensions should be read together rather than either alone.
+
+\subsection{Limitations}
+
+The strongest constraint is the \textbf{small, forced number of experiments}. With roughly 30
+sessions per condition only one comparison, operation appropriateness, reaches disjoint confidence
+intervals; every other difference is a trend with overlapping intervals and should be treated as
+suggestive, not established. The per-persona findings (F3, F4) rest on as few as three sessions,
+where the confidence interval is necessarily wide. Only \emph{two} conditions were run, on a
+single compact 288-film catalogue, so neither catalogue scale nor a fuller ablation of the
+architecture has been probed. Finally, both the user and the grader are language models: these
+results characterise agent-to-agent dynamics, and the leniency of the simulated oracle (F8) means
+oracle ratings in particular should not be read as human-user satisfaction.
+
+\subsection{Future Work}
+
+\paragraph{Close the local defects.} The sharpest weaknesses are mechanical and should be fixed
+first: ground the explanation agent to the exact film it is asked about (F1), make the labeller
+\emph{rename} rather than prepend (F9), and treat the requested split count as a constraint (F10).
+
+\paragraph{Strengthen the intent layer.} The intent layer is today a bottleneck on multi-step
+instructions and would benefit from more robust parsing of compound requests, possibly with a
+verification pass over the parsed actions.
+
+\paragraph{Evaluation.} More sessions and seeds would tighten the intervals enough to promote
+today's trends to firm results, and a human-oracle study would test how far the agent-to-agent
+findings transfer to real users.
+
+\paragraph{New domains.} Because the core loop, in which the oracle proposes a grouping and the
+system partitions and refines, is not specific to films, the system is a natural candidate for
+domain-agnostic catalogues such as books, papers, or products, once the embedding pipeline and the
+movie-specific prompts are made configurable. Exercising it on catalogues of varying size and
+attribute density would surface the edge cases a single curated catalogue cannot.

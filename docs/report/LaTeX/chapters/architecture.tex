@@ -1,0 +1,206 @@
+\section{System Architecture}\label{sec:architecture}
+
+\subsection{Data Pipeline}
+
+The catalogue is built from The Movie Database (TMDB) in three stages.
+
+\paragraph{Scrape and clean.} The pipeline downloads the daily catalogue export, discards adult
+content, and applies a popularity threshold \emph{before} any detail request, so that only a
+tractable subset is fetched. Surviving titles are enriched with credits, keywords, reviews, and
+trailer links, and a second filter on vote count removes long-tail noise.
+
+\paragraph{Embed.} Each title is encoded across up to three modalities. A composite text field
+(title, synopsis, genres, cast, director, keywords) and the aggregated review text are each
+encoded with a sentence-embedding model into a shared, $\ell_2$-normalised vector space. The
+trailer is encoded by sampling evenly-spaced frames, embedding them with a vision-language model,
+and mean-pooling, with the poster used as a fallback when no trailer exists.
+
+\paragraph{Fuse.} Because the text and visual encoders inhabit different spaces, the system uses
+two fusion strategies. Text and review are fused by a weighted average of their vectors, since
+they share a space. Text and trailer are fused at the distance level, a weighted sum of the two
+modalities' cosine-distance matrices, which combines them without forcing them into one space.
+
+\paragraph{Load.} The embedded catalogue is split into a held-out evaluation slice, a main set,
+and a compact development set, then upserted into a PostgreSQL database with vector columns. The
+result is a read-only catalogue over which all clustering operates.
+
+\subsection{Architectural Overview}
+
+The system is a small set of single-purpose components coordinated around one orchestrator
+(Figure~\ref{fig:architecture}). The orchestrator and the clustering layer are
+\textbf{deterministic}; the remaining components are \textbf{LLM-backed agents}, each given a
+narrow contextual boundary and a single responsibility. Every agent other than the orchestrator
+is read-only: the orchestrator is the sole writer of state.
+
+The oracle drives the system through a fixed vocabulary of operations. The navigation operations
+reshape the clustering: \emph{cluster} (a free density split, a concept-guided split along a
+learned axis, or a deterministic partition by a metadata attribute), \emph{merge}, \emph{focus},
+\emph{cross-filter} (keep only films matching a metadata predicate), and \emph{exclude}. The
+dialogue moves leave the clustering untouched: \emph{reset}, \emph{undo}, \emph{explain}, and
+\emph{small-talk}. The subsections below describe each component, the working memory it holds,
+and the context it is allowed to see.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\textwidth]{figures/architecture_diagram.pdf}
+  \caption{System components. The deterministic coordinator routes each request; LLM-backed
+  agents (green) perform narrow, read-only sub-tasks; clustering is a deterministic computation
+  layer; the database holds all persistent state.}
+  \label{fig:architecture}
+\end{figure}
+
+\subsubsection{Coordinator}
+
+The coordinator is the deterministic orchestrator of every turn and the only writer of state. It
+loads the current clustering, routes the message through the agents, executes the resulting
+operations in order, and persists the outcome.
+
+\paragraph{Memory.} It holds no in-memory session state: it re-reads the database at the start of
+every turn, so its behaviour depends only on persisted history. The single exception is a
+transient flag recording that the previous turn ended on a clarifying question, which is itself
+rebuilt from the stored messages.
+
+\paragraph{Context.} For each turn it sees the full persisted conversation: the current snapshot
+and its clusters, the message history, and the cost accumulated so far. It makes no semantic
+decisions itself, delegating each one to the appropriate agent.
+
+\subsubsection{Intent Agent}
+
+This agent parses the oracle's message into an ordered list of navigation and dialogue actions,
+each carrying a confidence score and the parameters its operation needs, such as a target
+cluster, a concept phrase, a metadata predicate, or a partition attribute.
+
+\paragraph{Memory.} It is stateless across turns and retains nothing between messages beyond what
+the coordinator supplies.
+
+\paragraph{Context.} It sees the current message and the recent transcript, and, when the previous
+turn asked a clarifying question, that question too, so a follow-up answer is interpreted
+correctly. It works from cluster labels and summaries rather than from embeddings or cluster
+internals.
+
+\subsubsection{Concept Agent}
+
+This agent turns a concept phrase into a linear axis: a unit vector built from the centroid
+difference between a positive and a negative pole, in either the semantic or the visual embedding
+space.
+
+\paragraph{Memory.} It is stateless and computes the axis on demand; the axis and the resulting
+per-film scores are persisted by the coordinator, not retained by the agent.
+
+\paragraph{Context.} It sees only the concept phrase and the chosen embedding space, and is blind
+to the conversation and to the current clustering. This keeps the axis a function of the concept
+alone.
+
+\subsubsection{Clustering}
+
+The clustering layer is the deterministic computation behind every navigation operation: soft
+density clustering, dimensionality reduction, and the command layer that executes each operation.
+
+\paragraph{Memory.} It is stateless, operating only on the embeddings and the snapshot passed to
+it, and it makes no model calls.
+
+\paragraph{Context.} It sees the films in scope, either the full catalogue or the current
+snapshot, together with the operation's parameters. It has no awareness of the dialogue.
+
+\subsubsection{Labeling Agent}
+
+This agent names and summarises clusters in a single batched call, and echoes deterministic labels
+(genre, decade, numeric bins) verbatim rather than re-describing them.
+
+\paragraph{Memory.} It is stateless per turn and does not track labels it assigned on earlier
+turns.
+
+\paragraph{Context.} It sees each cluster's exemplar films together with the inherited parent
+label. Because it extends that inherited label rather than rewriting it, names lengthen as the
+oracle drills down (Section~\ref{sec:findings}).
+
+\subsubsection{Clarifier Agent}
+
+When a state-changing action falls below the confidence threshold, this agent produces a single
+disambiguating question, and the turn returns without mutating state.
+
+\paragraph{Memory.} It is stateless. The fact that the system is now awaiting an answer is held
+transiently by the coordinator and rebuilt from the stored question on the next turn.
+
+\paragraph{Context.} It sees the low-confidence action and the message that produced it, and
+nothing more, since its only job is to ask one focused question.
+
+\subsubsection{Explanation Agent}
+
+This read-only agent explains why a given film sits in a given cluster, drawing on the cluster's
+label and exemplar films.
+
+\paragraph{Memory.} It is stateless and writes nothing.
+
+\paragraph{Context.} It is given the cluster's label and exemplars rather than a strict binding to
+the exact film it was asked about, which is the origin of the wrong-film explanations reported in
+Section~\ref{sec:findings}.
+
+\subsubsection{Suggestion Agent}
+
+After the actions complete, this agent may volunteer a next step, but only when one is warranted.
+
+\paragraph{Memory.} It holds no persistent state.
+
+\paragraph{Context.} It sees the final snapshot and the evolution trace, and is gated by
+deterministic signals such as a dominant cluster, a near-duplicate pair, or a high noise fraction.
+Unless a signal fires, it stays silent.
+
+\subsubsection{Database}
+
+The database is the system's persistent memory and the boundary every other component reads
+through.
+
+\paragraph{Memory.} It stores the catalogue embeddings across the three modalities, the
+conversations and messages, the clusters and their soft memberships, the concept axes, and a
+content-addressed tree of cluster snapshots.
+
+\paragraph{Context.} It is read by every agent through a single data-access layer and written only
+by the coordinator, which is what keeps state changes auditable and sessions replayable.
+
+\subsection{Turn Handling}
+
+Each oracle message is handled by the coordinator as an ordered sequence of phases
+(Figure~\ref{fig:flowchart}).
+
+\paragraph{Lifecycle.} The coordinator first loads the current snapshot and labels any unlabeled
+clusters, then resolves whether the previous turn ended on a clarifying question so a follow-up
+answer is read in context. It asks the Intent agent to classify the message into one or more
+ordered actions. A confidence gate follows: if any state-changing action falls below the
+threshold, the coordinator emits a clarifying question and returns early without mutating state.
+Otherwise it executes the actions in order, each one seeing the state left by the previous action,
+dispatching to the deterministic command that implements it. A command computes its result, and
+only on success does the coordinator persist the new snapshot and labels; on error the write is
+dropped. Finally the coordinator may ask the Suggestion agent for a next step, joins the reply
+fragments, and persists the assistant message and its cost.
+
+\paragraph{Snapshot graph.} State evolution is recorded as a tree rather than overwritten. Every
+operation creates a snapshot node carrying its parent, the operation, and its parameters;
+\emph{undo} simply re-points the conversation at an earlier node, and issuing a new operation from
+a rewound state branches the tree without disturbing the prior branch. Nodes are
+content-addressed, so re-deriving an identical state reuses the cached node. Together with a
+stored seed and configuration snapshot, this tree is what makes every session replayable without
+live model calls.
+
+\begin{figure}[p]
+  \centering
+  \includegraphics[height=0.86\textheight]{figures/flowchart.pdf}
+  \caption{The per-turn lifecycle: load and label, resolve clarification context, classify intent,
+  gate on confidence, dispatch each action to its command, and persist or drop the result.}
+  \label{fig:flowchart}
+\end{figure}
+
+\subsection{System Interfaces}
+
+The system exposes three boundaries, all of them thin surfaces over the coordinator and the
+data-access layer.
+
+\paragraph{HTTP API.} A service carries the full session lifecycle: creating conversations,
+submitting messages, reading snapshots and movies, streaming per-turn progress, and serving the
+evaluation data. Authentication is handled entirely at this layer.
+
+\paragraph{Frontend dashboard.} A web application provides the interactive clustering interface and
+an administrative Evaluation Lab that visualises run metrics, judge scores, and full transcripts.
+
+\paragraph{MCP server.} An MCP server re-exposes the same capabilities as a tools-only, stateless
+interface, so an external agent can drive CinePal exactly as a human client would.
