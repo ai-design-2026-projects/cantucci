@@ -20,10 +20,7 @@ class ConversationsClient(BaseClient):
         return resp.json()
 
     async def get_conversation(self, conversation_id: str) -> dict:
-        """GET /conversations/{id} — fetch a conversation with its recent messages.
-
-        Returns up to 20 of the most recent messages and the current active
-        cluster snapshot ID.
+        """GET /conversations/{id} — fetch a conversation with all its messages.
 
         Args:
             conversation_id: Conversation UUID string.

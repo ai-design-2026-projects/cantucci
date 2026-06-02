@@ -17,14 +17,14 @@ All capabilities are exposed as **tools** (callable by the model autonomously), 
 | `create_conversation` | Start a new anonymous clustering session. Returns the conversation ID needed for all subsequent calls. |
 | `send_message` | Submit an oracle message and receive the AI reply + updated cluster snapshot ID. |
 | `navigate_to_snapshot` | Set the active cluster snapshot (undo / branch navigation). Use `get_snapshot_graph` to discover past snapshot IDs. |
-| `get_conversation` | Fetch a conversation with up to 20 recent messages and the current active snapshot ID. |
+| `get_conversation` | Fetch a conversation with all its messages and the current active snapshot ID. |
 | `get_snapshot_graph` | Fetch the full DAG of all snapshots touched by a conversation — use to find past snapshot IDs for `navigate_to_snapshot`. |
 
 ### Cluster Snapshots
 
 | Tool | Description |
 |---|---|
-| `get_snapshot` | Fetch a snapshot with its full cluster list (labels, summaries, exemplar movie IDs). Per-movie UMAP assignments are excluded; use `get_cluster_members` for memberships. |
+| `get_snapshot` | Fetch a snapshot with its full cluster list (labels, summaries, exemplar movie IDs, `parent_cluster_id`, `color_slot`) plus snapshot-level `operation`, `params`, and `config_hash`. Per-movie UMAP assignments are excluded; use `get_cluster_members` for memberships. |
 | `get_cluster_members` | All movies in a cluster with their soft membership probabilities, ordered descending. |
 
 ### Movies

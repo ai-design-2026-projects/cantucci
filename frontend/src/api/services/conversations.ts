@@ -12,10 +12,9 @@ export async function createConversationFetcher(): Promise<ConversationDto> {
 }
 
 /**
- * Fetch a conversation with its messages.
+ * Fetch a conversation with all its messages.
  *
  * @param conversationId - Conversation UUID.
- * @param limit          - Maximum messages to return. Pass null to fetch all.
  * @returns ConversationDto.
  */
 export async function getConversationFetcher(conversationId: string): Promise<ConversationDto> {

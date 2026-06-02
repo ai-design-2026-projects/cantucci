@@ -242,7 +242,7 @@ Auth levels: `public` — no token checked; `optional` — anonymous or authenti
 | GET | `/auth/me` | user | Return the authenticated user (401 if anonymous) |
 | GET | `/conversations` | user | List conversations for the authenticated user |
 | POST | `/conversations` | optional | Create a new conversation (anonymous or authenticated) |
-| GET | `/conversations/{id}` | public | Retrieve conversation state + recent messages |
+| GET | `/conversations/{id}` | public | Retrieve conversation state + all messages |
 | PATCH | `/conversations/{id}` | public | Set active cluster snapshot (undo / branch navigation) |
 | POST | `/conversations/{id}/messages` | optional | Submit a user message; anonymous or authenticated |
 | DELETE | `/conversations/{id}` | user | Delete a conversation (must be owner) |

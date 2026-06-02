@@ -63,10 +63,9 @@ def register(mcp: FastMCP, client: ConversationsClient) -> None:
 
     @mcp.tool()
     async def get_conversation(conversation_id: str) -> str:
-        """Fetch a CinePal conversation with its recent message history.
+        """Fetch a CinePal conversation with its full message history.
 
-        Returns up to 20 of the most recent messages and the current active
-        cluster snapshot ID.
+        Returns all messages and the current active cluster snapshot ID.
 
         Args:
             conversation_id: UUID of the conversation to fetch.
