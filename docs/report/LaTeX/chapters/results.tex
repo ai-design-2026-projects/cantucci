@@ -13,7 +13,7 @@ This baseline completely bypasses embeddings, density-based clustering, concept 
 
 \begin{table}[H]
   \centering
-  \begin{tabular}{@{}lll@{}}
+  \adjustbox{max width=\columnwidth}{\begin{tabular}{@{}lll@{}}
     \toprule
     Role & Model & Family \\
     \midrule
@@ -22,7 +22,7 @@ This baseline completely bypasses embeddings, density-based clustering, concept 
     Oracle (simulated user) & Gemini 2.5 Flash & Google \\
     Judge & Claude Opus 4.7 & Anthropic \\
     \bottomrule
-  \end{tabular}
+  \end{tabular}}
   \caption{Model assignment.}
   \label{tab:models}
 \end{table}
@@ -31,7 +31,7 @@ This baseline completely bypasses embeddings, density-based clustering, concept 
 
 \begin{table}[H]
   \centering
-  \begin{tabular}{@{}ll@{}}
+  \adjustbox{max width=\columnwidth}{\begin{tabular}{@{}ll@{}}
     \toprule
     Parameter & Value \\
     \midrule
@@ -62,7 +62,7 @@ This baseline completely bypasses embeddings, density-based clustering, concept 
     Cost ceiling, judge (USD) & $2$ \\
     Decoding seed, all models & $42$ \\
     \bottomrule
-  \end{tabular}
+  \end{tabular}}
   \caption{Fixed configuration shared across the evaluation runs.}
   \label{tab:params}
 \end{table}
@@ -79,7 +79,7 @@ score is given in Table~\ref{tab:judge-n}.
 
 \begin{table}[H]
   \centering
-  \begin{tabular}{@{}lcc@{}}
+  \adjustbox{max width=\columnwidth}{\begin{tabular}{@{}lcc@{}}
     \toprule
     Score & Conversational $n$ & Baseline $n$ \\
     \midrule
@@ -89,7 +89,7 @@ score is given in Table~\ref{tab:judge-n}.
     Concept-axis quality & $29$ & \textit{n/a} \\
     Oracle self-rating & $29$ & $27$ \\
     \bottomrule
-  \end{tabular}
+  \end{tabular}}
   \caption{Sessions contributing to each score. The four always-on dimensions (operation
   appropriateness, intent alignment, label accuracy, clustering coherence) share the same counts.}
   \label{tab:judge-n}
@@ -97,7 +97,7 @@ score is given in Table~\ref{tab:judge-n}.
 
 \begin{table}[H]
   \centering
-  \begin{tabular}{@{}lcc@{}}
+  \adjustbox{max width=\columnwidth}{\begin{tabular}{@{}lcc@{}}
     \toprule
     Judge dimension (1--5) & Conversational & Baseline \\
     \midrule
@@ -111,14 +111,14 @@ score is given in Table~\ref{tab:judge-n}.
     \midrule
     Oracle self-rating & $3.41\pm0.49$ & $2.82\pm0.64$ \\
     \bottomrule
-  \end{tabular}
+  \end{tabular}}
   \caption{Judge dimensions and oracle rating, mean $\pm$ 95\% CI;}
   \label{tab:judge}
 \end{table}
 
 \begin{table}[H]
   \centering
-  \begin{tabular}{@{}lcc@{}}
+  \adjustbox{max width=\columnwidth}{\begin{tabular}{@{}lcc@{}}
     \toprule
     Session metric & Conversational & Baseline \\
     \midrule
@@ -130,7 +130,7 @@ score is given in Table~\ref{tab:judge-n}.
     Cost per session (USD) & $0.169\pm0.016$ & $0.153\pm0.020$ \\
     Cost per turn (USD, pooled) & $0.0126$ & $0.0123$ \\
     \bottomrule
-  \end{tabular}
+  \end{tabular}}
   \caption{Deterministic session metrics, mean $\pm$ 95\% CI; per-turn rates are pooled over the
   condition.}
   \label{tab:effort}
@@ -138,7 +138,7 @@ score is given in Table~\ref{tab:judge-n}.
 
 \begin{table}[H]
   \centering
-  \begin{tabular}{@{}lcc@{}}
+  \adjustbox{max width=\columnwidth}{\begin{tabular}{@{}lcc@{}}
     \toprule
     Termination outcome & Conversational & Baseline \\
     \midrule
@@ -146,7 +146,7 @@ score is given in Table~\ref{tab:judge-n}.
     Stopped, misbehaviour & 12/35 (34\%) & 16/30 (53\%) \\
     Budget exhausted & 6/35 (17\%) & 3/30 (10\%) \\
     \bottomrule
-  \end{tabular}
+  \end{tabular}}
   \caption{How sessions ended, by condition.}
   \label{tab:termination}
 \end{table}
@@ -157,14 +157,13 @@ Two example sessions are shown below: one the oracle rated a success, and one it
 exchanges are condensed summaries that capture the core of each conversation, not verbatim
 transcripts.
 
-\subsubsection{Success: \texttt{worldcinema}}
-
-\textbf{Persona:} verbose, patience~$0.37$.
-
+\subsubsection{\textbf{Success}: \texttt{worldcinema}}
+\textbf{\\Persona:} verbose, patience~$0.37$.
+\\
 \textbf{Intent description:} ``Break the catalogue down by language to see what non-English
 traditions are represented, then zoom into the French-language films and see how they spread between
 intimate personal stories and broader societal canvases.''
-
+\\
 \begin{quote}\small
 \textbf{Oracle:} Split the entire collection by its original language.\\
 \textbf{System:} Partitioned 288 movies by original language into 13 groups.\\
@@ -180,7 +179,8 @@ intimate personal stories and broader societal canvases.''
 
 \begin{table}[H]
   \centering
-  \begin{tabular}{@{}lc@{}}
+  \small
+  \adjustbox{max width=\columnwidth}{\begin{tabular}{@{}lc@{}}
     \toprule
     Judge dimension (1--5) & Score \\
     \midrule
@@ -192,14 +192,15 @@ intimate personal stories and broader societal canvases.''
     Suggestion meaningfulness & $3$ \\
     Concept-axis quality & $3$ \\
     \bottomrule
-  \end{tabular}
+  \end{tabular}}
   \caption{Judge scores, success session.}
   \label{tab:qual-success-judge}
 \end{table}
 
 \begin{table}[H]
   \centering
-  \begin{tabular}{@{}lc@{}}
+  \small
+  \adjustbox{max width=\columnwidth}{\begin{tabular}{@{}lc@{}}
     \toprule
     Session metric & Value \\
     \midrule
@@ -209,18 +210,18 @@ intimate personal stories and broader societal canvases.''
     Clarifier rate & $0.09$ \\
     Cost (USD) & $0.15$ \\
     \bottomrule
-  \end{tabular}
+  \end{tabular}}
   \caption{Session metrics, success session.}
   \label{tab:qual-success-metrics}
 \end{table}
 
-\subsubsection{Failure: \texttt{satire}}
+\subsubsection{\textbf{Failure}: \texttt{satire}}
 
-\textbf{Persona:} terse, patience~$0.76$.
-
+\textbf{\\Persona:} terse, patience~$0.76$.
+\\
 \textbf{Intent description:} ``Keep only comedy films, then spread them along a spectrum
 from warm-hearted romantic levity to biting satirical bite.''
-
+\\
 \begin{quote}\small
 \textbf{Oracle:} keep only comedy films, then group them.\\
 \textbf{System:} Filter matched 74 movies. Split into 2: \textsf{Asian Romantic Comedies Family
@@ -240,7 +241,8 @@ from warm-hearted romantic levity to biting satirical bite.''
 
 \begin{table}[H]
   \centering
-  \begin{tabular}{@{}lc@{}}
+  \small
+  \adjustbox{max width=\columnwidth}{\begin{tabular}{@{}lc@{}}
     \toprule
     Judge dimension (1--5) & Score \\
     \midrule
@@ -252,14 +254,15 @@ from warm-hearted romantic levity to biting satirical bite.''
     Suggestion meaningfulness & $2$ \\
     Concept-axis quality & $4$ \\
     \bottomrule
-  \end{tabular}
+  \end{tabular}}
   \caption{Judge scores, failure session.}
   \label{tab:qual-failure-judge}
 \end{table}
 
 \begin{table}[H]
   \centering
-  \begin{tabular}{@{}lc@{}}
+  \small
+  \adjustbox{max width=\columnwidth}{\begin{tabular}{@{}lc@{}}
     \toprule
     Session metric & Value \\
     \midrule
@@ -269,7 +272,7 @@ from warm-hearted romantic levity to biting satirical bite.''
     Clarifier rate & $0.29$ \\
     Cost (USD) & $0.19$ \\
     \bottomrule
-  \end{tabular}
+  \end{tabular}}
   \caption{Session metrics, failure session.}
   \label{tab:qual-failure-metrics}
 \end{table}

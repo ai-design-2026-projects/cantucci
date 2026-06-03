@@ -1,26 +1,10 @@
 \section{Ethical Considerations}\label{sec:ethics}
 
-\paragraph{Synthetic oracle limitations.} Every result in this report was produced by an
-LLM-simulated oracle, not by human subjects. The findings therefore describe agent-to-agent
-dynamics and cannot be assumed to reflect how real users behave, judge, or rate clusters; the
-leniency observed in the simulated oracle (Finding~8) underlines that a dedicated human study
-would be needed before any claim about human satisfaction.
+\paragraph{Synthetic Oracle Limitations}
+Because all evaluations rely on an LLM-simulated oracle rather than human subjects, our findings reflect agent-to-agent dynamics rather than authentic human behavior or preferences.
 
-\paragraph{Model and embedding bias.} The text and visual embedding models, together with the
-language models that drive the system, are trained predominantly on Western, English-language
-data and carry the cultural biases of that data. As a result, groupings formed along genre,
-nationality, or era can encode stereotyped associations, for example treating a region's
-cinema as a monolithic ``foreign'' bucket, and the system offers no safeguard against
-reproducing them.
+\paragraph{Model and Embedding Bias}
+The language and embedding models driving the system are trained predominantly on Western, English-language data, inheriting its cultural biases. 
 
-\paragraph{Dataset popularity bias.} The underlying catalogue skews heavily toward popular,
-mainstream films, both by construction (a popularity threshold is applied during scraping) and by
-the nature of the source. This skew propagates into the clusters and the concept axes the system
-learns, so less popular traditions and films are under-represented in exactly the structures the
-oracle inspects.
-
-\paragraph{LLM-as-judge risks.} Using one language model to evaluate another creates two coupled risks:
-shared blind spots, where failure modes both models are prone to go unnoticed, and
-self-preference. The design mitigates this by placing the system, the oracle, and the judge on
-three different model families, but it does not eliminate the deeper concern that automated
-grading can systematically over- or under-value behaviours in correlated ways.
+\paragraph{LLM-as-a-Judge Risks}
+Employing an LLM to evaluate another LLM introduces severe structural risks regarding evaluation accuracy, blind spots, and hallucinations.

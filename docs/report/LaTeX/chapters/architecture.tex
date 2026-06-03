@@ -1,5 +1,9 @@
 \section{System Architecture}\label{sec:architecture}
 
+This section describes how the system is built: the offline data pipeline that produces the
+embedded catalogue, the components that make up the conversational loop, the lifecycle of a single
+turn, and the interfaces through which the system is driven.
+
 \subsection{Data Pipeline}
 
 The movie catalog is constructed from The Movie Database (TMDB) through a reproducible, multi-modal ingestion pipeline.
@@ -23,13 +27,13 @@ In contrast, the text and trailer modalities are fused at the distance level usi
 The system is a small set of single-purpose components coordinated around one orchestrator (Figure~\ref{fig:architecture}). 
 The subsections below describe each component, their purposes, and context.
 
-\begin{figure}[H]
+\begin{figure*}[tp]
   \centering
-  \includegraphics[width=0.98 \textwidth]{figures/architecture_diagram.pdf}
+  \includegraphics[width=0.68\textwidth]{figures/architecture_diagram.pdf}
   \caption{System components and the path of a single turn. The oracle's message enters the
   deterministic \textbf{Coordinator}, which routes it through read-only agents.}
   \label{fig:architecture}
-\end{figure}
+\end{figure*}
 
 \paragraph{Coordinator:} The \textbf{deterministic} orchestrator of the system, acting as both the session handler and the turn workflow manager.
 As the only writer of state and the sole component that communicates directly with the oracle, it directs the system's execution during each turn and provides the necessary context to each downstream agent.
@@ -78,13 +82,13 @@ The operational core of the conversational loop relies on a highly synchronized,
 Rather than treating user inputs as isolated queries, the system processes each interaction through a stateful workflow.
 (Figure~\ref{fig:flowchart}).
 
-\begin{figure}[H]
+\begin{figure*}[p]
   \centering
-  \includegraphics[height=0.96\textheight]{figures/flowchart.pdf}
+  \includegraphics[height=0.92\textheight]{figures/flowchart.pdf}
   \caption{The per-turn lifecycle: load and label, resolve clarification context, classify intent,
   gate on confidence, dispatch each action to its command, and persist or drop the result.}
   \label{fig:flowchart}
-\end{figure}
+\end{figure*}
 
 
 \paragraph{Initialization and Intent Parsing:} The turn begins with the coordinator loading the active snapshot and labeling any remaining unlabelled clusters.

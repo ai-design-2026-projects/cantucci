@@ -1,14 +1,4 @@
 \section{Conclusion}\label{sec:conclusion}
-
-CinePal contributes a complete, reproducible system for clustering a catalogue by conversation,
-where an oracle's acceptance, not any intrinsic metric, is the objective. Its technical
-core is a multi-agent architecture in which a deterministic coordinator routes each turn through
-narrow, read-only LLM agents and a content-addressed snapshot tree that makes every session
-replayable, fed by a multi-modal embedding pipeline and exercised through an automated
-oracle-and-judge evaluation harness. Measured against a single-prompt baseline, the conversational
-system clearly chooses more appropriate operations and follows the oracle's intent more faithfully,
-at no extra cost per turn, while the baseline's apparent tidiness is a side effect of
-under-segmentation. The system's weaknesses are concrete and local, namely wrong-film explanations,
-bloated labels, and unhonoured split counts, which makes them actionable rather than
-fundamental. The build, the trace it leaves behind, and the findings it makes legible are the
-contribution.
+CinePal set out to cluster a movie catalogue not against a fixed metric but through conversation, with the oracle's acceptance as the objective.
+The build-heavy contribution promised in the introduction is realized: a working multi-agent conversational architecture, a reproducible multi-modal data pipeline, and an automated oracle-and-judge evaluation harness. 
+Driving the full system with a simulated oracle confirms that this conversational, acceptance-driven approach is viable, with its remaining weaknesses confined to localized, fixable components rather than the core design.

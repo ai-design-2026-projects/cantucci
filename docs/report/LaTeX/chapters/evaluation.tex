@@ -1,12 +1,15 @@
 \section{Evaluation Framework}\label{sec:evaluation}
 
+This section describes how the system is evaluated: the overall validation design, the simulated
+oracle that drives the sessions, and the metrics used to score them.
+
 \subsection{Evaluation Design}
 
 Because cluster quality is defined by the oracle, the system cannot be graded against a fixed target.
 The evaluation instead centres on one question:
 \begin{center}
 \itshape
-\begin{minipage}{0.82\textwidth}
+\begin{minipage}{0.82\columnwidth}
 \centering
 Does an intent-driven navigation loop produce more coherent clusterings of the catalogue, with less oracle effort, than other variants?
 \end{minipage}
@@ -71,9 +74,10 @@ Instead, the judge evaluates appropriateness dynamically, rating whether the sys
 \paragraph{Confidence Intervals} For every metric, the dashboard reports a two-sided 95\% confidence interval of the mean, computed from per-session values using a $t$-distribution:
 
 \begin{equation}
-  \text{CI}_{95} = \bar{x} \;\pm\; t_{0.975,\,n-1}\cdot \frac{s}{\sqrt{n}},
-  \qquad
-  s = \sqrt{\frac{1}{n-1}\sum_{i=1}^{n}\left(x_i-\bar{x}\right)^2},
+\begin{aligned}
+  \text{CI}_{95} &= \bar{x} \;\pm\; t_{0.975,\,n-1}\cdot \frac{s}{\sqrt{n}}, \\
+  s &= \sqrt{\tfrac{1}{n-1}\textstyle\sum_{i=1}^{n}\left(x_i-\bar{x}\right)^2}.
+\end{aligned}
   \label{eq:ci}
 \end{equation}
 
