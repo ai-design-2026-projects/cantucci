@@ -2,68 +2,82 @@
 
 \subsection{Evaluation Design}
 
-Because cluster quality is defined by the oracle, the system cannot be graded against a fixed
-target. The evaluation therefore closes a three-party loop: the \textbf{system under test} is
-driven by an \textbf{LLM-simulated oracle} that plays a user with a hidden goal, and a separate
-\textbf{LLM judge} scores the completed session. The simulated oracle runs through exactly the
-same code path as a human client, so its sessions are indistinguishable from live ones in the
-database. To avoid a model rewarding outputs that match its own conventions, the system, the
-oracle, and the judge each run on a \emph{different} model family.
+Because cluster quality is defined by the oracle, the system cannot be graded against a fixed target.
+The evaluation instead centres on one question:
+\begin{center}
+\itshape
+\begin{minipage}{0.82\textwidth}
+\centering
+Does an intent-driven navigation loop produce more coherent clusterings of the catalogue, with less oracle effort, than other variants?
+\end{minipage}
+\end{center}
+We approach it from three angles:
+\begin{itemize}[leftmargin=1.4em]
+  \item \textbf{Operation choice}: given a free-form message, does the Intent agent pick the right navigation operation and the right parameters?
+  \item \textbf{Cluster update strategy}: do concept-guided splits, soft HDBSCAN memberships, and the content-addressed snapshot tree yield more stable, more separable clusters than plain re-clustering on raw embeddings?
+  \item \textbf{Satisfaction}: how do we assess clustering quality when there is no recommended film list, only a sequence of cluster snapshots, and how far do those assessments generalise?
+\end{itemize}
+
+To answer this, the evaluation closes a \textbf{three-party loop}: the \textbf{system under test} is driven by an \textbf{LLM-simulated oracle} that plays a user with a hidden goal, while a separate \textbf{LLM judge} scores the finished session.
+The system, oracle, and judge each run on a different model family, so that none rewards outputs matching its own conventions.
 
 \subsection{Oracle Formulation}
 
-\paragraph{Ground truth.} Each session is anchored by a \emph{ground truth}: a target navigation
-trajectory, an ordered list of operations, paired with a natural-language \emph{intent
-description} that paraphrases it. The oracle is shown only the intent description, never the
-operation list, so it must reach its goal by stating intent and reacting to what the system
-returns, just as a real user would.
+\paragraph{Ground truth:} Each session is anchored by a ground truth: a target navigation \textbf{trajectory}, an ordered list of operations, paired with a natural-language \textbf{intent description} that paraphrases it.
+The oracle is shown only the intent description, in order to act as a real user would.
 
-\paragraph{Persona.} A persona is layered on top of the ground truth through two dials:
-\emph{verbosity}, which controls how much the oracle says, and \emph{patience}, which controls how
-many misunderstandings it tolerates before giving up. A persona bundle, the persona dials plus the
-ground truth, is a write-once, versioned artefact, so the same experimental condition can be
-re-run unchanged.
+\paragraph{Persona:} A persona is layered on top of the ground truth through two dials:
+\begin{itemize}[leftmargin=1.4em]
+  \item \textbf{Verbosity} controls how much the oracle says;
+  \item \textbf{Patience} controls how many misunderstandings it tolerates before giving up.
+\end{itemize}
 
-\paragraph{Protocol.} The oracle follows a strict protocol: one request per message, answer any
-clarifying question, ask once per session why a specific film sits in its cluster, and stop either
-on success (rating the session 4--5) or on giving up after repeated failures (rating 1--2). A turn
-budget caps the session if neither happens.
+\paragraph{Protocol:} To ensure the simulated oracle aligns with the application and evaluation's interactive workflow, it adheres to a strict communication protocol.
+The oracle issues exactly one request per message, explicitly answers any clarifying questions raised by the system, and requests an explanation for why a specific film resides within its cluster exactly once per session.
+The session terminates organically when the oracle either achieves success, concluding with a high satisfaction rating of 4 or 5, or decides to give up after repeated system failures, yielding a low rating of 1 or 2.
+Finally, a strict \textbf{turn budget} serves as a hard cap to terminate the session if neither natural exit condition is met.
 
-\paragraph{Reproducibility.} The oracle is reproducible: its output is a deterministic function of
-the persona, the ground truth, the session seed, and the turn number, so reruns of the same
-quadruple reproduce the same session.
+\paragraph{Reproducibility:} The oracle is engineered to be fully reproducible: its output behaves as a deterministic function of the configured persona, the catalog's ground truth, the session seed, and the active turn number.
+Its only source of non-determinism, the language model's sampling, is itself keyed on that same quadruple, so rerunning the exact configuration reproduces the same session rather than drifting.
 
-\subsection{Metrics}
+\subsection{Metrics} Evaluation runs automatically at the end of each session and produces two kinds of measurement.
 
-Evaluation runs automatically at the end of each session and produces two kinds of measurement.
+\paragraph{Deterministic metrics} Read directly from the recorded session state, with no model
+involved:
+\begin{itemize}[leftmargin=1.4em]
+  \item \textbf{Final cluster count}: number of clusters in the final snapshot;
+  \item \textbf{Turns}: number of oracle turns in the session;
+  \item \textbf{Operations}: number of navigation operations executed;
+  \item \textbf{Clarifier trigger rate}: fraction of turns on which the clarifier fired;
+  \item \textbf{Total cost}: cumulative LLM cost of the session;
+  \item \textbf{Oracle rating}: the oracle's own self-rating (1--5).
+\end{itemize}
 
-\paragraph{Deterministic metrics.} These are read directly from the recorded session state and
-need no model: the number of clusters in the final snapshot, the number of oracle turns, the
-number of navigation operations executed, the fraction of turns on which the clarifier fired, and
-the total LLM cost. The oracle's own self-rating (1--5) is recorded alongside them.
+\paragraph{Judge dimensions} Subjective scores (1--5) assigned by the judge after reading the full transcript, the per-turn action log, and clusters.
 
-\paragraph{Judge dimensions.} These are subjective scores (1--5) assigned by the judge after
-reading the full transcript, the per-turn action log, and the final clusters. Four are scored on
-every session: \emph{operation appropriateness} (did the system choose the right operation and
-parameters for each request), \emph{intent alignment} (does the final result reflect the stated
-goal), \emph{label accuracy}, and \emph{clustering coherence}. Three more are conditional, scored
-only when the session exercised the relevant feature: \emph{explanation quality}, \emph{suggestion
-meaningfulness}, and \emph{concept-axis quality}.
+\begin{itemize}[leftmargin=1.4em]
+  \item \textbf{Operation appropriateness}: did the system pick the right operation and parameters for each request;
+  \item \textbf{Intent alignment}: does the final result reflect the stated goal;
+  \item \textbf{Label accuracy}: do the cluster names and summaries match their contents;
+  \item \textbf{Clustering coherence}: do the films within each cluster genuinely belong together;
+  \item \textbf{Explanation quality} (conditional): is a placement explanation faithful and specific;
+  \item \textbf{Suggestion meaningfulness} (conditional): is a volunteered suggestion relevant and well-timed;
+  \item \textbf{Concept-axis quality} (conditional): do the axis poles form a coherent, discriminative spectrum.
+\end{itemize}
 
-\paragraph{Confidence intervals.} For every metric and dimension the dashboard reports a two-sided
-95\% confidence interval of the mean, computed from the per-session values under a
-$t$-distribution:
-%
+Because the conversational setting lacks a rigid ground-truth trajectory, traditional supervised alignment is impossible. 
+The oracle's private plan is inherently flexible; its free-form messages are stochastic, meaning several distinct operational paths can validly satisfy the same underlying intent.
+Instead, the judge evaluates appropriateness dynamically, rating whether the system's chosen operation and parameters constitute a logical and valid response.
+
+\paragraph{Confidence Intervals} For every metric, the dashboard reports a two-sided 95\% confidence interval of the mean, computed from per-session values using a $t$-distribution:
+
 \begin{equation}
   \text{CI}_{95} = \bar{x} \;\pm\; t_{0.975,\,n-1}\cdot \frac{s}{\sqrt{n}},
   \qquad
   s = \sqrt{\frac{1}{n-1}\sum_{i=1}^{n}\left(x_i-\bar{x}\right)^2},
   \label{eq:ci}
 \end{equation}
-%
-where $n$ is the number of sessions contributing a value, $s$ is the Bessel-corrected sample
-standard deviation, and $t_{0.975,\,n-1}$ is the critical value for $n-1$ degrees of freedom
-(falling back to $1.96$ for $n\geq 31$). Bootstrapping is deliberately not used: at the sample
-sizes reached here ($n\approx 30$ per condition, fewer per persona) resampling cannot recover
-information the small sample lacks. Non-overlapping intervals are read as a practical signal of a
-real difference between conditions, not as a formal hypothesis test.
+
+where $n$ is the session count, $s$ is the Bessel-corrected sample standard deviation, and $t_{0.975,\,n-1}$ is the critical value for $n-1$ degrees of freedom (falling back to $1.96$ for $n \geq 31$).
+Bootstrapping is deliberately avoided: at our sample sizes ($n \approx 30$ per condition), resampling cannot recover information a small sample lacks.
+Non-overlapping intervals are interpreted as a practical indicator of a meaningful difference between conditions, rather than a formal hypothesis test.
