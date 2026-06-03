@@ -2,23 +2,14 @@
 
 \subsection{Experimental Setup}
 
-\paragraph{Dataset.} The evaluation ran against a compact catalogue of \textbf{288 films}. The
-pipeline scales to the full catalogue of tens of thousands of titles, but a small catalogue keeps
-whole-catalogue operations, oracle inspection, and the model context window tractable within the
-turn budget while remaining large enough for meaningful structure to emerge.
+\paragraph{Dataset:} The evaluation ran against a compact catalogue, held out from the production dataset, of \textbf{288 films}.
 
-\paragraph{Conditions.} Two conditions were compared. The \textbf{conversational} condition is
-the full multi-agent system of Section~\ref{sec:architecture}. The \textbf{baseline} is a
-\emph{single-prompt} system: one model call per turn receives the film list, the current cluster
-state, and the transcript, and emits the entire resulting grouping, the declared operation, and
-the reply in one response, with no embeddings, density clustering, concept axes, clarifier, or
-labeling agent. The baseline therefore isolates whether the modular, embedding-grounded pipeline
-buys anything over a single capable model doing everything from text.
+\paragraph{Conditions:} Two conditions were compared.
+The \textbf{conversational} condition represents our full multi-agent system.
+The \textbf{baseline} is a single-prompt alternative: a single model call per turn receives the raw film list, the current cluster state, and the dialogue transcript, then emits the entire updated grouping, the chosen operation, and the conversational response in a single output.
+This baseline completely bypasses embeddings, density-based clustering, concept axes, clarifying loops, and dedicated labeling agents.
 
-\paragraph{Models.} The system, oracle, and judge run on three different model families
-(Table~\ref{tab:models}). Within the system, the stronger model handles intent parsing, concept
-construction, and explanation, while the faster model handles labeling, clarification, and
-suggestions.
+\paragraph{Models:} The system, oracle, and judge run on three different model families (Table~\ref{tab:models}).
 
 \begin{table}[H]
   \centering
@@ -26,49 +17,83 @@ suggestions.
     \toprule
     Role & Model & Family \\
     \midrule
-    System (reasoning tasks) & GPT-4o & OpenAI \\
-    System (fast tasks) & GPT-4o-mini & OpenAI \\
+    System (strong) & GPT-4o & OpenAI \\
+    System (fast) & GPT-4o-mini & OpenAI \\
     Oracle (simulated user) & Gemini 2.5 Flash & Google \\
     Judge & Claude Opus 4.7 & Anthropic \\
     \bottomrule
   \end{tabular}
-  \caption{Model assignment. Three distinct families avoid same-family self-preference.}
+  \caption{Model assignment.}
   \label{tab:models}
 \end{table}
 
-\paragraph{Fixed parameters.} Text and review are encoded at 1024 dimensions with a
-sentence-embedding model and the trailer with a vision-language model; fusion weights are
-$0.6/0.4$ for text-review and text-trailer alike. Density clustering uses a minimum cluster size
-of $50$ on the base catalogue and $10$ for in-conversation splits. The intent confidence threshold
-is $0.6$, the turn budget is $15$ oracle turns, and at most five exemplar titles are shown per
-cluster in the oracle's view. Per-session cost ceilings are \$10 for the system and \$2 each for
-the oracle and the judge. All model calls use a fixed decoding seed; sessions span a shared set of
-personas and ground truths, with the conversational condition seeded over $\{1,2,3,5,7,10\}$ and
-the baseline over $\{1,2,5,7\}$.
+\paragraph{Parameters:} All runs share the fixed configuration in Table~\ref{tab:params}.
 
-\paragraph{Procedure.} For each persona/seed pair a session is created and driven by the oracle
-through the same code path as a live client until it stops or exhausts the budget; deterministic
-metrics and the seven judge dimensions are then computed and stored. This yielded \textbf{35
-conversational} sessions (29 oracle-rated) and \textbf{30 baseline} sessions (27 rated). All
-figures below are extracted directly from the resulting database and use the confidence interval
-of Equation~\ref{eq:ci}.
+\begin{table}[H]
+  \centering
+  \begin{tabular}{@{}ll@{}}
+    \toprule
+    Parameter & Value \\
+    \midrule
+    \multicolumn{2}{@{}l}{\emph{Embeddings and fusion}} \\
+    Text and review encoder & BAAI BGE-large-en-v1.5 \\
+    Trailer encoder & OpenCLIP ViT-H/14 \\
+    Embedding dimension & $1024$ \\
+    Text-review fusion, text weight & $0.6$ \\
+    Text-review fusion, review weight & $0.4$ \\
+    Text-trailer fusion, text weight & $0.6$ \\
+    Text-trailer fusion, trailer weight & $0.4$ \\
+    \addlinespace
+    \multicolumn{2}{@{}l}{\emph{Clustering}} \\
+    HDBSCAN min.\ cluster size (base) & $50$ \\
+    HDBSCAN min.\ cluster size (online) & $10$ \\
+    HDBSCAN min.\ samples & $10$ \\
+    UMAP components & $50$ \\
+    UMAP neighbours & $15$ \\
+    \addlinespace
+    \multicolumn{2}{@{}l}{\emph{Interaction}} \\
+    Intent confidence threshold & $0.6$ \\
+    Turn budget (max.\ oracle turns) & $15$ \\
+    Exemplar titles per cluster & $5$ \\
+    \addlinespace
+    \multicolumn{2}{@{}l}{\emph{Cost}} \\
+    Cost ceiling, system (USD) & $10$ \\
+    Cost ceiling, oracle (USD) & $2$ \\
+    Cost ceiling, judge (USD) & $2$ \\
+    Decoding seed, all models & $42$ \\
+    \bottomrule
+  \end{tabular}
+  \caption{Fixed configuration shared across the evaluation runs.}
+  \label{tab:params}
+\end{table}
+
+\paragraph{Procedure:} Each persona/seed pair initialized a session driven by the simulated oracle until termination or budget exhaustion, after which all metric and judge dimensions were logged.
+This process yielded \textbf{35 conversational} sessions and \textbf{30 baseline} sessions.
+All reported metrics are extracted directly from the resulting database and computed using the confidence intervals from Equation~\ref{eq:ci}.
 
 \subsection{Quantitative Results}
 
-The headline is that the conversational system is judged to \emph{do what the oracle asks}
-markedly better than the baseline, while the baseline's apparent advantages are tied to it
-producing almost no structure at all.
+We report the measured outcomes for both conditions side by side; their interpretation is deferred to Section~\ref{sec:findings}.	
+Dimensions the baseline cannot produce are marked \textit{n/a}; the number of sessions behind each
+score is given in Table~\ref{tab:judge-n}.
 
-On \textbf{operation appropriateness} the conversational system scores $3.94\pm0.31$ against the
-baseline's $2.73\pm0.35$, the only judge dimension whose intervals are disjoint, and the clearest
-result in the study (Table~\ref{tab:judge}). It also trends higher on intent alignment
-($3.09\pm0.43$ vs.\ $2.33\pm0.47$) and on the oracle's own rating ($3.41\pm0.49$ vs.\
-$2.82\pm0.64$). The baseline scores higher on label accuracy and clustering coherence, but these
-are confounded: as Table~\ref{tab:effort} shows, the baseline ends with $1.97\pm0.53$ clusters and
-never triggered a clarifier, i.e.\ it mostly returns one or two coarse groups that are easy to
-label coherently. Three judge dimensions have no baseline counterpart, namely explanation quality,
-suggestion meaningfulness, and concept-axis quality, because the single-prompt system cannot
-produce explanations, proactive suggestions, or concept axes at all.
+\begin{table}[H]
+  \centering
+  \begin{tabular}{@{}lcc@{}}
+    \toprule
+    Score & Conversational $n$ & Baseline $n$ \\
+    \midrule
+    Always-on dimensions & $35$ & $30$ \\
+    Explanation quality & $33$ & \textit{n/a} \\
+    Suggestion meaningfulness & $35$ & \textit{n/a} \\
+    Concept-axis quality & $29$ & \textit{n/a} \\
+    Oracle self-rating & $29$ & $27$ \\
+    \bottomrule
+  \end{tabular}
+  \caption{Sessions contributing to each score. The four always-on dimensions (operation
+  appropriateness, intent alignment, label accuracy, clustering coherence) share the same counts.}
+  \label{tab:judge-n}
+\end{table}
 
 \begin{table}[H]
   \centering
@@ -76,7 +101,7 @@ produce explanations, proactive suggestions, or concept axes at all.
     \toprule
     Judge dimension (1--5) & Conversational & Baseline \\
     \midrule
-    Operation appropriateness & $\mathbf{3.94\pm0.31}$ & $\mathbf{2.73\pm0.35}$ \\
+    Operation appropriateness & $3.94\pm0.31$ & $2.73\pm0.35$ \\
     Intent alignment & $3.09\pm0.43$ & $2.33\pm0.47$ \\
     Label accuracy & $3.03\pm0.44$ & $3.53\pm0.36$ \\
     Clustering coherence & $2.54\pm0.29$ & $2.87\pm0.31$ \\
@@ -87,10 +112,7 @@ produce explanations, proactive suggestions, or concept axes at all.
     Oracle self-rating & $3.41\pm0.49$ & $2.82\pm0.64$ \\
     \bottomrule
   \end{tabular}
-  \caption{Judge dimensions and oracle rating, mean $\pm$ 95\% CI. Conversational $n=35$, baseline
-  $n=30$ for the always-on dimensions; conditional dimensions have $n=33$ (explanation), $35$
-  (suggestion), $29$ (concept axis); oracle rating $n=29$ and $27$. Bold marks the only disjoint
-  pair of intervals. \textit{n/a} marks dimensions the baseline cannot produce.}
+  \caption{Judge dimensions and oracle rating, mean $\pm$ 95\% CI;}
   \label{tab:judge}
 \end{table}
 
@@ -110,19 +132,9 @@ produce explanations, proactive suggestions, or concept axes at all.
     \bottomrule
   \end{tabular}
   \caption{Deterministic session metrics, mean $\pm$ 95\% CI; per-turn rates are pooled over the
-  condition. The baseline's zero clarifier rate is structural: it has no clarifier.}
+  condition.}
   \label{tab:effort}
 \end{table}
-
-Two further results stand out. First, the \textbf{cost of going multi-agent is negligible}: at
-\$0.0126 vs.\ \$0.0123 per turn (and \$0.169 vs.\ \$0.153 per session) the conversational system
-is no more expensive than the single call, because roughly a quarter of its turns are cheap
-non-operational moves such as clarify, explain, and small-talk; this also explains why it executes
-fewer operations per turn ($0.74$ vs.\ $0.93$). Second, the conversational system
-\textbf{completes the oracle's intended trajectory more often and misbehaves less}: it finishes
-satisfied in $49\%$ of sessions and is stopped for misbehaviour in $34\%$, whereas the baseline
-finishes in $37\%$ and is stopped for misbehaviour in the majority: $53\%$
-(Table~\ref{tab:termination}).
 
 \begin{table}[H]
   \centering
@@ -141,52 +153,123 @@ finishes in $37\%$ and is stopped for misbehaviour in the majority: $53\%$
 
 \subsection{Qualitative Results}
 
-Two sessions illustrate the behaviour behind the numbers.
+Two example sessions are shown below: one the oracle rated a success, and one it abandoned. The
+exchanges are condensed summaries that capture the core of each conversation, not verbatim
+transcripts.
 
-\paragraph{Success (\texttt{worldcinema} persona, oracle rating 5).} The oracle's goal was to
-explore language diversity, then narrow to French cinema and separate personal from societal
-narratives. The system handled the structured parts well, but the session also exposes a loop and
-an unhonoured cluster count, yet was still rated 5.
+\subsubsection{Success: \texttt{worldcinema}}
+
+\textbf{Persona:} verbose, patience~$0.37$.
+
+\textbf{Intent description:} ``Break the catalogue down by language to see what non-English
+traditions are represented, then zoom into the French-language films and see how they spread between
+intimate personal stories and broader societal canvases.''
 
 \begin{quote}\small
-\textbf{Oracle:} split the entire collection by its original language.\\
+\textbf{Oracle:} Split the entire collection by its original language.\\
 \textbf{System:} Partitioned 288 movies by original language into 13 groups.\\
-\textbf{Oracle:} zoom in on the \textsf{fr} cluster.\\
-\textbf{System:} Focused on \textsf{fr}: 7 movies retained, all others discarded.\\
-\textbf{Oracle:} undo, then split the \emph{entire} catalogue by language again.\\
-\textbf{System:} Partitioned 7 movies by original language into 1 group.
-  \quad\textit{[loop: only the 7 focused films remained, not the full catalogue]}\\
-\textbf{Oracle:} we've run into a loop, so reset everything and re-cluster.\\
-\textbf{System:} Session reset. Partitioned 288 movies into 13 groups. \quad\textit{[recovered]}\\
-\textbf{Oracle:} split the French films by intimate-personal vs societal narrative, into 3 groups.\\
-\textbf{System:} Split into 2 sub-clusters: \textsf{Intimate fr}, \textsf{Societal fr}.
-  \quad\textit{[asked for 3, produced 2]}
+\textbf{Oracle:} Zoom in on the French-language cluster.\\
+\textbf{System:} Focused on French-language films: 7 movies retained, all others discarded.\\
+\textbf{Oracle:} Undo, then split the \emph{entire} catalogue by language again.\\
+\textbf{System:} Partitioned 7 movies by original language into 1 group.\\
+\textbf{Oracle:} We've run into a loop, so reset everything and re-cluster.\\
+\textbf{System:} Session reset. Partitioned 288 movies into 13 groups.\\
+\textbf{Oracle:} Split the French films by intimate-personal vs societal narrative, into 3 groups.\\
+\textbf{System:} Split into 2 sub-clusters: \textsf{Intimate French}, \textsf{Societal French}.
 \end{quote}
 
-\noindent The explanation turn was well grounded here (``My Sole Desire'' was correctly placed in
-\textsf{Societal fr}). Notably, the judge scored this session's clustering coherence only $2$, and
-it visibly looped and returned two groups when three were asked for, yet the oracle rated it $5$.
-Oracle satisfaction rewarded responsiveness and recovery over cluster quality.
+\begin{table}[H]
+  \centering
+  \begin{tabular}{@{}lc@{}}
+    \toprule
+    Judge dimension (1--5) & Score \\
+    \midrule
+    Operation appropriateness & $4$ \\
+    Intent alignment & $4$ \\
+    Label accuracy & $5$ \\
+    Clustering coherence & $2$ \\
+    Explanation quality & $2$ \\
+    Suggestion meaningfulness & $3$ \\
+    Concept-axis quality & $3$ \\
+    \bottomrule
+  \end{tabular}
+  \caption{Judge scores, success session.}
+  \label{tab:qual-success-judge}
+\end{table}
 
-\paragraph{Failure (\texttt{satire} persona, budget-terminated, unrated).} The oracle wanted to
-keep only comedies and group them by tone. The session never converged: it exhausted the 15-turn
-budget without the oracle declaring success, and it exhibits three recurring defects at once.
+\begin{table}[H]
+  \centering
+  \begin{tabular}{@{}lc@{}}
+    \toprule
+    Session metric & Value \\
+    \midrule
+    Final clusters & $2$ \\
+    Turns & $12$ \\
+    Operations & $8$ \\
+    Clarifier rate & $0.09$ \\
+    Cost (USD) & $0.15$ \\
+    \bottomrule
+  \end{tabular}
+  \caption{Session metrics, success session.}
+  \label{tab:qual-success-metrics}
+\end{table}
+
+\subsubsection{Failure: \texttt{satire}}
+
+\textbf{Persona:} terse, patience~$0.76$.
+
+\textbf{Intent description:} ``Keep only comedy films, then spread them along a spectrum
+from warm-hearted romantic levity to biting satirical bite.''
 
 \begin{quote}\small
 \textbf{Oracle:} keep only comedy films, then group them.\\
 \textbf{System:} Filter matched 74 movies. Split into 2: \textsf{Asian Romantic Comedies Family
   Fantasy Comedies}, \textsf{Family Animated Adventures Family Fantasy Comedies}.\\
-\textbf{Oracle:} split these by emotional tone, into 3 groups.\\
-\textbf{System:} Split into 4 sub-clusters. \quad\textit{[asked for 3, produced 4]}\\
-\textbf{Oracle:} why is \emph{The Graduate} in the \textsf{Biting\,\ldots} group?\\
-\textbf{System:} ``A Real Pain'' is placed in this cluster due to\ldots
-  \quad\textit{[explains the wrong film]}\\
-\textbf{Oracle:} why is \emph{Free Guy} in the \textsf{Low Warm-hearted\,\ldots} group?\\
-\textbf{System:} ``Miss Kobayashi's Dragon Maid'' fits this cluster due to\ldots
-  \quad\textit{[again the wrong film]}
+\textbf{Oracle:} split the \textsf{Asian Romantic\,\ldots} group into 3 groups.\\
+\textbf{System:} Split into 4 sub-clusters.\\
+\textbf{Oracle:} why is \emph{Don't Look Up} in the \textsf{Family Animated\,\ldots} group?\\
+\textbf{System:} ``Playdate'' is placed in this cluster due to\ldots\\
+\textbf{Oracle:} focus on the Asian-romantic group, then split it by tone into 3.\\
+\textbf{System:} Split into 3 sub-clusters: \textsf{Warm Romantic Comedies Asian Romantic Comedies
+  Family Fantasy Comedies}, \textsf{Satirical \ldots}, \textsf{Light-hearted Romantic Comedies Asian
+  Romantic Comedies Family Fantasy Comedies}.\\
+\textbf{Oracle:} why is \emph{Mean Girls} in the \textsf{Warm Romantic Comedies\,\ldots} group?\\
+\textbf{System:} ``Friends with Benefits'' fits this cluster because\ldots\\
+\textbf{Oracle:} we are not making progress on the original intent.
 \end{quote}
 
-\noindent The cluster names also show the labeller \emph{prepending} a tone word to an already
-concatenated, inherited label (\textsf{Biting Asian Romantic Comedies Family Fantasy Comedies}),
-rather than renaming. These behaviours are quantified as findings in Section~\ref{sec:findings}:
-wrong-film explanations, label bloat, and unhonoured split counts.
+\begin{table}[H]
+  \centering
+  \begin{tabular}{@{}lc@{}}
+    \toprule
+    Judge dimension (1--5) & Score \\
+    \midrule
+    Operation appropriateness & $2$ \\
+    Intent alignment & $1$ \\
+    Label accuracy & $3$ \\
+    Clustering coherence & $2$ \\
+    Explanation quality & $1$ \\
+    Suggestion meaningfulness & $2$ \\
+    Concept-axis quality & $4$ \\
+    \bottomrule
+  \end{tabular}
+  \caption{Judge scores, failure session.}
+  \label{tab:qual-failure-judge}
+\end{table}
+
+\begin{table}[H]
+  \centering
+  \begin{tabular}{@{}lc@{}}
+    \toprule
+    Session metric & Value \\
+    \midrule
+    Final clusters & $1$ \\
+    Turns & $15$ \\
+    Operations & $11$ \\
+    Clarifier rate & $0.29$ \\
+    Cost (USD) & $0.19$ \\
+    \bottomrule
+  \end{tabular}
+  \caption{Session metrics, failure session.}
+  \label{tab:qual-failure-metrics}
+\end{table}
