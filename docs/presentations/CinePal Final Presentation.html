@@ -127,6 +127,11 @@
     </div>
   </section>
 
+  <!-- 01b VIDEO DEMO -->
+  <section data-label="Demo">
+    <video src="demo.mp4" controls playsinline preload="metadata" style="position:absolute; inset:0; width:100%; height:100%; object-fit:contain; background:#000; border:6px solid var(--ink);"></video>
+  </section>
+
   <!-- 02 CONVERSATIONAL PERSPECTIVE -->
   <section data-label="The Conversational Perspective">
     <div class="pad mark">
@@ -936,21 +941,17 @@
 
     let saved = null;
     try { saved = JSON.parse(localStorage.getItem(KEY)); } catch (e) {}
-    if (saved && typeof saved === 'object') {
-      if (Array.isArray(saved.order)) {
-        // Saved labels first, in saved order; any section new to the file last.
+    // Only restore when the slide SET is unchanged. If the HTML added, removed,
+    // or renamed a slide, the saved order/skips are stale — discard them so the
+    // file wins (otherwise a newly added slide never shows up).
+    if (saved && typeof saved === 'object' && Array.isArray(saved.order)) {
+      const current = sections().map(labelOf);
+      const sameSet = current.length === saved.order.length
+        && current.every((l) => saved.order.includes(l));
+      if (sameSet) {
         const byLabel = new Map(sections().map((s) => [labelOf(s), s]));
-        const seen = new Set();
-        for (const label of saved.order) {
-          const s = byLabel.get(label);
-          if (s && !seen.has(label)) { deck.appendChild(s); seen.add(label); }
-        }
-        for (const s of sections()) {
-          if (!seen.has(labelOf(s))) deck.appendChild(s);
-        }
-      }
-      if (Array.isArray(saved.skipped)) {
-        const skip = new Set(saved.skipped);
+        for (const label of saved.order) deck.appendChild(byLabel.get(label));
+        const skip = new Set(Array.isArray(saved.skipped) ? saved.skipped : []);
         for (const s of sections()) {
           if (skip.has(labelOf(s))) s.setAttribute('data-deck-skip', '');
           else s.removeAttribute('data-deck-skip');
