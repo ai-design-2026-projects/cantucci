@@ -518,7 +518,7 @@
           <div class="col">
             <span class="ix">03</span>
             <h3>Web UI</h3>
-            <p>Chat, history, cluster map, evolution graph, axes, lab</p>
+            <p>Chat, history, movie scatterplot, cluster inspect, evolution graph, concept axes, evaluation lab</p>
           </div>
         </div>
         <div class="grow"></div>
@@ -537,12 +537,12 @@
           <div class="col">
             <span class="ix">01</span>
             <h3>Operation Choice</h3>
-            <p>Does the Intent agent pick the right operation and the right parameters?</p>
+            <p>Does the system pick the right operation?</p>
           </div>
           <div class="col">
             <span class="ix">02</span>
-            <h3>Cluster Update Strategy</h3>
-            <p>Do concept splits and soft memberships beat plain re-clustering on raw embeddings?</p>
+            <h3>Cluster Strategy</h3>
+            <p>Does our approach provide a coherent clustering?</p>
           </div>
           <div class="col">
             <span class="ix">03</span>
@@ -609,7 +609,7 @@
       <div class="content">
         <div class="eyebrow">Oracle &nbsp;·&nbsp; Behavioural Model</div>
         <h2 class="title">Oracle Persona</h2>
-        <p class="lead">Two dials layered on the ground truth control how the persona consumes its trajectory.</p>
+        <p class="lead">Two dials layered on the ground truth control how the persona behaves.</p>
         <div class="cols" style="grid-template-columns:1fr 1fr; gap:84px; margin-top:54px;">
           <div class="col">
             <span class="ix">Verbosity</span>
@@ -654,24 +654,108 @@
         <h2 class="title">Judge Metrics</h2>
         <div class="spec wide fit sm" style="margin-top:40px;">
           <div class="spec-row"><div class="spec-k">Operation appropriateness</div><div class="spec-v">Right operation and parameters for each request</div></div>
-          <div class="spec-row"><div class="spec-k">Intent alignment</div><div class="spec-v">Does the final result reflect the stated goal</div></div>
-          <div class="spec-row"><div class="spec-k">Label accuracy</div><div class="spec-v">Do names and summaries match their operations</div></div>
-          <div class="spec-row"><div class="spec-k">Clustering coherence</div><div class="spec-v">Do films within a cluster genuinely belong together</div></div>
-          <div class="spec-row"><div class="spec-k">Explanation quality</div><div class="spec-v">Is a placement explanation faithful and specific </div></div>
-          <div class="spec-row"><div class="spec-k">Suggestion meaningfulness</div><div class="spec-v">Is a volunteered suggestion relevant and well-timed </div></div>
-          <div class="spec-row"><div class="spec-k">Concept-axis quality</div><div class="spec-v">Do the axis poles form a coherent, discriminative spectrum </div></div>
+          <div class="spec-row"><div class="spec-k">Intent alignment</div><div class="spec-v">Does the final result reflect the stated goal?</div></div>
+          <div class="spec-row"><div class="spec-k">Label accuracy</div><div class="spec-v">Do names and summaries match their operations?</div></div>
+          <div class="spec-row"><div class="spec-k">Clustering coherence</div><div class="spec-v">Do films within a cluster genuinely belong together?</div></div>
+          <div class="spec-row"><div class="spec-k">Explanation quality</div><div class="spec-v">Is a placement explanation faithful and specific?</div></div>
+          <div class="spec-row"><div class="spec-k">Suggestion meaningfulness</div><div class="spec-v">Is a volunteered suggestion relevant and well-timed?</div></div>
+          <div class="spec-row"><div class="spec-k">Concept-axis quality</div><div class="spec-v">Do the axis poles form a coherent, discriminative spectrum?</div></div>
         </div>
         <div class="grow"></div>
       </div>
     </div>
   </section>
 
-  <!-- 24 FINDINGS (all titles, one slide) -->
+  <!-- 24a MAJOR FINDINGS · OPERATION APPROPRIATENESS -->
+  <section data-label="Major Findings · Operation Appropriateness">
+    <div class="pad mark">
+      <div class="content">
+        <div class="eyebrow">Major Findings</div>
+        <h2 class="title">Operation Appropriateness</h2>
+        <p class="lead">Where the conversational loop is strongest.</p>
+        <div class="cols" style="grid-template-columns:1fr 1fr; gap:84px; margin-top:54px;">
+          <div class="col">
+            <span class="ix">Strength</span>
+            <h3>Right operation, every turn</h3>
+            <p>Picks the correct operation and parameters, on the oracle's trajectory.</p>
+          </div>
+          <div class="col">
+            <span class="ix">Score</span>
+            <h3>3.94 ± 0.31</h3>
+            <p>Our strongest, most reliable dimension.</p>
+          </div>
+        </div>
+        <div class="grow"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 24b MAJOR FINDINGS · ABSTRACT CONCEPT CLIFF -->
+  <section data-label="Major Findings · Abstract Concept Cliff">
+    <div class="pad mark">
+      <div class="content">
+        <div class="eyebrow">Major Findings</div>
+        <h2 class="title">Abstract Concept Cliff</h2>
+        <p class="lead">Where shallow embeddings run out of road.</p>
+        <div class="cols" style="grid-template-columns:1fr 1fr; gap:84px; margin-top:54px;">
+          <div class="col">
+            <span class="ix">The Cliff</span>
+            <h3>Concepts our embeddings miss</h3>
+            <p>Very abstract ideas live outside the embedding space, so the system cannot split on them.</p>
+            <ul class="bullets" style="margin-top:24px;">
+              <li>a film movement <b>(New Hollywood)</b></li>
+            </ul>
+          </div>
+          <div class="col">
+            <span class="ix">The Bridge</span>
+            <h3>Retrieval-augmented depth</h3>
+            <p>For a concept, retrieve each film's scripts and reviews; an LLM scores the film on it directly (RAG).</p>
+            <ul class="bullets" style="margin-top:24px;">
+              <li><b>Costly</b> retrieval + LLM per film</li>
+            </ul>
+          </div>
+        </div>
+        <div class="grow"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 24c MAJOR FINDINGS · CLUSTER SEGMENTATION -->
+  <section data-label="Major Findings · Cluster Segmentation">
+    <div class="pad mark">
+      <div class="content">
+        <div class="eyebrow">Major Findings</div>
+        <h2 class="title">Cluster Segmentation</h2>
+        <p class="lead">Opposite failure modes on structure.</p>
+        <div class="cols" style="grid-template-columns:1fr 1fr; gap:84px; margin-top:54px;">
+          <div class="col">
+            <span class="ix">Our system</span>
+            <h3>A balanced handful</h3>
+            <ul class="bullets" style="margin-top:24px;">
+              <li>Usually <b>4.14 ± 1.67</b> clusters</li>
+              <li>Can over-segment to <b>17–18</b> groups due to the oracle</li>
+            </ul>
+          </div>
+          <div class="col">
+            <span class="ix">Baseline</span>
+            <h3>Chronic under-segmentation</h3>
+            <ul class="bullets" style="margin-top:24px;">
+              <li><b>&le; 2</b> clusters in 87% of sessions</li>
+              <li>Distinct films lost during the conversation</li>
+            </ul>
+          </div>
+        </div>
+        <div class="grow"></div>
+      </div>
+    </div>
+  </section>
+
+    <!-- 24 FINDINGS (all titles, one slide) -->
   <section data-label="Findings">
     <div class="pad mark">
       <div class="content">
-        <div class="eyebrow">Findings &amp; Discussion</div>
-        <h2 class="title">Findings</h2>
+        <div class="eyebrow">Findings</div>
+        <h2 class="title">Other Findings</h2>
         <div class="cols" style="grid-template-columns:1fr 1fr; gap:40px 100px; margin-top:150px;">
           <div class="col" style="display:flex; gap:24px; align-items:baseline;"><span class="ix" style="border:none; padding:0; font-size:var(--t-body);">01</span><h3 style="margin-top:0;">Operational Appropriateness</h3></div>
           <div class="col" style="display:flex; gap:24px; align-items:baseline;"><span class="ix" style="border:none; padding:0; font-size:var(--t-body);">05</span><h3 style="margin-top:0;">Explanation Problem</h3></div>
@@ -694,10 +778,12 @@
         <div class="eyebrow">Retrospective</div>
         <h2 class="title">What Was Hard</h2>
         <div class="cols" style="grid-template-columns:1fr 1fr; gap:40px 100px; margin-top:150px;">
-          	<div class="col" style="display:flex; gap:24px; align-items:baseline;"><span class="ix" style="border:none; padding:0; font-size:var(--t-body);">01</span><h3 style="margin-top:0;">Maintainability</h3></div>
-          	<div class="col" style="display:flex; gap:24px; align-items:baseline;"><span class="ix" style="border:none; padding:0; font-size:var(--t-body);">02</span><h3 style="margin-top:0;">Intent Agent</h3></div>
-			<div class="col" style="display:flex; gap:24px; align-items:baseline;"><span class="ix" style="border:none; padding:0; font-size:var(--t-body);">03</span><h3 style="margin-top:0;">Agnostic dataset</h3></div>
-			<div class="col" style="display:flex; gap:24px; align-items:baseline;"><span class="ix" style="border:none; padding:0; font-size:var(--t-body);">04</span><h3 style="margin-top:0;">Oracle design</h3></div>
+          <div class="col" style="display:flex; gap:24px; align-items:baseline;"><span class="ix" style="border:none; padding:0; font-size:var(--t-body);">01</span><h3 style="margin-top:0;">Maintainability</h3></div>
+          <div class="col" style="display:flex; gap:24px; align-items:baseline;"><span class="ix" style="border:none; padding:0; font-size:var(--t-body);">02</span><h3 style="margin-top:0;">Intent Agent</h3></div>
+          <div class="col" style="display:flex; gap:24px; align-items:baseline;"><span class="ix" style="border:none; padding:0; font-size:var(--t-body);">03</span><h3 style="margin-top:0;">Domain-agnostic catalogue</h3></div>
+          <div class="col" style="display:flex; gap:24px; align-items:baseline;"><span class="ix" style="border:none; padding:0; font-size:var(--t-body);">04</span><h3 style="margin-top:0;">Oracle design</h3></div>
+          <div class="col" style="display:flex; gap:24px; align-items:baseline;"><span class="ix" style="border:none; padding:0; font-size:var(--t-body);">05</span><h3 style="margin-top:0;">Labeling consistency</h3></div>
+          <div class="col" style="display:flex; gap:24px; align-items:baseline;"><span class="ix" style="border:none; padding:0; font-size:var(--t-body);">06</span><h3 style="margin-top:0;">Managing context at scale</h3></div>
         </div>
         <div class="grow"></div>
       </div>
@@ -714,19 +800,25 @@
           <div class="col">
             <span class="ix">Davide Donà</span>
             <ul class="bullets" style="margin-top:30px;">
-              	<li>Agents Orchestration</li>
-			  	<li>Clustering Engine</li>
+				<li>Database Schemes</li>
 				<li>Ingestion Pipeline</li>
-				<li>Embedding System</li>
-				<li></li>
+				<li>Clustering Engine</li>
+              	<li>Agents Orchestration</li>
+				<li>Agent Prompting</li>
+				<li>Config & Logging</li>
+				<li>Automated Testing</li>
             </ul>
           </div>
           <div class="col">
             <span class="ix">Andrea Blushi</span>
             <ul class="bullets" style="margin-top:30px;">
-              <li>Web UI</li>
-              <li>Ground Truth Builder</li>
-			  <li>Evaluation Setup</li>
+              	<li>Web UI</li>
+				<li>FastAPI</li>
+				<li>MCP Server</li>
+			  	<li>Deployment</li>
+			  	<li>Auth System</li>
+              	<li>Ground Truth Builder</li>
+			  	<li>Evaluation Setup</li>
             </ul>
           </div>
         </div>
@@ -829,75 +921,6 @@
               <tr><td class="k">Finished, intent fulfilled</td><td class="num">17/35 · 49%</td><td class="num">11/30 · 37%</td></tr>
               <tr><td class="k">Stopped, misbehaviour</td><td class="num">12/35 · 34%</td><td class="num">16/30 · 53%</td></tr>
               <tr><td class="k">Budget exhausted</td><td class="num">6/35 · 17%</td><td class="num">3/30 · 10%</td></tr>
-            </tbody>
-          </table>
-        </div>
-        <div class="grow"></div>
-      </div>
-    </div>
-  </section>
-
-  <!-- A4 QUALITATIVE — SUCCESS (hidden) -->
-  <section data-label="Appendix · Success Session" data-deck-skip>
-    <div class="pad mark appx">
-      <div class="content">
-        <div class="eyebrow"><b>Appendix</b> &nbsp;·&nbsp; Qualitative · Success</div>
-        <h2 class="title" style="font-size:60px;">worldcinema</h2>
-        <p class="lead" style="font-size:var(--t-small); margin-top:18px;">Persona: verbose, patience 0.37. &nbsp;Intent: break the catalogue down by language, then explore how French films spread between intimate and societal narratives.</p>
-        <div class="tbl-2" style="margin-top:34px; grid-template-columns:1.55fr 1fr;">
-          <div class="ex">
-            <div class="turn"><span class="who o">Oracle</span><span>Split the entire collection by original language.</span></div>
-            <div class="turn"><span class="who s">System</span><span>Partitioned 288 movies into 13 language groups.</span></div>
-            <div class="turn"><span class="who o">Oracle</span><span>Zoom in on the French-language cluster.</span></div>
-            <div class="turn"><span class="who s">System</span><span>Focused on French films — 7 retained, others discarded.</span></div>
-            <div class="turn"><span class="who o">Oracle</span><span>We've looped — reset everything and re-cluster.</span></div>
-            <div class="turn"><span class="who s">System</span><span>Reset. Split French films into Intimate vs Societal.</span></div>
-          </div>
-          <table class="tbl" style="margin-top:0;">
-            <thead><tr><th>Judge (1–5)</th><th class="num"></th></tr></thead>
-            <tbody>
-              <tr><td class="k">Operation appropriateness</td><td class="num">4</td></tr>
-              <tr><td class="k">Intent alignment</td><td class="num">4</td></tr>
-              <tr><td class="k">Label accuracy</td><td class="num">5</td></tr>
-              <tr><td class="k">Clustering coherence</td><td class="num">2</td></tr>
-              <tr><td class="k">Final clusters</td><td class="num">2</td></tr>
-              <tr><td class="k">Turns</td><td class="num">12</td></tr>
-              <tr><td class="k">Oracle rating</td><td class="num">5</td></tr>
-            </tbody>
-          </table>
-        </div>
-        <div class="grow"></div>
-      </div>
-    </div>
-  </section>
-
-  <!-- A5 QUALITATIVE — FAILURE (hidden) -->
-  <section data-label="Appendix · Failure Session" data-deck-skip>
-    <div class="pad mark appx">
-      <div class="content">
-        <div class="eyebrow"><b>Appendix</b> &nbsp;·&nbsp; Qualitative · Failure</div>
-        <h2 class="title" style="font-size:60px;">satire</h2>
-        <p class="lead" style="font-size:var(--t-small); margin-top:18px;">Persona: terse, patience 0.76. &nbsp;Intent: keep only comedies, then spread them from warm romantic levity to biting satire.</p>
-        <div class="tbl-2" style="margin-top:34px; grid-template-columns:1.55fr 1fr;">
-          <div class="ex">
-            <div class="turn"><span class="who o">Oracle</span><span>Keep only comedy films, then group them.</span></div>
-            <div class="turn"><span class="who s">System</span><span>Matched 74 movies. Split into 2 compound-labelled groups.</span></div>
-            <div class="turn"><span class="who o">Oracle</span><span>Why is <i>Don't Look Up</i> in the animated group?</span></div>
-            <div class="turn"><span class="who s">System</span><span>“Playdate” is placed in this cluster because…</span></div>
-            <div class="turn"><span class="who o">Oracle</span><span>Why is <i>Mean Girls</i> in the warm-romantic group?</span></div>
-            <div class="turn"><span class="who s">System</span><span>“Friends with Benefits” fits this cluster because…</span></div>
-            <div class="turn"><span class="who o">Oracle</span><span>We are not making progress on the original intent.</span></div>
-          </div>
-          <table class="tbl" style="margin-top:0;">
-            <thead><tr><th>Judge (1–5)</th><th class="num"></th></tr></thead>
-            <tbody>
-              <tr><td class="k">Operation appropriateness</td><td class="num">2</td></tr>
-              <tr><td class="k">Intent alignment</td><td class="num">1</td></tr>
-              <tr><td class="k">Label accuracy</td><td class="num">3</td></tr>
-              <tr><td class="k">Explanation quality</td><td class="num">1</td></tr>
-              <tr><td class="k">Final clusters</td><td class="num">1</td></tr>
-              <tr><td class="k">Turns</td><td class="num">15</td></tr>
-              <tr><td class="k">Oracle rating</td><td class="num">low</td></tr>
             </tbody>
           </table>
         </div>

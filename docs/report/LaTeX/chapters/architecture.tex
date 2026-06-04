@@ -18,7 +18,7 @@ First, a \textbf{composite text} (title, synopsis, genres, cast, director, and k
 Then, the aggregated \textbf{user review text} (only top reviews) is encoded by the same model into the same 1024-dimensional space.
 Finally, the \textbf{visual modality} is captured by sampling evenly spaced frames from the movie's trailer, embedding them with the \emph{OpenCLIP ViT-H/14} vision encoder, and mean-pooling them into a single 1024-dimensional vector.
 
-\paragraph{Fuse:} Because the textual and visual encoders inhabit entirely different semantic vector spaces, the pipeline employs two distinct fusion strategies.
+\paragraph{Fuse:}
 Text and review embeddings are merged directly via a weighted average of their vectors since they share a underlying space.
 In contrast, the text and trailer modalities are fused at the distance level using a weighted sum of their respective cosine-distance matrices, combining their structural signals without forcing them into an artificial, unified space.
 

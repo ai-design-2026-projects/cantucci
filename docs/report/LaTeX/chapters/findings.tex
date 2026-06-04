@@ -57,8 +57,9 @@ Addressing the \emph{suggestion problem}, a relevant improvement would be to pro
 Addressing the \emph{labelling problem}, the labeling agent should be revise to better handle deterministic label generation, also considering to delegate them to an LLM.
 
 \paragraph{Bridging the Abstract Concept Cliff}
-To bridge the \emph{abstract concept cliff}, future works would enrich the catalog with deep, unstructured textual signals utilizing a Retrieval-Augmented Generation (RAG) framework.
-By ingest-and-retrieve mechanics applied to film scripts, production transcripts, and an expansive corpus of critical reviews, the RAG paradigm will provide the concept agent and clustering layer with the latent semantic depth required to partition items along subtle artistic and thematic axes, moving beyond the limitations of shallow metadata and embedding spaces.
+To bridge the \emph{abstract concept cliff}, future works would enrich the catalog with deep, unstructured textual signals---film scripts, production transcripts, and an expansive corpus of critical reviews---retrieved through a Retrieval-Augmented Generation (RAG) framework.
+Rather than re-encoding this text into the same shallow vectors, for a given concept the system would retrieve the passages most relevant to each candidate film and let an LLM score that film on the concept directly, building the axis from these judgments instead of from metadata or embedding distances.
+This depth is not free, however: per-film retrieval and LLM scoring is far costlier than a single embedding pass, coverage is uneven since scripts and detailed reviews are missing for many titles, and the live retrieval-and-scoring step would have to be cached to preserve the deterministic replay guarantee.
 
 \paragraph{Reconciling Oracle and Judge Divergence}
 Addressing the \emph{oracle and judge divergence}, a human-in-the-loop study will test how far the agent-to-agent dynamics translate to genuine human satisfaction, and the judge will be calibrated so that its dimensions and the oracle's rating can be trusted jointly rather than read against one another.
