@@ -1,0 +1,278 @@
+\section{Results}\label{sec:results}
+
+\subsection{Experimental Setup}
+
+\paragraph{Dataset:} The evaluation ran against a compact catalog, held out from the production dataset, of \textbf{288 films}.
+
+\paragraph{Conditions:} Two conditions were compared.
+The \textbf{conversational} condition represents our full multiagent system.
+The \textbf{baseline} is a single-prompt alternative: a single model call per turn receives the raw film list, the current cluster state, and the dialogue transcript, then emits the entire updated grouping, the chosen operation, and the conversational response in a single output.
+This baseline completely bypasses embeddings, density-based clustering, concept axes, clarifying loops, and dedicated labeling agents.
+
+\paragraph{Models:} The system, oracle, and judge run on three different model families (Table~\ref{tab:models}).
+
+\begin{table}[H]
+  \centering
+  \adjustbox{max width=\columnwidth}{\begin{tabular}{@{}lll@{}}
+    \toprule
+    Role & Model & Family \\
+    \midrule
+    System (strong) & GPT-4o & OpenAI \\
+    System (fast) & GPT-4o-mini & OpenAI \\
+    Oracle (simulated user) & Gemini 2.5 Flash & Google \\
+    Judge & Claude Opus 4.7 & Anthropic \\
+    \bottomrule
+  \end{tabular}}
+  \caption{Model assignment.}
+  \label{tab:models}
+\end{table}
+
+\paragraph{Parameters:} All runs share the fixed configuration in Table~\ref{tab:params}.
+
+\begin{table}[H]
+  \centering
+  \adjustbox{max width=\columnwidth}{\begin{tabular}{@{}ll@{}}
+    \toprule
+    Parameter & Value \\
+    \midrule
+    \multicolumn{2}{@{}l}{\emph{Embeddings and fusion}} \\
+    Text and review encoder & BAAI BGE-large-en-v1.5 \\
+    Trailer encoder & OpenCLIP ViT-H/14 \\
+    Embedding dimension & $1024$ \\
+    Text-review fusion, text weight & $0.6$ \\
+    Text-review fusion, review weight & $0.4$ \\
+    Text-trailer fusion, text weight & $0.6$ \\
+    Text-trailer fusion, trailer weight & $0.4$ \\
+    \addlinespace
+    \multicolumn{2}{@{}l}{\emph{Clustering}} \\
+    HDBSCAN min.\ cluster size (base) & $50$ \\
+    HDBSCAN min.\ cluster size (online) & $10$ \\
+    HDBSCAN min.\ samples & $10$ \\
+    UMAP components & $50$ \\
+    UMAP neighbours & $15$ \\
+    \addlinespace
+    \multicolumn{2}{@{}l}{\emph{Interaction}} \\
+    Intent confidence threshold & $0.6$ \\
+    Turn budget (max.\ oracle turns) & $15$ \\
+    Exemplar titles per cluster & $5$ \\
+    \addlinespace
+    \multicolumn{2}{@{}l}{\emph{Cost}} \\
+    Cost ceiling, system (USD) & $10$ \\
+    Cost ceiling, oracle (USD) & $2$ \\
+    Cost ceiling, judge (USD) & $2$ \\
+    Decoding seed, all models & $42$ \\
+    \bottomrule
+  \end{tabular}}
+  \caption{Fixed configuration shared across the evaluation runs.}
+  \label{tab:params}
+\end{table}
+
+\paragraph{Procedure:} Each persona/seed pair initialized a session driven by the simulated oracle until termination or budget exhaustion, after which all metric and judge dimensions were logged.
+This process yielded \textbf{35 conversational} sessions and \textbf{30 baseline} sessions.
+All reported metrics are extracted directly from the resulting database and computed using the confidence intervals from Equation~\ref{eq:ci}.
+
+\subsection{Quantitative Results}
+
+We report the measured outcomes for both conditions side by side; their interpretation is deferred to Section~\ref{sec:findings}.	
+Dimensions the baseline cannot produce are marked \textit{n/a}; the number of sessions behind each
+score is given in Table~\ref{tab:judge-n}.
+
+\begin{table}[H]
+  \centering
+  \adjustbox{max width=\columnwidth}{\begin{tabular}{@{}lcc@{}}
+    \toprule
+    Score & Conversational $n$ & Baseline $n$ \\
+    \midrule
+    Always-on dimensions & $35$ & $30$ \\
+    Explanation quality & $33$ & \textit{n/a} \\
+    Suggestion meaningfulness & $35$ & \textit{n/a} \\
+    Concept-axis quality & $29$ & \textit{n/a} \\
+    Oracle self-rating & $29$ & $27$ \\
+    \bottomrule
+  \end{tabular}}
+  \caption{Sessions contributing to each score. The four always-on dimensions (operation
+  appropriateness, intent alignment, label accuracy, clustering coherence) share the same counts.}
+  \label{tab:judge-n}
+\end{table}
+
+\begin{table}[H]
+  \centering
+  \adjustbox{max width=\columnwidth}{\begin{tabular}{@{}lcc@{}}
+    \toprule
+    Judge dimension (1--5) & Conversational & Baseline \\
+    \midrule
+    Operation appropriateness & $3.94\pm0.31$ & $2.73\pm0.35$ \\
+    Intent alignment & $3.09\pm0.43$ & $2.33\pm0.47$ \\
+    Label accuracy & $3.03\pm0.44$ & $3.53\pm0.36$ \\
+    Clustering coherence & $2.54\pm0.29$ & $2.87\pm0.31$ \\
+    Explanation quality & $1.79\pm0.31$ & \textit{n/a} \\
+    Suggestion meaningfulness & $2.71\pm0.21$ & \textit{n/a} \\
+    Concept-axis quality & $3.48\pm0.35$ & \textit{n/a} \\
+    \midrule
+    Oracle self-rating & $3.41\pm0.49$ & $2.82\pm0.64$ \\
+    \bottomrule
+  \end{tabular}}
+  \caption{Judge dimensions and oracle rating, mean $\pm$ 95\% CI;}
+  \label{tab:judge}
+\end{table}
+
+\begin{table}[H]
+  \centering
+  \adjustbox{max width=\columnwidth}{\begin{tabular}{@{}lcc@{}}
+    \toprule
+    Session metric & Conversational & Baseline \\
+    \midrule
+    Final cluster count & $4.14\pm1.67$ & $1.97\pm0.53$ \\
+    Turns per session & $13.34\pm1.08$ & $12.40\pm1.27$ \\
+    Operations per session & $9.83\pm1.16$ & $11.50\pm1.30$ \\
+    Operations per turn (pooled) & $0.74$ & $0.93$ \\
+    Clarifier trigger rate & $0.23\pm0.04$ & $0.00$ \\
+    Cost per session (USD) & $0.169\pm0.016$ & $0.153\pm0.020$ \\
+    Cost per turn (USD, pooled) & $0.0126$ & $0.0123$ \\
+    \bottomrule
+  \end{tabular}}
+  \caption{Deterministic session metrics, mean $\pm$ 95\% CI; per-turn rates are pooled over the
+  condition.}
+  \label{tab:effort}
+\end{table}
+
+\begin{table}[H]
+  \centering
+  \adjustbox{max width=\columnwidth}{\begin{tabular}{@{}lcc@{}}
+    \toprule
+    Termination outcome & Conversational & Baseline \\
+    \midrule
+    Finished, intent fulfilled & 17/35 (49\%) & 11/30 (37\%) \\
+    Stopped, misbehaviour & 12/35 (34\%) & 16/30 (53\%) \\
+    Budget exhausted & 6/35 (17\%) & 3/30 (10\%) \\
+    \bottomrule
+  \end{tabular}}
+  \caption{How sessions ended, by condition.}
+  \label{tab:termination}
+\end{table}
+
+\subsection{Qualitative Results}
+
+Two example sessions are shown below: one the oracle rated a success, and one it abandoned. The
+exchanges are condensed summaries that capture the core of each conversation, not verbatim
+transcripts.
+
+\subsubsection{\textbf{Success}: \texttt{worldcinema}}
+\textbf{\\Persona:} verbose, patience~$0.37$.
+\\
+\textbf{Intent description:} ``Break the catalog down by language to see what non-English
+traditions are represented, then zoom into the French-language films and see how they spread between
+intimate personal stories and broader societal canvases.''
+\\
+\begin{quote}\small
+\textbf{Oracle:} Split the entire collection by its original language.\\
+\textbf{System:} Partitioned 288 movies by original language into 13 groups.\\
+\textbf{Oracle:} Zoom in on the French-language cluster.\\
+\textbf{System:} Focused on French-language films: 7 movies retained, all others discarded.\\
+\textbf{Oracle:} Undo, then split the \emph{entire} catalog by language again.\\
+\textbf{System:} Partitioned 7 movies by original language into 1 group.\\
+\textbf{Oracle:} We've run into a loop, so reset everything and re-cluster.\\
+\textbf{System:} Session reset. Partitioned 288 movies into 13 groups.\\
+\textbf{Oracle:} Split the French films by intimate-personal vs societal narrative, into 3 groups.\\
+\textbf{System:} Split into 2 sub-clusters: \textsf{Intimate French}, \textsf{Societal French}.
+\end{quote}
+
+\begin{table}[H]
+  \centering
+  \small
+  \adjustbox{max width=\columnwidth}{\begin{tabular}{@{}lc@{}}
+    \toprule
+    Judge dimension (1--5) & Score \\
+    \midrule
+    Operation appropriateness & $4$ \\
+    Intent alignment & $4$ \\
+    Label accuracy & $5$ \\
+    Clustering coherence & $2$ \\
+    Explanation quality & $2$ \\
+    Suggestion meaningfulness & $3$ \\
+    Concept-axis quality & $3$ \\
+    \bottomrule
+  \end{tabular}}
+  \caption{Judge scores, success session.}
+  \label{tab:qual-success-judge}
+\end{table}
+
+\begin{table}[H]
+  \centering
+  \small
+  \adjustbox{max width=\columnwidth}{\begin{tabular}{@{}lc@{}}
+    \toprule
+    Session metric & Value \\
+    \midrule
+    Final clusters & $2$ \\
+    Turns & $12$ \\
+    Operations & $8$ \\
+    Clarifier rate & $0.09$ \\
+    Cost (USD) & $0.15$ \\
+    \bottomrule
+  \end{tabular}}
+  \caption{Session metrics, success session.}
+  \label{tab:qual-success-metrics}
+\end{table}
+
+\subsubsection{\textbf{Failure}: \texttt{satire}}
+
+\textbf{\\Persona:} terse, patience~$0.76$.
+\\
+\textbf{Intent description:} ``Keep only comedy films, then spread them along a spectrum
+from warm-hearted romantic levity to biting satirical bite.''
+\\
+\begin{quote}\small
+\textbf{Oracle:} keep only comedy films, then group them.\\
+\textbf{System:} Filter matched 74 movies. Split into 2: \textsf{Asian Romantic Comedies Family
+  Fantasy Comedies}, \textsf{Family Animated Adventures Family Fantasy Comedies}.\\
+\textbf{Oracle:} split the \textsf{Asian Romantic\,\ldots} group into 3 groups.\\
+\textbf{System:} Split into 4 sub-clusters.\\
+\textbf{Oracle:} why is \emph{Don't Look Up} in the \textsf{Family Animated\,\ldots} group?\\
+\textbf{System:} ``Playdate'' is placed in this cluster due to\ldots\\
+\textbf{Oracle:} focus on the Asian-romantic group, then split it by tone into 3.\\
+\textbf{System:} Split into 3 sub-clusters: \textsf{Warm Romantic Comedies Asian Romantic Comedies
+  Family Fantasy Comedies}, \textsf{Satirical \ldots}, \textsf{Light-hearted Romantic Comedies Asian
+  Romantic Comedies Family Fantasy Comedies}.\\
+\textbf{Oracle:} why is \emph{Mean Girls} in the \textsf{Warm Romantic Comedies\,\ldots} group?\\
+\textbf{System:} ``Friends with Benefits'' fits this cluster because\ldots\\
+\textbf{Oracle:} we are not making progress on the original intent.
+\end{quote}
+
+\begin{table}[H]
+  \centering
+  \small
+  \adjustbox{max width=\columnwidth}{\begin{tabular}{@{}lc@{}}
+    \toprule
+    Judge dimension (1--5) & Score \\
+    \midrule
+    Operation appropriateness & $2$ \\
+    Intent alignment & $1$ \\
+    Label accuracy & $3$ \\
+    Clustering coherence & $2$ \\
+    Explanation quality & $1$ \\
+    Suggestion meaningfulness & $2$ \\
+    Concept-axis quality & $4$ \\
+    \bottomrule
+  \end{tabular}}
+  \caption{Judge scores, failure session.}
+  \label{tab:qual-failure-judge}
+\end{table}
+
+\begin{table}[H]
+  \centering
+  \small
+  \adjustbox{max width=\columnwidth}{\begin{tabular}{@{}lc@{}}
+    \toprule
+    Session metric & Value \\
+    \midrule
+    Final clusters & $1$ \\
+    Turns & $15$ \\
+    Operations & $11$ \\
+    Clarifier rate & $0.29$ \\
+    Cost (USD) & $0.19$ \\
+    \bottomrule
+  \end{tabular}}
+  \caption{Session metrics, failure session.}
+  \label{tab:qual-failure-metrics}
+\end{table}

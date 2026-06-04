@@ -1,0 +1,16 @@
+slug: auteur
+verbosity: terse
+patience: 0.81
+intent_description: Look at highly-rated films, narrow in on the drama ones, and see
+  how they spread along a spectrum from tightly controlled, formalist direction to
+  loose, improvisational filmmaking.
+operations:
+- op: cluster
+  concept: vote average
+- op: focus
+  concept: highly-rated films (7.5+)
+- op: cluster
+  concept: formalist controlled direction vs loose improvisational direction
+  kind: axis
+  space: semantic
+prompt_hash: 225cffd2f13805bbb103077818a99eda800ceb095fca4a9d8b7c37c42756c355

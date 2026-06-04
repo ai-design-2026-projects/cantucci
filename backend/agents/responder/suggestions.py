@@ -44,14 +44,18 @@ async def maybe_suggest(
     if not new_clusters:
         return None
 
-    all_exemplar_ids = list({
-        mid
-        for cluster in new_clusters
-        for mid in cluster.exemplar_movie_ids
-    })
-    emb_map = fetch_text_embeddings(all_exemplar_ids)
+    memberships_by_cluster = {
+        c.id: get_memberships(c.id) for c in new_clusters
+    }
 
-    centroids = compute_cluster_centroids(new_clusters, emb_map)
+    all_member_ids = list({
+        row.movie_id
+        for rows in memberships_by_cluster.values()
+        for row in rows
+    })
+    emb_map = fetch_text_embeddings(all_member_ids)
+
+    centroids = compute_cluster_centroids(memberships_by_cluster, emb_map)
 
     signals: list[str] = []
 
@@ -68,10 +72,6 @@ async def maybe_suggest(
             break
 
     if len(signals) < cfg.suggestions.top_n_signals:
-        memberships_by_cluster = {
-            c.id: get_memberships(c.id) for c in new_clusters
-        }
-
         dominant_id = find_dominant_cluster(
             memberships_by_cluster, dominance_fraction=cfg.suggestions.dominance_fraction
         )

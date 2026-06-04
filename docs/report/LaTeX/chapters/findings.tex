@@ -1,0 +1,72 @@
+\section{Findings and Discussion}\label{sec:findings}
+The main theme emerging from the evaluation is that the conversational system excels at operational fidelity and responding to user intent (in an honest way), whereas the baseline system primarily offers a tidier visual output.
+
+\paragraph{Operational Appropriateness}
+The architecture's primary strength is selecting the right operation and following the oracle's trajectory.
+This is the only dimension with disjoint confidence intervals: operation appropriateness $3.94\pm0.31$ against the baseline's $2.73\pm0.35$ (Table~\ref{tab:judge}).
+It also trends higher on intent alignment ($3.09\pm0.43$ vs.\ $2.33\pm0.47$) and on the oracle's own rating ($3.41\pm0.49$ vs.\ $2.82\pm0.64$).
+This confirms slightly success on this research angles.
+
+\paragraph{Cost of the System}
+Going multiagent cost per turn is \$0.0126 vs.\ \$0.0123, and cost per session \$0.169 vs.\ \$0.153 (Table~\ref{tab:effort}).
+The overhead is absorbed because about a quarter of conversational turns are cheap non-operational moves (clarify, explain, small-talk), visible in the lower operations-per-turn rate ($0.74$ vs.\ $0.93$).
+The usual cost objection to a modular, multi-call design therefore does not apply here, especially compared to the baseline's.
+
+\paragraph{Cluster segmentation and structure}
+The two systems fail in opposite directions. 
+The baseline chronically under-segments, collapsing to two or fewer clusters in 87\% of sessions (26 of 30; final cluster count $1.97 \pm 0.53$, Table~\ref{tab:effort}). 
+Its higher clustering coherence ($2.87 \pm 0.31$) and label accuracy ($3.53 \pm 0.36$, Table~\ref{tab:judge}) are artifacts of these coarse, easy-to-name groups.
+Furthermore, throughout the conversation, it tends to lose films randomly, resulting in smaller clusters; this occurs even when utilizing a re-identification step for the films prior to prompting.
+In contrast, the conversational system usually produces a balanced handful of clusters ($4.14 \pm 1.67$) but occasionally over-segments, exploding to 17--18 groups in four sessions.
+This could also happen due to the oracle approach that tends to perform more splits than necessary.
+
+\paragraph{Abstract Concept Cliff}
+Performance splits sharply by intent type.
+The conversational system is an effective clustered of well-scoped, metadata-grounded goals, with per-persona oracle ratings up to $4.67$ for the oracles "\emph{genre fan}" or a "\emph{rater}", but it drops to $2.0$ for fuzzy semantic goals such as a satirical tone, the New Hollywood movement, or the heist sub-genre.
+Forced to express every concept as a discrete navigation step, the pipeline struggles to capture a holistic artistic idea that a single free-form pass can sometimes grasp.
+
+\paragraph{Explanation Problem}
+The explanation agent grounds its rationale in the wrong film roughly half the time: of the 89 ``why is film $X$ here'' turns, 43 ($48\%$) discussed a different title, for example a question about \emph{Don't Look Up} answered with ``Playdate'' and one about \emph{Mean Girls} with ``Friends with Benefits'' (failure session, Table~\ref{tab:qual-failure-judge}). 
+This is the lowest-scoring dimension in the study: explanation quality $1.79\pm0.31$ (Table~\ref{tab:judge}).
+
+\paragraph{Suggestion Problem}
+The judge scores suggestion meaningfulness at $2.71\pm0.21$ (Table~\ref{tab:judge}), in the low-middle of the 1--5 scale, indicating that the volunteered next steps are frequently generic or redundant rather than genuinely advancing the oracle's goal.
+
+\paragraph{Labelling Problem}
+The labeling agent prepends each new split's descriptor to the inherited name instead of rewriting it, so labels bloat with depth: the failure session reaches \textsf{Light-hearted Romantic Comedies Asian Romantic Comedies Family Fantasy Comedies} after three drill-downs.
+Label accuracy for the conversational system stays middling at $3.03\pm0.44$, below the baseline's coarser-but-cleaner $3.53\pm0.36$ (Table~\ref{tab:judge}).
+
+\paragraph{Oracle and Judge Divergence}
+Two measurement caveats stand out.
+First, oracle satisfaction is bimodal, clustering at the extremes (ratings 1--2 or 4--5) with few middle values, so the mean rating is a poor summary.
+Second, the oracle is a lenient judge of final structure: the top-rated conversational session (oracle $=5$) had a judged clustering coherence of only $2$, looped, and returned two groups when three were requested (Table~\ref{tab:qual-success-judge}).
+Oracle rating and judge dimensions diverge, and should be read together rather than either alone.
+
+\subsection{Future Work}
+Each direction below targets one of the problems surfaced above, preserving their separation.
+
+\paragraph{Grounding the Explanation Agent}
+Addressing the \emph{explanation problem}, the explanation agent will be bound to the exact film identifier it is asked about rather than to the cluster's exemplars, so it can no longer justify a different title.
+Then it should be able to give more explanations variants, like comparing clusters, describing the cluster's internal diversity, or listing the most distinctive attributes of the film in that cluster.
+
+\paragraph{Sharpening Proactive Suggestions}
+Addressing the \emph{suggestion problem}, a relevant improvement would be to provide to the suggestion agent a more structured context of the conversation, in order to make it able to identify more specific next steps that are not just generic operations.
+
+\paragraph{Renaming instead of Compounding Labels}
+Addressing the \emph{labelling problem}, the labeling agent should be revised to better handle deterministic label generation, also considering delegating them to an LLM.
+
+\paragraph{Bridging the Abstract Concept Cliff}
+To bridge the \emph{abstract concept cliff}, future works would enrich the catalog with deep, unstructured textual signals (film scripts, production transcripts, and an expansive corpus of critical reviews) retrieved through a Retrieval-Augmented Generation (RAG) framework.
+Rather than re-encoding this text into the same shallow vectors, for a given concept the system would retrieve the passages most relevant to each candidate film and let an LLM score that film on the concept directly, building the axis from these judgments instead of from metadata or embedding distances.
+This depth is not free, however: per-film retrieval and LLM scoring is far costlier than a single embedding pass, coverage is uneven since scripts and detailed reviews are missing for many titles, and the live retrieval-and-scoring step would have to be cached to preserve the deterministic replay guarantee.
+
+\paragraph{Reconciling Oracle and Judge Divergence}
+Addressing the \emph{oracle and judge divergence}, a human-in-the-loop study will test how far the agent-to-agent dynamics translate to genuine human satisfaction, and the judge will be calibrated so that its dimensions and the oracle's rating can be trusted jointly rather than read against one another.
+
+\paragraph{Scaling and Refining the Evaluation}
+The present study was bounded by the time and compute budget of a course project, which capped each condition at roughly thirty sessions; at that scale only operation appropriateness reaches disjoint confidence intervals, while every other difference remains a suggestive trend. 
+A natural next step is to enlarge the campaign by an order of magnitude, broadening the pool of personas, ground truths, and random seeds so that per-persona effects no longer rest on a handful of runs and the intervals tighten enough to settle these trends, alongside refinements to the harness such as additional deterministic metrics and a broader ground-truth generator.
+
+\paragraph{Dataset Diversity, Scale, and New Domains}
+Because the proposal, partition, and refine loop is domain-agnostic, making the embedding pipeline and prompts fully configurable would let the architecture be validated beyond a single curated film catalog.
+Testing on catalogs of different sizes, attribute densities, and domain characteristics, such as books, academic papers, or retail products, would surface edge cases in the clustering and labeling agents and help calibrate the cost-limit settings, which a single curated catalog cannot reveal.

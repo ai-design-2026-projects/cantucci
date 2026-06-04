@@ -7,8 +7,24 @@ export interface BoxStats {
     mean: number
     std: number
     n: number
-    /** 95% confidence interval of the mean: [lower, upper] */
+    /** Two-sided 95% t-based CI of the mean: [lower, upper]. Zero-width when n < 2. */
     ci95: [number, number]
+}
+
+/**
+ * Two-sided 95% t-critical value for the given degrees of freedom.
+ * Uses a lookup table for df 1–30; falls back to 1.96 (z∞) for df ≥ 31.
+ */
+function tCrit(df: number): number {
+    const TABLE: Record<number, number> = {
+        1: 12.706, 2: 4.303, 3: 3.182, 4: 2.776, 5: 2.571,
+        6: 2.447, 7: 2.365, 8: 2.306, 9: 2.262, 10: 2.228,
+        11: 2.201, 12: 2.179, 13: 2.160, 14: 2.145, 15: 2.131,
+        16: 2.120, 17: 2.110, 18: 2.101, 19: 2.093, 20: 2.086,
+        21: 2.080, 22: 2.074, 23: 2.069, 24: 2.064, 25: 2.060,
+        26: 2.056, 27: 2.052, 28: 2.048, 29: 2.045, 30: 2.042,
+    }
+    return TABLE[df] ?? 1.96
 }
 
 /** Compute descriptive stats and 95% CI of the mean from a numeric array. */
@@ -22,7 +38,9 @@ export function computeBoxStats(values: number[]): BoxStats | null {
     const variance = sorted.reduce((s, v) => s + (v - mean) ** 2, 0) / (n > 1 ? n - 1 : 1)
     const std = Math.sqrt(variance)
     const sem = std / Math.sqrt(n)
-    const ci95: [number, number] = [mean - 1.96 * sem, mean + 1.96 * sem]
+    const ci95: [number, number] = sem === 0
+        ? [mean, mean]
+        : [mean - tCrit(n - 1) * sem, mean + tCrit(n - 1) * sem]
 
     return {
         min: sorted[0],

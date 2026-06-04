@@ -1,31 +1,35 @@
-\documentclass{article}
+\documentclass[sigconf,nonacm]{acmart}
 \input{setup.tex}
-\pagecolor{white}
 
-\title{
-    % Uni-logo
-    \includegraphics[width=10cm]{../../media/uni_logo.jpg}
-    \vspace{1cm}\\
-    \Huge \textbf{Conversational Clustering}\\ 
-    \Large Designing Large-scale AI Systems\\a.y. 2025/2026\\
-    \author{Davide Donà - 264467 \and 
-            Andrea Blushi - 264468 }
-    \date{\MonthName\ \number\year}
-}
+% Strip ACM-specific furniture; keep page numbers (folios).
+\settopmatter{printacmref=false,printccs=false,printfolios=true}
+
+\title{CinePal: Conversational Clustering}
+\subtitle{Designing Large-scale AI Systems, a.y.\ 2025/2026}
+
+\author{Davide Don\`a (264467)}
+\affiliation{%
+  \institution{University of Trento}
+  \city{Trento}
+  \country{Italy}}
+\author{Andrea Blushi (264468)}
+\affiliation{%
+  \institution{University of Trento}
+  \city{Trento}
+  \country{Italy}}
 
 \begin{document}
 
-% Title and table of contents
 \maketitle
 
-\newpage
+\input{./chapters/introduction.tex}
+\input{./chapters/architecture.tex}
+\input{./chapters/evaluation.tex}
+\input{./chapters/findings.tex}
+\input{./chapters/ethics.tex}
+\input{./chapters/conclusion.tex}
 
-\pagenumbering{Roman}
-\tableofcontents
-
-\newpage
-\pagenumbering{arabic}
-
-\input{./chapters/example.tex}
+\appendix
+\input{./chapters/results.tex}
 
 \end{document}

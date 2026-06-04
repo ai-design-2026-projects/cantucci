@@ -1,0 +1,13 @@
+slug: satire
+verbosity: terse
+patience: 0.76
+intent_description: Keep only comedy films, then spread them along a spectrum from
+  warm-hearted romantic levity to biting satirical bite.
+operations:
+- op: cross_filter
+  concept: comedy genre
+- op: cluster
+  concept: warm-hearted romantic levity vs biting satirical edge
+  kind: axis
+  space: semantic
+prompt_hash: c54e6d6cb21119b6901f99fda3992c952175f04c7e07a4db392b6b2debe78dc9

@@ -91,6 +91,30 @@ class ConceptNotFound(NotFoundError):
         super().__init__(f"Concept {concept_id} not found")
 
 
+class RunNotFound(NotFoundError):
+    """Raised when a run_id does not exist in the DB.
+
+    Attributes:
+        run_id: The UUID that was looked up and not found.
+    """
+
+    def __init__(self, run_id: UUID) -> None:
+        self.run_id = run_id
+        super().__init__(f"run {run_id} not found")
+
+
+class EvalSessionNotFound(NotFoundError):
+    """Raised when an eval_session_id does not exist in the DB.
+
+    Attributes:
+        eval_session_id: The UUID that was looked up and not found.
+    """
+
+    def __init__(self, eval_session_id: UUID) -> None:
+        self.eval_session_id = eval_session_id
+        super().__init__(f"eval session {eval_session_id} not found")
+
+
 class ForbiddenError(DomainError):
     """Base for authorization failures (authenticated but not permitted). Maps to HTTP 403."""
     http_status: int = 403

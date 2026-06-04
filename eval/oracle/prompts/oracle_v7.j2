@@ -134,16 +134,11 @@ APPROACHING TURN LIMIT ({{ max_turns - turn_number }} turn{{ 's' if max_turns - 
 
 Based on your intent and what you observe, write your next message to the system. Remember: exactly one request per message — do not pre-announce follow-up steps.
 
-STOP DECISION — mandatory pre-flight check (run ALL steps in order before deciding):
+STOP DECISION — mandatory pre-flight check:
 
-STEP 1 — post-explain gate: If the most recent system action was an explanation reply, you CANNOT stop on this turn. You must issue a clustering action first.
-{% if last_turn_was_explain %}
-THE LAST SYSTEM ACTION WAS AN EXPLANATION. You CANNOT stop now. Send a clustering action (split, merge, focus, exclude, or filter) and choose "continue".
-{% endif %}
+STEP 1 — active-request gate: Re-read your message field. If it contains a request, a question to the system, or any instruction to act, you MUST choose "continue". Choosing "stop" while still making a request is a contradiction and is never allowed.
 
-STEP 2 — active-request gate: Re-read your message field. If it contains a request, a question to the system, or any instruction to act, you MUST choose "continue". Choosing "stop" while still making a request is a contradiction and is never allowed.
-
-WHEN "stop" IS ALLOWED — only two valid reasons (only reached after steps 1–2 all pass):
+WHEN "stop" IS ALLOWED — only two valid reasons (only reached after step 1 passes):
   1. SUCCESS: your intent is substantially fulfilled. The message field should be a closing remark, not a new request. Rate 4–5.
   2. GIVE-UP: the system has repeatedly failed the same CLUSTERING request even after you rephrased it. Low patience: 2 failed rephrasing attempts. Medium: 3–4. High: keep going. Your message should acknowledge the failure, not ask for something new. When you give up, the system has failed you — rate 1–2. Never give a neutral or high rating on a give-up stop. IMPORTANT: an unsatisfying or vague explanation reply is NOT a system failure and does NOT count toward give-up. Only repeated failures on clustering/navigation operations (split, merge, focus, exclude, filter) qualify.
 

@@ -2,42 +2,43 @@ import uuid
 
 import numpy as np
 
-from backend.data_access.cluster_snapshots.types import ClusterMembershipRow, ClusterRow
+from backend.data_access.cluster_snapshots.types import ClusterMembershipRow
 
 
 def compute_cluster_centroids(
-    clusters: list[ClusterRow],
+    memberships_by_cluster: dict[uuid.UUID, list[ClusterMembershipRow]],
     text_embeddings_by_movie: dict[int, list[float]],
 ) -> dict[uuid.UUID, np.ndarray]:
-    """Compute an L2-normalised centroid for each cluster from its exemplar embeddings.
+    """Compute a probability-weighted L2-normalised centroid for each cluster.
 
-    Clusters whose exemplars have no embeddings in ``text_embeddings_by_movie`` are
+    Uses all soft-membership rows weighted by their probability, giving a more
+    accurate centroid than averaging exemplar embeddings alone.
+
+    Clusters whose members have no embeddings in ``text_embeddings_by_movie`` are
     silently omitted from the result.
 
-    Mirrors the exemplar-mean recipe in ``backend/agents/concept/parser.py:76-80``.
-
     Args:
-        clusters:                  Current cluster list.
-        text_embeddings_by_movie:  Map of movie_id → raw embedding vector (from
-                                   ``data_access.movies.queries.fetch_text_embeddings``).
+        memberships_by_cluster:    Map of cluster UUID → membership rows.
+        text_embeddings_by_movie:  Map of movie_id → raw embedding vector.
 
     Returns:
-        Dict mapping cluster UUID to its L2-normalised mean exemplar embedding.
+        Dict mapping cluster UUID to its probability-weighted L2-normalised centroid.
     """
     centroids: dict[uuid.UUID, np.ndarray] = {}
-    for cluster in clusters:
-        vecs = [
-            np.array(text_embeddings_by_movie[mid], dtype=np.float32)
-            for mid in cluster.exemplar_movie_ids
-            if mid in text_embeddings_by_movie
-        ]
+    for cluster_id, rows in memberships_by_cluster.items():
+        vecs = []
+        weights = []
+        for row in rows:
+            if row.movie_id in text_embeddings_by_movie:
+                vecs.append(np.array(text_embeddings_by_movie[row.movie_id], dtype=np.float32))
+                weights.append(row.probability)
         if not vecs:
             continue
-        centroid = np.mean(vecs, axis=0)
+        centroid = np.average(vecs, axis=0, weights=weights)
         norm = np.linalg.norm(centroid)
         if norm > 0:
             centroid = centroid / norm
-        centroids[cluster.id] = centroid.astype(np.float32)
+        centroids[cluster_id] = centroid.astype(np.float32)
     return centroids
 
 

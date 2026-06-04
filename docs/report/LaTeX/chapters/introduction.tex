@@ -1,0 +1,12 @@
+\section{Introduction}\label{sec:introduction}
+
+CinePal is a conversational clustering system designed for exploring movie catalogs through natural dialogue.
+Rather than using static operations, the system continuously partitions the database into named, inspectable clusters that the user navigates and refines throughout the conversation.
+Because there is \textbf{no intrinsic ground truth for cluster quality}, the user's satisfaction serves as the explicit objective function.
+
+The core challenge lies in inferring user \textbf{intent}, translating it into operations, and maintaining a legible structure while recovering gracefully from errors.
+To sustain this workflow, \textbf{label persistency} stabilizes cluster names across turns.
+At the same time, a content-addressed snapshot tree accommodates \textbf{evolving preferences} by enabling seamless undo, reset, and branching operations.
+
+Ultimately, CinePal is a \textbf{build-heavy} project.
+Its primary contribution is the system itself, which integrates a multiagent conversational architecture, a reproducible multi-modal data pipeline, and an automated evaluation harness.

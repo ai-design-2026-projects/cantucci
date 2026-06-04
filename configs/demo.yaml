@@ -1,0 +1,22 @@
+# Demo record/replay configuration.
+# Read by demo/utils/state.py for backend timing.
+# Playwright values are read from environment variables (documented here for reference).
+
+backend:
+  # Seconds the replay backend waits before firing each synthetic SSE progress event.
+  # Increase to slow down the step indicator animation on screen recordings.
+  replay_step_intent_delay: 1.2
+  replay_step_clustering_delay: 2.2
+
+playwright:
+  # Frontend base URL — override with APP_URL env var.
+  app_url: "http://localhost:5173/"
+
+  # Chrome DevTools Protocol endpoint for the browser used in the screen recording.
+  # Override with CDP_ENDPOINT env var.
+  cdp_endpoint: "http://localhost:9222"
+
+  # Maximum milliseconds to wait for a backend turn to complete (loading-bubble hidden).
+  # Increase on slow machines or when using large models.
+  # Mirrored in demo/playwright/lib/constants.ts as TIMEOUT_TURN_COMPLETE_MS.
+  timeout_turn_complete_ms: 20000

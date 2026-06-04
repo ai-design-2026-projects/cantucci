@@ -31,3 +31,19 @@ Added a suite of automated "smoke tests" that run against a real database to mak
 **5. MCP Server Integration**
 Added Model Context Protocol (MCP) support, which exposes CinePal's clustering capabilities as a tool that other AI systems can directly interact with. 
 [[PR #105](https://github.com/ai-design-2026-projects/cantucci/pull/105)]
+
+## What's Next
+
+With the new system working end-to-end, Sprint 4 will focus on hardening the architecture, completing the evaluation framework, and polishing the interaction model:
+
+1. **Agent and coordinator architecture cleanup.** The coordinator has grown organically; we will extract a proper abstract base class for all LLM agents to eliminate duplicated render→call→log→parse boilerplate, and reorganise the coordinator into a pipeline of well-typed command objects.
+
+2. **New clustering operations.** We plan to add *undo* (revert the last clustering state) and *exclude* (remove a cluster from the working set permanently) so the oracle has finer control without restarting a session.
+
+3. **Stabilise clustering colours and labels.** Cluster colours currently shift between turns; we will introduce stable colour slots so the oracle can track clusters visually across the whole conversation. The labelling agent also needs further prompt work for consistent, meaningful cluster names.
+
+4. **Concept axis visualisation.** We will surface the linear concept axes in the frontend so the oracle can see where movies sit along a named dimension (e.g. "dark → light tone" or "art-house → blockbuster"). This requires the concept agent to produce a scored axis, the backend to attach scores to each cluster snapshot, and the frontend to render an annotated axis view alongside the scatter plot.
+
+5. **Finalise the evaluation framework.** The LLM oracle and LLM judge are in place but the baseline runs and deterministic metrics still need to be wired up and validated end-to-end.
+
+6. **Demo recording and documentation.** We will record a scripted walkthrough of a full session and update all READMEs and API specs to reflect the current state of the system.

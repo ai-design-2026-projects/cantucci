@@ -1,0 +1,11 @@
+slug: genre_fan
+verbosity: medium
+patience: 0.7
+intent_description: Break the catalogue down by genre, drop the horror films since
+  I'm not in the mood for them.
+operations:
+- op: cluster
+  concept: genre
+- op: exclude
+  concept: horror films
+prompt_hash: ac3020ec87d660fb5a11bdcd95fa6a47d823657843f336af687ec34af131ccf9

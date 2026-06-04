@@ -1,16 +1,16 @@
 import { expect } from '@playwright/test'
 import type { Page, Locator } from '@playwright/test'
-import { APP_URL } from './constants'
+import { APP_URL, TIMEOUT_TURN_COMPLETE_MS } from './constants'
 
 /** Wait for the backend to finish processing a turn, keyed on the LoadingBubble DOM signal. */
 export async function waitForTurnComplete(page: Page, chatInput: Locator): Promise<void> {
     await expect(page.getByTestId('loading-bubble')).toBeVisible({ timeout: 5_000 })
-    await expect(page.getByTestId('loading-bubble')).toBeHidden({ timeout: 20_000 })
+    await expect(page.getByTestId('loading-bubble')).toBeHidden({ timeout: TIMEOUT_TURN_COMPLETE_MS })
     await expect(chatInput).toBeEnabled({ timeout: 5_000 })
 }
 
 export async function fetchSnapshot(page: Page, snapshotId: string): Promise<unknown> {
-    const snapshotUrl = new URL(`/cluster-snapshots/get/${snapshotId}`, APP_URL).toString()
+    const snapshotUrl = new URL(`/cluster-snapshots/${snapshotId}`, APP_URL).toString()
     const response = await page.request.get(snapshotUrl)
     if (!response.ok()) {
         throw new Error(`Could not load snapshot ${snapshotId}: ${response.status()} ${response.statusText()}`)

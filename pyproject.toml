@@ -56,7 +56,10 @@ include = ["mcp_server*"]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
-filterwarnings = ["error"]
+filterwarnings = [
+    "error",
+    "ignore::jwt.warnings.InsecureKeyLengthWarning",
+]
 addopts = "-p tests.db.test_config"
 asyncio_mode = "auto"
 

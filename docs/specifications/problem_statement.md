@@ -2,15 +2,21 @@
 
 ## 1. Problem Definition
 
+> This document describes the problem and the high-level design decisions behind it. For detailed technical documentation see [`data_schema.md`](architecture/data_schema.md), [`architecture.md`](architecture/architecture.md), and [`api.md`](architecture/api.md).
+
+> Build-heavy project: the focus is on designing and implementing a novel system, keeping the focus on the technical implementation and the findings
+
+---
+
 We build a **conversational clustering** system: the user (the **oracle**) sends natural-language messages, and the system responds by grouping a movie catalogue into named clusters that the oracle can then inspect, navigate, and refine. There is **no fixed objective function** — clustering quality is defined entirely by the oracle's acceptance. What the oracle accepts through dialogue *is* the objective.
 
-The system does not ask the oracle to fill out a profile or rate movies upfront. It starts from the first natural-language message, produces an initial soft clustering of the relevant catalogue slice into a handful of named groups, and then refines those groups turn by turn as the oracle navigates. The oracle converges toward a cluster of titles they want; the system's job is to reach that cluster as efficiently as possible, minimising cognitive load per turn while maximising the information extracted from each response.
+The system starts from the first natural-language message, produces an initial soft clustering of the relevant catalogue slice into a handful of named groups, and then refines those groups turn by turn as the oracle navigates. The oracle converges toward a clusteriring of titles they want.
 
 **Concrete user journey:**
-1. User types: *"I want something tense and psychological, not too violent, maybe a thriller from the last 10 years"*
-2. System embeds the request, retrieves a candidate pool, produces an initial soft clustering of those titles into named groups (e.g., *"Slow-burn psychological"*, *"Action thriller"*, *"Crime procedural"*)
+1. User opens a new session; the system starts from the full ingested catalogue with no clusters yet.
+2. User types: *"Split by genre"* — the system produces an initial soft clustering into named groups (e.g., *"Action & Adventure"*, *"Drama"*, *"Horror"*)
 3. System shows the clusters with top titles, poster, year, and rating per cluster
-4. User navigates in free-form language: *"merge the last two"*, *"break down the first group by how dark they are"*, *"only keep films from the 2010s"*
+4. User navigates in free-form language: *"merge the last two"*, *"break down drama by how dark they are"*, *"only keep films from the 2010s"*, *"remove the horror group"*
 5. System parses the request into operations, executes them, and returns the updated clustering
 6. Repeat until the user is satisfied or a turn budget is exhausted
 
@@ -20,54 +26,43 @@ The system does not ask the oracle to fill out a profile or rate movies upfront.
 
 ### 2.1 Source
 
-The catalogue is built directly from **The Movie Database (TMDB)** — no third-party redistribution, no CSV dump. Two TMDB channels are combined to produce a clean, timestamped snapshot of the catalogue:
+The catalogue is built directly from **The Movie Database (TMDB)** — a community-maintained, openly-accessible database covering over one million film titles with rich metadata including cast, crew, genres, keywords, ratings, runtime, and poster images. We do not rely on third-party CSV dumps or proprietary licensing: every record is fetched live from TMDB at snapshot time, giving us a reproducible, timestamped slice of the catalogue.
 
-- **Daily id export** — `http://files.tmdb.org/p/exports/movie_ids_MM_DD_YYYY.json.gz`. One gzipped JSON-Lines file per day, listing every public movie id along with `original_title`, `popularity`, `adult`, and `video`. We use it as the authoritative list of candidate ids.
-- **TMDB v3 REST API** — `https://api.themoviedb.org/3/movie/{id}?append_to_response=credits,keywords`. One request per surviving id, returning the full movie record with credits and keywords appended in the same response.
+Four channels should be combined to produce each snapshot:
 
-There is no fixed coverage and no temporal cutoff: the catalogue is whatever survives the filters on the day the snapshot is produced. The snapshot timestamp pinned in `configs/dev.yaml` under `ingestion.artifacts.*` is what ties an experimental run to a specific catalogue state, and that pin is folded into `config_hash` so existing sessions remain replayable against the snapshot they were created on.
+- **[Daily ID export](http://files.tmdb.org/p/exports/movie_ids_MM_DD_YYYY.json.gz)** — a free, unauthenticated gzipped JSON-Lines file published each day at `files.tmdb.org`. It lists every public movie ID with `original_title`, `popularity`, `adult`, and `video` flags. Replace `MM_DD_YYYY` in the URL with the target date to retrieve the corresponding file. This is used as the authoritative list of candidate IDs; adult titles and entries below the popularity threshold should be dropped before any API calls are made.
+- **[TMDB movie details](https://api.themoviedb.org/3/movie/{id}?append_to_response=credits,keywords,videos)** — requires a free API key from the TMDB developer portal. One request per surviving ID, with `credits`, `keywords`, and `videos` appended in the same response. Returns the full metadata record (title, overview, genres, cast, crew, release date, runtime, ratings, poster path) plus a list of associated video keys. The full field reference is in the [TMDB movie details documentation](https://developer.themoviedb.org/reference/movie-details).
+- **[TMDB reviews](https://api.themoviedb.org/3/movie/{id}/reviews)** — a separate TMDB endpoint returning user and critic reviews for each film. English reviews should be concatenated into a single text field per title. This is the source for the **review embedding** modality, capturing audience reception and critical tone that the film's own metadata does not express.
+- **[YouTube](https://www.youtube.com/watch?v={video_key})** — trailer videos are not hosted by TMDB directly; the movie details response includes a YouTube key for each associated video. The trailer should be downloaded via that key (e.g. using yt-dlp), frames extracted at uniform intervals, and a visual embedding computed by mean-pooling a vision encoder over those frames. Titles with no available trailer should fall back to the poster image for the visual modality.
 
-Producing a snapshot requires `TMDB_API_KEY` (v3, free tier). Once snapshot + embedding parquets are on HuggingFace, downstream ingestion needs only `HF_TOKEN`, and only for private repos.
+The result is a self-contained snapshot parquet that captures the catalogue as it stood on a specific date.
 
 ---
 
 ### 2.2 Pipeline overview
 
-The catalogue passes through three stages, run on different machines because TMDB throttles by IP and Colab's shared egress makes sustained scraping unreliable:
+Turning raw TMDB records into a clusterable, embedded catalogue requires three conceptually distinct stages that should run on separate machines. TMDB rate-limits aggressively by IP, and GPU embedding is expensive locally but cheap on cloud notebooks — splitting the pipeline lets each stage run where it is most practical.
 
-| Stage | Where | Entrypoint | Output |
-|---|---|---|---|
-| 1. Scrape | Local (developer IP) | `python -m dataset.scraper [--upload]` | `data/local_scrape/tmdb_raw.jsonl` (resumable) → `snapshot_YYYYMMDD.parquet` → optionally pushed to `<hf_repo>/snapshots/` |
-| 2. Embed | Colab T4 GPU | `notebooks/embed_in_colab.ipynb` | `<hf_repo>/embeddings/{main,mini,eval_holdout}_YYYYMMDD.parquet` |
-| 3. Load | Local / CI | `python -m db.ingest [--set main\|mini\|all]` | Postgres rows (idempotent upsert) |
+**Stage 1 — Scrape and clean.** The daily ID export should be downloaded and filtered down to a manageable candidate set: adult content must be excluded unconditionally, and titles below a minimum popularity threshold should be dropped before any API calls are made (keeping the set in the low tens of thousands rather than the full ~1M IDs). The surviving IDs should then be enriched via the TMDB v3 REST API and written to a timestamped snapshot parquet. A second filter on minimum vote count should be applied after fetching to remove titles with too little signal for meaningful quality ranking. Both thresholds should be configurable and tied to the snapshot's identity, so changing them produces a new, distinct snapshot rather than silently mutating an existing one.
 
-**Stage 1 filters.** Adult titles are dropped unconditionally. `popularity < ingestion.min_popularity` (default `0.4`) is applied to the id export before fetching, which keeps the candidate set in the low tens of thousands rather than the full ~1M ids in the export. After fetching, `vote_count < ingestion.min_vote_count` (default `5`) is applied to the cleaned DataFrame, dropping the long tail of titles with too little signal for the Bayesian rating to be meaningful. Both thresholds are CLI flags on `dataset/scraper.py` and become part of the snapshot's identity through `config_hash`.
+**Stage 2 — Embed and split.** The snapshot should be split into three disjoint subsets before embedding: a held-out eval slice (a random ~10% of the full set, never written to the main database), a `main` set covering the rest, and a `mini` set — the top ~3 000 titles by vote count and popularity, carved from `main` for fast local development. By construction `mini ⊂ main` and `eval_holdout` should be disjoint from both. Each subset should then be embedded across up to three modalities and uploaded as parquets to a shared artifact store:
 
-**Stage 2 split** (`dataset.transform.split`). The eval holdout is sliced first as a random `eval_frac` (default `0.10`) of the full set; what remains becomes `main`; `mini` is then carved as the top `mini_size` rows of `main` (default `3000`) ranked by `(vote_count desc, popularity desc)`. By construction `mini ⊂ main` and `eval_holdout` is disjoint from both. `eval_holdout` is intentionally never written to the database — it is reserved for offline evaluation.
+- **Text** — a sentence-transformer (e.g. `BAAI/bge-large-en-v1.5`) on a composite text field concatenating title, synopsis, genres, cast, director, and keywords. This is the primary signal for semantic clustering.
+- **Review** — the same text encoder applied to aggregated review text, capturing audience reception and critical tone as a complementary signal to the film's own metadata.
+- **Visual / trailer** — a vision encoder (e.g. `open_clip ViT-H/14`) on a set of evenly-spaced frames extracted from the film's trailer, mean-pooled into a single vector. This captures cinematographic style, colour palette, and visual mood that text cannot express. Titles with no available trailer should fall back to the poster image.
 
----
+Embedding is the only GPU-heavy step in the pipeline and should be isolated here so all other stages can run without GPU access.
 
-### 2.3 What each stage produces
-
-Rather than duplicate the relational schema here, this section describes the **shape** of the artifact each stage emits. For column-level field types and the JSON-to-relational mapping consumed by stage 3, see [`architecture/data_schema.md`](architecture/data_schema.md).
-
-- **Stage 1 — cleaned snapshot parquet.** One row per surviving TMDB id, produced by `dataset.transform.clean.build_dataframe`. The row carries the TMDB API fields (`title`, `original_title`, `overview`, `tagline`, `release_date`, `runtime`, `budget`, `revenue`, `popularity`, `vote_average`, `vote_count`, `status`, `adult`, `video`, `poster_path`, `homepage`, `belongs_to_collection`, `genres`, `production_companies`, `production_countries`, `spoken_languages`, `cast`, `crew`, `keywords`) plus three derived columns:
-  - `release_year` — derived from `release_date[:4]`.
-  - `bayesian_rating` — `(v * R + m * C) / (v + m)` where `v = vote_count`, `R = vote_average`, `m = 50`, and `C` is the vote-count-weighted mean across the snapshot. This, not raw `vote_average`, is the supported quality signal.
-  - `composite_text` — `title [original_title] [year] genres tagline overview top3_cast director keywords`, concatenated in that order. This is the string fed to the text embedding model in stage 2.
-- **Stage 2 — embedded parquets.** Same row schema as stage 1, plus embedding columns (`list[float]`, `representation.embedding_dim` long, L2-normalised) produced by `representation.model` (`BAAI/bge-large-en-v1.5`) on `composite_text`. Three files per snapshot timestamp: `main_*.parquet`, `mini_*.parquet`, `eval_holdout_*.parquet`.
-- **Stage 3 — Postgres rows.** `db/ingest.py` pops the embedding columns into the pgvector columns on `movies`, normalises the remaining JSON columns (`genres`, `production_companies`, …) into their relational targets, and upserts on `id`. Re-ingesting the same snapshot is a no-op; ingesting `main` after `mini` does not duplicate rows because `mini ⊂ main`.
-
----
+**Stage 3 — Load.** The embedded parquets should be ingested into PostgreSQL: embedding vectors into pgvector columns, nested JSON fields normalised into relational tables, rows upserted on TMDB ID so re-ingesting the same snapshot is a safe no-op. The `eval_holdout` parquet should be ingested separately and never mixed with the main catalogue.
 
 ### 2.4 Data quality notes
 
-- **Budget and revenue sparsity** — TMDB uses `0` for "unknown" on both fields. `clean.map_record` collapses `0` to `None` so it cannot contaminate ranking or filters.
-- **Popularity is a daily snapshot** — TMDB's `popularity` is recomputed daily; the value in the parquet is whatever the API returned at scrape time. Treat it as a captured signal, not a stable ranking input.
-- **Vote-count skew** — the long tail of low-vote titles is removed by the `min_vote_count` filter; the surviving rows are still skewed, and `bayesian_rating` is the correct ranking signal.
-- **Live source, not frozen** — the catalogue reflects TMDB at the snapshot timestamp. Bumping `ingestion.artifacts.*` swaps in a fresh catalogue and flows into `config_hash`, so old sessions remain replayable against their original snapshot.
-- **TMDB throttling** — `tmdb_fetch.fetch_movie` retries `429`s 3 times with a 10 s sleep before raising. Sustained throttling is addressed by lowering `--concurrency` on `dataset/scraper.py`, not by smarter retry logic.
-- **Deleted or hidden ids** — `404` responses on the per-id fetch are dropped silently. The daily id export drifts ahead of the API view, so a non-trivial fraction of ids will not resolve.
+- **Budget and revenue sparsity** — TMDB uses `0` for "unknown" on both fields. Zero values should be mapped to null during cleaning so they cannot contaminate ranking or filters.
+- **Popularity is a daily snapshot** — TMDB's `popularity` score is recomputed daily; the value captured in the parquet is whatever the API returned at scrape time. It should be treated as a point-in-time signal, not a stable ranking input.
+- **Vote-count skew** — the long tail of low-vote titles is removed by the vote-count filter; the surviving rows are still skewed, and a Bayesian-adjusted rating is the correct quality signal rather than raw vote average.
+- **Live source, not frozen** — the catalogue reflects TMDB at the snapshot timestamp. Swapping in a newer snapshot should be a configuration change, not a code change, and old sessions must remain replayable against the snapshot they were created on.
+- **TMDB throttling** — the TMDB API rate-limits by IP. Rate-limit responses (`429`) should be retried with a fixed sleep; timeout errors should use exponential backoff. Sustained throttling is best addressed by reducing concurrency rather than adding more complex retry logic.
+- **Deleted or hidden ids** — the daily ID export drifts ahead of the API view; a non-trivial fraction of IDs will return 404 and should be dropped silently during the fetch phase.
 
 ### 2.5 Poster and synopsis availability
 
@@ -81,19 +76,19 @@ Every TMDB API response carries `overview` and `poster_path`, so no extra enrich
 
 In the conversational clustering setting, **there is no pre-defined objective function**. The oracle tells us, turn by turn, whether the current grouping is heading in the right direction. **The oracle's acceptance is the objective function**.
 
-This is the conversational clustering setting: instead of asking the user to fill out a taste profile upfront, we start from a single natural-language message, immediately group the catalogue into a handful of candidate clusters, and then refine those groups based on what the user says next. The conversation is the optimisation loop.
-
 ---
 
 ### 3.2 What the system does on each turn {#system-on-each-turn}
 
-The system runs a stateless **Coordinator** pipeline on each user message:
+Each turn should be orchestrated by a central **Coordinator** that routes the oracle's message through a fixed sequence of specialised agents:
 
-1. **Load & label** — the Coordinator reads the conversation's current cluster snapshot. If any clusters are unlabeled (true for freshly ingested root clusters), the **Labeling Agent** names them all in one batched LLM call before proceeding.
-2. **Intent classification** — the **Intent Agent** parses the oracle's message into an ordered list of actions, each tagged as a `NavigationMode` or `DialogueMode` operation with a confidence score and inferred parameters (target cluster, concept, metadata filter, etc.).
-3. **Confidence gate** — if any state-changing action's confidence falls below the configured threshold, the **Clarifier Agent** returns a disambiguation question and the turn exits early without mutating any state.
-4. **Sequential execution** — the Coordinator dispatches each action in order. Navigation operations invoke the **Clustering Agent** (a pure computation layer) and optionally the **Concept Agent** for concept-guided splits, then persist results via a content-addressed cache keyed by `(parent_snapshot_id, operation, params, config_hash)`. Cache hits reuse existing snapshots at zero re-clustering cost.
-5. **Suggestion** — the **Responder Agent** computes deterministic signals on the final snapshot and optionally proposes a follow-up action to the oracle.
+1. **Label** — before acting, the **Labeling Agent** should name any unlabelled clusters in the current snapshot so the oracle always sees meaningful group titles rather than bare IDs.
+2. **Understand** — the **Intent Agent** should parse the oracle's message into one or more typed operations, each with a confidence score and inferred parameters (target cluster, concept, attribute, etc.).
+3. **Clarify if uncertain** — if confidence falls below a threshold, the **Clarifier Agent** should ask a single disambiguation question and halt without touching cluster state. The oracle's reply is re-routed on the next turn.
+4. **Ground the concept** — for operations that reference a concept (e.g. *"split by emotional tone"*), the **Concept Agent** should turn the natural-language concept into a scoreable representation — a linear axis or set of prototypes — that the clustering step can operate on.
+5. **Execute** — the **Clustering Agent** should apply the operations in order, each producing a new snapshot that becomes the input to the next. Identical operations on identical states should be cached so repeated navigation is instant and cost-free.
+6. **Explain** — when the oracle asks why a specific film sits in a given cluster, the **Explanation Agent** should produce a natural-language rationale grounded in the cluster's label and the film's attributes, without mutating any state.
+7. **Suggest** — the **Responder Agent** should optionally propose one follow-up action based on signals observable in the resulting snapshot. The oracle is free to ignore it.
 
 For detailed component descriptions and turn-handling phases, see [`architecture/architecture.md`](architecture/architecture.md).
 
@@ -104,14 +99,15 @@ For detailed component descriptions and turn-handling phases, see [`architecture
 The oracle never picks an operation from a menu. They type free-form text; the **Intent Agent** maps it onto a fixed, closed set of operations. There are two families:
 
 - **Navigation operations** — re-cluster the data, producing a new snapshot:
-  - `drill_down` — split a cluster further along a concept, or re-cluster from scratch (*"break the noir group down by how violent they are"*)
-  - `merge` — combine two or more clusters (*"these two are basically the same, combine them"*)
+  - `cluster` — split by concept, mood, style, or a numeric attribute (*"break the noir group down by how violent they are"*, *"split by decade"*)
+  - `merge` — combine two clusters (*"these two are basically the same, combine them"*)
   - `focus` — discard every cluster except one (*"just keep the sci-fi cluster"*)
-  - `cross_filter` — keep only movies matching a metadata predicate (*"only 90s films directed by Spielberg"*)
-  - `partition_by` — bucket a numeric attribute into contiguous ranges (*"split by decade"*, *"group by runtime"*)
+  - `cross_filter` — keep only films matching a broad criterion, then split (*"only 90s films, then group them"*)
+  - `exclude` — drop one cluster, keep all others (*"remove the horror group"*)
 
 - **Dialogue operations** — navigate or query without producing new clusters:
   - `reset` — return to the unclustered state
+  - `undo` — step back to the previous clustering snapshot, reversing the last operation
   - `explain` — ask why a specific movie sits in a given cluster (*"why is Blade Runner in this group?"*)
   - `small_talk` — casual, non-operational message
 
@@ -125,7 +121,8 @@ So far we have spoken about the "user" as if it were always a person sitting at 
 
 Instead, for the evaluation runs, **the oracle is simulated by an LLM**. Setting up a simulated oracle allows us to run hundreds of sessions under controlled conditions, systematically ablate variables, and get statistically meaningful results.
 
-The LLM is prompted to behave like a real user with specific tastes, a limited attention span, and the possibility of contradictions. As any other human would, it interacts with the system through the provided API, reacts to the clustering state, and gives feedback in free-form language. The only difference is that the LLM's "brain" is a prompt rather than a human mind.
+The LLM is prompted to behave like a real user with specific tastes and a limited attention span. 
+As any other human would, it interacts with the system through the provided API, reacts to the clustering state, and gives feedback in free-form language. The only difference is that the LLM's "brain" is a prompt rather than a human mind.
 
 ---
 
@@ -133,58 +130,51 @@ The LLM is prompted to behave like a real user with specific tastes, a limited a
 
 ### What does the system cluster over?
 
-The pipeline runs in two stages to handle a catalogue on the order of tens of thousands of titles (exact size depends on the snapshot — see section 2).
+The system should operate on the full ingested catalogue from the start — there is no initial query-based retrieval. The oracle begins with the whole set and narrows it down through explicit navigation operations such as `cross_filter`, `focus`, and `exclude`. This is a deliberate design choice: rather than guessing what the oracle wants upfront, the system should let intent emerge through the conversation itself.
 
-**Stage 1 — Retrieval.** At ingest time, each movie is embedded across up to three modalities:
-- **TEXT** — `BAAI/bge-large-en-v1.5` on `composite_text` (title, synopsis, genres, cast, director, keywords)
-- **REVIEW** — `BAAI/bge-large-en-v1.5` on concatenated review text
-- **TRAILER** — `open_clip ViT-H/14` on 16 evenly-spaced trailer frames, mean-pooled (fallback to poster if no trailer)
+On each clustering operation, the in-scope films should be projected into a lower-dimensional space and grouped using a soft clustering algorithm (e.g. UMAP followed by HDBSCAN). Each film should receive a membership probability for every cluster rather than a hard assignment, preserving ambiguity for genuinely boundary-straddling titles. The clustering step should be a pure computation layer — stateless, deterministic, and free of LLM calls — so that labeling and clustering remain cleanly separated responsibilities.
 
-Vectors are stored in PostgreSQL via `pgvector`. On the first oracle message, the system embeds the query and retrieves the top-K most relevant movies by cosine similarity, producing a candidate pool of ~50–200 titles.
-
-**Stage 2 — Clustering.** The system produces a soft clustering of the candidate pool using UMAP dimensionality reduction followed by **HDBSCAN soft clustering**. Each movie receives a per-cluster membership probability. The Clustering Agent is a pure computation layer — it receives embeddings or a precomputed distance matrix and returns a draft snapshot; it never writes to the DB and makes no LLM calls. Labeling is handled separately by the Labeling Agent after the snapshot is persisted.
-
-The Intent Agent picks which modalities to fuse per operation, enabling text-only, review-guided, or visual (trailer-aware) groupings within the same conversation.
+The system should support multiple embedding modalities and fuse them per operation, enabling text-only, review-guided, or visual (trailer-aware) groupings within the same conversation. The Intent Agent should determine which modalities are most appropriate given the oracle's request.
 
 ---
 
 ### Hierarchy: top-down or incremental?
 
-The system exposes a **two-level hierarchy**: a coarse level (3–6 broad clusters) visible from the start, and a fine level within any cluster the oracle chooses to drill into. Fine levels are generated lazily only when the oracle issues a `drill_down` operation on a specific cluster. This avoids overwhelming the oracle upfront while keeping the hierarchy navigable.
-
-The `drill_down` operation optionally accepts a **concept** (e.g. *"how violent they are"*): the Concept Agent turns this into a linear axis or prototype, scores every movie in scope against it, splits at the median, and clusters each half independently — producing groups that are coherent along that dimension.
+Rather than presenting a fixed two-level hierarchy upfront, the system should build depth incrementally through the oracle's own navigation. The oracle should be able to `focus` on any cluster and issue a new `cluster` operation inside it, producing a finer sub-grouping without affecting the rest. There should be no fixed depth limit — how far the oracle drills is entirely up to them.
 
 ---
 
 ### When does the system withhold action?
 
-By default, the system always executes what the oracle requests. The **Clarifier Agent** is the sole exception: it fires when any state-changing action's confidence falls below the configured threshold (`intent.confidence_threshold`), returning a disambiguation question without mutating state. The oracle's reply is stored as the awaited message and re-routed correctly on the next turn.
+By default, the system should execute whatever the oracle requests. The only exception should be when parsed intent is too ambiguous to act on safely: in that case, the **Clarifier Agent** should ask a single targeted question and halt without mutating any cluster state. The oracle's reply should be re-routed on the next turn as if it were the original message.
 
-This is intentionally minimal — the system does not evaluate whether to show or ask, does not score uncertainty across the cluster space, and does not decide when clustering is "done". The oracle drives the pace.
+This gate should be intentionally narrow — the system should not second-guess the oracle, evaluate whether a request is wise, or decide when clustering is "done". The oracle drives the pace; the system's job is to execute faithfully and ask only when truly necessary.
 
 ---
 
 ### How to handle evolving preferences?
 
-People change their minds. What looks like a contradiction is usually **preference evolution** — the oracle has seen more options and is refining their taste. The system handles this naturally: every navigation operation produces a new snapshot node in the content-addressed tree, and the oracle can always navigate backward (`reset`) or issue a new operation from any prior node. The Coordinator executes the latest instruction without conflict detection; the full snapshot lineage is queryable if the oracle wants to retrace their path.
+Oracles change their minds. What looks like a contradiction is usually **preference evolution** — the oracle has seen more of the catalogue and is refining what they want. The system should accommodate this naturally by treating every navigation operation as a new node in a content-addressed snapshot tree. The oracle should be able to `undo` the last step, `reset` to the unclustered state, or branch from any prior snapshot at any time. The Coordinator should execute the latest instruction without conflict detection or history pruning — the full lineage should remain intact and queryable.
 
 ---
 
 ### Cluster names and descriptions
 
-Cluster names are the oracle's primary handle for navigating the cluster space — they need to be stable enough to feel familiar across turns and accurate enough to reflect material changes in the cluster's contents.
+Cluster names are the oracle's primary handle for navigating the space — they need to be stable enough to feel familiar across turns and accurate enough to reflect genuine changes in cluster contents.
 
-Naming is handled by the **Labeling Agent** in a single batched LLM call. Clusters are ingested unlabeled and labeled lazily on first access; once a snapshot is labeled its names are stored and reused on cache hits. The labeling prompt includes the previous turn's names as anchors and instructs the model to keep them unless the cluster's titles have changed significantly, preventing cosmetic thrashing between synonyms while still allowing genuine updates after splits or merges.
+Not all labeling requires an LLM. When the oracle splits by an exact metadata attribute — genre, decade, runtime range, director — the label is already known from the attribute value itself (e.g. *"Action"*, *"1990s"*, *"90–120 min"*) and should be assigned directly without any model call. A catch-all bucket (e.g. *"Other"* or *"Unspecified"*) should be created for films that fall outside the defined categories.
 
-Both the name and the description are stored on the `clusters` table, scoped to the snapshot that produced them, so every past state is auditable.
+For semantic and concept-guided clusters, where names cannot be derived mechanically from the data, the **Labeling Agent** should assign names in a single batched LLM call. It should use the previous turn's names as anchors, preserving them unless cluster membership has changed materially — avoiding cosmetic label churn between synonyms while still updating names after genuine splits or merges.
+
+Every label should be scoped to the snapshot that produced it so any past state remains fully auditable.
 
 ---
 
 ### Soft assignments
 
-The system does not assign each title to a single cluster with a hard label. Instead, every title in the candidate pool receives a **soft assignment**: a per-cluster membership probability from HDBSCAN, where scores across all clusters sum to 1.
+Rather than assigning each film to exactly one cluster, the system should produce a **soft assignment**: a per-cluster membership probability for every in-scope film, where probabilities sum to 1. This preserves genuine ambiguity — a film that sits equally between two groups should not be forced into one arbitrarily.
 
-For example, a film like *Parasite* might be assigned:
+For example, a film like *Parasite* might receive:
 
 ```
 Crime & thriller   0.55
@@ -192,35 +182,19 @@ Dark comedy        0.35
 Drama              0.10
 ```
 
-Titles with a dominant score in one cluster are confident placements. Titles with roughly equal scores across two clusters are **boundary cases** — genuinely ambiguous, and useful candidates for a concept-guided `drill_down`. Soft scores are stored in the `cluster_memberships` table as a `score` float per (cluster, movie) pair.
-
----
-
-### Cognitive load per turn
-
-Every turn has a cost for the oracle — reading titles, evaluating cluster names, deciding how to navigate. If that cost is too high the oracle disengages or gives low-quality feedback.
-
-Cognitive load per turn is defined as three logged signals:
-
-| Signal | Definition | Per-turn target |
-|---|---|---|
-| Titles shown | Number of movie cards displayed | ≤ 5 |
-| Clusters shown | Number of named groups visible at once | ≤ 6 |
-| Question complexity | Binary yes/no = 1; open-ended or multi-part = 2+ | 1 binary question |
-
-Cognitive load is a primary evaluation metric alongside turns to convergence — a strategy that converges in 6 turns but shows 15 titles per turn is not better than one that takes 8 turns at 4 titles per turn.
+Films with a dominant score are confident placements; films with roughly equal scores across two clusters are **boundary cases** — meaningful signal for the oracle about where the grouping is uncertain, and natural candidates for a concept-guided split.
 
 ---
 
 ### Stopping signal
 
-The live Coordinator loop does not detect convergence. The oracle navigates until they are satisfied and stops sending messages. Three conditions bound session length:
+The system should not attempt to detect convergence autonomously. The oracle navigates until satisfied and stops sending messages. Three conditions should bound session length:
 
-- **Turn budget** — a hard cap configured per session in YAML (`session.max_turns`, default 15). When the budget is hit, the runner stops and the final clustering state is treated as the session result.
-- **Oracle accept** — the eval runner monitors oracle outputs for an explicit `accept` signal and stops iteration.
-- **Oracle abandon** — the eval runner stops on an `abandon` signal when the oracle gives up without converging.
+- **Turn budget** — a hard cap on the number of oracle turns, configurable per run. When exhausted the session ends with status `finished_budget`.
+- **Oracle satisfied** — the oracle signals success with a high self-rating. Status: `finished_trajectory`.
+- **Oracle gives up** — the oracle signals failure after repeated misunderstandings. Status: `finished_misbehaviour`.
 
-Convergence is detected **post-hoc** by the evaluation harness (`eval/metrics.py`) scanning the message history after the session ends. This separation keeps the production Coordinator path unmodified across evaluation conditions.
+Terminal status and oracle rating should be assigned by the evaluation harness after the session ends, keeping the live Coordinator path identical across experimental conditions.
 
 ---
 
@@ -228,51 +202,44 @@ Convergence is detected **post-hoc** by the evaluation harness (`eval/metrics.py
 
 ### 5.1 Functional capabilities
 
-| Area | Capability | Implemented by | Priority |
+| Area | Capability | Owner | Priority |
 |---|---|---|---|
-| **Data ingestion** | Ingest catalogue into PostgreSQL: genre normalisation, crew linkage, embedding generation | `dataset/scraper.py`, `db/ingest.py` | MVP |
-| **Data ingestion** | Construct poster URLs from `poster_path`; verify synopsis field presence | `db/ingest.py` | MVP |
-| **Retrieval** | Embed oracle query and retrieve top-K candidate titles by cosine similarity | `core/text_encoder.py` + pgvector | MVP |
-| **Retrieval** | Filter candidate pool by year range, genre, runtime, rating threshold | `cross_filter` operation / Clustering Agent | MVP |
-| **Clustering** | Produce initial soft clustering of candidates into 3–6 named groups with descriptions | Clustering Agent + Labeling Agent | MVP |
-| **Clustering** | Maintain soft assignment scores (per title, per cluster) across all turns | `cluster_memberships` table | MVP |
-| **Clustering** | Support five navigation operations: drill_down, merge, focus, cross_filter, partition_by | Clustering Agent operations | MVP |
-| **Clustering** | Cache snapshots content-addressed on (parent_id, operation, params, config_hash) | `persist_and_label` in Coordinator | MVP |
-| **Interaction** | Accept oracle feedback as free-form natural language mapped to operations | Intent Agent | MVP |
-| **Interaction** | Gate low-confidence actions with a clarification question, no state mutation | Clarifier Agent | MVP |
-| **Interaction** | Support concept-guided drill_down via linear axis or prototype | Concept Agent | MVP |
-| **Interaction** | Explain why a movie sits in a given cluster | Explanation Agent | MVP |
-| **Interaction** | Optionally propose a follow-up action after operations complete | Responder Agent | MVP |
-| **Session** | Persist full conversation history and clustering snapshot tree — every turn replayable | PostgreSQL + Coordinator | MVP |
-| **Session** | Allow oracle to navigate back to any prior snapshot | `PATCH /conversations/{id}` + snapshot lineage | MVP |
-| **Session** | Provide shareable conversation URL (UUID-based) | conversations API | MVP |
-| **UX** | Display poster, title, year, and rating for every title shown in a cluster | `TitleCard` component | MVP |
-| **Evaluation** | Run LLM-simulated oracle sessions with seeded persona and preference spec | `eval/oracle/agent.py`, `eval/runner.py` | MVP |
-| **Evaluation** | Score sessions via LLM-as-Judge (7 dims: operation_appropriateness, label_accuracy, clustering_coherence, suggestion_meaningfulness, explanation_quality, intent_alignment, concept_axis_quality) | `eval/judge/agent.py` | MVP |
-| **Evaluation** | Compute deterministic metrics (final_num_clusters, cost, clarifier_trigger_rate, num_turns, num_operations) post-hoc | `eval/metrics/conversation.py` | MVP |
+| **Data ingestion** | Scrape TMDB catalogue, embed across three modalities (text, review, visual), and load into PostgreSQL | Scraper + Ingestion pipeline | MVP |
+| **Data ingestion** | Display poster, title, year, and rating for every film shown in a cluster | Frontend | MVP |
+| **Clustering** | Produce soft clustering of in-scope films into named groups with descriptions | Clustering Agent + Labeling Agent | MVP |
+| **Clustering** | Maintain per-film membership probabilities across all turns | Coordinator | MVP |
+| **Clustering** | Support five navigation operations: `cluster`, `merge`, `focus`, `cross_filter`, `exclude` | Clustering Agent | MVP |
+| **Clustering** | Cache snapshots content-addressed so identical operations on identical states are instant and cost-free | Coordinator | MVP |
+| **Interaction** | Parse free-form oracle messages into typed operations with confidence scores | Intent Agent | MVP |
+| **Interaction** | Gate low-confidence actions with a single clarifying question, without mutating state | Clarifier Agent | MVP |
+| **Interaction** | Ground concept-guided clustering requests into scoreable axes or prototypes | Concept Agent | MVP |
+| **Interaction** | Explain why a specific film sits in a given cluster | Explanation Agent | MVP |
+| **Interaction** | Optionally propose one follow-up action after each turn | Responder Agent | MVP |
+| **Session** | Persist full conversation history and snapshot tree — every turn replayable from seed + config | Coordinator | MVP |
+| **Session** | Allow the oracle to undo, reset, or branch from any prior snapshot | Coordinator | MVP |
+| **Evaluation** | Run LLM-simulated oracle sessions with seeded personas and ground-truth trajectories | Oracle Agent + Eval runner | MVP |
+| **Evaluation** | Score completed sessions across 7 quality dimensions via an LLM judge | Judge Agent | MVP |
+| **Evaluation** | Compute deterministic metrics (num clusters, cost, clarifier rate, num turns, num operations) | Eval metrics | MVP |
 
 ### 5.2 Non-functional requirements
 
 | Requirement | Target |
 |---|---|
 | Chat response latency (p95) | < 3 s including LLM call |
-| Embedding vector search latency | < 200 ms via pgvector IVFFlat index |
 | Catalogue size | ≥ 40,000 titles after dedup and quality filter |
-| Session state persistence | PostgreSQL only — no in-memory-only state |
+| Session state persistence | Database only — no in-memory-only state |
 | LLM call logging | Token counts (input/output separately), model version, prompt hash — every call |
-| Cost hard-stop | Configurable per session in YAML (`session.cost_limit_usd`) |
+| Cost hard-stop | Configurable per session; the system raises rather than silently overrunning |
 | Reproducibility | Same seed + config → same session transcript |
 
 ### 5.3 Edge cases
 
-| Trigger | System response | Component |
-|---|---|---|
-| Oracle issues a vague or ambiguous operation | The Intent Agent assigns low confidence. The Clarifier Agent returns a disambiguation question without mutating state; the oracle's reply is stored as the awaited message and re-routed on the next turn. | Clarifier Agent |
-| Very broad first query (*"a good movie"*) | The candidate pool would be effectively the entire catalogue. The Intent Agent flags low specificity; the Clarifier Agent returns a targeted clarifying question instead of clustering (*"What kind of mood are you in — something intense, something light, or something in between?"*). | Intent Agent + Clarifier Agent |
-| Oracle navigates back and re-explores | `PATCH /conversations/{id}` re-points the active snapshot. Any new operation from that node creates a new child; the prior branch is untouched and still reachable. | Coordinator + snapshot lineage |
-| Title not in catalogue | The catalogue reflects TMDB at the pinned snapshot timestamp; titles released afterwards, or filtered out by `min_vote_count` / `min_popularity`, will not be present. The system acknowledges the gap, names the snapshot date, and returns the 3 most similar titles by cosine distance as alternatives. | Coordinator |
-| TMDB poster unavailable | `poster_path` is null or the CDN returns a 404. The UI falls back to a genre-specific placeholder image. The card layout is never broken or left blank. | `TitleCard` |
-| Oracle requests a title type excluded by active filter (e.g. short film, documentary) | The system notifies the oracle that the current filter excludes that type and offers to relax it with a single confirm. The relaxed filter is stored as an instructional feedback row. | Coordinator |
-| Oracle turn budget exhausted (`session.max_turns`) | The eval runner stops iteration and treats the current clustering state as the session result. The Coordinator is not involved in this decision. | eval runner |
-| LLM returns malformed output for clustering or labeling | The harness catches the parse failure, retries with exponential backoff (max 3 attempts), and on persistent failure raises — sessions do not silently return stale state. | `llm_harness.py` |
-| Candidate pool is empty after filters are applied | Filters are relaxed one at a time in order of least impact (rating threshold first, then year range, then runtime) until at least 20 candidates are available. The oracle is notified of the relaxation. | Clustering Agent + Coordinator |
+| Trigger | System response |
+|---|---|
+| Oracle message is too vague to parse confidently | The Clarifier Agent returns a single targeted question without mutating cluster state; the oracle's reply is re-routed on the next turn as if it were the original message. |
+| Oracle navigates back and re-explores | Any new operation from a prior snapshot creates a new child node; the previous branch remains intact and reachable. |
+| Title not in catalogue | The system acknowledges the gap and surfaces the most similar available titles by embedding distance as alternatives. |
+| Poster unavailable | The UI falls back to a placeholder image; the card layout is never broken or left blank. |
+| Oracle turn budget exhausted | The eval runner stops iteration, assigns `finished_budget`, and treats the current clustering state as the session result. The live Coordinator is not involved in this decision. |
+| LLM returns malformed output | The harness retries with exponential backoff; on persistent failure it raises rather than silently returning stale state. |
+| In-scope film set is empty after a filter operation | The Coordinator notifies the oracle that the filter produced no results and prompts them to broaden or reset. |

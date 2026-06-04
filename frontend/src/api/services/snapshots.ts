@@ -8,7 +8,7 @@ import type { ClusterSnapshotDto, UmapPointDto } from '../dto/snapshots'
  * @returns ClusterSnapshotDto with clusters.
  */
 export async function getSnapshotFetcher(snapshotId: string): Promise<ClusterSnapshotDto> {
-    return apiClient<ClusterSnapshotDto>(`/cluster-snapshots/get/${snapshotId}`)
+    return apiClient<ClusterSnapshotDto>(`/cluster-snapshots/${snapshotId}`)
 }
 
 /**
@@ -19,7 +19,7 @@ export async function getSnapshotFetcher(snapshotId: string): Promise<ClusterSna
  * @returns Array of UmapPointDto ordered by movie ID.
  */
 export async function getAllUmapPointsFetcher(): Promise<UmapPointDto[]> {
-    return apiClient<UmapPointDto[]>('/movies/umap_points')
+    return apiClient<UmapPointDto[]>('/movies/umap-points')
 }
 
 /**
@@ -29,5 +29,5 @@ export async function getAllUmapPointsFetcher(): Promise<UmapPointDto[]> {
  * @returns void
  */
 export async function deleteSnapshotFetcher(snapshotId: string): Promise<void> {
-    return apiClient<void>(`/cluster-snapshots/delete/${snapshotId}`, { method: 'DELETE' })
+    return apiClient<void>(`/cluster-snapshots/${snapshotId}`, { method: 'DELETE' })
 }

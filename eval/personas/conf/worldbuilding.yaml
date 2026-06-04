@@ -1,0 +1,16 @@
+slug: worldbuilding
+verbosity: medium
+patience: 0.87
+intent_description: Narrow the catalogue to science fiction and fantasy films, split
+  them by decade, then zoom into the recent ones to see how grounded and realistic
+  versus fantastical and otherworldly each film feels.
+operations:
+- op: cross_filter
+  concept: science fiction and fantasy genre
+- op: cluster
+  concept: decade
+- op: cluster
+  concept: grounded realism vs fantastical otherworldliness
+  kind: axis
+  space: semantic
+prompt_hash: 10c33c0723aa3830256c006fbf9c00a55e701ebacc097543b941073c9ba3f415

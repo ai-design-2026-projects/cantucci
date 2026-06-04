@@ -1,0 +1,10 @@
+slug: acclaimed
+verbosity: medium
+patience: 0.40
+intent_description: Look at only the highly-rated films in the catalogue and focus on the higher rating cluster
+operations:
+- op: cluster
+  concept: vote average
+- op: focus
+  concept: highly-rated films
+prompt_hash: f33aca5c0bc09212ac370c71b88002426c290d78524f935efb65ed2428ad0f88

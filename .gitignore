@@ -14,5 +14,7 @@ dist/
 demo/playwright/test-results/
 demo/recordings/
 
-# eval bundle artifacts (file-canonical, not committed)
-eval/personas/conf/
+CinePal.egg-info/
+
+# Ignore common video formats
+*.mp4

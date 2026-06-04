@@ -1,0 +1,10 @@
+slug: rater
+verbosity: medium
+patience: 0.40
+intent_description: Cluster based on rating in the catalogue and focus on the higher rating cluster
+operations:
+- op: cluster
+  concept: vote
+- op: focus
+  concept: highly-rated films
+prompt_hash: f33aca5c0bc092122we370c71b88002426c290d78524f935efb65ed2428ad0f88

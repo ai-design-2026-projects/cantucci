@@ -1,0 +1,18 @@
+slug: heist
+verbosity: verbose
+patience: 0.40
+intent_description: Narrow down to crime and thriller films, break them up by decade,
+  zoom in on the ones from the 1970s, and then see how they range from methodical,
+  procedural plotting to chaotic, improvised tension.
+operations:
+- op: cross_filter
+  concept: crime and thriller genre
+- op: cluster
+  concept: decade
+- op: focus
+  concept: 1970s films
+- op: cluster
+  concept: methodical procedural plotting vs chaotic improvised tension
+  kind: axis
+  space: semantic
+prompt_hash: 10b05346cb082d37f8dca22be8fafea64b9be2e2a94f0e542a9780ae204e252e

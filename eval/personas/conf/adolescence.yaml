@@ -1,0 +1,16 @@
+slug: adolescence
+verbosity: medium
+patience: 0.43
+intent_description: I want to look at coming-of-age stories specifically, narrowed
+  down to more recent films, and see how they range from gentle nostalgic memory pieces
+  to raw turbulent portraits of growing up.
+operations:
+- op: cross_filter
+  concept: coming-of-age and family drama genres
+- op: cluster
+  concept: decade
+- op: cluster
+  concept: nostalgic and tender vs raw and turbulent portrayal of growing up
+  kind: axis
+  space: semantic
+prompt_hash: 1163aeed24e24bcc7ed77180b6e27fe8e6baefb242c1ac8a35296db6b1836966

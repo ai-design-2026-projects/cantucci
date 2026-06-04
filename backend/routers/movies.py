@@ -11,7 +11,7 @@ log = logging.getLogger(__name__)
 router = APIRouter(prefix="/movies", tags=["movies"])
 
 
-@router.get("/umap_points", response_model=list[UmapPointDto])
+@router.get("/umap-points", response_model=list[UmapPointDto])
 def get_umap_points() -> list[UmapPointDto]:
     """Return UMAP 2D coordinates for every catalogued movie that has been projected.
 
@@ -25,7 +25,7 @@ def get_umap_points() -> list[UmapPointDto]:
     return [UmapPointDto.from_row(r) for r in list_umap_points()]
 
 
-@router.get("/get/{movie_id}", response_model=MovieDto)
+@router.get("/{movie_id}", response_model=MovieDto)
 def get_movie(movie_id: int) -> MovieDto:
     """Return full metadata for a single movie by its TMDB integer ID.
 
@@ -44,7 +44,7 @@ def get_movie(movie_id: int) -> MovieDto:
     return movie_row_to_dto(rows[0])
 
 
-@router.post("/get_batch", response_model=list[MovieDto])
+@router.post("/batch", response_model=list[MovieDto])
 def get_movies_batch(body: MovieBatchRequest) -> list[MovieDto]:
     """Return full metadata for up to 200 movies in a single round-trip.
 

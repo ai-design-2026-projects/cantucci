@@ -1,0 +1,15 @@
+slug: longform
+verbosity: terse
+patience: 0.62
+intent_description: Group the catalogue by runtime, zoom in on the long films, and
+  see which ones feel languid and meditative versus densely packed with incident.
+operations:
+- op: cluster
+  concept: runtime
+- op: focus
+  concept: long films (over 2 hours)
+- op: cluster
+  concept: languid meditative pacing vs densely packed narrative
+  kind: axis
+  space: semantic
+prompt_hash: 5f67062044e9a9e92eca6599535ca92c0088b4472042747d139d8b5fdde1657c

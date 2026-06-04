@@ -12,7 +12,7 @@ import type { ConversationDto } from '@/api/dto/conversations'
 export function useFullConversation(conversationId: string | undefined) {
     return useQuery<ConversationDto>({
         queryKey: ['conversation', conversationId, 'full'],
-        queryFn: () => getConversationFetcher(conversationId!, null),
+        queryFn: () => getConversationFetcher(conversationId!),
         enabled: !!conversationId,
         staleTime: 30_000,
     })

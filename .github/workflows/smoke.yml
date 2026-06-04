@@ -17,6 +17,7 @@ jobs:
     outputs:
       db: ${{ steps.filter.outputs.db }}
       backend: ${{ steps.filter.outputs.backend }}
+      eval: ${{ steps.filter.outputs.eval }}
     steps:
       - uses: actions/checkout@v4
       - id: filter
@@ -42,6 +43,18 @@ jobs:
               - 'tests/conftest.py'
               - 'tests/__init__.py'
               - 'tests/fixtures/**'
+              - 'tests/db/test_config.py'
+              - '.github/workflows/smoke.yml'
+            eval:
+              - 'backend/routers/eval.py'
+              - 'backend/routers/dto/eval/**'
+              - 'backend/data_access/eval/**'
+              - 'backend/exceptions.py'
+              - 'tests/eval/**'
+              - 'tests/conftest.py'
+              - 'configs/**'
+              - 'pyproject.toml'
+              - 'uv.lock'
               - 'tests/db/test_config.py'
               - '.github/workflows/smoke.yml'
 
@@ -88,3 +101,25 @@ jobs:
           key: hf-${{ runner.os }}-${{ env.CINEPAL_ARTIFACTS_REPO }}-${{ hashFiles('configs/test.yaml') }}
       - run: uv sync --frozen --extra test --no-dev
       - run: uv run pytest tests/backend -v
+
+  eval-smoke:
+    name: eval smoke
+    needs: changes
+    if: needs.changes.outputs.eval == 'true'
+    runs-on: ubuntu-latest
+    env:
+      CONFIG_PATH: configs/test.yaml
+      CINEPAL_ARTIFACTS_REPO: ${{ vars.CINEPAL_ARTIFACTS_REPO }}
+      HF_HOME: ${{ github.workspace }}/.hf-cache
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+        with:
+          enable-caching: true
+      - name: cache hugging face artifacts and embedding model
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.HF_HOME }}
+          key: hf-${{ runner.os }}-${{ env.CINEPAL_ARTIFACTS_REPO }}-${{ hashFiles('configs/test.yaml') }}
+      - run: uv sync --frozen --extra test --no-dev
+      - run: uv run pytest tests/eval -v

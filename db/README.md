@@ -1,112 +1,85 @@
-# Database — migrations and catalogue ingestion
+# Database
+
+Postgres schema migrations, catalogue ingestion, and user management for CinePal. Migrations are plain SQL applied in lexicographic order; ingestion downloads pre-built HuggingFace artifacts and upserts them into Postgres.
 
 ---
 
-## Connecting to psql
-To connect to the Postgres instance running in Docker, use:
-```bash
-# Source install (standalone container named cinepal-pg)
-docker exec -it cinepal-pg psql -U cinepal
+## Commands
 
-# Docker Compose install
-docker compose exec db psql -U cinepal -d cinepal
+Requires `DATABASE_URL` in your environment (see `.env.example`). Make sure the Postgres container is running before any of these commands:
+
+```bash
+docker run -d \
+  --name cinepal-pg \
+  -e POSTGRES_USER=cinepal \
+  -e POSTGRES_PASSWORD=cinepal \
+  -e POSTGRES_DB=cinepal \
+  -p 4321:5432 \
+  pgvector/pgvector:pg16
+# Subsequent runs: docker start cinepal-pg
 ```
 
+```bash
+source .venv/bin/activate
+python -m db.apply
+python -m db.ingest
+python -m db.create_user --email admin@example.com --password s3cr3t --role admin
+```
+
+**`db.ingest --set`**
+
+| Value | Description |
+|---|---|
+| `mini` (default) | Small dev/CI subset — fast to load |
+| `main` | Full production catalogue |
+| `eval` / `eval_holdout` | Disjoint holdout split used by the eval harness |
+| `all` | `main` + `mini` (deduplicated) |
+
+**`db.create_user --role`**
+
+| Value | Description |
+|---|---|
+| `admin` | Full access including the Evaluation Lab |
+| `user` | Standard oracle access |
+
 ---
+
+## Debug
+
+Open a `psql` shell inside the running container to inspect tables and run SQL queries directly:
+
+```bash
+docker exec -it cinepal-pg psql -U cinepal -d cinepal
+```
 
 ## Migrations
 
-Migrations are plain SQL files in `db/migrations/`, applied in lexicographic order by `db/apply.py`.
+Migrations are plain SQL files in `db/migrations/`, applied in lexicographic order by `db/apply.py`. Re-running is safe — files already recorded in `schema_migrations` are skipped.
 
-**Docker Compose install:** migrations are applied automatically each time the backend container starts — no manual step needed.
+**Adding a new migration:**
 
-**Source install:**
-```bash
-export DATABASE_URL=postgresql://cinepal:cinepal@localhost:4321/cinepal
-python -m db.apply
-```
-
-Re-running `apply` is safe — files already recorded in `schema_migrations` are skipped.
-
-### Adding a new migration
-
-1. Create `db/migrations/NNN_description.sql` where `NNN` is the next integer (zero-padded to 3 digits).
-2. Write idempotent DDL where possible (`CREATE TABLE IF NOT EXISTS`, etc.).
-3. **Never edit a migration that has already been applied** to a shared environment. Create a new file instead.
-
-### File index
-
-| File | Contents |
-|---|---|
-| `001_extensions.sql` | `pgvector`, `pgcrypto` |
-| `002_users.sql` | `users`, `roles` — user registry; `role_id` FK on `users` |
-| `003_catalogue.sql` | Catalogue tables: `movies`, `genres`, `people`, `keywords`, `cast_members`, `crew_members`, `movie_genres`, `movie_keywords` + IVFFlat vector indexes |
-| `004_runs.sql` | `runs` — experimental run registry keyed on config hash |
-| `005_conversations.sql` | `conversations`, `messages` — per-user conversation history |
-| `006_cluster_snapshots.sql` | `cluster_snapshots`, `clusters`, `cluster_memberships` — snapshot tree |
-| `007_concepts.sql` | `concepts`, `concept_scores` — oracle-derived linear axes and prototype concepts |
-| `008_nullable_cluster_label.sql` | Allow `clusters.label` to be NULL (labels generated lazily) |
-| `009_snapshot_cache.sql` | `config_hash` column, `conversation_snapshot_refs` join table, cache-key unique index on `cluster_snapshots` |
-| `010_trailer_embedding_index.sql` | IVFFlat index on `movies.trailer_embedding` for fast cosine-similarity search |
-| `011_message_and_conversation_costs.sql` | `cost_usd` on `messages`; `accumulated_cost_usd` on `conversations` |
-| `012_evaluation.sql` | Eval harness tables: `personas`, `ground_truths`, `eval_sessions`, `conversation_metrics`, `judge_scores`; extends `runs` with `name`, `condition`, `model_version`, `ended_at`, `status`, `notes` |
+1. Create `db/migrations/NNN_description.sql` with `NNN` as the next zero-padded integer.
+2. Write idempotent DDL where possible (`CREATE TABLE IF NOT EXISTS`, …).
+3. Never edit a migration already applied to a shared environment — create a new file instead.
 
 ---
 
 ## Catalogue ingestion
 
-`python -m db.ingest` is the single entry point. It downloads the parquet files
-pinned in `configs/dev.yaml` (`ingestion.hf_repo` + `ingestion.artifacts.*`)
-from Hugging Face and upserts them into Postgres.
+`python -m db.ingest` downloads artifacts pinned in `configs/dev.yaml` (`ingestion.hf_repo` + `ingestion.artifacts.*`) from HuggingFace, upserts them into Postgres, then computes fused embeddings and UMAP coordinates offline. `mini` is a strict subset of `main` — ingesting `main` later is safe.
 
-**Docker Compose install** — run ingestion once after the stack is up:
-```bash
-docker compose run --rm backend python -m db.ingest             # mini (dev default)
-docker compose run --rm backend python -m db.ingest --set main  # full production set
-```
-
-**Source install:**
-```bash
-python -m db.apply              # apply migrations (idempotent)
-python -m db.ingest             # ingest mini (dev default)
-python -m db.ingest --set main  # ingest full production set
-python -m db.ingest --set eval   # ingest eval-holdout
-python -m db.ingest --set all   # ingest main + mini
-```
-
-**Prerequisites:**
-
-- `HF_TOKEN` in `.env` — only when the HF dataset repo is private. Not needed for public repos.
-- `TMDB_API_KEY` — only needed when producing a fresh snapshot via `dataset.scraper`. Ingesting a pre-built HF artifact does not require it.
-
-**For dev/CI use the default `mini` set.** Mini is a strict subset of main, so
-ingesting main later with `--set main` is safe (upsert) and won't duplicate
-data. The `eval` / `eval_holdout` split is available when you want to load the
-held-out evaluation artifact explicitly.
-
-### Producing a new snapshot
-
-The offline data pipeline (TMDB scrape → clean → Colab embed → HF upload) lives in
-`dataset/`. See [`dataset/README.md`](../dataset/README.md) for the full workflow.
+`HF_TOKEN` is only needed when the HF dataset repo is private. To regenerate the catalogue from scratch see [`dataset/README.md`](../dataset/README.md).
 
 ---
 
-## Creating users
+## Directory layout
 
-A small helper script provisions a user row in the database. Roles must
-already exist in the `roles` table (seeded by migration `002_users.sql`).
-
-Usage example (creates an admin):
-
-```bash
-# ensure `DATABASE_URL` points at your Postgres instance
-export DATABASE_URL=postgresql://cinepal:cinepal@localhost:4321/cinepal
-
-python -m db.create_user \
-  --email admin@example.com \
-  --password s3cr3t \
-  --role admin
 ```
-
-The script validates the email/password and prints the new user id on
-success. See `db/create_user.py` for more details.
+db/
+├── apply.py           Migration runner — applies all pending .sql files idempotently
+├── ingest.py          Ingestion entry point — downloads HF artifacts, upserts into Postgres
+├── create_user.py     User provisioning CLI
+├── migrations/        Numbered SQL files applied in lexicographic order
+└── utils/
+    └── load.py        Low-level upsert helpers used by ingest.py
+```

@@ -9,7 +9,7 @@ from backend.routers.dto.concepts.dtos import AxisDistributionDto, AxisPointDto
 router = APIRouter(prefix="/concepts", tags=["concepts"])
 
 
-@router.get("/get_axis/{concept_id}", response_model=AxisDistributionDto)
+@router.get("/{concept_id}/axis", response_model=AxisDistributionDto)
 def get_concept_axis_endpoint(concept_id: uuid.UUID) -> AxisDistributionDto:
     """Return the distribution of movies along a concept's linear axis.
 
