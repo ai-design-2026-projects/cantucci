@@ -50,6 +50,8 @@
   .bullets li{ font-size:40px; line-height:1.38; position:relative; padding-left:38px; color:var(--ink); }
   .bullets li::before{ content:""; position:absolute; left:0; top:.55em; width:11px; height:11px; background:var(--accent); }
   .bullets li b{ color:var(--accent); font-weight:600; }
+  .bullets li.cond{ padding-left:80px; }
+  .bullets li.cond::before{ content:"IF"; width:auto; height:auto; background:var(--accent); color:var(--cream); font-size:18px; letter-spacing:.1em; font-weight:700; border-radius:999px; padding:3px 10px; top:.38em; }
 
   /* three columns */
   .cols{ display:grid; grid-template-columns:repeat(3,1fr); gap:64px; margin-top:120px; }
@@ -160,6 +162,35 @@
     </div>
   </section>
 
+  <!-- 02b DATA PIPELINE -->
+  <section data-label="Data Pipeline">
+    <div class="pad mark">
+      <div class="content">
+        <div class="eyebrow">Representation</div>
+        <h2 class="title">Data Pipeline</h2>
+        <p class="lead">Scrape <b>TMDB</b>, clean and split the catalogue, compute embeddings</p>
+        <div class="cols" style="margin-top:80px;">
+          <div class="col">
+            <span class="ix">01</span>
+            <h3>Scrape</h3>
+            <p>TMDB metadata, reviews and trailers</p>
+          </div>
+          <div class="col">
+            <span class="ix">02</span>
+            <h3>Clean &amp; Split</h3>
+            <p>Filter, deduplicate, normalise. dev / production / eval-holdout splits.</p>
+          </div>
+          <div class="col">
+            <span class="ix">03</span>
+            <h3>Embed</h3>
+            <p>Three distinct modalities per film. Each with its own meaning.</p>
+          </div>
+        </div>
+        <div class="grow"></div>
+      </div>
+    </div>
+  </section>
+
   <!-- 03 MOVIE EMBEDDING -->
   <section data-label="Movie Embedding">
     <div class="pad mark">
@@ -221,13 +252,14 @@
         <div class="cols" style="grid-template-columns:1fr 1fr; gap:84px">
           <div class="col">
             <span class="ix" style="font-size: 48px">Vector-level</span>
-            <p style="font-size: 40px; margin-top: 20px;">Movie and review embeddings are merged by a weighted average inside the same space <span style="color:var(--ink); font-weight:600;">(0.6 / 0.4)</span>.</p>
-            <p style="color:var(--ink); font-size: 38px; font-weight:500; margin-top:14px;">→ Fused BGE vector · 1024-d</p>
+            <p style="font-size: 40px; margin-top: 20px;">Movie and review embeddings lie in the same space.</p>
+            <p style="color:var(--ink); font-size: 38px; font-weight:500; margin-top:14px;">Weighted mean of embeddings</p>
           </div>
           <div class="col">
             <span class="ix" style="font-size: 48px">Distance-level</span>
-            <p style="font-size: 40px; margin-top: 20px;">Text and trailer are fused as a weighted sum of their cosine-distance matrices <span style="color:var(--ink); font-weight:600;">(0.6 / 0.4)</span>.</p>
-            <p style="color:var(--ink); font-size: 38px;font-weight:500; margin-top:14px;">→ N × N distance matrix</p>
+            <p style="font-size: 40px; margin-top: 20px;">Text and trailer need to be fused at the distance level.</p>
+            <p style="color:var(--ink); font-size: 38px;font-weight:500; margin-top:14px;">Weighted sum of distance matrices</p>
+            <p style="color:var(--muted); font-size: 36px; margin-top:14px;">Passed to HDBSCAN as a <b style="color:var(--ink);">precomputed metric</b></p>
           </div>
         </div>
         <div class="grow"></div>
@@ -241,11 +273,12 @@
       <div class="content">
         <div class="eyebrow">Architecture</div>
         <h2 class="title">Coordinator</h2>
-        <p class="lead">The deterministic orchestrator: both session handler and turn-workflow manager.</p>
+        <p class="lead">The deterministic orchestrator: receives the Intent Agent's output and decides what's next.</p>
         <div class="agent-grid">
           <ul class="bullets">
-            <li>The <b>only writer of state</b> and the sole component that talks to the oracle</li>
-            <li>Holds <b>no in-memory session state</b> between turns</li>
+            <li>The <b>single source of truth</b> for turn handling and snapshot handling</li>
+            <li>Holds <b>no in-memory session state</b> between turns. Everything is persisted to the database.</li>
+            <li>Takes the Intent Agent's ordered list of actions and <b>routes workflow accordingly</b></li>
           </ul>
         </div>
         <div class="grow"></div>
@@ -259,18 +292,16 @@
       <div class="content">
         <div class="eyebrow">Architecture</div>
         <h2 class="title">Intent Agent</h2>
-        <p class="lead">Interprets the oracle's free-form message and emits an ordered list of actions.​</p>
+        <p class="lead">Interprets the oracle's free-form message and emits a structured, ordered list of actions.</p>
         <div class="agent-grid">
           <ul class="bullets">
-            <li><b>Low confidence</b>: routes to the Clarifier agent</li>
-            <li><b>Explanation request</b>: routes to the Explanation agent</li>
-            <li><b>Casual message</b>: returns a predefined static reply​</li>
-            <li><b>Snapshot navigation</b>: re-points in the snapshot tree​</li>
-            <li><b>Otherwise</b>: identifies clustering operation​</li>
+            <li>Each action carries a <b>target cluster</b>, <b>parameters</b>, and a <b>confidence score</b></li>
+            <li>Can resolve <b>multiple actions in a single turn</b> - e.g. "reset, then split by genre"</li>
+            <li>Actions are executed in order; later steps see the result of earlier ones</li>
           </ul>
           <div class="spec io">
-            <div class="spec-row"><div class="spec-k">Input</div><div class="spec-v">Message; Current Cluster Labels</div></div>
-            <div class="spec-row"><div class="spec-k">Output</div><div class="spec-v">Ordered list of actions</div></div>
+            <div class="spec-row"><div class="spec-k">Input</div><div class="spec-v">Message; Current cluster labels</div></div>
+            <div class="spec-row"><div class="spec-k">Output</div><div class="spec-v">Ordered list of actions (params + confidence)</div></div>
           </div>
         </div>
         <div class="grow"></div>
@@ -285,50 +316,42 @@
         <div class="eyebrow">Architecture</div>
         <h2 class="title">Operations Catalogue</h2>
         <p class="lead">A fixed, closed vocabulary, used by the <b>Intent Agent</b>.</p>
-        <div class="cols" style="grid-template-columns:1.55fr 2px 1fr; gap:80px; margin-top:100px; align-items:stretch;">
-          <div>
-            <span style="font-size:45px; letter-spacing:.22em; text-transform:uppercase; color:var(--accent); font-weight:600; padding-top:18px; border-top:2px solid var(--accent); display:inline-block;">Navigation</span>
-            <div style="margin-top:26px; display:grid; grid-template-columns:1fr 1fr; gap:20px 56px;">
-              <div class="spec-v"><b style="color:var(--accent);">cluster</b> &nbsp;split into sub-groups</div>
-              <div class="spec-v"><b style="color:var(--accent);">merge</b> &nbsp;combine clusters</div>
-              <div class="spec-v"><b style="color:var(--accent);">focus</b> &nbsp;keep one, drop the rest</div>
-              <div class="spec-v"><b style="color:var(--accent);">cross-filter</b> &nbsp;match a predicate</div>
-              <div class="spec-v"><b style="color:var(--accent);">exclude</b> &nbsp;drop one cluster</div>
-              <div class="spec-v"><b style="color:var(--accent);">reset</b> &nbsp;return to unclustered</div>
-              <div class="spec-v"><b style="color:var(--accent);">undo</b> &nbsp;step back a snapshot</div>
-            </div>
+        <div style="display:grid; grid-template-columns:repeat(3,1fr); gap:36px 80px; margin-top:80px;">
+          <div style="border-top:2px solid var(--accent); padding-top:22px;">
+            <div style="font-size:38px; letter-spacing:.2em; text-transform:uppercase; color:var(--accent); font-weight:700;">Cluster</div>
+            <div class="spec-v" style="margin-top:10px; color:var(--muted);">Split into sub-groups</div>
           </div>
-
-          <div style="width:2px; background:var(--accent); opacity:.45; justify-self:center;"></div>
-
-          <div>
-            <span style="font-size:45px; letter-spacing:.22em; text-transform:uppercase; color:var(--accent); font-weight:600; padding-top:18px; border-top:2px solid var(--accent); display:inline-block;">Dialogue moves</span>
-            <div style="margin-top:26px; display:flex; flex-direction:column; gap:20px;">
-              <div class="spec-v"><b style="color:var(--accent);">explain</b> &nbsp;why a film sits here</div>
-              <div class="spec-v"><b style="color:var(--accent);">small-talk</b> &nbsp;non-operational reply</div>
-            </div>
+          <div style="border-top:2px solid var(--accent); padding-top:22px;">
+            <div style="font-size:38px; letter-spacing:.2em; text-transform:uppercase; color:var(--accent); font-weight:700;">Merge</div>
+            <div class="spec-v" style="margin-top:10px; color:var(--muted);">Combine clusters</div>
           </div>
-        </div>
-        <div class="grow"></div>
-      </div>
-    </div>
-  </section>
-
-  <!-- 10 CLARIFIER AGENT -->
-  <section data-label="Clarifier Agent">
-    <div class="pad mark">
-      <div class="content">
-        <div class="eyebrow">Architecture</div>
-        <h2 class="title">Clarifier Agent</h2>
-        <p class="lead">A fast-model gate that asks one disambiguating question when confidence is low.</p>
-        <div class="agent-grid">
-          <ul class="bullets">
-            <li>Fires when any action falls below the <b>confidence threshold</b></li>
-            <li>Asks a <b>single</b> disambiguating question</li>
-          </ul>
-          <div class="spec io">
-            <div class="spec-row"><div class="spec-k">Input</div><div class="spec-v">Low-confidence action; User message; Current clusters labels</div></div>
-            <div class="spec-row"><div class="spec-k">Output</div><div class="spec-v">One clarifying question</div></div>
+          <div style="border-top:2px solid var(--accent); padding-top:22px;">
+            <div style="font-size:38px; letter-spacing:.2em; text-transform:uppercase; color:var(--accent); font-weight:700;">Focus</div>
+            <div class="spec-v" style="margin-top:10px; color:var(--muted);">Keep one, drop the rest</div>
+          </div>
+          <div style="border-top:2px solid var(--accent); padding-top:22px;">
+            <div style="font-size:38px; letter-spacing:.2em; text-transform:uppercase; color:var(--accent); font-weight:700;">Cross-Filter</div>
+            <div class="spec-v" style="margin-top:10px; color:var(--muted);">Match a predicate</div>
+          </div>
+          <div style="border-top:2px solid var(--accent); padding-top:22px;">
+            <div style="font-size:38px; letter-spacing:.2em; text-transform:uppercase; color:var(--accent); font-weight:700;">Exclude</div>
+            <div class="spec-v" style="margin-top:10px; color:var(--muted);">Drop one cluster</div>
+          </div>
+          <div style="border-top:2px solid var(--accent); padding-top:22px;">
+            <div style="font-size:38px; letter-spacing:.2em; text-transform:uppercase; color:var(--accent); font-weight:700;">Reset</div>
+            <div class="spec-v" style="margin-top:10px; color:var(--muted);">Return to unclustered</div>
+          </div>
+          <div style="border-top:2px solid var(--accent); padding-top:22px;">
+            <div style="font-size:38px; letter-spacing:.2em; text-transform:uppercase; color:var(--accent); font-weight:700;">Undo</div>
+            <div class="spec-v" style="margin-top:10px; color:var(--muted);">Step back a snapshot</div>
+          </div>
+          <div style="border-top:2px solid var(--accent); padding-top:22px;">
+            <div style="font-size:38px; letter-spacing:.2em; text-transform:uppercase; color:var(--accent); font-weight:700;">Explain</div>
+            <div class="spec-v" style="margin-top:10px; color:var(--muted);">Why a film sits here</div>
+          </div>
+          <div style="border-top:2px solid var(--accent); padding-top:22px;">
+            <div style="font-size:38px; letter-spacing:.2em; text-transform:uppercase; color:var(--accent); font-weight:700;">Small-Talk</div>
+            <div class="spec-v" style="margin-top:10px; color:var(--muted);">Non-operational reply</div>
           </div>
         </div>
         <div class="grow"></div>
@@ -342,16 +365,23 @@
       <div class="content">
         <div class="eyebrow">Architecture</div>
         <h2 class="title">Concept Agent</h2>
-        <p class="lead">A model that builds a linear axis when a split is semantic rather than a deterministic partition.</p>
-        <div class="agent-grid">
+        <p class="lead">Builds a linear axis between two poles; every film is projected onto it</p>
+        <div class="agent-grid" style="grid-template-columns:1fr 580px;">
           <ul class="bullets">
             <li>Triggered only for <b>concept-guided</b> requests</li>
-            <li>Builds a unit vector from a positive and negative <b>pole pair</b></li>
-            <li>The axis then scores films within the chosen space</li>
+            <li>Generates <b>k sentences per pole</b>, embeds them, and averages each set into a centroid</li>
+            <li>Builds the linear axis from the negative to the positive centroid</li>
+            <li>Each film's <b>dot product</b> with the axis gives its score</li>
           </ul>
-          <div class="spec io">
-            <div class="spec-row"><div class="spec-k">Input</div><div class="spec-v">Concept string; Declared space</div></div>
-            <div class="spec-row"><div class="spec-k">Output</div><div class="spec-v">Linear axis</div></div>
+          <div>
+            <div class="spec io">
+              <div class="spec-row"><div class="spec-k">Input</div><div class="spec-v">Concept string; Declared space</div></div>
+              <div class="spec-row"><div class="spec-k">Output</div><div class="spec-v">Linear axis (unit vector)</div></div>
+            </div>
+            <div style="margin-top:28px; padding:20px 26px; border-left:3px solid var(--accent); background:var(--tint);">
+              <div style="font-size:22px; letter-spacing:.18em; text-transform:uppercase; color:var(--accent); font-weight:600;">Example · movie endings</div>
+              <div style="font-size:31px; color:var(--ink); margin-top:12px; line-height:1.5;"><b style="color:var(--accent);">+</b> &nbsp;open, ambiguous endings<br><b style="color:var(--accent);">−</b> &nbsp;closed, resolved endings</div>
+            </div>
           </div>
         </div>
         <div class="grow"></div>
@@ -370,7 +400,6 @@
           <ul class="bullets">
             <li>A pure pipeline: <b>UMAP</b> reduction followed by <b>HDBSCAN</b></li>
             <li>Returns per-film membership probabilities, not rigid hard labels</li>
-		    <li>In multimodal mode, the distance matrix is fed to HDBSCAN</li>
           </ul>
         </div>
         <div class="grow"></div>
@@ -384,17 +413,17 @@
       <div class="content">
         <div class="eyebrow">Architecture</div>
         <h2 class="title">Labeling Agent</h2>
-        <p class="lead">A fast-model agent that names and summarises clusters</p>
+        <p class="lead">A fast-model agent that names and describes clusters</p>
         <div class="agent-grid">
           <ul class="bullets">
-            <li><b>Metadata partitions:</b> assigned deterministically</li>
-            <li><b>Semantic clusters:</b> assigned through a LLM call</li>
+            <li class="cond"><b>Metadata partitions</b> -> assigned deterministically</li>
+            <li class="cond"><b>Semantic clusters</b> -> assigned through a LLM call</li>
             <li>Anchored on the previous turn's names</li>
-			<li>Always generates summaries through a LLM call</li>
+			<li>Always generates descriptions through a LLM call</li>
           </ul>
           <div class="spec io">
-            <div class="spec-row"><div class="spec-k">Input</div><div class="spec-v">Exemplar films; Label context</div></div>
-            <div class="spec-row"><div class="spec-k">Output</div><div class="spec-v">Label context; Label; Summary</div></div>
+            <div class="spec-row"><div class="spec-k">Input</div><div class="spec-v">Cluster Exemplar movies; Label context</div></div>
+            <div class="spec-row"><div class="spec-k">Output</div><div class="spec-v">Label context; Label; Description</div></div>
           </div>
         </div>
         <div class="grow"></div>
@@ -417,6 +446,28 @@
           <div class="spec io">
             <div class="spec-row"><div class="spec-k">Input</div><div class="spec-v">Cluster label; Cluster summary; Exemplars</div></div>
             <div class="spec-row"><div class="spec-k">Output</div><div class="spec-v">Concise explanation</div></div>
+          </div>
+        </div>
+        <div class="grow"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 14b CLARIFIER AGENT -->
+  <section data-label="Clarifier Agent">
+    <div class="pad mark">
+      <div class="content">
+        <div class="eyebrow">Architecture</div>
+        <h2 class="title">Clarifier Agent</h2>
+        <p class="lead">A fast-model gate that asks one disambiguating question when confidence is low.</p>
+        <div class="agent-grid">
+          <ul class="bullets">
+            <li>Fires when any action falls below the <b>confidence threshold</b></li>
+            <li>Asks a <b>single</b> disambiguating question</li>
+          </ul>
+          <div class="spec io">
+            <div class="spec-row"><div class="spec-k">Input</div><div class="spec-v">Low-confidence action; User message; Current cluster labels</div></div>
+            <div class="spec-row"><div class="spec-k">Output</div><div class="spec-v">One clarifying question</div></div>
           </div>
         </div>
         <div class="grow"></div>
