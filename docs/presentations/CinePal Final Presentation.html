@@ -14,7 +14,7 @@
     --serif:'Playfair Display', Georgia, serif;
     --sans:'Hanken Grotesk', system-ui, sans-serif;
     --pad-x:120px; --pad-top:118px; --pad-bottom:88px;
-    --t-display:168px; --t-h1:80px; --t-h2:46px; --t-lead:38px;
+    --t-display:168px; --t-h1:80px; --t-h2:46px; --t-lead:45px;
     --t-body:30px; --t-small:30px; --t-eyebrow:30px; --t-meta:30px;
     --t-find:108px;
   }
@@ -32,7 +32,7 @@
 
   .eyebrow{ font-size:var(--t-eyebrow); letter-spacing:.34em; text-transform:uppercase; color:var(--accent); font-weight:600; }
   .title{ font-family:var(--serif); font-size:var(--t-h1); font-weight:700; line-height:1.03; letter-spacing:-.012em; margin-top:18px; text-wrap:balance; }
-  .lead{ font-size:var(--t-lead); color:var(--muted); font-weight:400; line-height:1.32; margin-top:24px; max-width:1650px; text-wrap:pretty; }
+  .lead{ font-size:var(--t-lead); color:var(--ink); font-weight:800; line-height:1.32; margin-top:24px; max-width:1650px; text-wrap:pretty; border-top:1px solid var(--line); padding-top:26px; }
 
   /* spec / io rows */
   .spec{ margin-top:150px; max-width:1300px; margin-left:200px }
@@ -658,18 +658,19 @@
           <div class="col">
             <span class="ix">Davide Donà</span>
             <ul class="bullets" style="margin-top:30px;">
-              	<li>Agent Orchestration</li>
+              	<li>Agents Orchestration</li>
 			  	<li>Clustering Engine</li>
-				<li>Ingestion</li>
-				<li>Embedding</li>
+				<li>Ingestion Pipeline</li>
+				<li>Embedding System</li>
 				<li></li>
             </ul>
           </div>
           <div class="col">
             <span class="ix">Andrea Blushi</span>
             <ul class="bullets" style="margin-top:30px;">
-              <li>Evaluation</li>
-              <li>Frontend</li>
+              <li>Web UI</li>
+              <li>Ground Truth Builder</li>
+			  <li>Evaluation Setup</li>
             </ul>
           </div>
         </div>
