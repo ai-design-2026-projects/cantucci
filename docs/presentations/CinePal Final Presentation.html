@@ -1,0 +1,1001 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CinePal — Conversational Clustering</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,600;0,700;0,800;1,400;1,600&family=Hanken+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --cream:#F4EFE8; --ink:#2C241F; --muted:#7B6D62; --accent:#B86B52;
+    --surface:#FDFAF7; --tint:#E9DDD2; --line:#D4C3B3;
+    --serif:'Playfair Display', Georgia, serif;
+    --sans:'Hanken Grotesk', system-ui, sans-serif;
+    --pad-x:120px; --pad-top:118px; --pad-bottom:88px;
+    --t-display:168px; --t-h1:80px; --t-h2:46px; --t-lead:38px;
+    --t-body:30px; --t-small:30px; --t-eyebrow:30px; --t-meta:30px;
+    --t-find:108px;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  deck-stage{background:#17130f;}
+  deck-stage:not(:defined){visibility:hidden;}
+  section{ background:var(--cream); color:var(--ink); font-family:var(--sans); overflow:hidden; }
+
+  .pad{ position:absolute; inset:0; padding:var(--pad-top) var(--pad-x) var(--pad-bottom); display:flex; flex-direction:column; }
+  .pad.mark::before{ content:"CinePal"; position:absolute; top:50px; left:var(--pad-x); font-family:var(--serif); font-style:italic; font-weight:600; font-size:30px; color:var(--accent); letter-spacing:.005em; }
+  .pad.mark::after{ content:""; position:absolute; top:64px; left:calc(var(--pad-x) + 158px); right:var(--pad-x); height:1px; background:var(--line); }
+
+  .content{ flex:1; display:flex; flex-direction:column; min-height:0; }
+  .content.mid{ justify-content:center; }
+
+  .eyebrow{ font-size:var(--t-eyebrow); letter-spacing:.34em; text-transform:uppercase; color:var(--accent); font-weight:600; }
+  .title{ font-family:var(--serif); font-size:var(--t-h1); font-weight:700; line-height:1.03; letter-spacing:-.012em; margin-top:18px; text-wrap:balance; }
+  .lead{ font-size:var(--t-lead); color:var(--muted); font-weight:400; line-height:1.32; margin-top:24px; max-width:1650px; text-wrap:pretty; }
+
+  /* spec / io rows */
+  .spec{ margin-top:150px; max-width:1300px; margin-left:200px }
+  .spec.io{ margin-top:0; margin-left:0px;max-width:1500px }
+  .spec.io .spec-row{ grid-template-columns:1fr; gap:8px; }
+  .spec-row{ display:grid; grid-template-columns:280px 1fr; gap:56px; padding:24px 2px; border-bottom:1px solid var(--line); align-items:baseline; }
+  .spec-row:first-child{ border-top:1px solid var(--line); }
+  .spec-k{ font-size:38px; letter-spacing:.24em; text-transform:uppercase; color:var(--accent); font-weight:600; }
+  .spec-v{ font-size:35px; color:var(--ink); line-height:1.34; }
+  .spec-v .dim{ color:var(--muted); }
+
+  /* agent two-column */
+  .agent-grid{ display:grid; grid-template-columns:1fr 520px; gap:84px; margin-top:54px; align-items:start; }
+  .bullets{ list-style:none; display:flex; flex-direction:column; gap:26px; }
+  .bullets li{ font-size:40px; line-height:1.38; position:relative; padding-left:38px; color:var(--ink); }
+  .bullets li::before{ content:""; position:absolute; left:0; top:.55em; width:11px; height:11px; background:var(--accent); }
+  .bullets li b{ color:var(--accent); font-weight:600; }
+
+  /* three columns */
+  .cols{ display:grid; grid-template-columns:repeat(3,1fr); gap:64px; margin-top:120px; }
+  .col .ix{ font-size:45px; letter-spacing:.2em; color:var(--accent); font-weight:600; padding-top:20px; border-top:2px solid var(--accent); display:inline-block; }
+  .col h3{ font-family:var(--serif); font-size:50px; font-weight:700; margin-top:18px; line-height:1.08; }
+  .col p{ font-size:38px; color:var(--muted); margin-top:18px; line-height:1.36; }
+
+  .lead-q{ font-family:var(--serif); font-size:62px; font-weight:600; line-height:1.14; max-width:1500px; font-style:italic; color:var(--ink); }
+
+  /* spacer to push content up, leave breathing room */
+  .grow{ flex:1 1 auto; }
+  .mat{ font-family:var(--sans); font-size:21px; font-weight:600; color:var(--accent); letter-spacing:.06em; vertical-align:baseline; margin-left:10px; font-variant-numeric:tabular-nums; }
+
+  .spec.wide .spec-row{ grid-template-columns:460px 1fr; padding:16px 2px; }
+  .spec.wide{ width:1600px; max-width:100%; margin-left:auto; margin-right:auto; }
+  .spec.fit{ margin-left:auto; margin-right:auto; }
+  .spec.sm .spec-k{ font-size:34px; }
+  .spec.sm .spec-v{ font-size:32px; }
+
+  /* appendix tables */
+  .tbl{ width:100%; border-collapse:collapse; margin-top:44px; }
+  .tbl th, .tbl td{ text-align:left; padding:13px 22px; border-bottom:1px solid var(--line); font-size:var(--t-small); }
+  .tbl thead th{ font-size:var(--t-meta); letter-spacing:.12em; text-transform:uppercase; color:var(--accent); font-weight:600; border-bottom:1.5px solid var(--line); }
+  .tbl td.k{ font-weight:500; }
+  .tbl .num{ text-align:right; font-variant-numeric:tabular-nums; white-space:nowrap; }
+  .tbl .grp td{ padding-top:30px; color:var(--accent); font-size:var(--t-meta); letter-spacing:.16em; text-transform:uppercase; font-weight:600; border-bottom:none; }
+  .tbl-2{ display:grid; grid-template-columns:1fr 1fr; gap:64px; align-items:start; }
+
+  /* metrics tables: size to their content and centre, keeping the .tbl style */
+  .tbl.fit{ width:auto; max-width:fit-content; margin-inline:auto; }
+  .tbl-2.fit{ grid-template-columns:auto auto; justify-content:center; }
+  .tbl-2.sm th, .tbl-2.sm td{ font-size:27px; }
+
+  /* dialogue exchange (qualitative) */
+  .ex{ display:flex; flex-direction:column; gap:14px; margin-top:8px; }
+  .ex .turn{ display:grid; grid-template-columns:140px 1fr; gap:24px; font-size:var(--t-small); line-height:1.3; padding:10px 0; border-bottom:1px solid var(--line); }
+  .ex .who{ font-size:var(--t-meta); letter-spacing:.12em; text-transform:uppercase; font-weight:600; }
+  .ex .who.o{ color:var(--accent); }
+  .ex .who.s{ color:var(--muted); }
+  .appx{ background:var(--surface); }
+  .appx .eyebrow{ color:var(--muted); }
+  .appx .eyebrow b{ color:var(--accent); font-weight:600; }
+
+  /* floating present-to-fullscreen control; hidden once presenting */
+  #present-btn{
+    position:fixed; top:18px; right:18px; z-index:2147483647;
+    font-family:var(--sans); font-size:15px; font-weight:600; letter-spacing:.04em;
+    color:var(--cream); background:var(--accent);
+    border:0; border-radius:999px; padding:10px 20px; cursor:pointer;
+    box-shadow:0 4px 14px rgba(0,0,0,.28);
+  }
+  #present-btn:hover{ filter:brightness(1.06); }
+  :fullscreen #present-btn, :-webkit-full-screen #present-btn{ display:none; }
+</style>
+</head>
+<body>
+<deck-stage width="1920" height="1080">
+
+  <!-- 01 TITLE -->
+  <section data-label="Title">
+    <div class="pad">
+      <div class="content">
+        <div class="eyebrow">Designing Large-Scale AI Systems &nbsp;·&nbsp; Prof. Fabio Casati</div>
+        <h1 style="font-family:var(--serif); font-size:var(--t-display); font-weight:800; line-height:.92; letter-spacing:-.02em; margin-top:46px;">CinePal</h1>
+        <p style="font-family:var(--serif); font-style:italic; font-size:46px; color:var(--muted); margin-top:26px;">A conversational movie clustering system</p>
+        <div class="grow"></div>
+        <div style="margin-bottom:44px;">
+          <div style="font-size:21px; letter-spacing:.34em; text-transform:uppercase; color:var(--accent); font-weight:600;">Team Cantucci</div>
+          <div style="font-family:var(--serif); font-size:59px; font-weight:700; color:var(--ink); line-height:1.06; margin-top:14px;">Davide Donà<span class="mat">(264467)</span> &nbsp;·&nbsp; Andrea Blushi<span class="mat">(264468)</span></div>
+        </div>
+        <div style="display:flex; justify-content:flex-end; align-items:flex-end; border-top:1px solid var(--line); padding-top:30px;">
+          <div style="font-size:var(--t-small); color:var(--muted);">University of Trento &nbsp;·&nbsp; 2026</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 02 CONVERSATIONAL PERSPECTIVE -->
+  <section data-label="The Conversational Perspective">
+    <div class="pad mark">
+      <div class="content">
+        <div class="eyebrow">Premise</div>
+        <p class="lead-q" style="margin-top:22px;">“How do you approach the conversational perspective?”</p>
+        <div class="cols">
+          <div class="col" >
+            <span class="ix">01</span>
+            <h3>Operations</h3>
+            <p>Free-form natural language is mapped onto a closed vocabulary of operations.</p>
+          </div>
+          <div class="col" >
+            <span class="ix">02</span>
+            <h3>Snapshots</h3>
+            <p>Every operation produces a snapshot. The oracle navigates and branches between them.</p>
+          </div>
+          <div class="col" >
+            <span class="ix">03</span>
+            <h3>Satisfaction</h3>
+            <p>Acceptance from the oracle is the objective function.</p>
+          </div>
+        </div>
+        <div class="grow"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 03 MOVIE EMBEDDING -->
+  <section data-label="Movie Embedding">
+    <div class="pad mark">
+      <div class="content">
+        <div class="eyebrow">Representation</div>
+        <h2 class="title">Movie Embedding</h2>
+        <div class="spec">
+          <div class="spec-row"><div class="spec-k">Model</div><div class="spec-v">BAAI / bge-large-en-v1.5</div></div>
+          <div class="spec-row"><div class="spec-k">Input</div><div class="spec-v">Title, synopsis, genres, cast, director, keywords</div></div>
+          <div class="spec-row"><div class="spec-k">Output</div><div class="spec-v">1024-d float32, <span class="dim">L2-normalised</span></div></div>
+          <div class="spec-row"><div class="spec-k">Role</div><div class="spec-v">The default semantic substrate</div></div>
+        </div>
+        <div class="grow"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 04 REVIEW EMBEDDING -->
+  <section data-label="Review Embedding">
+    <div class="pad mark">
+      <div class="content">
+        <div class="eyebrow">Representation</div>
+        <h2 class="title">Review Embedding</h2>
+        <div class="spec">
+          <div class="spec-row"><div class="spec-k">Model</div><div class="spec-v">BAAI / bge-large-en-v1.5</div></div>
+          <div class="spec-row"><div class="spec-k">Input</div><div class="spec-v">Aggregated text of the top user reviews</div></div>
+          <div class="spec-row"><div class="spec-k">Output</div><div class="spec-v">1024-d float32, <span class="dim">L2-normalised</span></div></div>
+          <div class="spec-row"><div class="spec-k">Role</div><div class="spec-v">Audience signal: plot details and tone</div></div>
+        </div>
+        <div class="grow"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 05 TRAILER EMBEDDING -->
+  <section data-label="Trailer Embedding">
+    <div class="pad mark">
+      <div class="content">
+        <div class="eyebrow">Representation</div>
+        <h2 class="title">Trailer Embedding</h2>
+        <div class="spec">
+          <div class="spec-row"><div class="spec-k">Model</div><div class="spec-v">OpenCLIP &nbsp;ViT-H/14</div></div>
+          <div class="spec-row"><div class="spec-k">Input</div><div class="spec-v">Evenly-spaced trailer frames <span class="dim">(fallback to posters)</span></div></div>
+          <div class="spec-row"><div class="spec-k">Output</div><div class="spec-v">1024-d vector, <span class="dim">mean-pooled across frames</span></div></div>
+          <div class="spec-row"><div class="spec-k">Role</div><div class="spec-v">Visual modality: palette, pacing, style</div></div>
+        </div>
+        <div class="grow"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 06 FUSION STRATEGIES -->
+  <section data-label="Fusion Strategies">
+    <div class="pad mark">
+      <div class="content">
+        <div class="eyebrow">Representation</div>
+        <h2 class="title">Fusion Strategies</h2>
+        <p class="lead">Text and visual encoders inhabit different semantic spaces.</p>
+        <div class="cols" style="grid-template-columns:1fr 1fr; gap:84px">
+          <div class="col">
+            <span class="ix" style="font-size: 48px">Vector-level</span>
+            <p style="font-size: 40px; margin-top: 20px;">Movie and review embeddings are merged by a weighted average inside the same space <span style="color:var(--ink); font-weight:600;">(0.6 / 0.4)</span>.</p>
+            <p style="color:var(--ink); font-size: 38px; font-weight:500; margin-top:14px;">→ Fused BGE vector · 1024-d</p>
+          </div>
+          <div class="col">
+            <span class="ix" style="font-size: 48px">Distance-level</span>
+            <p style="font-size: 40px; margin-top: 20px;">Text and trailer are fused as a weighted sum of their cosine-distance matrices <span style="color:var(--ink); font-weight:600;">(0.6 / 0.4)</span>.</p>
+            <p style="color:var(--ink); font-size: 38px;font-weight:500; margin-top:14px;">→ N × N distance matrix</p>
+          </div>
+        </div>
+        <div class="grow"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 07 COORDINATOR -->
+  <section data-label="Coordinator">
+    <div class="pad mark">
+      <div class="content">
+        <div class="eyebrow">Architecture</div>
+        <h2 class="title">Coordinator</h2>
+        <p class="lead">The deterministic orchestrator: both session handler and turn-workflow manager.</p>
+        <div class="agent-grid">
+          <ul class="bullets">
+            <li>The <b>only writer of state</b> and the sole component that talks to the oracle</li>
+            <li>Holds <b>no in-memory session state</b> between turns</li>
+          </ul>
+        </div>
+        <div class="grow"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 08 INTENT AGENT -->
+  <section data-label="Intent Agent">
+    <div class="pad mark">
+      <div class="content">
+        <div class="eyebrow">Architecture</div>
+        <h2 class="title">Intent Agent</h2>
+        <p class="lead">Interprets the oracle's free-form message and emits an ordered list of actions.​</p>
+        <div class="agent-grid">
+          <ul class="bullets">
+            <li><b>Low confidence</b>: routes to the Clarifier agent</li>
+            <li><b>Explanation request</b>: routes to the Explanation agent</li>
+            <li><b>Casual message</b>: returns a predefined static reply​</li>
+            <li><b>Snapshot navigation</b>: re-points in the snapshot tree​</li>
+            <li><b>Otherwise</b>: identifies clustering operation​</li>
+          </ul>
+          <div class="spec io">
+            <div class="spec-row"><div class="spec-k">Input</div><div class="spec-v">Message; Current Cluster Labels</div></div>
+            <div class="spec-row"><div class="spec-k">Output</div><div class="spec-v">Ordered list of actions</div></div>
+          </div>
+        </div>
+        <div class="grow"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 09 OPERATIONS CATALOGUE -->
+  <section data-label="Operations Catalogue">
+    <div class="pad mark">
+      <div class="content">
+        <div class="eyebrow">Architecture</div>
+        <h2 class="title">Operations Catalogue</h2>
+        <p class="lead">A fixed, closed vocabulary, used by the <b>Intent Agent</b>.</p>
+        <div class="cols" style="grid-template-columns:1.55fr 2px 1fr; gap:80px; margin-top:100px; align-items:stretch;">
+          <div>
+            <span style="font-size:45px; letter-spacing:.22em; text-transform:uppercase; color:var(--accent); font-weight:600; padding-top:18px; border-top:2px solid var(--accent); display:inline-block;">Navigation</span>
+            <div style="margin-top:26px; display:grid; grid-template-columns:1fr 1fr; gap:20px 56px;">
+              <div class="spec-v"><b style="color:var(--accent);">cluster</b> &nbsp;split into sub-groups</div>
+              <div class="spec-v"><b style="color:var(--accent);">merge</b> &nbsp;combine clusters</div>
+              <div class="spec-v"><b style="color:var(--accent);">focus</b> &nbsp;keep one, drop the rest</div>
+              <div class="spec-v"><b style="color:var(--accent);">cross-filter</b> &nbsp;match a predicate</div>
+              <div class="spec-v"><b style="color:var(--accent);">exclude</b> &nbsp;drop one cluster</div>
+              <div class="spec-v"><b style="color:var(--accent);">reset</b> &nbsp;return to unclustered</div>
+              <div class="spec-v"><b style="color:var(--accent);">undo</b> &nbsp;step back a snapshot</div>
+            </div>
+          </div>
+
+          <div style="width:2px; background:var(--accent); opacity:.45; justify-self:center;"></div>
+
+          <div>
+            <span style="font-size:45px; letter-spacing:.22em; text-transform:uppercase; color:var(--accent); font-weight:600; padding-top:18px; border-top:2px solid var(--accent); display:inline-block;">Dialogue moves</span>
+            <div style="margin-top:26px; display:flex; flex-direction:column; gap:20px;">
+              <div class="spec-v"><b style="color:var(--accent);">explain</b> &nbsp;why a film sits here</div>
+              <div class="spec-v"><b style="color:var(--accent);">small-talk</b> &nbsp;non-operational reply</div>
+            </div>
+          </div>
+        </div>
+        <div class="grow"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 10 CLARIFIER AGENT -->
+  <section data-label="Clarifier Agent">
+    <div class="pad mark">
+      <div class="content">
+        <div class="eyebrow">Architecture</div>
+        <h2 class="title">Clarifier Agent</h2>
+        <p class="lead">A fast-model gate that asks one disambiguating question when confidence is low.</p>
+        <div class="agent-grid">
+          <ul class="bullets">
+            <li>Fires when any action falls below the <b>confidence threshold</b></li>
+            <li>Asks a <b>single</b> disambiguating question</li>
+          </ul>
+          <div class="spec io">
+            <div class="spec-row"><div class="spec-k">Input</div><div class="spec-v">Low-confidence action; User message; Current clusters labels</div></div>
+            <div class="spec-row"><div class="spec-k">Output</div><div class="spec-v">One clarifying question</div></div>
+          </div>
+        </div>
+        <div class="grow"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 11 CONCEPT AGENT -->
+  <section data-label="Concept Agent">
+    <div class="pad mark">
+      <div class="content">
+        <div class="eyebrow">Architecture</div>
+        <h2 class="title">Concept Agent</h2>
+        <p class="lead">A model that builds a linear axis when a split is semantic rather than a deterministic partition.</p>
+        <div class="agent-grid">
+          <ul class="bullets">
+            <li>Triggered only for <b>concept-guided</b> requests</li>
+            <li>Builds a unit vector from a positive and negative <b>pole pair</b></li>
+            <li>The axis then scores films within the chosen space</li>
+          </ul>
+          <div class="spec io">
+            <div class="spec-row"><div class="spec-k">Input</div><div class="spec-v">Concept string; Declared space</div></div>
+            <div class="spec-row"><div class="spec-k">Output</div><div class="spec-v">Linear axis</div></div>
+          </div>
+        </div>
+        <div class="grow"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 12 CLUSTERING -->
+  <section data-label="Clustering">
+    <div class="pad mark">
+      <div class="content">
+        <div class="eyebrow">Architecture</div>
+        <h2 class="title">Clustering</h2>
+        <p class="lead">The deterministic computational engine behind every clustering operation.</p>
+        <div class="agent-grid">
+          <ul class="bullets">
+            <li>A pure pipeline: <b>UMAP</b> reduction followed by <b>HDBSCAN</b></li>
+            <li>Returns per-film membership probabilities, not rigid hard labels</li>
+		    <li>In multimodal mode, the distance matrix is fed to HDBSCAN</li>
+          </ul>
+        </div>
+        <div class="grow"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 13 LABELING AGENT -->
+  <section data-label="Labeling Agent">
+    <div class="pad mark">
+      <div class="content">
+        <div class="eyebrow">Architecture</div>
+        <h2 class="title">Labeling Agent</h2>
+        <p class="lead">A fast-model agent that names and summarises clusters</p>
+        <div class="agent-grid">
+          <ul class="bullets">
+            <li><b>Metadata partitions:</b> assigned deterministically</li>
+            <li><b>Semantic clusters:</b> assigned through a LLM call</li>
+            <li>Anchored on the previous turn's names</li>
+			<li>Always generates summaries through a LLM call</li>
+          </ul>
+          <div class="spec io">
+            <div class="spec-row"><div class="spec-k">Input</div><div class="spec-v">Exemplar films; Label context</div></div>
+            <div class="spec-row"><div class="spec-k">Output</div><div class="spec-v">Label context; Label; Summary</div></div>
+          </div>
+        </div>
+        <div class="grow"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 14 EXPLANATION AGENT -->
+  <section data-label="Explanation Agent">
+    <div class="pad mark">
+      <div class="content">
+        <div class="eyebrow">Architecture</div>
+        <h2 class="title">Explanation Agent</h2>
+        <p class="lead">A strong-model agent that explains why a given film sits in a given cluster.</p>
+        <div class="agent-grid">
+          <ul class="bullets">
+            <li>Grounded in the cluster's <b>label and exemplars</b></li>
+            <li>Outputs a concise, natural-language placement rationale</li>
+          </ul>
+          <div class="spec io">
+            <div class="spec-row"><div class="spec-k">Input</div><div class="spec-v">Cluster label; Cluster summary; Exemplars</div></div>
+            <div class="spec-row"><div class="spec-k">Output</div><div class="spec-v">Concise explanation</div></div>
+          </div>
+        </div>
+        <div class="grow"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 15 SUGGESTION AGENT -->
+  <section data-label="Suggestion Agent">
+    <div class="pad mark">
+      <div class="content">
+        <div class="eyebrow">Architecture</div>
+        <h2 class="title">Suggestion Agent</h2>
+        <p class="lead">A fast-model responder that proposes a next step once the actions complete.</p>
+        <div class="agent-grid">
+          <ul class="bullets">
+            <li>Computes deterministic signals: a <b>similar-cluster pair</b>, a dominant cluster, a high noise fraction</li>
+            <li>May decline if it cannot identify a coherent suggestion</li>
+          </ul>
+          <div class="spec io">
+            <div class="spec-row"><div class="spec-k">Input</div><div class="spec-v">Current cluster; Signals; Last operation</div></div>
+            <div class="spec-row"><div class="spec-k">Output</div><div class="spec-v">Proposed next step <span class="dim">(or none)</span></div></div>
+          </div>
+        </div>
+        <div class="grow"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 16 WHAT WE EXPOSE -->
+  <section data-label="What We Expose">
+    <div class="pad mark">
+      <div class="content">
+        <div class="eyebrow">Interfaces</div>
+        <h2 class="title">What We Expose</h2>
+        <p class="lead">Three ways to meet CinePal: as an application, as an API, or as a tool-using agent.</p>
+        <div class="cols">
+          <div class="col">
+            <span class="ix">01</span>
+            <h3>HTTP API</h3>
+            <p>Auth, conversations, snapshots, movies, concepts, evaluation</p>
+          </div>
+          <div class="col">
+            <span class="ix">02</span>
+            <h3>MCP Tools</h3>
+            <p>Conversations, snapshots, members, movies, concept axes</p>
+          </div>
+          <div class="col">
+            <span class="ix">03</span>
+            <h3>Web UI</h3>
+            <p>Chat, history, cluster map, evolution graph, axes, lab</p>
+          </div>
+        </div>
+        <div class="grow"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 17 EVALUATION STRATEGY -->
+  <section data-label="Evaluation Strategy">
+    <div class="pad mark">
+      <div class="content">
+        <div class="eyebrow">Evaluation</div>
+        <h2 class="title">Evaluation Strategy</h2>
+        <p class="lead">Does an intent-driven navigation loop produce more coherent clusterings than other variants?</p>
+        <div class="cols">
+          <div class="col">
+            <span class="ix">01</span>
+            <h3>Operation Choice</h3>
+            <p>Does the Intent agent pick the right operation and the right parameters?</p>
+          </div>
+          <div class="col">
+            <span class="ix">02</span>
+            <h3>Cluster Update Strategy</h3>
+            <p>Do concept splits and soft memberships beat plain re-clustering on raw embeddings?</p>
+          </div>
+          <div class="col">
+            <span class="ix">03</span>
+            <h3>Satisfaction</h3>
+            <p>How do we assess quality and the oracle's satisfaction?</p>
+          </div>
+        </div>
+        <div class="grow"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 18 BASELINES -->
+  <section data-label="Baselines">
+    <div class="pad mark">
+      <div class="content">
+        <div class="eyebrow">Evaluation</div>
+        <h2 class="title">The Two Conditions</h2>
+        <p class="lead">We compare CinePal against the simplest credible alternative</p>
+        <div class="cols" style="grid-template-columns:1fr 1fr; gap:84px;">
+          <div class="col">
+            <span class="ix">Conversational</span>
+            <h3>Our full system</h3>
+            <p>The complete multi-agent loop</p>
+          </div>
+          <div class="col">
+            <span class="ix">Baseline</span>
+            <h3>Monolithic LLM</h3>
+            <p>A single strong-model call per turn</p>
+          </div>
+        </div>
+        <div class="grow"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 19 GROUND TRUTH -->
+  <section data-label="Ground Truth Building">
+    <div class="pad mark">
+      <div class="content">
+        <div class="eyebrow">Oracle &nbsp;·&nbsp; Ground Truth</div>
+        <h2 class="title">Ground Truth Building</h2>
+        <p class="lead">No intrinsic ground truth exists, so we build one for every session.</p>
+        <div class="cols" style="grid-template-columns:1fr 1fr; gap:84px; margin-top:54px;">
+          <div class="col">
+            <span class="ix">Trajectory</span>
+            <h3>An ordered plan</h3>
+            <p>A target sequence of navigation operations, each step tagged with its action and concept.</p>
+          </div>
+          <div class="col">
+            <span class="ix">Intent Description</span>
+            <h3>A neutral paraphrase</h3>
+            <p>Voice-agnostic natural language generated by an LLM from the trajectory.</p>
+          </div>
+        </div>
+        <div class="grow"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 20 ORACLE PERSONA -->
+  <section data-label="Oracle Persona">
+    <div class="pad mark">
+      <div class="content">
+        <div class="eyebrow">Oracle &nbsp;·&nbsp; Behavioural Model</div>
+        <h2 class="title">Oracle Persona</h2>
+        <p class="lead">Two dials layered on the ground truth control how the persona consumes its trajectory.</p>
+        <div class="cols" style="grid-template-columns:1fr 1fr; gap:84px; margin-top:54px;">
+          <div class="col">
+            <span class="ix">Verbosity</span>
+            <h3>How much it says</h3>
+            <p>Sets prompt-length behaviour: terse, medium, or verbose.</p>
+          </div>
+          <div class="col">
+            <span class="ix">Patience</span>
+            <h3>How long it stays</h3>
+            <p>How many misunderstandings the oracle tolerates before giving up.</p>
+          </div>
+        </div>
+        <div class="grow"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 21 DETERMINISTIC METRICS -->
+  <section data-label="Deterministic Metrics">
+    <div class="pad mark">
+      <div class="content">
+        <div class="eyebrow">Evaluation &nbsp;·&nbsp; Metrics</div>
+        <h2 class="title">Session Metrics</h2>
+        <div class="spec wide" style="margin-top:40px;">
+          <div class="spec-row"><div class="spec-k">Cluster count</div><div class="spec-v">Number of clusters in the final snapshot</div></div>
+          <div class="spec-row"><div class="spec-k">Turns</div><div class="spec-v">Number of oracle turns in the session</div></div>
+          <div class="spec-row"><div class="spec-k">Operations</div><div class="spec-v">Number of navigation operations executed</div></div>
+          <div class="spec-row"><div class="spec-k">Clarifier rate</div><div class="spec-v">Fraction of turns on which the clarifier fired</div></div>
+          <div class="spec-row"><div class="spec-k">Total cost</div><div class="spec-v">Cumulative LLM cost of the session</div></div>
+          <div class="spec-row"><div class="spec-k">Oracle rating</div><div class="spec-v">The oracle's own self-rating, 1–5</div></div>
+        </div>
+        <div class="grow"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 22 JUDGE METRICS -->
+  <section data-label="Judge Metrics">
+    <div class="pad mark">
+      <div class="content">
+        <div class="eyebrow">Evaluation &nbsp;·&nbsp; Metrics</div>
+        <h2 class="title">Judge Metrics</h2>
+        <div class="spec wide fit sm" style="margin-top:40px;">
+          <div class="spec-row"><div class="spec-k">Operation appropriateness</div><div class="spec-v">Right operation and parameters for each request</div></div>
+          <div class="spec-row"><div class="spec-k">Intent alignment</div><div class="spec-v">Does the final result reflect the stated goal</div></div>
+          <div class="spec-row"><div class="spec-k">Label accuracy</div><div class="spec-v">Do names and summaries match their operations</div></div>
+          <div class="spec-row"><div class="spec-k">Clustering coherence</div><div class="spec-v">Do films within a cluster genuinely belong together</div></div>
+          <div class="spec-row"><div class="spec-k">Explanation quality</div><div class="spec-v">Is a placement explanation faithful and specific </div></div>
+          <div class="spec-row"><div class="spec-k">Suggestion meaningfulness</div><div class="spec-v">Is a volunteered suggestion relevant and well-timed </div></div>
+          <div class="spec-row"><div class="spec-k">Concept-axis quality</div><div class="spec-v">Do the axis poles form a coherent, discriminative spectrum </div></div>
+        </div>
+        <div class="grow"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 24 FINDINGS (all titles, one slide) -->
+  <section data-label="Findings">
+    <div class="pad mark">
+      <div class="content">
+        <div class="eyebrow">Findings &amp; Discussion</div>
+        <h2 class="title">Findings</h2>
+        <div class="cols" style="grid-template-columns:1fr 1fr; gap:40px 100px; margin-top:150px;">
+          <div class="col" style="display:flex; gap:24px; align-items:baseline;"><span class="ix" style="border:none; padding:0; font-size:var(--t-body);">01</span><h3 style="margin-top:0;">Operational Appropriateness</h3></div>
+          <div class="col" style="display:flex; gap:24px; align-items:baseline;"><span class="ix" style="border:none; padding:0; font-size:var(--t-body);">05</span><h3 style="margin-top:0;">Explanation Problem</h3></div>
+          <div class="col" style="display:flex; gap:24px; align-items:baseline;"><span class="ix" style="border:none; padding:0; font-size:var(--t-body);">02</span><h3 style="margin-top:0;">Cost of the System</h3></div>
+          <div class="col" style="display:flex; gap:24px; align-items:baseline;"><span class="ix" style="border:none; padding:0; font-size:var(--t-body);">06</span><h3 style="margin-top:0;">Suggestion Problem</h3></div>
+          <div class="col" style="display:flex; gap:24px; align-items:baseline;"><span class="ix" style="border:none; padding:0; font-size:var(--t-body);">03</span><h3 style="margin-top:0;">Cluster Segmentation</h3></div>
+          <div class="col" style="display:flex; gap:24px; align-items:baseline;"><span class="ix" style="border:none; padding:0; font-size:var(--t-body);">07</span><h3 style="margin-top:0;">Labelling Problem</h3></div>
+          <div class="col" style="display:flex; gap:24px; align-items:baseline;"><span class="ix" style="border:none; padding:0; font-size:var(--t-body);">04</span><h3 style="margin-top:0;">Abstract Concept Cliff</h3></div>
+          <div class="col" style="display:flex; gap:24px; align-items:baseline;"><span class="ix" style="border:none; padding:0; font-size:var(--t-body);">08</span><h3 style="margin-top:0;">Oracle & Judge Divergence</h3></div>
+        </div>
+        <div class="grow"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 32 WHAT WAS HARD -->
+  <section data-label="What Was Hard">
+    <div class="pad mark">
+      <div class="content">
+        <div class="eyebrow">Retrospective</div>
+        <h2 class="title">What Was Hard</h2>
+        <div class="cols" style="grid-template-columns:1fr 1fr; gap:40px 100px; margin-top:150px;">
+          	<div class="col" style="display:flex; gap:24px; align-items:baseline;"><span class="ix" style="border:none; padding:0; font-size:var(--t-body);">01</span><h3 style="margin-top:0;">Maintainability</h3></div>
+          	<div class="col" style="display:flex; gap:24px; align-items:baseline;"><span class="ix" style="border:none; padding:0; font-size:var(--t-body);">02</span><h3 style="margin-top:0;">Intent Agent</h3></div>
+			<div class="col" style="display:flex; gap:24px; align-items:baseline;"><span class="ix" style="border:none; padding:0; font-size:var(--t-body);">03</span><h3 style="margin-top:0;">Agnostic dataset</h3></div>
+			<div class="col" style="display:flex; gap:24px; align-items:baseline;"><span class="ix" style="border:none; padding:0; font-size:var(--t-body);">04</span><h3 style="margin-top:0;">Oracle design</h3></div>
+        </div>
+        <div class="grow"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 33 WHO DID WHAT -->
+  <section data-label="Who Did What">
+    <div class="pad mark">
+      <div class="content">
+        <div class="eyebrow">Retrospective</div>
+        <h2 class="title">Who Did What</h2>
+        <div class="cols" style="grid-template-columns:1fr 1fr; gap:84px; margin-top:54px;">
+          <div class="col">
+            <span class="ix">Davide Donà</span>
+            <ul class="bullets" style="margin-top:30px;">
+              	<li>Agent Orchestration</li>
+			  	<li>Clustering Engine</li>
+				<li>Ingestion</li>
+				<li>Embedding</li>
+				<li></li>
+            </ul>
+          </div>
+          <div class="col">
+            <span class="ix">Andrea Blushi</span>
+            <ul class="bullets" style="margin-top:30px;">
+              <li>Evaluation</li>
+              <li>Frontend</li>
+            </ul>
+          </div>
+        </div>
+        <div class="grow"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- A1 PARAMETERS (hidden) -->
+  <section data-label="Appendix · Parameters" data-deck-skip>
+    <div class="pad mark appx">
+      <div class="content">
+        <div class="eyebrow"><b>Appendix</b> &nbsp;·&nbsp; Configuration</div>
+        <h2 class="title">Parameters Configuration</h2>
+        <div class="tbl-2" style="margin-top:40px;">
+          <table class="tbl" style="margin-top:0;">
+            <thead><tr><th>Embeddings &amp; fusion</th><th class="num">Value</th></tr></thead>
+            <tbody>
+              <tr><td class="k">Text / review encoder</td><td class="num">BGE-large-en-v1.5</td></tr>
+              <tr><td class="k">Trailer encoder</td><td class="num">OpenCLIP ViT-H/14</td></tr>
+              <tr><td class="k">Embedding dimension</td><td class="num">1024</td></tr>
+              <tr><td class="k">Text–review fusion (text / review)</td><td class="num">0.6 / 0.4</td></tr>
+              <tr><td class="k">Text–trailer fusion (text / trailer)</td><td class="num">0.6 / 0.4</td></tr>
+            </tbody>
+            <thead><tr><th>Clustering</th><th class="num">Value</th></tr></thead>
+            <tbody>
+              <tr><td class="k">HDBSCAN min. cluster size (base / online)</td><td class="num">50 / 10</td></tr>
+              <tr><td class="k">HDBSCAN min. samples</td><td class="num">10</td></tr>
+              <tr><td class="k">UMAP components / neighbours</td><td class="num">50 / 15</td></tr>
+            </tbody>
+          </table>
+          <table class="tbl" style="margin-top:0;">
+            <thead><tr><th>Interaction</th><th class="num">Value</th></tr></thead>
+            <tbody>
+              <tr><td class="k">Intent confidence threshold</td><td class="num">0.6</td></tr>
+              <tr><td class="k">Turn budget (max. oracle turns)</td><td class="num">15</td></tr>
+              <tr><td class="k">Exemplar titles per cluster</td><td class="num">5</td></tr>
+            </tbody>
+            <thead><tr><th>Cost &amp; models</th><th class="num">Value</th></tr></thead>
+            <tbody>
+              <tr><td class="k">Cost ceiling — system / oracle / judge (USD)</td><td class="num">10 / 2 / 2</td></tr>
+              <tr><td class="k">Decoding seed (all models)</td><td class="num">42</td></tr>
+              <tr><td class="k">System — strong / fast</td><td class="num">GPT-4o / 4o-mini</td></tr>
+              <tr><td class="k">Oracle / Judge</td><td class="num">Gemini 2.5 / Opus 4.7</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="grow"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- A2 QUANTITATIVE — JUDGE (hidden) -->
+  <section data-label="Appendix · Judge Dimensions" data-deck-skip>
+    <div class="pad mark appx">
+      <div class="content">
+        <div class="eyebrow"><b>Appendix</b> &nbsp;·&nbsp; Quantitative Results</div>
+        <h2 class="title">Judge Dimensions &amp; Oracle Rating</h2>
+        <table class="tbl fit">
+          <thead><tr><th>Dimension (1–5)</th><th class="num">Conversational</th><th class="num">Baseline</th></tr></thead>
+          <tbody>
+            <tr><td class="k">Operation appropriateness</td><td class="num">3.94 ± 0.31</td><td class="num">2.73 ± 0.35</td></tr>
+            <tr><td class="k">Intent alignment</td><td class="num">3.09 ± 0.43</td><td class="num">2.33 ± 0.47</td></tr>
+            <tr><td class="k">Label accuracy</td><td class="num">3.03 ± 0.44</td><td class="num">3.53 ± 0.36</td></tr>
+            <tr><td class="k">Clustering coherence</td><td class="num">2.54 ± 0.29</td><td class="num">2.87 ± 0.31</td></tr>
+            <tr><td class="k">Explanation quality</td><td class="num">1.79 ± 0.31</td><td class="num">n/a</td></tr>
+            <tr><td class="k">Suggestion meaningfulness</td><td class="num">2.71 ± 0.21</td><td class="num">n/a</td></tr>
+            <tr><td class="k">Concept-axis quality</td><td class="num">3.48 ± 0.35</td><td class="num">n/a</td></tr>
+            <tr><td class="k">Oracle self-rating</td><td class="num">3.41 ± 0.49</td><td class="num">2.82 ± 0.64</td></tr>
+          </tbody>
+        </table>
+        <p class="lead" style="font-size:var(--t-small); margin-top:28px;">Mean ± 95% CI &nbsp;·&nbsp; 35 conversational and 30 baseline sessions over a held-out catalogue of 288 films.</p>
+        <div class="grow"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- A3 QUANTITATIVE — SESSION (hidden) -->
+  <section data-label="Appendix · Session Metrics" data-deck-skip>
+    <div class="pad mark appx">
+      <div class="content">
+        <div class="eyebrow"><b>Appendix</b> &nbsp;·&nbsp; Quantitative Results</div>
+        <h2 class="title">Session Metrics &amp; Termination</h2>
+        <div class="tbl-2 fit sm" style="margin-top:40px;">
+          <table class="tbl" style="margin-top:0;">
+            <thead><tr><th>Session metric</th><th class="num">Conv.</th><th class="num">Base.</th></tr></thead>
+            <tbody>
+              <tr><td class="k">Final cluster count</td><td class="num">4.14 ± 1.67</td><td class="num">1.97 ± 0.53</td></tr>
+              <tr><td class="k">Turns per session</td><td class="num">13.34 ± 1.08</td><td class="num">12.40 ± 1.27</td></tr>
+              <tr><td class="k">Operations per session</td><td class="num">9.83 ± 1.16</td><td class="num">11.50 ± 1.30</td></tr>
+              <tr><td class="k">Operations per turn</td><td class="num">0.74</td><td class="num">0.93</td></tr>
+              <tr><td class="k">Clarifier trigger rate</td><td class="num">0.23 ± 0.04</td><td class="num">0.00</td></tr>
+              <tr><td class="k">Cost per session (USD)</td><td class="num">0.169</td><td class="num">0.153</td></tr>
+              <tr><td class="k">Cost per turn (USD)</td><td class="num">0.0126</td><td class="num">0.0123</td></tr>
+            </tbody>
+          </table>
+          <table class="tbl" style="margin-top:0;">
+            <thead><tr><th>Termination outcome</th><th class="num">Conv.</th><th class="num">Base.</th></tr></thead>
+            <tbody>
+              <tr><td class="k">Finished, intent fulfilled</td><td class="num">17/35 · 49%</td><td class="num">11/30 · 37%</td></tr>
+              <tr><td class="k">Stopped, misbehaviour</td><td class="num">12/35 · 34%</td><td class="num">16/30 · 53%</td></tr>
+              <tr><td class="k">Budget exhausted</td><td class="num">6/35 · 17%</td><td class="num">3/30 · 10%</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="grow"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- A4 QUALITATIVE — SUCCESS (hidden) -->
+  <section data-label="Appendix · Success Session" data-deck-skip>
+    <div class="pad mark appx">
+      <div class="content">
+        <div class="eyebrow"><b>Appendix</b> &nbsp;·&nbsp; Qualitative · Success</div>
+        <h2 class="title" style="font-size:60px;">worldcinema</h2>
+        <p class="lead" style="font-size:var(--t-small); margin-top:18px;">Persona: verbose, patience 0.37. &nbsp;Intent: break the catalogue down by language, then explore how French films spread between intimate and societal narratives.</p>
+        <div class="tbl-2" style="margin-top:34px; grid-template-columns:1.55fr 1fr;">
+          <div class="ex">
+            <div class="turn"><span class="who o">Oracle</span><span>Split the entire collection by original language.</span></div>
+            <div class="turn"><span class="who s">System</span><span>Partitioned 288 movies into 13 language groups.</span></div>
+            <div class="turn"><span class="who o">Oracle</span><span>Zoom in on the French-language cluster.</span></div>
+            <div class="turn"><span class="who s">System</span><span>Focused on French films — 7 retained, others discarded.</span></div>
+            <div class="turn"><span class="who o">Oracle</span><span>We've looped — reset everything and re-cluster.</span></div>
+            <div class="turn"><span class="who s">System</span><span>Reset. Split French films into Intimate vs Societal.</span></div>
+          </div>
+          <table class="tbl" style="margin-top:0;">
+            <thead><tr><th>Judge (1–5)</th><th class="num"></th></tr></thead>
+            <tbody>
+              <tr><td class="k">Operation appropriateness</td><td class="num">4</td></tr>
+              <tr><td class="k">Intent alignment</td><td class="num">4</td></tr>
+              <tr><td class="k">Label accuracy</td><td class="num">5</td></tr>
+              <tr><td class="k">Clustering coherence</td><td class="num">2</td></tr>
+              <tr><td class="k">Final clusters</td><td class="num">2</td></tr>
+              <tr><td class="k">Turns</td><td class="num">12</td></tr>
+              <tr><td class="k">Oracle rating</td><td class="num">5</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="grow"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- A5 QUALITATIVE — FAILURE (hidden) -->
+  <section data-label="Appendix · Failure Session" data-deck-skip>
+    <div class="pad mark appx">
+      <div class="content">
+        <div class="eyebrow"><b>Appendix</b> &nbsp;·&nbsp; Qualitative · Failure</div>
+        <h2 class="title" style="font-size:60px;">satire</h2>
+        <p class="lead" style="font-size:var(--t-small); margin-top:18px;">Persona: terse, patience 0.76. &nbsp;Intent: keep only comedies, then spread them from warm romantic levity to biting satire.</p>
+        <div class="tbl-2" style="margin-top:34px; grid-template-columns:1.55fr 1fr;">
+          <div class="ex">
+            <div class="turn"><span class="who o">Oracle</span><span>Keep only comedy films, then group them.</span></div>
+            <div class="turn"><span class="who s">System</span><span>Matched 74 movies. Split into 2 compound-labelled groups.</span></div>
+            <div class="turn"><span class="who o">Oracle</span><span>Why is <i>Don't Look Up</i> in the animated group?</span></div>
+            <div class="turn"><span class="who s">System</span><span>“Playdate” is placed in this cluster because…</span></div>
+            <div class="turn"><span class="who o">Oracle</span><span>Why is <i>Mean Girls</i> in the warm-romantic group?</span></div>
+            <div class="turn"><span class="who s">System</span><span>“Friends with Benefits” fits this cluster because…</span></div>
+            <div class="turn"><span class="who o">Oracle</span><span>We are not making progress on the original intent.</span></div>
+          </div>
+          <table class="tbl" style="margin-top:0;">
+            <thead><tr><th>Judge (1–5)</th><th class="num"></th></tr></thead>
+            <tbody>
+              <tr><td class="k">Operation appropriateness</td><td class="num">2</td></tr>
+              <tr><td class="k">Intent alignment</td><td class="num">1</td></tr>
+              <tr><td class="k">Label accuracy</td><td class="num">3</td></tr>
+              <tr><td class="k">Explanation quality</td><td class="num">1</td></tr>
+              <tr><td class="k">Final clusters</td><td class="num">1</td></tr>
+              <tr><td class="k">Turns</td><td class="num">15</td></tr>
+              <tr><td class="k">Oracle rating</td><td class="num">low</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="grow"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- A6 ETHICAL CONSIDERATIONS (hidden) -->
+  <section data-label="Appendix · Ethical Considerations" data-deck-skip>
+    <div class="pad mark appx">
+      <div class="content">
+        <div class="eyebrow"><b>Appendix</b> &nbsp;·&nbsp; Ethics</div>
+        <h2 class="title">Ethical Considerations</h2>
+        <div class="cols">
+          <div class="col">
+            <span class="ix">01</span>
+            <h3>Synthetic oracle limits</h3>
+            <p>All evaluation relies on an LLM-simulated oracle, so findings reflect agent-to-agent dynamics, not authentic human behaviour.</p>
+          </div>
+          <div class="col">
+            <span class="ix">02</span>
+            <h3>Model &amp; embedding bias</h3>
+            <p>The language and embedding models are trained predominantly on Western, English-language data, inheriting its cultural biases.</p>
+          </div>
+          <div class="col">
+            <span class="ix">03</span>
+            <h3>LLM-as-a-judge risks</h3>
+            <p>Using an LLM to evaluate another introduces structural risks around accuracy, blind spots, and hallucination.</p>
+          </div>
+        </div>
+        <div class="grow"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- NOTES (moved to end, hidden) -->
+  <section data-label="Notes" data-deck-skip>
+    <div class="pad mark">
+      <div class="content">
+        <div class="eyebrow">Evaluation</div>
+        <h2 class="title">Notes</h2>
+        <div class="cols">
+          <div class="col">
+            <span class="ix">01</span>
+            <h3>Three LLM families</h3>
+            <p>One family runs the system, one the simulated oracle, one the judge.</p>
+          </div>
+          <div class="col">
+            <span class="ix">02</span>
+            <h3>Confidence intervals</h3>
+            <p>Every reported metric carries its two-sided 95% confidence interval.</p>
+          </div>
+          <div class="col">
+            <span class="ix">03</span>
+            <h3>Oracle model class</h3>
+            <p>The oracle does not need a strong reasoning model to play its part.</p>
+          </div>
+        </div>
+        <div class="grow"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- A7 CONFIDENCE INTERVAL (hidden) -->
+  <section data-label="Appendix · Confidence Interval" data-deck-skip>
+    <div class="pad mark appx">
+      <div class="content mid">
+        <div class="eyebrow"><b>Appendix</b> &nbsp;·&nbsp; Evaluation</div>
+        <h2 class="title">Confidence Interval</h2>
+        <div style="margin-top:64px; font-size:48px; color:var(--ink);">
+          \[ \mathrm{CI}_{95} \;=\; \bar{x} \,\pm\, t_{0.975,\,n-1}\cdot\frac{s}{\sqrt{n}}, \qquad s \;=\; \sqrt{\frac{1}{\,n-1\,}\sum_{i=1}^{n}\left(x_i-\bar{x}\right)^{2}} \]
+        </div>
+      </div>
+    </div>
+  </section>
+
+</deck-stage>
+<button id="present-btn" type="button" title="Present (fullscreen)">▶&nbsp;Present</button>
+<script>
+  // Persist slide order + which slides are skipped across reloads. Rail skips
+  // and move-up/down reorders live only in the DOM, so without this a refresh
+  // reloads the file and loses them. Keyed by data-label (stable + unique);
+  // once a saved state exists it is authoritative and overrides the file's
+  // order and hardcoded data-deck-skip defaults. Runs before deck-stage.js
+  // upgrades the element so the rail/nav see the right state.
+  (() => {
+    const KEY = 'cinepal.deck.state';
+    const deck = document.querySelector('deck-stage');
+    const sections = () => Array.from(deck.querySelectorAll(':scope > section'));
+    const labelOf = (s) => s.getAttribute('data-label');
+
+    let saved = null;
+    try { saved = JSON.parse(localStorage.getItem(KEY)); } catch (e) {}
+    if (saved && typeof saved === 'object') {
+      if (Array.isArray(saved.order)) {
+        // Saved labels first, in saved order; any section new to the file last.
+        const byLabel = new Map(sections().map((s) => [labelOf(s), s]));
+        const seen = new Set();
+        for (const label of saved.order) {
+          const s = byLabel.get(label);
+          if (s && !seen.has(label)) { deck.appendChild(s); seen.add(label); }
+        }
+        for (const s of sections()) {
+          if (!seen.has(labelOf(s))) deck.appendChild(s);
+        }
+      }
+      if (Array.isArray(saved.skipped)) {
+        const skip = new Set(saved.skipped);
+        for (const s of sections()) {
+          if (skip.has(labelOf(s))) s.setAttribute('data-deck-skip', '');
+          else s.removeAttribute('data-deck-skip');
+        }
+      }
+    }
+
+    deck.addEventListener('deckchange', () => {
+      const secs = sections();
+      const state = {
+        order: secs.map(labelOf),
+        skipped: secs.filter((s) => s.hasAttribute('data-deck-skip')).map(labelOf),
+      };
+      try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {}
+    });
+  })();
+</script>
+<script src="deck-stage.js"></script>
+<script>
+  // Standalone present button: the deck already fills the viewport, so
+  // fullscreening the document is enough. The :fullscreen rule hides the
+  // button itself while presenting; Esc / F11 exits as usual.
+  document.getElementById('present-btn').addEventListener('click', () => {
+    document.documentElement.requestFullscreen?.();
+  });
+  // Drive the deck's native presenting mode off the real fullscreen state, so
+  // entering fullscreen hides the thumbnail rail + nav overlay and exiting
+  // (Esc / F11) brings them back.
+  document.addEventListener('fullscreenchange', () => {
+    window.postMessage({ __omelette_presenting: !!document.fullscreenElement }, '*');
+  });
+</script>
+<script>
+  window.MathJax = { tex: { displayMath: [['\\[', '\\]'], ['$$', '$$']] } };
+</script>
+<script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js" async></script>
+<script>
+  // Hidden slides sit at display:none, where MathJax can't measure font metrics;
+  // re-typeset on slide change so the formula is correct once its slide is shown.
+  (() => {
+    const deck = document.querySelector('deck-stage');
+    if (!deck) return;
+    deck.addEventListener('slidechange', () => {
+      if (window.MathJax && MathJax.typesetClear) { MathJax.typesetClear(); MathJax.typesetPromise(); }
+    });
+  })();
+</script>
+</body>
+</html>

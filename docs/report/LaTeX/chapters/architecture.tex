@@ -111,10 +111,10 @@ This branching data structure natively supports advanced navigation behaviors.
 
 \subsection{System Interfaces}
 
-The system exposes three boundaries, all of them thin surfaces over the coordinator and the data-access layer:
+The system exposes two programmable interfaces and one human-facing interface, all thin surfaces over the coordinator and the data-access layer:
 \begin{itemize}[leftmargin=1.4em]
   \item \textbf{HTTP API}: carries the full session lifecycle, creating conversations, submitting messages, reading snapshots and movies, streaming per-turn progress, and serving the evaluation data, with authentication handled entirely at this layer;
-  \item \textbf{Frontend}: a web application that surfaces the entire human-facing experience, from starting and replaying conversations to inspecting clusters and their member films, visualising and navigating the snapshot graph, and, for administrators, an evaluation lab that reviews run metrics, judge scores, and full transcripts;
+  \item \textbf{Web frontend}: surfaces the entire human-facing experience, from starting and replaying conversations to inspecting clusters and their member films, visualising and navigating the snapshot graph, and, for administrators, an evaluation lab that reviews run metrics, judge scores, and full transcripts;
   \item \textbf{MCP server}: re-exposes the same capabilities as a tools-only, stateless interface, so an external agent can drive CinePal exactly as a human client would.
   It deliberately stops short of the full HTTP surface, leaving out the operator and human-only concerns: authentication and per-user history, destructive hard deletes, the live progress stream, the raw UMAP projection, and the evaluation routes, none of which an autonomous client needs in order to explore the catalogue.
 \end{itemize}
