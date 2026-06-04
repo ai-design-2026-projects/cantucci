@@ -1,5 +1,5 @@
 \section{Findings and Discussion}\label{sec:findings}
-The main theme emerging from the evaluation is that the conversational system excels at operational fidelity and responding to user intent (in a honest way), whereas the baseline system primarily offers a tidier visual output.
+The main theme emerging from the evaluation is that the conversational system excels at operational fidelity and responding to user intent (in an honest way), whereas the baseline system primarily offers a tidier visual output.
 
 \paragraph{Operational Appropriateness}
 The architecture's primary strength is selecting the right operation and following the oracle's trajectory.
@@ -8,7 +8,7 @@ It also trends higher on intent alignment ($3.09\pm0.43$ vs.\ $2.33\pm0.47$) and
 This confirms slightly success on this research angles.
 
 \paragraph{Cost of the System}
-Going multi-agent cost per turn is \$0.0126 vs.\ \$0.0123, and cost per session \$0.169 vs.\ \$0.153 (Table~\ref{tab:effort}).
+Going multiagent cost per turn is \$0.0126 vs.\ \$0.0123, and cost per session \$0.169 vs.\ \$0.153 (Table~\ref{tab:effort}).
 The overhead is absorbed because about a quarter of conversational turns are cheap non-operational moves (clarify, explain, small-talk), visible in the lower operations-per-turn rate ($0.74$ vs.\ $0.93$).
 The usual cost objection to a modular, multi-call design therefore does not apply here, especially compared to the baseline's.
 
@@ -22,7 +22,7 @@ This could also happen due to the oracle approach that tends to perform more spl
 
 \paragraph{Abstract Concept Cliff}
 Performance splits sharply by intent type.
-The conversational system is an effective clusterer of well-scoped, metadata-grounded goals, with per-persona oracle ratings up to $4.67$ for the oracles "\emph{genre fan}" or a "\emph{rater}", but it drops to $2.0$ for fuzzy semantic goals such as a satirical tone, the New Hollywood movement, or the heist sub-genre.
+The conversational system is an effective clustered of well-scoped, metadata-grounded goals, with per-persona oracle ratings up to $4.67$ for the oracles "\emph{genre fan}" or a "\emph{rater}", but it drops to $2.0$ for fuzzy semantic goals such as a satirical tone, the New Hollywood movement, or the heist sub-genre.
 Forced to express every concept as a discrete navigation step, the pipeline struggles to capture a holistic artistic idea that a single free-form pass can sometimes grasp.
 
 \paragraph{Explanation Problem}
@@ -53,7 +53,7 @@ Then it should be able to give more explanations variants, like comparing cluste
 Addressing the \emph{suggestion problem}, a relevant improvement would be to provide to the suggestion agent a more structured context of the conversation, in order to make it able to identify more specific next steps that are not just generic operations.
 
 \paragraph{Renaming instead of Compounding Labels}
-Addressing the \emph{labelling problem}, the labeling agent should be revise to better handle deterministic label generation, also considering to delegate them to an LLM.
+Addressing the \emph{labelling problem}, the labeling agent should be revised to better handle deterministic label generation, also considering delegating them to an LLM.
 
 \paragraph{Bridging the Abstract Concept Cliff}
 To bridge the \emph{abstract concept cliff}, future works would enrich the catalog with deep, unstructured textual signals (film scripts, production transcripts, and an expansive corpus of critical reviews) retrieved through a Retrieval-Augmented Generation (RAG) framework.
@@ -68,5 +68,5 @@ The present study was bounded by the time and compute budget of a course project
 A natural next step is to enlarge the campaign by an order of magnitude, broadening the pool of personas, ground truths, and random seeds so that per-persona effects no longer rest on a handful of runs and the intervals tighten enough to settle these trends, alongside refinements to the harness such as additional deterministic metrics and a broader ground-truth generator.
 
 \paragraph{Dataset Diversity, Scale, and New Domains}
-Because the propose, partition, and refine loop is domain-agnostic, making the embedding pipeline and prompts fully configurable would let the architecture be validated beyond a single curated film catalogue.
-Testing on catalogues of different sizes, attribute densities, and domain characteristics, such as books, academic papers, or retail products, would surface edge cases in the clustering and labeling agents and help calibrate the cost-limit settings, which a single curated catalogue cannot reveal.
+Because the proposal, partition, and refine loop is domain-agnostic, making the embedding pipeline and prompts fully configurable would let the architecture be validated beyond a single curated film catalog.
+Testing on catalogs of different sizes, attribute densities, and domain characteristics, such as books, academic papers, or retail products, would surface edge cases in the clustering and labeling agents and help calibrate the cost-limit settings, which a single curated catalog cannot reveal.

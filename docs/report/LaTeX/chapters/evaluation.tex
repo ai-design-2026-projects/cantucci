@@ -6,19 +6,19 @@ oracle that drives the sessions, and the metrics used to score them.
 \subsection{Evaluation Design}
 
 Because cluster quality is defined by the oracle, the system cannot be graded against a fixed target.
-The evaluation instead centres on one question:
+The evaluation instead centers on one question:
 \begin{center}
 \itshape
 \begin{minipage}{0.82\columnwidth}
 \centering
-Does an intent-driven navigation loop produce more coherent clusterings of the catalogue, with less oracle effort, than other variants?
+Does an intent-driven navigation loop produce more coherent clustering of the catalog, with less oracle effort, than other variants?
 \end{minipage}
 \end{center}
 We approach it from three angles:
 \begin{itemize}[leftmargin=1.4em]
   \item \textbf{Operation choice}: given a free-form message, does the Intent agent pick the right navigation operation and the right parameters?
   \item \textbf{Cluster update strategy}: do concept-guided splits, soft HDBSCAN memberships, and the content-addressed snapshot tree yield more stable, more separable clusters than plain re-clustering on raw embeddings?
-  \item \textbf{Satisfaction}: how do we assess clustering quality when there is no recommended film list, only a sequence of cluster snapshots, and how far do those assessments generalise?
+  \item \textbf{Satisfaction}: how do we assess clustering quality when there is no recommended film list, only a sequence of cluster snapshots, and how far do those assessments generalize?
 \end{itemize}
 
 To answer this, the evaluation closes a \textbf{three-party loop}: the \textbf{system under test} is driven by an \textbf{LLM-simulated oracle} that plays a user with a hidden goal, while a separate \textbf{LLM judge} scores the finished session.
@@ -80,7 +80,6 @@ Instead, the judge evaluates appropriateness dynamically, rating whether the sys
 \end{aligned}
   \label{eq:ci}
 \end{equation}
-
 where $n$ is the session count, $s$ is the Bessel-corrected sample standard deviation, and $t_{0.975,\,n-1}$ is the critical value for $n-1$ degrees of freedom (falling back to $1.96$ for $n \geq 31$).
 Bootstrapping is deliberately avoided: at our sample sizes ($n \approx 30$ per condition), resampling cannot recover information a small sample lacks.
 Non-overlapping intervals are interpreted as a practical indicator of a meaningful difference between conditions, rather than a formal hypothesis test.

@@ -1,7 +1,7 @@
 \section{System Architecture}\label{sec:architecture}
 
 This section describes how the system is built: the offline data pipeline that produces the
-embedded catalogue, the components that make up the conversational loop and the lifecycle of a single
+embedded catalog, the components that make up the conversational loop and the lifecycle of a single
 turn.
 
 \subsection{Data Pipeline}
@@ -19,7 +19,7 @@ Then, the aggregated \textbf{user review text} (only top reviews) is encoded by 
 Finally, the \textbf{visual modality} is captured by sampling evenly spaced frames from the movie's trailer, embedding them with the \emph{OpenCLIP ViT-H/14} vision encoder, and mean-pooling them into a single 1024-dimensional vector.
 
 \paragraph{Fuse:}
-Text and review embeddings are merged directly via a weighted average of their vectors since they share a underlying space.
+Text and review embeddings are merged directly via a weighted average of their vectors since they share an underlying space.
 In contrast, the text and trailer modalities are fused at the distance level using a weighted sum of their respective cosine-distance matrices, combining their structural signals without forcing them into an artificial, unified space.
 
 \subsection{Architectural Overview}
@@ -43,7 +43,7 @@ A single message can resolve into several actions executed in order, so that lat
 Rather than operating on raw embeddings, it evaluates the message against rich contextual signals, reading the user's input alongside the recent dialogue transcript, pending clarifier questions, and the current cluster labels and summaries.
 Every action is drawn from a fixed, closed vocabulary, split into \textbf{navigation} operations that reshape the clustering and \textbf{dialogue} moves that do not:
 \begin{itemize}[leftmargin=1.4em]
-  \item \textbf{CLUSTER}: split a cluster (or the whole catalogue) into sub-groups, by free density, a concept axis, or a metadata partition;
+  \item \textbf{CLUSTER}: split a cluster (or the whole catalog) into subgroups, by free density, a concept axis, or a metadata partition;
   \item \textbf{MERGE}: combine two or more clusters into one;
   \item \textbf{FOCUS}: keep a single cluster and discard the rest;
   \item \textbf{CROSS-FILTER}: keep only the films matching a metadata predicate;
@@ -54,7 +54,7 @@ Every action is drawn from a fixed, closed vocabulary, split into \textbf{naviga
   \item \textbf{SMALL-TALK}: a casual, non-operational message.
 \end{itemize}
 
-\paragraph{Concept Agent:} Triggered exclusively when a request is \textbf{semantic} (concept-guided) rather than a deterministic partition, this \textbf{strong-model} agent akes as input only the concept string and a declared \textbf{space} (semantic or visual).
+\paragraph{Concept Agent:} Triggered exclusively when a request is \textbf{semantic} (concept-guided) rather than a deterministic partition, this \textbf{strong-model} agent takes as input only the concept string and a declared \textbf{space} (semantic or visual).
 Because it is completely blind to the broader conversation, its output is a pure function of the concept itself: a \textbf{linear axis} represented as a unit vector.
 To build it, the agent generates $k$ descriptive sentences for each of an engineered positive and negative pole, embeds them, and averages each set into a pole centroid; the axis then runs from the negative to the positive centroid.
 Each film is then scored by the dot product of its embedding with this axis, within the chosen space.
@@ -89,7 +89,7 @@ The operational core of the conversational loop relies on a highly synchronized,
   \label{fig:flowchart}
 \end{figure*}
 
-\paragraph{Initialization and Intent Parsing:} The turn begins with the coordinator loading the active snapshot and labeling any remaining unlabelled clusters.
+\paragraph{Initialization and Intent Parsing:} The turn begins with the coordinator loading the active snapshot and labeling any remaining unlabeled clusters.
 It then checks whether the previous turn ended with a clarifying question, ensuring a follow-up answer is interpreted within its proper context.
 With the context established, the coordinator invokes the Intent Agent to parse the message into an ordered sequence of actions.
 
@@ -112,7 +112,7 @@ This branching data structure natively supports advanced navigation behaviors.
 The system exposes two programmable interfaces and one human-facing interface, all thin surfaces over the coordinator and the data-access layer:
 \begin{itemize}[leftmargin=1.4em]
   \item \textbf{HTTP API}: carries the full session lifecycle, creating conversations, submitting messages, reading snapshots and movies, streaming per-turn progress, and serving the evaluation data, with authentication handled entirely at this layer;
-  \item \textbf{Web frontend}: surfaces the entire human-facing experience, from starting and replaying conversations to inspecting clusters and their member films, visualising and navigating the snapshot graph, and, for administrators, an evaluation lab that reviews run metrics, judge scores, and full transcripts;
+  \item \textbf{Web frontend}: surfaces the entire human-facing experience, from starting and replaying conversations to inspecting clusters and their member films, visualizing and navigating the snapshot graph, and, for administrators, an evaluation lab that reviews run metrics, judge scores, and full transcripts;
   \item \textbf{MCP server}: re-exposes the same capabilities as a tools-only, stateless interface, so an external agent can drive CinePal exactly as a human client would.
-  It deliberately stops short of the full HTTP surface, leaving out the operator and human-only concerns: authentication and per-user history, destructive hard deletes, the live progress stream, the raw UMAP projection, and the evaluation routes, none of which an autonomous client needs in order to explore the catalogue.
+  It deliberately stops short of the full HTTP surface, leaving out the operator and human-only concerns: authentication and per-user history, destructive hard deletes, the live progress stream, the raw UMAP projection, and the evaluation routes, none of which an autonomous client needs in order to explore the catalog.
 \end{itemize}

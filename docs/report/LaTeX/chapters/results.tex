@@ -2,10 +2,10 @@
 
 \subsection{Experimental Setup}
 
-\paragraph{Dataset:} The evaluation ran against a compact catalogue, held out from the production dataset, of \textbf{288 films}.
+\paragraph{Dataset:} The evaluation ran against a compact catalog, held out from the production dataset, of \textbf{288 films}.
 
 \paragraph{Conditions:} Two conditions were compared.
-The \textbf{conversational} condition represents our full multi-agent system.
+The \textbf{conversational} condition represents our full multiagent system.
 The \textbf{baseline} is a single-prompt alternative: a single model call per turn receives the raw film list, the current cluster state, and the dialogue transcript, then emits the entire updated grouping, the chosen operation, and the conversational response in a single output.
 This baseline completely bypasses embeddings, density-based clustering, concept axes, clarifying loops, and dedicated labeling agents.
 
@@ -160,7 +160,7 @@ transcripts.
 \subsubsection{\textbf{Success}: \texttt{worldcinema}}
 \textbf{\\Persona:} verbose, patience~$0.37$.
 \\
-\textbf{Intent description:} ``Break the catalogue down by language to see what non-English
+\textbf{Intent description:} ``Break the catalog down by language to see what non-English
 traditions are represented, then zoom into the French-language films and see how they spread between
 intimate personal stories and broader societal canvases.''
 \\
@@ -169,7 +169,7 @@ intimate personal stories and broader societal canvases.''
 \textbf{System:} Partitioned 288 movies by original language into 13 groups.\\
 \textbf{Oracle:} Zoom in on the French-language cluster.\\
 \textbf{System:} Focused on French-language films: 7 movies retained, all others discarded.\\
-\textbf{Oracle:} Undo, then split the \emph{entire} catalogue by language again.\\
+\textbf{Oracle:} Undo, then split the \emph{entire} catalog by language again.\\
 \textbf{System:} Partitioned 7 movies by original language into 1 group.\\
 \textbf{Oracle:} We've run into a loop, so reset everything and re-cluster.\\
 \textbf{System:} Session reset. Partitioned 288 movies into 13 groups.\\
