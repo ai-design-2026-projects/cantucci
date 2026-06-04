@@ -33,6 +33,8 @@ COPY db/ ./db/
 COPY demo/ ./demo/
 COPY dataset/ ./dataset/
 COPY core/ ./core/
+COPY eval/ ./eval/
+COPY notebooks/ ./notebooks/
 
 ENV HF_HOME=/opt/models/hf
 
