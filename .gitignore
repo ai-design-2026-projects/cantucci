@@ -10,8 +10,12 @@ data/
 logs/
 node_modules/
 dist/
+docs/presentations/demo.mp4
 
 demo/playwright/test-results/
 demo/recordings/
 
 CinePal.egg-info/
+
+# Ignore common video formats
+*.mp4
