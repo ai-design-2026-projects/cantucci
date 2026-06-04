@@ -22,8 +22,7 @@ This could also happen due to the oracle approach that tends to perform more spl
 
 \paragraph{Abstract Concept Cliff}
 Performance splits sharply by intent type.
-The conversational system is an effective clusterer of well-scoped, metadata-grounded goals, with per-persona oracle ratings up to $4.67$ for a genre fan or a rater, but it drops to $2.0$ for fuzzy semantic goals such as a satirical tone, the New Hollywood movement, or the heist sub-genre.
-On the most abstract goal the baseline can even win: for the \texttt{newhollywood} persona it scored $5.0$ against the conversational $2.0$ ($n=3$ each).
+The conversational system is an effective clusterer of well-scoped, metadata-grounded goals, with per-persona oracle ratings up to $4.67$ for the oracles "\emph{genre fan}" or a "\emph{rater}", but it drops to $2.0$ for fuzzy semantic goals such as a satirical tone, the New Hollywood movement, or the heist sub-genre.
 Forced to express every concept as a discrete navigation step, the pipeline struggles to capture a holistic artistic idea that a single free-form pass can sometimes grasp.
 
 \paragraph{Explanation Problem}
@@ -57,7 +56,7 @@ Addressing the \emph{suggestion problem}, a relevant improvement would be to pro
 Addressing the \emph{labelling problem}, the labeling agent should be revise to better handle deterministic label generation, also considering to delegate them to an LLM.
 
 \paragraph{Bridging the Abstract Concept Cliff}
-To bridge the \emph{abstract concept cliff}, future works would enrich the catalog with deep, unstructured textual signals---film scripts, production transcripts, and an expansive corpus of critical reviews---retrieved through a Retrieval-Augmented Generation (RAG) framework.
+To bridge the \emph{abstract concept cliff}, future works would enrich the catalog with deep, unstructured textual signals (film scripts, production transcripts, and an expansive corpus of critical reviews) retrieved through a Retrieval-Augmented Generation (RAG) framework.
 Rather than re-encoding this text into the same shallow vectors, for a given concept the system would retrieve the passages most relevant to each candidate film and let an LLM score that film on the concept directly, building the axis from these judgments instead of from metadata or embedding distances.
 This depth is not free, however: per-film retrieval and LLM scoring is far costlier than a single embedding pass, coverage is uneven since scripts and detailed reviews are missing for many titles, and the live retrieval-and-scoring step would have to be cached to preserve the deterministic replay guarantee.
 

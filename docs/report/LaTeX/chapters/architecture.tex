@@ -1,17 +1,17 @@
 \section{System Architecture}\label{sec:architecture}
 
 This section describes how the system is built: the offline data pipeline that produces the
-embedded catalogue, the components that make up the conversational loop, the lifecycle of a single
-turn, and the interfaces through which the system is driven.
+embedded catalogue, the components that make up the conversational loop and the lifecycle of a single
+turn.
 
 \subsection{Data Pipeline}
 
 The movie catalog is constructed from The Movie Database (TMDB) through a reproducible, multi-modal ingestion pipeline.
 To transform raw entertainment metadata into a vector-optimized database, the pipeline processes the source data across three main stages, after which the fully embedded catalog is partitioned into three slices for downstream use: a held-out evaluation set, a main operational set, and a compact development set.
 
-\paragraph{Scrape:} Ingestion begins by downloading TMDB's daily catalog export.
-To maintain data quality and processing efficiency, the pipeline immediately discards adult content and applies a popularity threshold before initiating detailed API requests.
-The surviving titles are enriched with credits, user reviews, keywords, and trailer links. 
+\paragraph{Scrape:} Ingestion begins by downloading TMDB's daily catalog export, after which the surviving titles are enriched through detailed API requests with credits, user reviews, keywords, and trailer links.
+
+\paragraph{Clean \& Filter:} To maintain data quality and processing efficiency, the pipeline discards adult content and applies a popularity threshold before those detailed requests, retaining only the titles worth embedding.
 
 \paragraph{Embed:} Each movie is encoded into dense vectors across three distinct modalities.
 First, a \textbf{composite text} (title, synopsis, genres, cast, director, and keywords) is encoded with the \emph{BAAI BGE-large-en-v1.5} sentence-embedding model into a 1024-dimensional, $\ell_2$-normalized vector.
@@ -23,9 +23,7 @@ Text and review embeddings are merged directly via a weighted average of their v
 In contrast, the text and trailer modalities are fused at the distance level using a weighted sum of their respective cosine-distance matrices, combining their structural signals without forcing them into an artificial, unified space.
 
 \subsection{Architectural Overview}
-
 The system is a small set of single-purpose components coordinated around one orchestrator (Figure~\ref{fig:architecture}). 
-The subsections below describe each component, their purposes, and context.
 
 \begin{figure*}[tp]
   \centering
@@ -37,38 +35,41 @@ The subsections below describe each component, their purposes, and context.
 
 \paragraph{Coordinator:} The \textbf{deterministic} orchestrator of the system, acting as both the session handler and the turn workflow manager.
 As the only writer of state and the sole component that communicates directly with the oracle, it directs the system's execution during each turn and provides the necessary context to each downstream agent.
+After the Intent Agent converts the oracle message into an ordered action list, the coordinator routes that plan through the turn pipeline, deciding what to clarify, what to execute, and what state to persist.
 The coordinator maintains \textbf{no in-memory session state}; instead, it reloads the current snapshot and re-reads the database at every turn, ensuring its behavior depends entirely on the persisted dialogue history.
 
-\paragraph{Intent Agent:} The \textbf{strong-model} parser that maps the oracle's free-form message onto an \textbf{ordered list of actions}, each with a confidence score and operation parameters.
+\paragraph{Intent Agent:} The \textbf{strong-model} parser that maps the oracle's free-form message onto an \textbf{ordered list of actions}, each carrying a target cluster, operation parameters, and a confidence score.
+A single message can resolve into several actions executed in order, so that later steps act on the result of earlier ones (for example, \emph{reset, then split by genre}).
 Rather than operating on raw embeddings, it evaluates the message against rich contextual signals, reading the user's input alongside the recent dialogue transcript, pending clarifier questions, and the current cluster labels and summaries.
 Every action is drawn from a fixed, closed vocabulary, split into \textbf{navigation} operations that reshape the clustering and \textbf{dialogue} moves that do not:
 \begin{itemize}[leftmargin=1.4em]
-  \item \textbf{cluster}: split a cluster (or the whole catalogue) into sub-groups, by free density, a concept axis, or a metadata partition;
-  \item \textbf{merge}: combine two or more clusters into one;
-  \item \textbf{focus}: keep a single cluster and discard the rest;
-  \item \textbf{cross-filter}: keep only the films matching a metadata predicate;
-  \item \textbf{exclude}: drop one cluster and keep the others;
-  \item \textbf{reset}: return to the unclustered state;
-  \item \textbf{undo}: step back to the previous snapshot;
-  \item \textbf{explain}: say why a given film sits in its cluster;
-  \item \textbf{small-talk}: a casual, non-operational message.
+  \item \textbf{CLUSTER}: split a cluster (or the whole catalogue) into sub-groups, by free density, a concept axis, or a metadata partition;
+  \item \textbf{MERGE}: combine two or more clusters into one;
+  \item \textbf{FOCUS}: keep a single cluster and discard the rest;
+  \item \textbf{CROSS-FILTER}: keep only the films matching a metadata predicate;
+  \item \textbf{EXCLUDE}: drop one cluster and keep the others;
+  \item \textbf{RESET}: return to the unclustered state;
+  \item \textbf{UNDO}: step back to the previous snapshot;
+  \item \textbf{EXPLAIN}: say why a given film sits in its cluster;
+  \item \textbf{SMALL-TALK}: a casual, non-operational message.
 \end{itemize}
 
 \paragraph{Concept Agent:} Triggered exclusively when a request is \textbf{semantic} (concept-guided) rather than a deterministic partition, this \textbf{strong-model} agent akes as input only the concept string and a declared \textbf{space} (semantic or visual).
-Because it is completely blind to the broader conversation, its output is a pure function of the concept itself: a \textbf{linear axis} represented as a unit vector, which is constructed from the centroid difference between an engineered positive and negative pole description.
-This vector is then used downstream to score the films within the chosen space.
+Because it is completely blind to the broader conversation, its output is a pure function of the concept itself: a \textbf{linear axis} represented as a unit vector.
+To build it, the agent generates $k$ descriptive sentences for each of an engineered positive and negative pole, embeds them, and averages each set into a pole centroid; the axis then runs from the negative to the positive centroid.
+Each film is then scored by the dot product of its embedding with this axis, within the chosen space.
 
 \paragraph{Clustering:} The \textbf{deterministic} computational engine driving every semantic clustering operation.
 Implemented as a set of typed command classes, this engine executes a pure mathematical pipeline consisting of \textbf{UMAP} dimension reduction followed by \textbf{HDBSCAN} soft clustering.
 Instead of assigning rigid, hard labels, it operates exclusively on the films currently in scope and the action's parameters to calculate and return \textbf{per-film membership probabilities} wherever the metric allows.
 
 \paragraph{Labeling Agent:} A \textbf{fast-model} agent responsible for naming and summarizing clusters using a strategy dictated by the operation that created them.
-When a cluster arises from a \textbf{deterministic partition} by a metadata attribute the label is already implied; the agent simply assigns it deterministically and generates a brief summary.
+When a cluster arises from a \textbf{deterministic partition} by a metadata attribute, the label is already implied and the agent assigns it deterministically.
 For \textbf{semantic or concept-guided} clusters where names cannot be mechanically derived, the agent generates names via the LLM in a single batched call, anchoring the new labels on the previous turn's names to prevent cosmetic churn.
-In both scenarios, the agent evaluates each cluster's exemplar films alongside its inherited parent label. 
+In both scenarios, the agent evaluates each cluster's exemplar films alongside its inherited parent label, and the cluster's description is always produced by an LLM call, even when the label itself is deterministic. 
 
 \paragraph{Clarifier Agent:} A \textbf{fast-model} gate: when any action falls below the confidence threshold, it asks a single \textbf{disambiguating question} without mutating state.
-It sees only the low-confidence action and the message behind it.
+It sees the low-confidence action, the message behind it, and the current cluster labels.
 
 \paragraph{Explanation Agent:} A \textbf{strong-model} agent that explains why a given film sits in a given cluster, grounded in the cluster's label and exemplars.
 It receives the cluster context (label, summary, and exemplars) and outputs a concise natural language explanation.
@@ -77,10 +78,8 @@ It receives the cluster context (label, summary, and exemplars) and outputs a co
 It sees the final snapshot and the evolution trace, and may decline if it cannot identify a coherent suggestion.
 
 \subsection{Turn Handling}
-
 The operational core of the conversational loop relies on a highly synchronized, state-aware processing sequence.
-Rather than treating user inputs as isolated queries, the system processes each interaction through a stateful workflow.
-(Figure~\ref{fig:flowchart}).
+(Figure~\ref{fig:flowchart})
 
 \begin{figure*}[p]
   \centering
@@ -89,7 +88,6 @@ Rather than treating user inputs as isolated queries, the system processes each 
   gate on confidence, dispatch each action to its command, and persist or drop the result.}
   \label{fig:flowchart}
 \end{figure*}
-
 
 \paragraph{Initialization and Intent Parsing:} The turn begins with the coordinator loading the active snapshot and labeling any remaining unlabelled clusters.
 It then checks whether the previous turn ended with a clarifying question, ensuring a follow-up answer is interpreted within its proper context.
